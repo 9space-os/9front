@@ -1270,8 +1270,8 @@ putnamesect(uchar *slot, Rune *longname, int curslot, int first, int sum)
 
 	memset(&ds, 0xff, sizeof ds);
 	ds.attr = 0xf;
-	ds.reserved[0] = 0;
-	ds.reserved[1] = sum;
+	ds.reserved[0] = 0;	/* a long name's slot: its type, 0 */
+	ds.ctimetenth = sum;	/* and the short name's checksum at offset 13 */
 	ds.start[0] = 0;
 	ds.start[1] = 0;
 	if(first)
