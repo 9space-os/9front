@@ -570,7 +570,7 @@ readln(char *p, int len)
 	int n, c;
 
 	n = 0;
-	while(len--) {
+	while(--len > 0) {	/* room for the NUL */
 		c = fchar();
 		if(c == -1 || c == '\n')
 			break;
