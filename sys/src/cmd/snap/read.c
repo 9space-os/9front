@@ -196,7 +196,7 @@ Proc*
 readsnap(Biobuf *b)
 {
 	char *q;
-	char buf[12];
+	char buf[13];	/* 12 bytes and their NUL */
 	long pid;
 	Proc *p, *plist;
 	int i, n;
