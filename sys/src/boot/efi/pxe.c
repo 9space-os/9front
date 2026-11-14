@@ -139,6 +139,13 @@ struct Tftp
 	
 	char pkt[2+2+Segsize];
 	char nul;
+
+	/* the whole file by the firmware's TFTP (mtftpopen), else nil */
+	uchar *mem;
+	UINT64 addr;
+	ulong pages;
+	ulong mlen;
+	ulong moff;
 };
 
 static void
@@ -218,16 +225,39 @@ udpwrite(EFI_IP_ADDRESS *dip,
 static int
 pxeread(void *f, void *data, int len)
 {
+	EFI_PXE_BASE_CODE_UDP_PORT from;
 	Tftp *t = f;
 	int seq, n;
+
+	if(t->mem != nil){
+		n = t->mlen - t->moff;
+		if(len > n)
+			len = n;
+		memmove(data, t->mem + t->moff, len);
+		t->moff += len;
+		return len;
+	}
 
 	while(!t->eof && t->rp >= t->ep){
 		for(;;){
 			n = sizeof(t->pkt);
-			if(udpread(&t->dip, &t->sip, &t->dport, t->sport, &n, t->pkt))
+			from = 0;
+			if(udpread(&t->dip, &t->sip, &from, t->sport, &n, t->pkt))
 				continue;
-			if(n >= 4)
-				break;
+			if(n < 4)
+				continue;
+			/*
+			 * rfc1350: the server's port (TID) is that of the
+			 * first packet; one from another port is not of
+			 * this transfer
+			 */
+			if(t->dport == 0)
+				t->dport = from;
+			else if(from != t->dport){
+				putc('%');
+				continue;
+			}
+			break;
 		}
 		switch(nhgets(t->pkt)){
 		case Tftp_DATA:
@@ -271,6 +301,64 @@ pxeclose(void *f)
 {
 	Tftp *t = f;
 	t->eof = 1;
+	if(t->mem != nil){
+		eficall(ST->BootServices->FreePages, t->addr, (UINTN)t->pages);
+		t->mem = nil;
+	}
+}
+
+enum {
+	TftpGetFileSize	= 1,	/* EFI_PXE_BASE_CODE_TFTP_GET_FILE_SIZE */
+	TftpReadFile	= 2,	/* EFI_PXE_BASE_CODE_TFTP_READ_FILE */
+	AllocateAnyPages	= 0,
+	Lowmem		= 64*1024*1024,	/* where the kernel is loaded, below */
+};
+
+/*
+ * the whole file by the firmware's own TFTP client: Lenovo's
+ * firmware gives UdpRead a whole block (516 bytes) with the data
+ * and size of the packet before (plan9.ini's for the kernel's
+ * first), its Mtftp loads bootx64.efi fine
+ */
+static int
+mtftpopen(Tftp *t, char *name)
+{
+	UINT64 size, addr;
+	ulong pages;
+	uintptr r;
+
+	size = 0;
+	r = eficall(pxe->Mtftp, pxe, (UINTN)TftpGetFileSize, nil, (UINTN)0,
+		&size, nil, serverip, name, nil, (UINTN)0);
+	if(r)
+		return -1;
+	if(size >= Lowmem)
+		return -1;
+	pages = ((ulong)size + 4095) >> 12;
+	if(pages == 0)
+		pages = 1;
+	addr = 0;
+	if(eficall(ST->BootServices->AllocatePages, (UINTN)AllocateAnyPages,
+		(UINTN)EfiLoaderData, (UINTN)pages, &addr))
+		return -1;
+	/* not where the kernel goes, nor out of reach (ia32) */
+	if(addr < Lowmem || sizeof(uintptr) == 4 && (addr + ((UINT64)pages<<12))>>32 != 0){
+		eficall(ST->BootServices->FreePages, addr, (UINTN)pages);
+		return -1;
+	}
+	r = eficall(pxe->Mtftp, pxe, (UINTN)TftpReadFile, (void*)(uintptr)addr, (UINTN)0,
+		&size, nil, serverip, name, nil, (UINTN)0);
+	if(r){
+		eficall(ST->BootServices->FreePages, addr, (UINTN)pages);
+		return -1;
+	}
+	t->addr = addr;
+	t->pages = pages;
+	t->mem = (uchar*)(uintptr)addr;
+	t->mlen = size;
+	t->moff = 0;
+	t->eof = 1;
+	return 0;
 }
 
 static void
@@ -321,9 +409,12 @@ pxeopen(char *name)
 	static uchar buf[sizeof(Tftp)+8];
 	Tftp *t = (Tftp*)((uintptr)(buf+7)&~7);
 
+	pxeclose(t);
 	memset(t, 0, sizeof(Tftp));
 	memmove(&t->sip, myip, sizeof(myip));
 	memmove(&t->dip, serverip, sizeof(serverip));
+	if(mtftpopen(t, name) == 0)
+		return t;
 	if(tftpopen(t, name))
 		return nil;
 	return t;
@@ -439,7 +530,7 @@ parsedhcp(EFI_PXE_BASE_CODE_DHCPV4_PACKET *dhcp)
 }
 
 int
-pxeinit(void **pf)
+pxeinit(void **pf, int boot)
 {
 	EFI_PXE_BASE_CODE_DHCPV4_PACKET	*dhcp;
 	EFI_PXE_BASE_CODE_MODE *mode;
@@ -456,18 +547,30 @@ pxeinit(void **pf)
 
 	for(i=0; i<Count; i++){
 		pxe = nil;
+		if(boot && !onbootdev(Handles[i]))
+			continue;
 		if(eficall(ST->BootServices->HandleProtocol,
 			Handles[i], &EFI_PXE_BASE_CODE_PROTOCOL_GUID, &pxe))
 			continue;
 		mode = pxe->Mode;
 		if(mode == nil || mode->Started == 0)
 			continue;
-		if(mode->DhcpAckReceived){
-			dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET*)mode->DhcpAck;
-			goto Found;
-		}
+		/*
+		 * the boot server: with a proxy DHCP server (one that
+		 * answers PXE clients only, a router gives the address)
+		 * the DHCP ack is the router's, the boot server's
+		 * address is in the proxy offer or the PXE reply
+		 */
 		if(mode->PxeReplyReceived){
 			dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET*)mode->PxeReply;
+			goto Found;
+		}
+		if(mode->ProxyOfferReceived){
+			dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET*)mode->ProxyOffer;
+			goto Found;
+		}
+		if(mode->DhcpAckReceived){
+			dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET*)mode->DhcpAck;
 			goto Found;
 		}
 	}
