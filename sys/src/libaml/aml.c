@@ -845,6 +845,11 @@ store(void *s, void *d)
 	switch(TAG(d)){
 	default:
 		return nil;
+	case 'f':
+	case 'u':
+		/* a field as the target itself: Store (x, Index (BUFF, i)) */
+		rwfield(d, s, 1);
+		return d;
 	case 'A':
 		s = deref(s);
 		/* no break */
