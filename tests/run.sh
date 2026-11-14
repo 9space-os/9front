@@ -11,6 +11,8 @@
 #   replica  updates over HTTP: replica/pull through replica/httpfs, signed index
 #            (tests/replica, boots once)
 #   pmc      performance counters, pmc(3): tests/pmc/pmctest.c on 4 cpus
+#   acpi     ACPI's events (#P/acpiev, aux/acpi's acpievents, backlight,
+#            aux/acpikeys): QEMU's power button, a hot-plugged device, an SSDT
 #            (amd64 with KVM's virtual counters, then without; arm64)
 #   gui      terminal boot: VESA via aux/realemu, rio (boots once;
 #            GUI_SCREENSHOT=file.png keeps the screen dump)
@@ -42,7 +44,7 @@
 #
 # usage: tests/run.sh [category...]     (default: all, in the order above)
 cd "$(dirname "$0")"
-cats=${*:-static asm syscall build guest boot replica pmc gpu gui ui draw disk iso rio usb gcc go rust mcp hw}
+cats=${*:-static asm syscall build guest boot replica pmc acpi gpu gui ui draw disk iso rio usb gcc go rust mcp hw}
 failed=()
 for c in $cats; do
 	[ -x "$c/run.sh" ] || { echo "unknown category $c"; exit 2; }

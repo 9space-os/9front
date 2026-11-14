@@ -1,7 +1,8 @@
 #!/bin/bash
 # gui: terminal boot with graphics (scripts/guest/boot-cli.sh, service=terminal,
 # vgasize/monitor/mouseport as plan9.ini would set them): screenrc runs
-# aux/realemu and aux/vga -m vesa, the profile starts rio with riostart.
+# aux/realemu and aux/vga -m vesa, the profile starts rio with riostart
+# (desktop=rio: wsys is the default where it is installed; tests/ui has it).
 # The commands are typed into rio's window; they write their output to
 # the kernel console ('#c/cons', the serial line) so it can be checked --
 # after a pause, as the console window echoes the typed line meanwhile.
@@ -10,7 +11,7 @@
 [ -f "$ROOT/amd64/bin/9pc64" ] || { skip "gui" "no kernel, run $BUILDHOW"; done_tests; exit; }
 
 boot(){
-	SERVICE=terminal KARGS="vgasize=1024x768x16 monitor=vesa mouseport=ps2" \
+	SERVICE=terminal KARGS="vgasize=1024x768x16 monitor=vesa mouseport=ps2 desktop=rio" \
 	SCREENSHOT="$TMPD/screen.png" CMDWAIT=${CMDWAIT:-30} \
 		"$ROOT/scripts/guest/boot-cli.sh" \
 		"sleep 3;{grep size /dev/vgactl;ps}>'#c/cons'" \
