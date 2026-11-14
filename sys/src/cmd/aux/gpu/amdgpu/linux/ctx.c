@@ -16,10 +16,12 @@
  *				it at gpuaddr (none given: the driver chooses;
  *				0: not mapped).  vram: in the card's memory,
  *				contiguous and pinned where the processor sees
- *				it through BAR 0 (the first 256 MB without a
- *				resized BAR); the client attaches a segment of
- *				that part of BAR 0's write-combining one
- *				(segment(3)'s phys), not all of it.  Not always valid in
+ *				it through the aperture (a card's BAR 0: the
+ *				first 256 MB without a resized BAR; an APU's
+ *				video memory, gpu(3)'s vram, all of it); the
+ *				client attaches a segment of that part of the
+ *				aperture's write-combining one (segment(3)'s
+ *				phys), not all of it.  Not always valid in
  *				the VM, so that it can go to the display (amdgpu
  *				exports no such object): each CS lists it
  *	bind id gpuaddr		GEM_VA: unmapped, mapped there instead
@@ -36,9 +38,8 @@
  * structures in memory of the server's own.
  *
  *	map handle		the processor's view of an object the client
- *				made: GTT pinned, an alias segment; VRAM in one
- *				piece where BAR 0 shows it, a segment of that
- *				part
+ *				made: GTT pinned, an alias segment; VRAM a
+ *				pager segment of the aperture (below)
  *	unmap handle
  */
 #include <linux/kernel.h>
@@ -84,7 +85,7 @@ struct bo {
 	struct amdgpu_bo	*abo;	/* pinned: a reference of ours */
 	u64	gpu;		/* mapped there, 0: not mapped */
 	u64	size;
-	bool	vram;		/* in VRAM: at baroff in BAR 0, seg shows that part */
+	bool	vram;		/* in VRAM: at baroff in the aperture, seg shows that part */
 	u64	baroff;
 	char	seg[32];
 	unsigned long	va;
@@ -124,10 +125,11 @@ struct map {
 
 /*
  * 9front-ng: VRAM shown to the processor page by page, as Linux maps
- * it: the client's segment is a pager segment of BAR 0 (segment(3))
- * without pages; its first touch is a fault the pager proc serves as
- * Linux's fault handler does, the object moved into the part BAR 0
- * shows (amdgpu_bo_fault_reserve_notify) and its pages given, not
+ * it: the client's segment is a pager segment of the aperture (BAR 0,
+ * an APU's video memory: kmsout_aperture; segment(3)) without pages;
+ * its first touch is a fault the pager proc serves as Linux's fault
+ * handler does, the object moved into the part the aperture shows
+ * (amdgpu_bo_fault_reserve_notify) and its pages given, not
  * pinned and not in one piece; before TTM moves it again it takes the
  * pages back (ttm_bo_unmap_virtual -> unmap_mapping_range -> pagerunmap),
  * the next touch faults again.  pmaplock: the maps of every context,
@@ -260,7 +262,7 @@ bofree(struct gctx *c, struct bo *b)
 	/*
 	 * removing the object's segment revokes it (segment(3)): a client
 	 * that still has it attached loses it before amdgpu gets the memory
-	 * back (GTT: the alias of its pages; VRAM: its part of BAR 0)
+	 * back (GTT: the alias of its pages; VRAM: its part of the aperture)
 	 */
 	if (b->seg[0])
 		p9_segfree(b->seg, NULL);
@@ -370,7 +372,7 @@ amdgpu_bo_new(void *v, u64 size, u64 *gpup, int vram, int *id, char *seg, int ns
 	if (vram) {
 		/*
 		 * in VRAM in one piece from the start, so that it is one range
-		 * of BAR 0: VRAM_CONTIGUOUS is the kernel's flag (GEM_CREATE does
+		 * of the aperture: VRAM_CONTIGUOUS is the kernel's flag (GEM_CREATE does
 		 * not take it), so as amdgpu makes such objects itself; the
 		 * handle's open puts it in the file's VM as GEM_CREATE does
 		 */
@@ -414,7 +416,7 @@ amdgpu_bo_new(void *v, u64 size, u64 *gpup, int vram, int *id, char *seg, int ns
 		struct amdgpu_res_cursor cur;
 
 		/*
-		 * where in VRAM, so where in BAR 0 (CPU_ACCESS_REQUIRED keeps it
+		 * where in VRAM, so where in the aperture (CPU_ACCESS_REQUIRED keeps it
 		 * in the visible part): the resource's first range, which must
 		 * be all of it
 		 */
@@ -436,12 +438,12 @@ amdgpu_bo_new(void *v, u64 size, u64 *gpup, int vram, int *id, char *seg, int ns
 			goto unpin;
 		}
 		if (b->baroff + b->size > adev->gmc.visible_vram_size ||
-		    p9_barseg(0, 1, bar, sizeof(bar)) < 0) {
-			pr_warn("amdgpu: ctx %d: bo %u: not in BAR 0 (%#llx)\n", c->id, b->handle, b->baroff);
+		    p9_apseg(adev->gmc.aper_base, 1, bar, sizeof(bar)) < 0) {
+			pr_warn("amdgpu: ctx %d: bo %u: not in the aperture (%#llx)\n", c->id, b->handle, b->baroff);
 			r = -ENOSPC;
 			goto unpin;
 		}
-		/* the client sees this object only, not all of BAR 0 */
+		/* the client sees this object only, not all of the aperture */
 		snprintf(b->seg, sizeof(b->seg), "amdgpu.%d.%d.%u", p9_getpid(), c->id, b->handle);
 		b->va = (unsigned long)p9_segphys(b->seg, bar, b->baroff, b->size);
 		if (!b->va) {
@@ -1174,7 +1176,7 @@ amdgpu_pagerstatus(char *p, int n)
 
 /*
  * the processor's view of the client's object handle, a segment at va:
- * GTT, an alias of its pages (pinned); VRAM, a pager segment of BAR 0,
+ * GTT, an alias of its pages (pinned); VRAM, a pager segment of the aperture,
  * page by page as Linux (pmaps above); revoked by unmap and when the
  * context goes
  */
@@ -1230,8 +1232,8 @@ amdgpu_map(void *v, u32 handle, char *seg, int nseg, u64 *va, u64 *size)
 			kfree(m);
 			goto out;
 		}
-		if (p9_barseg(0, 1, bar, sizeof(bar)) < 0) {
-			pr_warn("amdgpu: map %u: no BAR 0 segment\n", handle);
+		if (p9_apseg(adev->gmc.aper_base, 1, bar, sizeof(bar)) < 0) {
+			pr_warn("amdgpu: map %u: no aperture segment\n", handle);
 			drm_gem_object_put(gobj);
 			kfree(m);
 			r = -ENOSPC;

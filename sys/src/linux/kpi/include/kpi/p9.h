@@ -94,6 +94,8 @@ void	*p9_barwc(int bar);	/* the same, write-combining */
 int	p9_barseg(int bar, int wc, char *name, int n);	/* its segment's name, for a client; 0 or -1 */
 void	*p9_memmap(unsigned long long pa, unsigned long size);	/* #G's "mem" segments: the OpRegion */
 void	*p9_vram(unsigned long long pa, unsigned long size, int wc);	/* #G's "vram": an APU's video memory */
+void	*p9_apwc(unsigned long long pa);	/* the aperture at pa (a BAR, or the vram), write-combining */
+int	p9_apseg(unsigned long long pa, int wc, char *name, int n);	/* its segment's name, for a client; 0 or -1 */
 int	p9_barinfo(int bar, unsigned long long *pa, unsigned long long *size, int *io);
 int	p9_pcicfgat(int bus, int dev, int fn, int write, int off, void *buf, int n);
 int	p9_pcieach(int (*fn)(int bus, int dev, int fn, void *arg), void *arg);

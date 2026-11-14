@@ -258,7 +258,7 @@ threadmain(int argc, char **argv)
 		nodisplay = 1;
 	}
 	/* the screen over the outputs, through the aperture (BAR 2) */
-	if(!nodisplay && !noscreen && screenstart(gdir, 2, "i915") < 0)
+	if(!nodisplay && !noscreen && screenstart(gdir, "i915") < 0)
 		fprint(2, "i915: no screen: %r\n");
 	fprint(2, "i915: started\n");
 	if(!noserve)

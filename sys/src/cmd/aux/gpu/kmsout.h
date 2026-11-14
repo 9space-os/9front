@@ -48,7 +48,8 @@ const char	*kmsout_relayout(unsigned long long maxbytes, int *changed, unsigned 
 
 #ifndef __KERNEL__
 /* the Plan 9 side's (kmsscreen.c): the screen through BAR barno; an output's mode set */
-int	screenstart(char *gdir, int barno, char *drv);
+int	screenstart(char *gdir, char *drv);
+unsigned long long	kmsout_aperture(void);	/* where baroff counts from (kmsout_ops) */
 char	*screenset(char *name, char *spec);
 char	*screenstatus(void);	/* malloc'd, or nil (no screen) */
 /* outputs/conn/mode written (bl 0), backlight written or read (spec nil, *s the text): on a proc with a big stack */
@@ -69,6 +70,11 @@ struct kmsout_ops {
 	void	(*screen_free)(struct file *kms, u32 handle);
 	/* the output's panel backlight, if it has one */
 	struct backlight_device	*(*backlight)(struct drm_connector *c);
+	/*
+	 * the physical address the screen's baroff counts from: the
+	 * aperture (a BAR; an APU's video memory, gpu(3)'s vram)
+	 */
+	unsigned long long	(*aperture)(void);
 };
 
 int	kmsout_init(struct file *kms, const struct kmsout_ops *ops);

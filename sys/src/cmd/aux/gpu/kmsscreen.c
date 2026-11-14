@@ -7,8 +7,8 @@
  * draws into (vga(3) type gpu), and what changes there (#G/n/dirty) is
  * copied into the screen's object (kmsout.c; the driver's linux/kms.c
  * makes it: amdgpu's in VRAM, i915's in the GGTT), which the outputs
- * show; through the driver's BAR for it (amdgpu's 0, i915's aperture
- * 2), write-combining.  The screen spans the outputs
+ * show; through the driver's aperture (kmsout_aperture: amdgpu's BAR 0,
+ * an APU's video memory, i915's BAR 2), write-combining.  The screen spans the outputs
  * that are on (kmsout.c: at the start every connected one, side by
  * side); writing an output's mode changes it, and devdraw's screen
  * changes size with it (vgactl size, as aux/vga -m does: rio follows).
@@ -31,7 +31,7 @@ static char *gdir, *drv;
 static QLock scrlock;		/* the geometry, the copies */
 static uchar *fb;		/* #G's framebuffer: w x h x 4, stride w*4 */
 static ulong fbsize;
-static uchar *bar;		/* the BAR the processor writes the screen through */
+static uchar *bar;		/* the aperture the processor writes the screen through */
 static uchar *vram;		/* the screen's object, through it */
 static int w, h;
 static uint pitch;
@@ -262,11 +262,11 @@ setsize(void)
 }
 
 /*
- * the screen on the card, written through BAR barno; 0, or -1 (and the
- * screen stays where it was)
+ * the screen on the card, written through the driver's aperture; 0, or
+ * -1 (and the screen stays where it was)
  */
 int
-screenstart(char *dir, int barno, char *name)
+screenstart(char *dir, char *name)
 {
 	unsigned long long off;
 	uvlong sz[4];
@@ -285,8 +285,8 @@ screenstart(char *dir, int barno, char *name)
 			fb = fbattach(sz[i]);
 	if(fb == nil)
 		return -1;
-	if((bar = p9_barwc(barno)) == nil){
-		werrstr("BAR %d write-combining: %r", barno);
+	if((bar = p9_apwc(kmsout_aperture())) == nil){
+		werrstr("aperture %#llux write-combining: %r", kmsout_aperture());
 		return -1;
 	}
 	if((r = kmsout_screen(fbsize, &uw, &uh, &pitch, &off)) < 0){

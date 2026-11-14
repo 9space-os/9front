@@ -233,7 +233,7 @@ threadmain(int argc, char **argv)
 		fprint(2, "amdgpu: no display: error %d\n", -r);
 		nodisplay = 1;
 	}
-	if(!nodisplay && !noscreen && screenstart(gdir, 0, "amdgpu") < 0)
+	if(!nodisplay && !noscreen && screenstart(gdir, "amdgpu") < 0)
 		fprint(2, "amdgpu: no screen: %r\n");
 	if(poweroff)
 		amdgpu_test_poweroff();

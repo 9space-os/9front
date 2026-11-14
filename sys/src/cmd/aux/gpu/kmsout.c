@@ -331,6 +331,12 @@ findplanes(void)
 	}
 }
 
+unsigned long long
+kmsout_aperture(void)
+{
+	return ops && ops->aperture ? ops->aperture() : 0;
+}
+
 int
 kmsout_init(struct file *f, const struct kmsout_ops *o)
 {

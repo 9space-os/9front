@@ -148,10 +148,18 @@ backlight(struct drm_connector *c)
 	return to_intel_connector(c)->panel.backlight.device;
 }
 
+/* the GGTT's mappable aperture (BAR 2) */
+static unsigned long long
+aperture(void)
+{
+	return to_gt(i915dev())->ggtt->gmadr.start;
+}
+
 static const struct kmsout_ops ops = {
 	.screen_alloc = screen_alloc,
 	.screen_free = screen_free,
 	.backlight = backlight,
+	.aperture = aperture,
 };
 
 int

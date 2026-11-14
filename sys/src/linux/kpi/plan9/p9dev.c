@@ -437,6 +437,63 @@ p9_barseg(int bar, int wc, char *name, int n)
 	return 0;
 }
 
+/*
+ * the aperture at pa, where the processor sees the GPU's memory: the
+ * memory BAR that starts there (a card's VRAM, i915's GGTT aperture),
+ * else an APU's video memory (#G's vram, which starts there too: amdgpu's
+ * aper_base).  Its offsets are the GPU's, so a driver's VRAM offset is
+ * one into it.  p9_apwc: write-combining, where the server sees it;
+ * p9_apseg: its segment's name for a client; 0, or -1
+ */
+static int
+apbar(unsigned long long pa)
+{
+	unsigned long long bpa, bsize;
+	int i, io;
+
+	for(i = 0; i < nelem(bars); i++)
+		if(p9_barinfo(i, &bpa, &bsize, &io) == 0 && !io && bpa == pa)
+			return i;
+	return -1;
+}
+
+static int
+apvram(unsigned long long pa, char **f, char *buf, int n)
+{
+	char *s;
+
+	if((s = ctlline("vram", buf, n)) == nil || tokenize(s, f, 4) < 4)
+		return -1;
+	return strtoull(f[0], nil, 0) == pa ? 0 : -1;
+}
+
+void*
+p9_apwc(unsigned long long pa)
+{
+	char buf[1024], *f[4];
+	int b;
+
+	if((b = apbar(pa)) >= 0)
+		return p9_barwc(b);
+	if(apvram(pa, f, buf, sizeof buf) < 0)
+		return nil;
+	return p9_vram(pa, strtoull(f[1], nil, 0), 1);
+}
+
+int
+p9_apseg(unsigned long long pa, int wc, char *name, int n)
+{
+	char buf[1024], *f[4];
+	int b;
+
+	if((b = apbar(pa)) >= 0)
+		return p9_barseg(b, wc, name, n);
+	if(apvram(pa, f, buf, sizeof buf) < 0)
+		return -1;
+	snprint(name, n, "%s", f[wc ? 3 : 2]);
+	return 0;
+}
+
 void*
 p9_bar(int bar, unsigned long long *pa, unsigned long long *size)
 {

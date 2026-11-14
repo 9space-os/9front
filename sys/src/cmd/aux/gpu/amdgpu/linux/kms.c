@@ -3,7 +3,8 @@
  * aux/amdgpu: the display, the Linux side.  The outputs, the screen and
  * the clients' pictures are kmsout.c's (shared with aux/i915); here what
  * is amdgpu's: the primary node opened, the screen object (VRAM, in one
- * piece where the processor sees it through BAR 0: the Plan 9 side,
+ * piece where the processor sees it through the aperture, BAR 0 or an
+ * APU's video memory (aperture): the Plan 9 side,
  * screen.c, copies into it what devdraw changes in #G's framebuffer; a
  * display engine of a discrete Radeon scans out VRAM only), an eDP
  * panel's backlight (DC's, one per eDP link).
@@ -41,8 +42,8 @@ drmdev(void)
 }
 
 /*
- * the screen object: VRAM, contiguous, pinned, in the part of VRAM that
- * BAR 0 shows; DCN wants pitches of 256 bytes
+ * the screen object: VRAM, contiguous, pinned, in the part of VRAM the
+ * aperture shows; DCN wants pitches of 256 bytes
  */
 static int
 screen_alloc(struct file *f, u32 w, u32 h, u32 *handle, u32 *pitch, unsigned long long *baroff)
@@ -128,10 +129,18 @@ backlight(struct drm_connector *c)
 	return adev->dm.backlight_dev[ac->bl_idx];
 }
 
+/* VRAM as the processor sees it: BAR 0 on a card, the video memory itself on an APU */
+static unsigned long long
+aperture(void)
+{
+	return drm_to_adev(drmdev())->gmc.aper_base;
+}
+
 static const struct kmsout_ops ops = {
 	.screen_alloc = screen_alloc,
 	.screen_free = screen_free,
 	.backlight = backlight,
+	.aperture = aperture,
 };
 
 int
