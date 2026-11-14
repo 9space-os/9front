@@ -162,12 +162,36 @@ impl Chan {
     }
 
     pub fn write(&self, buf: &[u8]) -> Result<usize, String> {
+        drawing(true);
         let mut e = [0u8; 128];
         match unsafe { drawcore_write(self.c, buf.as_ptr() as *const c_void, buf.len() as c_long, e.as_mut_ptr() as *mut c_char, e.len() as c_int) } {
             n if n < 0 => Err(errtext(&e)),
             n => Ok(n as usize),
         }
     }
+}
+
+/// a batch drawn into devdraw (wsys' own) is not done until what it changed
+/// is passed on (main's corepresent); the GPU composer copies devdraw's screen
+/// only between batches (comp.rs: takefb), so a frame never shows a window
+/// filled and its text not yet drawn again
+static DRAWING: (std::sync::Mutex<bool>, std::sync::Condvar) = (std::sync::Mutex::new(false), std::sync::Condvar::new());
+
+/// a batch begun (a write: it waits for a copy going on), or done (its changes passed on)
+pub fn drawing(on: bool) {
+    let mut d = DRAWING.0.lock().unwrap_or_else(|e| e.into_inner());
+    *d = on;
+    if !on {
+        DRAWING.1.notify_all();
+    }
+}
+
+/// f with no batch going on (at most wait long for one to be done: a client
+/// that draws without end does not stop the screen)
+pub fn between<T>(wait: std::time::Duration, f: impl FnOnce() -> T) -> T {
+    let d = DRAWING.0.lock().unwrap_or_else(|e| e.into_inner());
+    let (_d, _) = DRAWING.1.wait_timeout_while(d, wait, |busy| *busy).unwrap_or_else(|e| e.into_inner());
+    f()
 }
 
 impl Drop for Chan {

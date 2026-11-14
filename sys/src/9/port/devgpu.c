@@ -40,6 +40,8 @@
 #include	"../port/pci.h"
 #include	"../port/error.h"
 
+extern QLock	drawlock;	/* devdraw's (nfront: dirty reads between its batches) */
+
 enum {
 	Qtopdir,
 	Qgpudir,
@@ -412,10 +414,18 @@ gpuread(Chan *c, void *a, long n, vlong off)
 	case Qdirty:
 		d = c->aux;
 		sleep(&d->rend, isdirty, d);
+		/*
+		 * nfront: not in the middle of devdraw's batch (it holds drawlock
+		 * for a write's messages, and flushes on the way when its changes
+		 * are far apart): the reader copies what is drawn whole, not a
+		 * window filled and its text not yet drawn again
+		 */
+		qlock(&drawlock);
 		lock(&g->dirtylock);
 		memmove(r, d->r, sizeof r);
 		d->isdirty = 0;
 		unlock(&g->dirtylock);
+		qunlock(&drawlock);
 		snprint(buf, sizeof buf, "%d %d %d %d\n", r[0], r[1], r[2], r[3]);
 		return readstr(0, a, n, buf);
 	case Qcursor:

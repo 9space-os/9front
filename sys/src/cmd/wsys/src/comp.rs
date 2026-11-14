@@ -801,12 +801,15 @@ impl Vkc {
         let (Some(fb), Some(st)) = (&self.fb, &self.staging) else { return };
         let stride = self.w as usize * 4;
         let n = d.dx() as usize * 4;
-        for y in d.y0..d.y1 {
-            let o = y as usize * stride + d.x0 as usize * 4;
-            if o + n <= fb.len && o + n <= st.size {
-                unsafe { std::ptr::copy_nonoverlapping((fb.va + o) as *const u8, st.ptr.add(o), n) };
+        // between devdraw's batches: what is drawn whole (drawcore::drawing)
+        crate::drawcore::between(Duration::from_millis(100), || {
+            for y in d.y0..d.y1 {
+                let o = y as usize * stride + d.x0 as usize * 4;
+                if o + n <= fb.len && o + n <= st.size {
+                    unsafe { std::ptr::copy_nonoverlapping((fb.va + o) as *const u8, st.ptr.add(o), n) };
+                }
             }
-        }
+        });
         for p in self.pending.iter_mut() {
             *p = join(*p, d);
         }

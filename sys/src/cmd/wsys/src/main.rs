@@ -1364,6 +1364,7 @@ impl Wsys {
         let Some(core) = &self.core else { return };
         let rects = core.dirty();
         self.coreload(rects);
+        drawcore::drawing(false); // the batch done: the composer may copy it
     }
 
     /// where wsys' screen is on the display: devdraw's (wsys' own) stays where
