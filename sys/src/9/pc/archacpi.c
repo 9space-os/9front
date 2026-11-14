@@ -624,6 +624,311 @@ writemem(Chan*, void *v, long n, vlong o)
 	return n;
 }
 
+/*
+ * nfront: #P/acpiev, ACPI's events for aux/acpi: the SCI (the FADT's
+ * SCI_INT) masks in the general-purpose event (GPE) blocks and in PM1
+ * what is both set and enabled and hands it to the reader, which runs
+ * the event's methods (_Lxx, _Exx, the embedded controller's _Qxx) and
+ * writes it back.  The kernel owns the GPE and PM1 enable registers,
+ * so that the interrupt's masking and a reader's enabling do not undo
+ * each other.
+ *	read	blocks until an event: "gpe N\n" per GPE, "pm1 0xBITS\n"
+ *	write	gpe N enable|disable|clear|ack	(ack: clear, then enable)
+ *		pm1 0xBITS enable|disable|clear|ack
+ * On the first open the machine goes into ACPI mode if it is not (SCI_EN
+ * clear: the firmware's events go to its SMM, no SCI comes; FADT's
+ * ACPI_ENABLE written to SMI_CMD, as OpenBSD's acpi_enable), and every GPE
+ * is disabled and cleared (aux/acpi enables those it has a method for);
+ * PM1's enables stay as the firmware set them.
+ * *noacpiev= (plan9.ini) leaves it out: the firmware's events then run
+ * nothing, as before.
+ *
+ * The interrupt's masking follows OpenBSD's acpi_interrupt
+ * (sys/dev/acpi/acpi.c,v 1.458):
+ *
+ * Copyright (c) 2005 Thorsten Lockert <tholo@sigmasoft.com>
+ * Copyright (c) 2005 Jordan Hargrave <jordan@openbsd.org>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+enum {
+	Ngpe	= 1024,
+};
+
+static struct {
+	Lock;
+	QLock	ql;		/* opening, reading */
+	Rendez	r;
+	int	sci;		/* -1: no events */
+	int	on;		/* interrupt enabled */
+	int	pm1[2];		/* PM1a, PM1b event blocks: status, then enable */
+	int	pm1len;		/* bytes of each half */
+	int	pm1cnt;		/* PM1a's control block: SCI_EN */
+	int	smicmd;		/* SMI_CMD, and what switches to ACPI mode */
+	int	acpienable;
+	int	gpe[2];		/* GPE0, GPE1 blocks: status, then enable */
+	int	gpelen[2];	/* bytes of each half */
+	int	gpebase[2];	/* the first GPE of the block */
+	ushort	pm1pend;
+	uchar	pend[Ngpe/8];
+	int	npend;
+	ulong	nintr;
+} acpiev = { .sci = -1 };
+
+/* the port of gpe's status (en 0) or enable (en 1) byte and its bit; -1 if none */
+static int
+gpeport(int gpe, int en, int *bit)
+{
+	int b, i;
+
+	for(b = 0; b < 2; b++){
+		if(acpiev.gpe[b] == 0)
+			continue;
+		i = gpe - acpiev.gpebase[b];
+		if(i >= 0 && i < acpiev.gpelen[b]*8){
+			*bit = 1 << i%8;
+			return acpiev.gpe[b] + en*acpiev.gpelen[b] + i/8;
+		}
+	}
+	return -1;
+}
+
+static void
+acpiintr(Ureg*, void*)
+{
+	int b, i, j, g, port;
+	uchar s, e, p;
+	ushort ps, pe, pp;
+
+	ilock(&acpiev);
+	acpiev.nintr++;
+	for(b = 0; b < 2; b++){
+		if(acpiev.gpe[b] == 0)
+			continue;
+		for(i = 0; i < acpiev.gpelen[b]; i++){
+			port = acpiev.gpe[b] + i;
+			s = inb(port);
+			e = inb(port + acpiev.gpelen[b]);
+			if((p = s & e) == 0)
+				continue;
+			/* masked until the reader has run its method */
+			outb(port + acpiev.gpelen[b], e & ~p);
+			for(j = 0; j < 8; j++)
+				if(p & 1<<j){
+					g = acpiev.gpebase[b] + i*8 + j;
+					if(g < Ngpe && (acpiev.pend[g/8] & 1<<g%8) == 0){
+						acpiev.pend[g/8] |= 1<<g%8;
+						acpiev.npend++;
+					}
+				}
+		}
+	}
+	for(b = 0; b < 2; b++){
+		if(acpiev.pm1[b] == 0)
+			continue;
+		ps = ins(acpiev.pm1[b]);
+		pe = ins(acpiev.pm1[b] + acpiev.pm1len);
+		if((pp = ps & pe) == 0)
+			continue;
+		outs(acpiev.pm1[b] + acpiev.pm1len, pe & ~pp);
+		acpiev.pm1pend |= pp;
+	}
+	iunlock(&acpiev);
+	wakeup(&acpiev.r);
+}
+
+static int
+acpievpending(void*)
+{
+	return acpiev.npend > 0 || acpiev.pm1pend != 0;
+}
+
+static void
+acpievon(void)
+{
+	int b, i;
+
+	qlock(&acpiev.ql);
+	if(acpiev.on){
+		qunlock(&acpiev.ql);
+		return;
+	}
+	/* ACPI mode: SCI_EN, else no event comes as an SCI */
+	if(acpiev.pm1cnt != 0 && (ins(acpiev.pm1cnt) & 1) == 0){
+		if(acpiev.smicmd == 0 || acpiev.acpienable == 0)
+			print("acpiev: not in ACPI mode, no SMI_CMD to switch\n");
+		else {
+			outb(acpiev.smicmd, acpiev.acpienable);
+			for(i = 0; i < 300 && (ins(acpiev.pm1cnt) & 1) == 0; i++)
+				tsleep(&up->sleep, return0, nil, 10);
+			if((ins(acpiev.pm1cnt) & 1) == 0)
+				print("acpiev: SCI_EN still clear after ACPI_ENABLE\n");
+		}
+	}
+	ilock(&acpiev);
+	for(b = 0; b < 2; b++)
+		for(i = 0; acpiev.gpe[b] != 0 && i < acpiev.gpelen[b]; i++){
+			outb(acpiev.gpe[b] + acpiev.gpelen[b] + i, 0);
+			outb(acpiev.gpe[b] + i, 0xFF);
+		}
+	iunlock(&acpiev);
+	intrenable(acpiev.sci, acpiintr, nil, BUSUNKNOWN, "acpi");
+	acpiev.on = 1;
+	qunlock(&acpiev.ql);
+}
+
+static long
+acpievread(Chan*, void *a, long n, vlong)
+{
+	char buf[512], *s, *e;	/* (the kernel stack is small; the rest waits for the next read) */
+	int g;
+
+	acpievon();
+	qlock(&acpiev.ql);
+	if(waserror()){
+		qunlock(&acpiev.ql);
+		nexterror();
+	}
+	sleep(&acpiev.r, acpievpending, nil);
+	s = buf;
+	e = buf + sizeof buf;
+	ilock(&acpiev);
+	if(acpiev.pm1pend != 0){
+		s = seprint(s, e, "pm1 %#ux\n", acpiev.pm1pend);
+		acpiev.pm1pend = 0;
+	}
+	for(g = 0; g < Ngpe && acpiev.npend > 0 && e - s > 16; g++)
+		if(acpiev.pend[g/8] & 1<<g%8){
+			s = seprint(s, e, "gpe %d\n", g);
+			acpiev.pend[g/8] &= ~(1<<g%8);
+			acpiev.npend--;
+		}
+	iunlock(&acpiev);
+	qunlock(&acpiev.ql);
+	poperror();
+	if(n > s - buf)
+		n = s - buf;
+	memmove(a, buf, n);
+	return n;
+}
+
+static long
+acpievwrite(Chan*, void *a, long n, vlong)
+{
+	char buf[64], *f[4];
+	int nf, g, b, port, enport, bit, op;
+	uchar v;
+	ushort w;
+
+	acpievon();
+	if(n >= sizeof buf)
+		error(Ebadarg);
+	memmove(buf, a, n);
+	buf[n] = 0;
+	nf = tokenize(buf, f, nelem(f));
+	if(nf != 3)
+		error(Ebadarg);
+	if(strcmp(f[2], "enable") == 0)
+		op = 0;
+	else if(strcmp(f[2], "disable") == 0)
+		op = 1;
+	else if(strcmp(f[2], "clear") == 0)
+		op = 2;
+	else if(strcmp(f[2], "ack") == 0)
+		op = 3;
+	else
+		error(Ebadarg);
+	if(strcmp(f[0], "gpe") == 0){
+		g = strtol(f[1], nil, 0);
+		if((port = gpeport(g, 0, &bit)) < 0)
+			error("no such gpe");
+		enport = gpeport(g, 1, &bit);
+		ilock(&acpiev);
+		if(op == 2 || op == 3)
+			outb(port, bit);	/* status: 1 clears */
+		if(op != 2){
+			v = inb(enport);
+			outb(enport, op == 1 ? v & ~bit : v | bit);
+		}
+		iunlock(&acpiev);
+	} else if(strcmp(f[0], "pm1") == 0){
+		bit = strtoul(f[1], nil, 0) & 0xFFFF;
+		ilock(&acpiev);
+		for(b = 0; b < 2; b++){
+			if(acpiev.pm1[b] == 0)
+				continue;
+			if(op == 2 || op == 3)
+				outs(acpiev.pm1[b], bit);
+			if(op != 2){
+				w = ins(acpiev.pm1[b] + acpiev.pm1len);
+				outs(acpiev.pm1[b] + acpiev.pm1len, op == 1 ? w & ~bit : w | bit);
+			}
+		}
+		iunlock(&acpiev);
+	} else
+		error(Ebadarg);
+	return n;
+}
+
+/* the FADT's event blocks (I/O ports only: no hardware-reduced ACPI) */
+static void
+acpievinit(void)
+{
+	uchar *p;
+	Tbl *t;
+	int l;
+
+	if(getconf("*noacpiev") != nil || (t = findtable("FACP")) == nil)
+		return;
+	p = (uchar*)t;
+	l = get32(t->len);
+	if(l < 116 || (l >= 116 && get32(p + 112) & 1<<20))
+		return;
+	acpiev.pm1[0] = get32(p + 56);
+	acpiev.pm1[1] = get32(p + 60);
+	acpiev.pm1len = p[88] / 2;
+	acpiev.smicmd = get32(p + 48);
+	acpiev.acpienable = p[52];
+	acpiev.pm1cnt = get32(p + 64);
+	if(acpiev.pm1cnt == 0 && l >= 184 && p[172] == IoSpace)
+		acpiev.pm1cnt = get64(p + 176);
+	acpiev.gpe[0] = get32(p + 80);
+	acpiev.gpe[1] = get32(p + 84);
+	acpiev.gpelen[0] = p[92] / 2;
+	acpiev.gpelen[1] = p[93] / 2;
+	acpiev.gpebase[0] = 0;
+	acpiev.gpebase[1] = p[94];
+	/* the extended (GAS) blocks, if the old fields are empty: ports only */
+	if(acpiev.pm1[0] == 0 && l >= 160 && p[148] == IoSpace)
+		acpiev.pm1[0] = get64(p + 152);
+	if(acpiev.pm1[1] == 0 && l >= 172 && p[160] == IoSpace)
+		acpiev.pm1[1] = get64(p + 164);
+	if(acpiev.gpe[0] == 0 && l >= 232 && p[220] == IoSpace)
+		acpiev.gpe[0] = get64(p + 224);
+	if(acpiev.gpe[1] == 0 && l >= 244 && p[232] == IoSpace)
+		acpiev.gpe[1] = get64(p + 236);
+	if(acpiev.gpelen[0] == 0)
+		acpiev.gpe[0] = 0;
+	if(acpiev.gpelen[1] == 0)
+		acpiev.gpe[1] = 0;
+	if(acpiev.pm1len == 0)
+		acpiev.pm1[0] = acpiev.pm1[1] = 0;
+	if(acpiev.pm1[0] == 0 && acpiev.gpe[0] == 0)
+		return;
+	acpiev.sci = get16(p + 46);
+	addarchfile("acpiev", 0600, acpievread, acpievwrite);
+}
+
 static void
 acpiinit(void)
 {
@@ -876,6 +1181,7 @@ identify(void)
 	maptables();
 	addarchfile("acpitbls", 0444, readtbls, nil);
 	addarchfile("acpimem", 0600, readmem, writemem);
+	acpievinit();	/* nfront: #P/acpiev */
 	if(v == 0 || findtable("APIC") == nil)
 		return 1;
 	if((cp = getconf("*nomp")) != nil && strcmp(cp, "0") != 0)

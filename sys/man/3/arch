@@ -5,11 +5,15 @@ arch \- architecture-specific information and control
 .nf
 .B bind -a #P /dev
 .sp 0.3v
+.B /dev/acpiev
+.br
 .B /dev/acpitbls
 .B /dev/archctl
 .B /dev/cputype
 .B /dev/cputemp
 .B /dev/ec
+.br
+.B /dev/ecquery
 .B /dev/ioalloc
 .B /dev/iob
 .B /dev/iol
@@ -153,6 +157,33 @@ Writing is limited to the VGA framebuffer at [0xA0000-0xBFFFF].
 Reads and writes to
 .I ec
 transfer bytes from and to the embedded controller.
+.PP
+Reads from
+.I ecquery
+return the number of the embedded controller's pending event
+(its query command), 0 when none is pending.
+.PP
+.I Acpiev
+hands the firmware's events to
+.IR aux/acpi
+.RI ( acpi (8)):
+the SCI masks each general-purpose event and PM1 event that is both
+set and enabled, and a read returns them,
+.BI "gpe " n
+or
+.BI "pm1 0x" bits ,
+a line each, blocking until there is one.
+Writes
+.BI "gpe " "n op"
+and
+.BI "pm1 0x" "bits op"
+enable, disable, clear (the status) or
+.B ack
+(clear, then enable) them.
+On its first open every GPE is disabled and cleared.
+It is not there with
+.BR *noacpiev= ,
+or where the firmware has no event blocks.
 .PP
 Reads from
 .I acpitbls

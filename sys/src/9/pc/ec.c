@@ -113,6 +113,63 @@ out:
 	return r;
 }
 
+/*
+ * nfront: the query (QR_EC) of a pending SCI event, for aux/acpi's _Qxx
+ * methods (#P/ecquery: "0xNN\n", 0 when none is pending), as OpenBSD's
+ * acpiec_sci_event (sys/dev/acpi/acpiec.c,v 1.67) does it:
+ *
+ * Copyright (c) 2006 Can Erkin Acar <canacar@openbsd.org>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+static int
+ecquery(void)
+{
+	int r;
+
+	r = -1;
+	lock(&ec.Lock);
+	if(!ec.init)
+		goto out;
+	if((ecrr(EC_SC) & SCI_EVT) == 0){
+		r = 0;
+		goto out;
+	}
+	if(ecwait(IBF, 0))
+		goto out;
+	ecwr(EC_SC, QR_EC);
+	if(ecwait(OBF, OBF))
+		goto out;
+	r = ecrr(EC_DATA);
+out:
+	unlock(&ec.Lock);
+	return r;
+}
+
+static long
+ecqueryread(Chan*, void *a, long n, vlong off)
+{
+	char buf[16];
+	int q;
+
+	if(off != 0)
+		return 0;
+	if((q = ecquery()) < 0)
+		error(Eio);
+	snprint(buf, sizeof buf, "%#.2ux\n", q);
+	return readstr(0, a, n, buf);
+}
+
 static long
 ecarchread(Chan*, void *a, long n, vlong off)
 {
@@ -169,6 +226,7 @@ ecinit(int cmdport, int dataport)
 	unlock(&ec.Lock);
 
 	addarchfile("ec", 0660, ecarchread, ecarchwrite);
+	addarchfile("ecquery", 0440, ecqueryread, nil);	/* nfront */
 
 	return 0;
 }
