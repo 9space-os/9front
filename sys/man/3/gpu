@@ -62,6 +62,11 @@ memory of the firmware's the driver needs, outside the bars: for an
 Intel device the ACPI OpRegion (its address from the device's ASLS
 register), which holds the video BIOS tables; a write-back segment.
 .TP
+.BI vram " addr size seg wseg
+an AMD APU's video memory, after
+.B vram
+was written: the uncached and the write-combining segment.
+.TP
 .BI fb " addr size seg
 the framebuffer, if allocated, else
 .BR "fb none" .
@@ -111,6 +116,16 @@ and make the MTRRs write-back, so that the page attributes decide;
 only for memory that is RAM to the processor, such as virtio-gpu's
 host visible memory, which only the driver knows.
 The driver tells its clients which part to map how.
+.TP
+.BI vram " addr size
+an AMD APU's video memory: RAM the firmware kept from the kernel
+(a carveout), outside the bars; the driver reads where it is from
+the GPU.  Mapped as the segments
+.BI gpu n vram
+(uncached) and
+.BI gpu n vramw
+(write-combining), once, and only if no part of it is memory the
+kernel has (RAM, ACPI tables) or one of the device's bars.
 .PD
 .PP
 Opening

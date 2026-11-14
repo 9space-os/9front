@@ -4,7 +4,8 @@
  * #G: minimal kernel stub for user-space GPU drivers.
  *
  *	#G/N/ctl	r: pci, id, bars, segments, framebuffer
- *			w: bme on|off, fb <bytes>, irq ack, bar <n> cached
+ *			w: bme on|off, fb <bytes>, irq ack, bar <n> cached,
+ *			vram <pa> <size>
  *	#G/N/irq	read blocks until the device interrupts
  *	#G/N/dirty	read blocks until /dev/draw changed the
  *			framebuffer; returns "x0 y0 x1 y1": what changed
@@ -18,7 +19,11 @@
  *			drawn (16: as it is; more: scaled, the offset too)
  *
  * The memory BARs are physical segments gpuNbarM, the
- * framebuffer is gpuNfb (see segattach(2)).  Interrupts are MSI
+ * framebuffer is gpuNfb (see segattach(2)).  An AMD APU's video
+ * memory is RAM the firmware kept from the kernel (a carveout, not
+ * in a BAR): "vram pa size" from the driver, which reads where it
+ * is from the GPU, makes it gpuNvram (uncached) and gpuNvramw
+ * (write-combining), once, if none of it is the kernel's memory.  Interrupts are MSI
  * where the device has it (intrenable chooses it), else legacy
  * INTx: then the handler masks them in the PCI command register
  * (interrupt disable), the driver unmasks them with "irq ack"
@@ -89,6 +94,11 @@ struct Gpu
 	uchar	*fb;
 	ulong	fbsize;
 	char	fbseg[KNAMELEN];
+
+	uvlong	vrampa;		/* AMD APU: the video memory carveout (vram) */
+	uvlong	vramsize;
+	char	vramseg[KNAMELEN];
+	char	vramwseg[KNAMELEN];
 
 	uvlong	oppa;		/* Intel: the ACPI OpRegion (ASLS), with the VBT: page */
 	ulong	opsize;		/* and size of its segment */
@@ -363,6 +373,8 @@ ctlread(Gpu *g, void *a, long n, vlong off)
 	}
 	if(g->opseg[0])
 		s = seprint(s, e, "mem %#llux %lud %s\n", g->oppa, g->opsize, g->opseg);
+	if(g->vramseg[0])
+		s = seprint(s, e, "vram %#llux %llud %s %s\n", g->vrampa, g->vramsize, g->vramseg, g->vramwseg);
 	if(g->fb != nil)
 		s = seprint(s, e, "fb %#llux %lud %s\n", (uvlong)PADDR(g->fb), g->fbsize, g->fbseg);
 	else
@@ -497,6 +509,48 @@ barcached(Gpu *g, int i)
 }
 
 /*
+ * an AMD APU's video memory (the driver read where it is from the
+ * GPU): not in a BAR, RAM the firmware kept from the kernel; never
+ * memory the kernel has (pc/vgagpu.c), nor one of the device's BARs
+ */
+extern char *gpuvramok(uvlong, uvlong);
+
+static void
+vrammap(Gpu *g, uvlong pa, uvlong size)
+{
+	Pcidev *p;
+	uvlong bpa;
+	char *err;
+	int i;
+
+	p = g->pci;
+	if(p->vid != 0x1002)
+		error("vram: not an AMD GPU");
+	if(g->vramseg[0]){
+		if(pa == g->vrampa && size == g->vramsize)
+			return;
+		error("vram: already set");
+	}
+	if(size == 0 || (pa|size) & (BY2PG-1) || pa+size < pa)
+		error("vram: bad range");
+	for(i = 0; i < nelem(p->mem); i++){
+		if(p->mem[i].size == 0 || p->mem[i].bar & 1)
+			continue;
+		bpa = p->mem[i].bar & ~0xFULL;
+		if(bpa < pa+size && pa < bpa+p->mem[i].size)
+			error("vram: overlaps a bar");
+	}
+	if((err = gpuvramok(pa, size)) != nil)
+		error(err);
+	g->vrampa = pa;
+	g->vramsize = size;
+	snprint(g->vramseg, KNAMELEN, "gpu%dvram", g->id);
+	addseg(g->vramseg, pa, size, SG_PHYSICAL | SG_DEVICE | SG_NOEXEC);
+	snprint(g->vramwseg, KNAMELEN, "gpu%dvramw", g->id);
+	addseg(g->vramwseg, pa, size, SG_PHYSICAL | SG_WC | SG_NOEXEC);
+}
+
+/*
  * write back and invalidate the caches of every processor (Linux's
  * wbinvd_on_all_cpus): the drivers need it for memory the GPU reads
  * past the caches; x86 only (pc, pc64)
@@ -541,6 +595,8 @@ gpuwrite(Chan *c, void *a, long n, vlong)
 		fballoc(g, strtoul(cb->f[1], 0, 0));
 	else if(cb->nf == 3 && strcmp(cb->f[0], "bar") == 0 && strcmp(cb->f[2], "cached") == 0)
 		barcached(g, atoi(cb->f[1]));
+	else if(cb->nf == 3 && strcmp(cb->f[0], "vram") == 0)
+		vrammap(g, strtoull(cb->f[1], 0, 0), strtoull(cb->f[2], 0, 0));
 	else if(cb->nf == 2 && strcmp(cb->f[0], "irq") == 0 && strcmp(cb->f[1], "ack") == 0)
 		pcicfgw16(g->pci, PciPCR, pcicfgr16(g->pci, PciPCR) & ~Intdis);
 	else if(cb->nf == 1 && strcmp(cb->f[0], "wbinvd") == 0)

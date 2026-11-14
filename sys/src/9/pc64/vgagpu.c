@@ -43,6 +43,20 @@ gpubarcache(uvlong pa, uvlong size)
 	return mtrr(pa, size, "wb");
 }
 
+/*
+ * for devgpu.c (vram): an APU's video memory, which the firmware
+ * kept from the kernel, may be mapped; never memory the kernel has
+ */
+extern int memmapisram(uvlong, uvlong);
+
+char*
+gpuvramok(uvlong pa, uvlong size)
+{
+	if(memmapisram(pa, size))
+		return "overlaps the kernel's memory";
+	return nil;
+}
+
 static void
 gpuenable(VGAscr *scr)
 {

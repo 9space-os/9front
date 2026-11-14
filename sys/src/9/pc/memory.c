@@ -395,6 +395,27 @@ e820scan(void)
 	return 0;
 }
 
+/*
+ * nfront: does [pa, pa+size) overlap memory the kernel has (RAM,
+ * upper memory blocks, the ACPI tables)?  devgpu.c: an APU's video
+ * memory is RAM the firmware kept from the kernel, never the kernel's
+ */
+int
+memmapisram(uvlong pa, uvlong size)
+{
+	static ulong types[] = { MemRAM, MemUMB, MemACPI };
+	uvlong base, s;
+	int i;
+
+	for(i = 0; i < nelem(types); i++)
+		for(base = memmapnext(-1, types[i]); base != -1; base = memmapnext(base, types[i])){
+			s = memmapsize(base, 0);
+			if(base < pa+size && pa < base+s)
+				return 1;
+		}
+	return 0;
+}
+
 static void
 ramscan(uintptr pa, uintptr top, uintptr chunk)
 {

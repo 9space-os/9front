@@ -24,6 +24,13 @@ kpi_malloc(size_t size, int type, int flags)
 		p = p9_malloc(size ? size : 1);
 	if (p == NULL && !(flags & (M_NOWAIT | M_CANFAIL)))
 		panic("malloc: out of memory (%zu bytes)", size);
+	/*
+	 * the caller's pc as the block's tag, not ours: kmalloc and kzalloc
+	 * are inline, so a pool panic's dump names the driver's code that
+	 * allocated the block
+	 */
+	if (p != NULL)
+		p9_setmalloctag(p, (unsigned long long)(uintptr_t)__builtin_return_address(0));
 	return p;
 }
 

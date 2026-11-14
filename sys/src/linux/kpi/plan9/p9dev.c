@@ -357,6 +357,63 @@ p9_barwc(int bar)
 }
 
 /*
+ * an APU's video memory, outside the BARs (gpu(3)'s vram: RAM the
+ * firmware kept from the kernel).  The first range the driver maps
+ * that no BAR holds is it: amdgpu maps the whole aperture before any
+ * other (amdgpu_ttm_init); #G checks that none of it is the kernel's
+ * memory.  wc: through the write-combining segment.  The address the
+ * server sees pa at, or nil
+ */
+void*
+p9_vram(unsigned long long pa, unsigned long size, int wc)
+{
+	static QLock vramlk;
+	static uvlong vpa, vsize;
+	static char name[2][64];
+	static void *va[2];
+	char buf[1024], *s, *f[5];
+	uvlong a, e;
+	uchar *v;
+
+	qlock(&vramlk);
+	if(vsize == 0){
+		if((s = ctlline("vram", buf, sizeof buf)) == nil){
+			a = pa & ~0xFFFULL;
+			e = (pa + size + 0xFFF) & ~0xFFFULL;
+			if(ctlfd < 0 || fprint(ctlfd, "vram %#llux %#llux", a, e - a) < 0){
+				fprint(2, "p9dev: vram %#llux+%#llux: %r\n", a, e - a);
+				qunlock(&vramlk);
+				return nil;
+			}
+			s = ctlline("vram", buf, sizeof buf);
+		}
+		if(s == nil || tokenize(s, f, nelem(f)) < 4){
+			qunlock(&vramlk);
+			return nil;
+		}
+		vpa = strtoull(f[0], nil, 0);
+		vsize = strtoull(f[1], nil, 0);
+		snprint(name[0], sizeof name[0], "%s", f[2]);
+		snprint(name[1], sizeof name[1], "%s", f[3]);
+	}
+	v = nil;
+	if(pa >= vpa && pa + size <= vpa + vsize){
+		wc = wc != 0;
+		if(va[wc] == nil){
+			if((va[wc] = segattach(0, name[wc], nil, vsize)) == (void*)-1){
+				fprint(2, "p9dev: vram segment %s: %r\n", name[wc]);
+				va[wc] = nil;
+			}else
+				segadd(name[wc], va[wc], vsize);
+		}
+		if(va[wc] != nil)
+			v = (uchar*)va[wc] + (pa - vpa);
+	}
+	qunlock(&vramlk);
+	return v;
+}
+
+/*
  * the name of a memory BAR's segment (gpu(3)) for a client: wc, its
  * write-combining one (the kernel makes it for "bar N cached"), else
  * the uncached one; 0, or -1

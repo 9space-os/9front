@@ -2,7 +2,8 @@
 /*
  * LinuxKPI for 9front: I/O memory and ports.  ioremap finds the BAR of
  * the device (#G) that holds the range: the BAR is a segment attached
- * to the file server, uncached, or write-combining for ioremap_wc.
+ * to the file server, uncached, or write-combining for ioremap_wc;
+ * else an APU's video memory (#G's vram, p9_vram).
  * Port I/O goes through #P.
  */
 #include <linux/io.h>
@@ -34,7 +35,10 @@ barmap(resource_size_t pa, unsigned long size, bool wc)
 			return NULL;
 		return (void __iomem *)(va + (pa - bpa));
 	}
-	pr_warn("ioremap %#llx+%#lx: not in a BAR of the device\n", (unsigned long long)pa, size);
+	/* an APU's video memory: RAM the firmware kept, not a BAR */
+	if ((va = p9_vram(pa, size, wc)))
+		return (void __iomem *)va;
+	pr_warn("ioremap %#llx+%#lx: neither in a BAR nor the video memory\n", (unsigned long long)pa, size);
 	return NULL;
 }
 

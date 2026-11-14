@@ -51,6 +51,7 @@ void	p9_segclean(void);
 /* memory of the file server */
 void	*p9_malloc(unsigned long n);
 void	*p9_mallocz(unsigned long n);
+void	p9_setmalloctag(void *p, unsigned long long pc);
 void	*p9_mallocalign(unsigned long n, unsigned long align);
 void	*p9_realloc(void *p, unsigned long n);
 void	p9_free(void *p);
@@ -92,6 +93,7 @@ void	*p9_bar(int bar, unsigned long long *pa, unsigned long long *size);	/* unca
 void	*p9_barwc(int bar);	/* the same, write-combining */
 int	p9_barseg(int bar, int wc, char *name, int n);	/* its segment's name, for a client; 0 or -1 */
 void	*p9_memmap(unsigned long long pa, unsigned long size);	/* #G's "mem" segments: the OpRegion */
+void	*p9_vram(unsigned long long pa, unsigned long size, int wc);	/* #G's "vram": an APU's video memory */
 int	p9_barinfo(int bar, unsigned long long *pa, unsigned long long *size, int *io);
 int	p9_pcicfgat(int bus, int dev, int fn, int write, int off, void *buf, int n);
 int	p9_pcieach(int (*fn)(int bus, int dev, int fn, void *arg), void *arg);

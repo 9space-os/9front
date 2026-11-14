@@ -229,6 +229,8 @@ p9_ncpus(void)
 
 void *p9_malloc(unsigned long n) { return malloc(n); }
 void *p9_mallocz(unsigned long n) { return mallocz(n, 1); }
+/* the block's tag (malloc(2)'s setmalloctag): who asked for it, for pool(2)'s dumps */
+void p9_setmalloctag(void *p, unsigned long long pc) { setmalloctag(p, pc); }
 void *p9_mallocalign(unsigned long n, unsigned long align) { return mallocalign(n, align, 0, 0); }
 void *p9_realloc(void *p, unsigned long n) { return realloc(p, n); }
 void p9_free(void *p) { free(p); }
@@ -286,12 +288,17 @@ p9_sysname(void)
 	return sysname();
 }
 
+/*
+ * the whole file: to its end, not by the length dirfstat gives,
+ * which a device's files have as 0 (#P/acpitbls: the VFCT with
+ * an APU's video BIOS, #P/smbios); the length only sizes the buffer
+ */
 int
 p9_readfile(const char *path, void **data, long *size)
 {
 	Dir *d;
-	char *p;
-	long n, m;
+	char *p, *q;
+	long n, m, a;
 	int fd;
 
 	if((fd = open((char*)path, OREAD)) < 0)
@@ -300,18 +307,35 @@ p9_readfile(const char *path, void **data, long *size)
 		close(fd);
 		return -1;
 	}
-	n = d->length;
+	a = d->length + 1;	/* room to see the end */
 	free(d);
-	if((p = malloc(n ? n : 1)) == nil){
+	if(a < 8192)
+		a = 8192;
+	if((p = malloc(a)) == nil){
 		close(fd);
 		return -1;
 	}
-	m = readn(fd, p, n);
-	close(fd);
-	if(m != n){
-		free(p);
-		return -1;
+	n = 0;
+	for(;;){
+		if(n == a){
+			a *= 2;
+			if((q = realloc(p, a)) == nil){
+				free(p);
+				close(fd);
+				return -1;
+			}
+			p = q;
+		}
+		if((m = read(fd, p+n, a-n)) < 0){
+			free(p);
+			close(fd);
+			return -1;
+		}
+		if(m == 0)
+			break;
+		n += m;
 	}
+	close(fd);
 	*data = p;
 	*size = n;
 	return 0;
