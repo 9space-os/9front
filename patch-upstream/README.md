@@ -91,6 +91,9 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0029 | snap: a memory section's count ended one past its buffer | bug fix (found by gcc -O2) |
 | 0030 | cwfs: readln put the NUL past the buffer on a long line | bug fix (found by gcc -O2) |
 | 0031 | dossrv: a long name's checksum written past reserved[] | bug fix (found by gcc -O2) |
+| 0032 | libaml: a store into the field Index gives was dropped | bug fix |
+| 0033 | 9boot (efi): the boot device first, PXE through the firmware's MTFTP | bug fix |
+| 0034 | bootrc: cdboot takes the ISO 9660 with this machine's init | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -404,6 +407,51 @@ conversations' events read through gdb: on every hung dialer's
 conversation the previous owner's `closeconv()` ended after the
 dialer's connect had begun. Shown by: the same program with 12, 24 and
 50 dialing procs runs to the end, repeatedly.
+
+### 0032 libaml: a store into the field Index gives
+
+`store()` took only references and names as its target; the buffer
+field `Index` returns fell into the default case and `Store (x, Index
+(BUFF, i))` changed nothing, without an error. A Lenovo ThinkBook 16 G7
+ARP's ATIF method (function 0x10, the brightness curve) fills its reply
+buffer so: amdgpu got the previous call's reply, read 128 data points
+from it where 99 fit, and wrote past its buffer. Now `rwfield` writes
+such a target.
+
+Found by: the main branch's amdgpu on that laptop (a pool panic, the
+block's malloc tag naming `initialize_backlight_caps`; the method read
+from the laptop's SSDT). Shown by: the main branch's `tests/gpu`
+(`nfst.py`, an SSDT with that store, loaded by QEMU's `-acpitable`,
+evaluated through aux/acpi). `libaml/aml.c` compiled on the `upstream`
+branch's sources with `6c -FTVw` and `8c -FTVw` in a 9front guest: no
+errors, no warnings.
+
+### 0033 9boot (efi): the boot device first, PXE through the firmware's MTFTP
+
+- plan9.ini and the kernel are looked for first on the device the
+  loader came from (LoadedImage's DeviceHandle; a partition counts as
+  its disk by the device path): with another system's ISO or disk
+  before the stick, 9boot took that one and stopped at its prompt
+  ("no bootfile").
+- PXE: files are read with the firmware's `Mtftp`; 9boot's own UDP
+  TFTP is the fallback and checks the server's port (RFC 1350). The
+  ThinkBook's `UdpRead` returned a new packet's port with the previous
+  packet's data: blocks came twice, the kernel was garbage. The server
+  is taken from the PXE reply, the proxy offer or the DHCP ack (proxy
+  DHCP beside the router).
+- ISO: sectors through a 4096-aligned buffer, blocks up to 4096 bytes.
+
+Built with 9front's compilers (8c/6c, `scripts/guest/build-boot.sh` in
+a guest). Shown by: the ThinkBook booted by PXE (proxy DHCP, dnsmasq),
+the main branch's `tests/iso` (a disk booted with another ISO before
+it, UEFI).
+
+### 0034 bootrc: cdboot takes the ISO 9660 with this machine's init
+
+With `cdboot`, `local.rc` took the first 9660 file system as the root,
+another system's ISO before ours too. `cdsystem` mounts each and takes
+the first with `/$cputype/init`, else the first as before. Shown by:
+the same `tests/iso` case.
 
 ## Not included
 

@@ -343,6 +343,7 @@ bootkern(void *f)
 	uchar *e, *d, *t;
 	ulong n;
 	Exec ex;
+	char m[20];
 
 	if(readn(f, &ex, sizeof(ex)) != sizeof(ex))
 		return "bad header";
@@ -359,6 +360,10 @@ bootkern(void *f)
 	case I_MAGIC:
 		break;
 	default:
+		*hexfmt(m, 8, beswal(ex.magic)) = 0;
+		print("magic ");
+		print(m);
+		print(": ");
 		return "bad magic";
 	}
 
