@@ -6,7 +6,7 @@ host: the stick boots 9front, runs the tests by itself and writes the
 logs to its own 9fat partition, which any machine can read.
 
 Target so far: Lenovo ThinkPad X1 Carbon (2015, amd64). The internal disks
-are only read.
+are only read. Machines booted from the host by PXE instead: below.
 
 ## The stick
 
@@ -66,6 +66,27 @@ with `collect.py`, `plan9.ini` set back at the end. It also attaches an
 IDE disk (`disk` only reads it: its checksum is compared afterwards)
 and an e1000. `STICK=image` uses an
 existing image.
+
+## A machine booted by PXE
+
+A machine whose disks are not to be touched at all (another system on
+them) boots from the build host instead: `scripts/hw/pxe.sh mac [machine]`
+gives it 9boot, the kernel and its `plan9.ini` by TFTP (dnsmasq as proxy
+DHCP, the router keeps giving the addresses; the one command run as root
+is printed) and serves the root by ufs, as for the QEMU guests. The root
+has the MCP server (`9front-mcp`, its token in `$CLI_DIR/pxe/mcptoken`):
+started on the machine, `scripts/guest/mcp.py` runs commands there, and
+what it writes under `/usr/glenda` and `/sys/log` is in
+`$CLI_DIR/pxe/ufsroot` on the host. `QEMU=1` rehearses the same in QEMU.
+
+`machines/<machine>`: the plan9.ini lines the machine always gets
+(`*nonvme=1`: the kernel never touches NVMe) and `firmware pattern`
+lines, the host's `/usr/lib/firmware/pattern` unpacked into the root.
+Without a stick, `gpustart` logs the GPU driver to `/sys/log/<driver>boot`.
+
+Machines: `thinkbook16g7` (Lenovo ThinkBook 16 G7 ARP, Radeon 680M).
+The stick's `hwtest` run is not done this way yet (its `disk` step must
+never run there).
 
 ## Categories
 

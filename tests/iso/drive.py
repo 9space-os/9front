@@ -9,6 +9,7 @@
 # usage: drive.py iso cd|disk bios|uefi workdir
 #   exit 0 when the marker arrived; the serial log is workdir/serial.log
 #   env: QEMU_EXTRA  more QEMU options (e.g. "-vga none -device virtio-vga")
+#        DISK_INDEX  the IDE place of the image as a disk (default 0: sdC0)
 #        SHOW        files whose contents go to the serial line with the
 #                    marker (e.g. /dev/vgactl: whose screen it is)
 import json, os, shutil, socket, subprocess, sys, time
@@ -44,7 +45,7 @@ else:	# the hybrid image as a disk (USB stick); QEMU writes to it: into a qcow2 
 	disk = os.path.join(work, 'disk.qcow2')
 	subprocess.run(['qemu-img', 'create', '-q', '-f', 'qcow2', '-F', 'raw',
 		'-b', os.path.abspath(iso), disk], check=True)
-	q += ['-drive', 'file=%s,format=qcow2,if=ide,index=0' % disk]
+	q += ['-drive', 'file=%s,format=qcow2,if=ide,index=%s' % (disk, os.environ.get('DISK_INDEX', '0'))]
 vm = subprocess.Popen(q, stdout=subprocess.DEVNULL, stderr=open(os.path.join(work, 'qemu.log'), 'w'))
 
 def qmp():

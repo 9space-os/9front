@@ -71,6 +71,7 @@ Called by `build.exe` (Pre/Post steps); rarely run by hand.
 |---|---|
 | `mkstick.sh` | build the stick image (9fat with logs, hjfs root with the test runner and test programs) in a QEMU guest; `PACK=1`: a hand-off dir (packed image, collect.py, HOWTO.txt with the dd line). `scripts/hw/mkstick.sh [image]` |
 | `collect.py` | copy `hwtest/` from the stick's 9fat (or the image) and print the summaries. `scripts/hw/collect.py /dev/sdX [dir]` |
+| `pxe.sh` | boot a machine of the LAN by PXE from this host: proxy DHCP and TFTP by dnsmasq (9boot, the kernel, `/cfg/pxe/<mac>`), the root by ufs; `tests/hw/machines/<machine>`: its plan9.ini lines and firmware; `QEMU=1`: a rehearsal in QEMU. `scripts/hw/pxe.sh mac [machine]` |
 
 ## guest/ — QEMU guest, install media, boot loaders
 

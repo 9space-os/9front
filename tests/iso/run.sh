@@ -46,4 +46,19 @@ for media in cd disk; do
 			"OVMF_CODE='$OVMF_CODE' python3 '$ROOT/tests/iso/drive.py' '$IMG' $media $fw '$TMPD/$media-$fw' > '$TMPD/$media-$fw.out'; grep -q '^$dev\$' '$TMPD/$media-$fw.out' && grep -q '^desktop $want\$' '$TMPD/$media-$fw.out' || { tail -5 '$TMPD/$media-$fw.out'; false; }"
 	done
 done
+# another system's ISO before it (a second stick, sdC0; the image as sdC1):
+# 9boot reads plan9.ini from the disk it was loaded from, not the first
+# ISO, and bootrc offers the ISO with an init as the root. UEFI only: a
+# BIOS starts the first disk alone (SeaBIOS: drive 0x80), the other ISO
+mkdir -p "$TMPD/other"
+echo other >"$TMPD/other/README"
+check "another system's ISO (no plan9.ini, no init)" xorriso -as mkisofs -quiet -V OTHER -o "$TMPD/other.iso" "$TMPD/other"
+for fw in uefi; do
+	if [ ! -f "$OVMF_CODE" ]; then
+		skip "disk after another ISO, $fw" "no OVMF ($OVMF_CODE)"
+		continue
+	fi
+	check "boot as disk with $fw after another system's ISO up to the desktop ($want), root /dev/sdC1/data" bash -c \
+		"QEMU_EXTRA='-drive file=$TMPD/other.iso,format=raw,if=ide,index=0,snapshot=on' DISK_INDEX=1 OVMF_CODE='$OVMF_CODE' python3 '$ROOT/tests/iso/drive.py' '$IMG' disk $fw '$TMPD/other-$fw' > '$TMPD/other-$fw.out'; grep -q '^/dev/sdC1/data\$' '$TMPD/other-$fw.out' && grep -q '^desktop $want\$' '$TMPD/other-$fw.out' || { tail -5 '$TMPD/other-$fw.out'; false; }"
+done
 done_tests

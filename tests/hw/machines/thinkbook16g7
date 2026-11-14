@@ -1,0 +1,6 @@
+# Lenovo ThinkBook 16 G7 ARP (Ryzen 7 7735HS, Radeon 680M): booted by PXE
+# (scripts/hw/pxe.sh mac thinkbook16g7). Its internal NVMe (another system)
+# must never be touched, not even read: the kernel leaves NVMe alone.
+*nonvme=1
+# the Radeon 680M (Rembrandt, "yellow carp") for aux/amdgpu
+firmware amdgpu/yellow_carp_*
