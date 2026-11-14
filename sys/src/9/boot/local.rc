@@ -1,11 +1,31 @@
 #!/bin/rc
 
+# cdboot: an ISO 9660 file system with this machine's init, not
+# another system's ISO beside it (a second stick)
+fn cdsystem {
+	rm -f /srv/cdtest
+	{9660srv -s -f $1 <[0=1] &} | echo 0 >/srv/cdtest
+	if(mount -n /srv/cdtest /n/cdtest >[2]/dev/null){
+		test -x /n/cdtest/$cputype/init
+		cdst=$status
+		unmount /n/cdtest
+	}
+	if not
+		cdst=nomount
+	rm -f /srv/cdtest
+	status=$cdst
+}
+
 fn showlocaldev {
 	echo $1'	' $2
 	if(~ $#bootargs 0){
 		if(! ~ $#cdboot 0){
-			if(~ $2 9660)
-				bootargs=local!$1
+			if(~ $2 9660){
+				if(~ $#cdfirst 0)
+					cdfirst=$1
+				if(cdsystem $1)
+					bootargs=local!$1
+			}
 		}
 		if not {
 			if(! ~ $2 '' dos)
@@ -15,6 +35,7 @@ fn showlocaldev {
 }
 
 fn showlocaldevs{
+	cdfirst=()
 	for(d in /dev/sd*) if(test -r $d/ctl){
 		q=`{sed 's,(inquiry|geometry),\
 \1,g' $d/ctl | grep inquiry}
@@ -38,6 +59,9 @@ fn showlocaldevs{
 			~ $#t 0 || showlocaldev $p $t
 		}
 	}
+	# no ISO with an init: the first, as before
+	if(~ $#bootargs 0 && ! ~ $#cdfirst 0)
+		bootargs=local!$cdfirst
 }
 
 fn configlocal{
