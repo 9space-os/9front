@@ -70,6 +70,10 @@ if [ "$objtype" = amd64 ] && [ -x "$RUSTC" ] && command -v cargo >/dev/null; the
 	done
 	"$CROSS/$TRIPLE-ar" rcs "$O/libscreenpeek.a" "$O/screenpeek.o"
 	T=x86_64-unknown-plan9
+	# crates built with another std than the sysroot's go (scripts/build/cargostd.sh)
+	. "$ROOT/scripts/build/cargostd.sh"
+	cargostd "$O/rsvk" $T
+	cargostd "$BUILD/cargo/eframetest" $T
 	(cd "$HERE/rsvk" &&
 	 RUSTC="$RUSTC" RSVK_SPV="$O" CARGO_TARGET_DIR="$O/rsvk" \
 	 CARGO_TARGET_X86_64_UNKNOWN_PLAN9_LINKER="$CROSS/$TRIPLE-gcc" \

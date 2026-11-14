@@ -175,7 +175,25 @@ firmware_selftest(void)
 	}
 	pr_info("selftest: acpi: GPU %s is %s, _ADR %#llx: %s\n", dev_name(&p->dev), name, adr,
 		adr == ((unsigned long long)PCI_SLOT(p->devfn) << 16 | PCI_FUNC(p->devfn)) ? "ok" : "FAIL");
-	return adr == ((unsigned long long)PCI_SLOT(p->devfn) << 16 | PCI_FUNC(p->devfn)) ? 0 : -EIO;
+	if (adr != ((unsigned long long)PCI_SLOT(p->devfn) << 16 | PCI_FUNC(p->devfn)))
+		return -EIO;
+	/*
+	 * tests/gpu's SSDT (nfst.py), where loaded: a store through Index
+	 * changes the named buffer (firmware fills its replies so: ATIF)
+	 */
+	if (acpi_get_handle(NULL, "\\NFST", &h) == AE_OK) {
+		struct acpi_buffer r = { ACPI_ALLOCATE_BUFFER, NULL };
+		union acpi_object *o;
+		bool ok;
+
+		ok = acpi_evaluate_object(h, NULL, NULL, &r) == AE_OK && (o = r.pointer) != NULL &&
+			o->type == ACPI_TYPE_BUFFER && o->buffer.length == 4 && o->buffer.pointer[1] == 0x5a;
+		pr_info("selftest: acpi: Store to an Index of a named buffer: %s\n", ok ? "ok" : "FAIL");
+		kfree(r.pointer);
+		if (!ok)
+			return -EIO;
+	}
+	return 0;
 }
 
 int

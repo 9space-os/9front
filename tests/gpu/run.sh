@@ -63,12 +63,14 @@ check "alias and phys segments revoked (segment(3)): freed objects stay visible 
 # 2 of 10 runs failed so, 1 in many with one)
 # with SMBIOS strings of our own (QEMU -smbios): DMI, and the GPU's ACPI
 # node by _ADR through aux/acpi (the one interpreter: the driver starts
-# it, a second aux/acpi mounts it instead of starting another)
+# it, a second aux/acpi mounts it instead of starting another), and an
+# SSDT of our own (nfst.py): a store through Index into a named buffer
 kpitest(){
+	python3 "$HERE/nfst.py" "$TMPD/nfst.aml" || return 1
 	# UFS_EXTRA as in every boot here, though unused: one root for all of
 	# them, which gen-ufs-root.sh keeps up to date (without it the tests'
 	# GBs were deleted from the root and written again by the next boot)
-	SMP=4 MEM=2048 WAITMAX=500 UFS_EXTRA="$HERE/root" QEMU_EXTRA="-vga none -device virtio-gpu-pci -smbios type=1,manufacturer=9front,product=gputest -smbios type=0,vendor=testbios,version=1.2" \
+	SMP=4 MEM=2048 WAITMAX=500 UFS_EXTRA="$HERE/root" QEMU_EXTRA="-vga none -device virtio-gpu-pci -smbios type=1,manufacturer=9front,product=gputest -smbios type=0,vendor=testbios,version=1.2 -acpitable file=$TMPD/nfst.aml" \
 		"$ROOT/scripts/guest/boot-cli.sh" 'aux/i915 -T' 'aux/acpi' 'ls /dev/aml /dev/pmctl' > "$TMPD/kpitest" 2>&1
 	tr -d '\r' < "$CLI_DIR/console.log" > "$TMPD/kpitest.log"
 	grep -q "dma-buf selftests: ok" "$CLI_DIR/console.log" && return
@@ -81,6 +83,7 @@ check "LinuxKPI selftests (aux/i915 -T: segments, vmap, Linux's dma-buf selftest
 check "LinuxKPI: nth_page by frame, past the end of a chunk" grep -q 'selftest: nth_page by frame, past the chunk: ok' "$TMPD/kpitest.log"
 check "DMI from SMBIOS (#P/smbios): QEMU's strings" grep -q 'selftest: dmi: sys vendor "9front", product "gputest", bios "testbios" "1.2"' "$TMPD/kpitest.log"
 check "ACPI: the GPU's node by _ADR (aux/acpi's aml)" grep -qE 'selftest: acpi: GPU 0000:00:0[0-9a-f]\.0 is .*, _ADR 0x[0-9a-f]+: ok' "$TMPD/kpitest.log"
+check "ACPI: Store to an Index of a named buffer changes the buffer (libaml)" grep -q 'selftest: acpi: Store to an Index of a named buffer: ok' "$TMPD/kpitest.log"
 check "one AML interpreter: a second aux/acpi mounts the first" bash -c "grep -q 'aux/acpi: runs already: /srv/acpi mounted on /dev' '$TMPD/kpitest.log' && grep -q '^/dev/pmctl' '$TMPD/kpitest.log'"
 
 # i915's mock selftests (no GPU: a mock device): GEM, GTT, vma, requests, ...
