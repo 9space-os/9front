@@ -511,8 +511,10 @@ fn crosscursor() -> Vec<u8> {
     c
 }
 
-/// rio's cursors of a window's border (rio/data.c: tl, t, tr, l, r, bl, b,
-/// br), by whichcorner: offset, clr, set
+/// rio's cursors of a window's border, by whichcorner: offset, clr, set.
+/// The bits are 9front's sys/src/cmd/rio/data.c (tl, t, tr, l, r, bl, b, br):
+/// Copyright © 2021 Plan 9 Foundation, Copyright © 9front authors; MIT
+/// license, /lib/legal/mit
 const CORNERS: [(i32, i32, [u8; 32], [u8; 32]); 9] = [
     (-4, -4,
      [0xfe, 0x00, 0x82, 0x00, 0x8c, 0x00, 0x87, 0xff, 0xa0, 0x01, 0xb0, 0x01, 0xd0, 0x01, 0x11, 0xff,
