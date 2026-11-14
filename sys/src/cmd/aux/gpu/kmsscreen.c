@@ -192,20 +192,16 @@ copyrect(int x0, int y0, int x1, int y1)
 }
 
 static void
-dirtyproc(void*)
+dirtyproc(void *a)
 {
-	char path[64], buf[64], *f[4];
+	char buf[64], *f[4];
 	int fd, n;
 
-	snprint(path, sizeof path, "%s/dirty", gdir);
-	if((fd = open(path, OREAD)) < 0){
-		fprint(2, "%s: screen: %s: %r\n", drv, path);
-		return;
-	}
+	fd = (int)(uintptr)a;
 	for(;;){
 		n = read(fd, buf, sizeof buf - 1);
 		if(n <= 0){
-			fprint(2, "%s: screen: %s: %r\n", drv, path);
+			fprint(2, "%s: screen: %s/dirty: %r\n", drv, gdir);
 			return;
 		}
 		buf[n] = 0;
@@ -274,8 +270,9 @@ screenstart(char *dir, int barno, char *name)
 {
 	unsigned long long off;
 	uvlong sz[4];
+	char path[64];
 	uint uw, uh;
-	int r, i, n;
+	int r, i, n, dfd;
 
 	gdir = dir;
 	drv = name;
@@ -300,10 +297,21 @@ screenstart(char *dir, int barno, char *name)
 	w = uw;
 	h = uh;
 	vram = bar + off;
-	if(vgactl("type gpu") < 0 || setsize() < 0)
+	/*
+	 * #G keeps the changes for an open dirty file only: open before the
+	 * switch, the clients' drawing after it (wsys and rio draw all again
+	 * at the mouse's r) is kept for dirtyproc; the copy of all of it
+	 * after the switch has what was drawn before
+	 */
+	snprint(path, sizeof path, "%s/dirty", gdir);
+	if((dfd = open(path, OREAD)) < 0)
 		return -1;
+	if(vgactl("type gpu") < 0 || setsize() < 0){
+		close(dfd);
+		return -1;
+	}
 	copyrect(0, 0, w, h);
-	proccreate(dirtyproc, nil, 16384);
+	proccreate(dirtyproc, (void*)(uintptr)dfd, 16384);
 	if(vgactl("hwgc gpu") < 0)
 		vgactl("hwgc soft");
 	else
