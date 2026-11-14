@@ -60,6 +60,12 @@ estrdup(char *s)
 	return t;
 }
 
+static int
+mapcmp(void *a, void *b)
+{
+	return strcmp(((KbMap*)a)->name, ((KbMap*)b)->name);
+}
+
 void
 init(void)
 {
@@ -78,6 +84,8 @@ init(void)
 		map[i].current = 0;
 	}
 	free(pd);
+	/* GCC port branch: by name, a directory's order is its file server's (9front bug, patch-upstream 0035) */
+	qsort(map, nmap, sizeof(KbMap), mapcmp);
 
 	close(fd);
 }

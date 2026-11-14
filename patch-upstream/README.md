@@ -94,6 +94,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0032 | libaml: a store into the field Index gives was dropped | bug fix |
 | 0033 | 9boot (efi): the boot device first, PXE through the firmware's MTFTP | bug fix |
 | 0034 | bootrc: cdboot takes the ISO 9660 with this machine's init | bug fix |
+| 0035 | kbmap: the maps sorted by name | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -452,6 +453,14 @@ With `cdboot`, `local.rc` took the first 9660 file system as the root,
 another system's ISO before ours too. `cdsystem` mounts each and takes
 the first with `/$cputype/init`, else the first as before. Shown by:
 the same `tests/iso` case.
+
+### 0035 kbmap: the maps sorted by name
+
+kbmap listed `/sys/lib/kbmap` in the order its file server reads the
+directory: alphabetical from hjfs and cwfs, any order from others (the
+main branch's ufs serving a root from a Linux host). It sorts the names
+now. Shown by: kbmap on a machine booted by PXE with that root. Not
+done: compiled with 9front's own compilers.
 
 ## Not included
 
