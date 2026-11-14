@@ -7,7 +7,7 @@ segflush \- flush instruction and data caches
 .B #include <libc.h>
 .PP
 .B
-int	segflush(void *va, ulong len)
+int	segflush(void *va, usize len)
 .PP
 .SH DESCRIPTION
 .I Segflush

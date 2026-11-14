@@ -32,7 +32,7 @@ unsafe extern "C" {
     #[link_name = "__p9_remove"]
     fn p9remove(file: *const c_char) -> c_int;
     #[link_name = "__p9_segattach"]
-    fn p9segattach(attr: c_int, class: *const c_char, va: *mut c_void, len: c_uint) -> *mut c_void;
+    fn p9segattach(attr: c_int, class: *const c_char, va: *mut c_void, len: usize) -> *mut c_void;
     #[link_name = "__p9_segdetach"]
     fn p9segdetach(addr: *mut c_void) -> c_int;
     #[link_name = "__p9_rfork"]
@@ -217,7 +217,7 @@ impl Seg {
 
     /// segment name attached at its address, (va, len) as find gave them
     pub fn attach(name: &str, (va, len): (usize, usize)) -> io::Result<Seg> {
-        let p = unsafe { p9segattach(0, cs(name).as_ptr(), std::ptr::null_mut(), len as c_uint) };
+        let p = unsafe { p9segattach(0, cs(name).as_ptr(), std::ptr::null_mut(), len) };
         if p as isize == -1 {
             return Err(err());
         }
@@ -246,7 +246,7 @@ impl Seg {
         if class.is_empty() || class.contains('/') {
             return Err(io::Error::other("bad segment class"));
         }
-        let p = unsafe { p9segattach(0, cs(class).as_ptr(), std::ptr::null_mut(), len as c_uint) };
+        let p = unsafe { p9segattach(0, cs(class).as_ptr(), std::ptr::null_mut(), len) };
         if p as isize == -1 {
             return Err(err());
         }

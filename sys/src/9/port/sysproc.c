@@ -1107,13 +1107,13 @@ syssegattach(uchar *list)
 {
 	int attr;
 	char *name;
-	uintptr va;
-	ulong len;
+	uintptr va, len;
 
 	attr = ARG(list, int);
 	name = ARG(list, char*);
 	va = ARG(list, uintptr);
-	len = ARG(list, ulong);
+	/* nfront: the length is a usize (libc.h), 4 GB and more on amd64 (an APU's video memory) */
+	len = ARG(list, uintptr);
 	validaddr((uintptr)name, 1, 0);
 	name = validnamedup(name, 1);
 	if(waserror()){
@@ -1167,7 +1167,7 @@ syssegflush(uchar *list)
 	void *va;
 
 	va = ARG(list, void*);
-	len = ARG(list, ulong);
+	len = ARG(list, uintptr);
 	return segflush(va, len);
 }
 
@@ -1178,7 +1178,7 @@ syssegfree(uchar *list)
 	void *va;
 
 	va = ARG(list, void*);
-	len = ARG(list, ulong);
+	len = ARG(list, uintptr);
 	return segfree(va, len);
 }
 
