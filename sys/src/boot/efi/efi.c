@@ -5,6 +5,19 @@
 UINTN MK;
 EFI_HANDLE IH;
 EFI_SYSTEM_TABLE *ST;
+EFI_HANDLE BD;	/* the device this loader was read from */
+
+static EFI_GUID EFI_LOADED_IMAGE_PROTOCOL_GUID = {
+	0x5b1b31a1, 0x9562, 0x11d2,
+	0x8e, 0x3f, 0x00, 0xa0,
+	0xc9, 0x69, 0x72, 0x3b,
+};
+
+static EFI_GUID EFI_DEVICE_PATH_PROTOCOL_GUID = {
+	0x09576e91, 0x6d3f, 0x11d2,
+	0x8e, 0x39, 0x00, 0xa0,
+	0xc9, 0x69, 0x72, 0x3b,
+};
 
 void* (*open)(char *name);
 int (*read)(void *f, void *data, int len);
@@ -296,17 +309,70 @@ eficonfig(char **cfg)
 	screenconf(cfg);
 }
 
+/* the bytes of a device path before its end node */
+static int
+dplen(uchar *p)
+{
+	uchar *s;
+	int n;
+
+	for(s = p; p[0] != 0x7F || p[1] != 0xFF; p += n){
+		n = p[2] | p[3]<<8;
+		if(n < 4)
+			break;
+	}
+	return p - s;
+}
+
+/*
+ * is h the device this loader was read from, or one
+ * that device is part of (the disk of its partition)?
+ */
+int
+onbootdev(void *h)
+{
+	uchar *p, *b;
+	int n;
+
+	if(BD == nil)
+		return 0;
+	if(h == BD)
+		return 1;
+	p = b = nil;
+	if(eficall(ST->BootServices->HandleProtocol, h,
+		&EFI_DEVICE_PATH_PROTOCOL_GUID, &p)
+	|| eficall(ST->BootServices->HandleProtocol, BD,
+		&EFI_DEVICE_PATH_PROTOCOL_GUID, &b))
+		return 0;
+	n = dplen(p);
+	return n > 0 && n < dplen(b) && memcmp(p, b, n) == 0;
+}
+
 EFI_STATUS
 efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 {
+	EFI_LOADED_IMAGE_PROTOCOL *image;
 	char path[MAXPATH], *kern;
 	void *f;
 
 	IH = ih;
 	ST = st;
 
+	BD = nil;
+	image = nil;
+	if(eficall(ST->BootServices->HandleProtocol, IH,
+		&EFI_LOADED_IMAGE_PROTOCOL_GUID, &image) == 0)
+		BD = image->DeviceHandle;
+
+	/*
+	 * the device this loader came from first: other machines'
+	 * ISOs (a second stick) or a network the firmware tried
+	 * before have no plan9.ini for us. then the old search,
+	 * where one with a plan9.ini comes first.
+	 */
 	f = nil;
-	if(pxeinit(&f) && isoinit(&f) && fsinit(&f))
+	if(pxeinit(&f, 1) && isoinit(&f, 0) && fsinit(&f, 1)
+	&& isoinit(&f, 1) && pxeinit(&f, 0) && isoinit(&f, 2) && fsinit(&f, 0))
 		print("no boot devices\n");
 
 	open = rebase(open);

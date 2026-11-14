@@ -72,11 +72,52 @@ EFI_BLOCK_IO_PROTOCOL_GUID = {
 
 static EFI_BLOCK_IO_PROTOCOL *bio;
 
+enum {
+	Maxblk = 4096,	/* largest block, and alignment, read here */
+};
+static uchar blkmem[2*Maxblk];
+
+/*
+ * through a buffer aligned as any device wants it (IoAlign:
+ * real firmware's USB and NVMe drivers refuse others) and
+ * whole blocks, which may be bigger than a sector (4K disks)
+ */
 static int
 readsect(ulong lba, void *buf)
 {
-	lba *= Sectsz/bio->Media->BlockSize;
-	return eficall(bio->ReadBlocks, bio, (UINTN)bio->Media->MediaId, (UINT64)lba, (UINTN)Sectsz, buf);
+	EFI_BLOCK_IO_MEDIA *m;
+	ulong off, per;
+	UINT64 blk;
+	UINTN n;
+	uchar *p;
+	uintptr r;
+	char e[20];
+
+	m = bio->Media;
+	if(m->BlockSize == 0 || m->BlockSize > Maxblk || m->IoAlign > Maxblk)
+		return -1;
+	p = (uchar*)(((uintptr)blkmem + Maxblk-1) & ~(uintptr)(Maxblk-1));
+	/* no 64-bit division: ia32 links no library */
+	if(m->BlockSize <= Sectsz){
+		blk = (UINT64)lba * (Sectsz/m->BlockSize);
+		off = 0;
+		n = Sectsz;
+	} else {
+		per = m->BlockSize/Sectsz;
+		blk = lba/per;
+		off = (lba%per)*Sectsz;
+		n = m->BlockSize;
+	}
+	r = eficall(bio->ReadBlocks, bio, (UINTN)m->MediaId, blk, n, p);
+	if(r){
+		*hexfmt(e, 0, r) = 0;
+		print("iso: read error ");
+		print(e);
+		print("\n");
+		return -1;
+	}
+	memmove(buf, p + off, Sectsz);
+	return 0;
 }
 
 static int
@@ -201,8 +242,12 @@ isoopen(char *path)
 	return ex;
 }
 
+/*
+ * how: 0 the disk this loader was read from,
+ * 1 any disk with a /cfg/plan9.ini, 2 any disk
+ */
 int
-isoinit(void **fp)
+isoinit(void **fp, int how)
 {
 	EFI_BLOCK_IO_MEDIA *media;
 	EFI_HANDLE *Handles;
@@ -227,7 +272,9 @@ isoinit(void **fp)
 		&& media->MediaPresent
 		&& media->LogicalPartition == 0
 		&& media->BlockSize != 0
-		&& isoopen("") != nil)
+		&& (how != 0 || onbootdev(Handles[i]))
+		&& isoopen("") != nil
+		&& (how != 1 || isoopen("/cfg/plan9.ini") != nil))
 			goto Found;
 	}
 	return -1;
