@@ -41,8 +41,9 @@ mkdir -p "$OUT"/$A/bin "$OUT"/rc "$OUT"/lib "$OUT"/adm/timezone \
 
 # directories a 9front root has, here empty: /386, /arm64 (where the
 # boot loaders install), /$objtype/include, /sys/include, /sys/src (bound
-# over by a source tree in the guest)
-mkdir -p "$OUT"/386 "$OUT"/arm64 "$OUT"/$A/include "$OUT"/sys/include "$OUT"/sys/src
+# over by a source tree in the guest), /sys/log (the services' logs,
+# gpustart's)
+mkdir -p "$OUT"/386 "$OUT"/arm64 "$OUT"/$A/include "$OUT"/sys/include "$OUT"/sys/src "$OUT"/sys/log
 put "$ROOT"/$A/init "$OUT"/$A/init
 put "$ROOT"/$A/bin/. "$OUT"/$A/bin/
 rm -f "$OUT"/$A/bin/9pc64 "$OUT"/$A/bin/9pc "$OUT"/$A/bin/9qemu	# the kernel
