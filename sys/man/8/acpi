@@ -17,6 +17,12 @@ acpi \- Advanced Configuration and Power Interface
 .B -s
 .I service
 ]
+.PP
+.B aux/acpikeys
+[
+.B -f
+.I events
+]
 .SH DESCRIPTION
 .I Aux/acpi
 presents at
@@ -143,10 +149,92 @@ values (package) or
 Operation regions in a PCI device's configuration space reach the
 device through
 .BR #$/pci .
+.SS Events
+Where the kernel offers the firmware's events
+.RB ( #P/acpiev ,
+.IR arch (3)),
+.I aux/acpi
+enables every general-purpose event (GPE) that has a method
+.RB ( \\_GPE._L\fIxx\fP ,
+.BR _E\fIxx\fP )
+and the embedded controller's, runs the method when the event comes
+(for the embedded controller, its query's
+.BR _Q\fIxx\fP ),
+and reports what those methods notify, and the fixed power and sleep
+buttons, as lines of
+.BR acpievents :
+.TP
+.BI "notify " "path value"
+each
+.B Notify
+as it is;
+.TP
+.BI "key " name
+.B brightnessup
+and
+.B brightnessdown
+(a display output's 0x86 and 0x87, a ThinkPad's hotkeys 0x1010 and
+0x1011),
+.BR brightnesszero ,
+.BR brightnesscycle ,
+.B displayoff
+(0x88, 0x85, 0x89), and
+.B displayswitch
+(a display adapter's 0x80);
+.TP
+.BI "hotkey " n
+a ThinkPad's other hotkeys (its
+.B MHKP
+code; the hotkeys are enabled through
+.B MHKA ,
+.B MHKM
+and
+.BR MHKC );
+.TP
+.BR "button power" ", " "button sleep"
+.TP
+.BR "lid open" ", " "lid closed"
+.TP
+.BR "ac online" ", " "ac offline"
+.TP
+.B battery
+its state or information changed.
+.PP
+A reader gets the lines from its open on; one that falls 256 lines
+behind loses the oldest.
+.PP
+.B backlight
+is there where a display output has brightness levels
+.RB ( _BCL ):
+reading it gives the level and 100, writing
+.I n
+sets the level nearest to it through
+.B _BCM
+(the next one in that direction, if that is the level set).
+The GPU drivers have their own
+.RI ( gpu (4)).
+.PP
+.I Aux/acpikeys
+reads
+.I events
+(default
+.BR /dev/acpievents )
+and moves the backlight of every panel a GPU driver serves
+.RI ( gpu (4):
+.BR /srv/gpu. \fIN\fP)
+by a sixteenth of its range for each brightness key, without one the
+firmware's
+.RB ( /dev/backlight ).
+.IR termrc (8)
+starts both where there are events.
 .SH SOURCE
 .B /sys/src/cmd/aux/acpi.c
+.br
+.B /sys/src/cmd/aux/acpikeys.c
 .SH SEE ALSO
-.IR reform (1)
+.IR reform (1),
+.IR arch (3),
+.IR gpu (4)
 .SH BUGS
 ACPI itself.
 .PP

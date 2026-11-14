@@ -57,6 +57,7 @@
 			"accupoint.c",
 			"acidleak.c",
 			"acpi.c",
+			"acpikeys.c",
 			"aout2efi.c",
 			"aout2uimage.c",
 			"apm.c",

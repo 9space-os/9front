@@ -80,6 +80,8 @@ enum {
 	Battery,
 	Pmctl,
 	Aml,
+	Events,		/* nfront: acpievents */
+	Backlight,	/* nfront: the panel's brightness through _BCM */
 
 	SLP_EN = 0x2000,
 	SLP_TM = 0x1c00,
@@ -92,6 +94,14 @@ static Bat bats[4];
 static void *bccs, *bcss;
 static FACP facp;
 static char *amlrequest(char*, int, char**);	/* 9front-ng: the aml file */
+static void *amlbelow(void*, char*);
+static void *ecdev, *hkey;	/* nfront: the EC, a ThinkPad's hotkeys (events) */
+static int ecgpe = -1;
+static QLock amllk;	/* nfront: one evaluation at a time, the files' and the events' */
+static void amldone(void);
+static void fsevread(Req*);
+static void backlightread(char*, char*);
+static char *backlightwrite(char*);
 
 static int
 enumec(void *dot, void *)
@@ -106,6 +116,49 @@ enumec(void *dot, void *)
 	p = amlwalk(dot, "^_REG");
 	if(p != nil)
 		amleval(p, "ii", 0x3, 1, nil);
+	/* nfront: its events (an EC's _GPE is a GPE number; a package, a block's: not here) */
+	if(ecdev == nil && (ecdev = amlwalk(dot, "^")) != nil){
+		amltake(ecdev);
+		if((p = amlwalk(dot, "^_GPE")) != nil && amleval(p, "", &p) >= 0 && amltag(p) == 'i')
+			ecgpe = amlint(p);
+	}
+	return 1;
+}
+
+/*
+ * nfront: the devices' _INI, as the ACPI spec (6.5.1) and OpenBSD's
+ * acpi_inidev (sys/dev/acpi/acpi.c,v 1.458; its notice below, with the
+ * events) run them: where the device is present by its _STA (none: it
+ * is), and nothing below a device neither present, enabled nor
+ * functioning.  Firmware sets itself up there: an embedded controller's
+ * _INI enables its queries of the hotkeys (Lenovo's KQEN) and notes the
+ * OS by _OSI.
+ */
+static uvlong
+getsta(void *dev)
+{
+	void *p;
+
+	if((p = amlwalk(dev, "_STA")) == nil || amlwalk(p, "^") != dev || amleval(p, "", &p) < 0)
+		return 0xF;
+	return amlint(p);
+}
+
+static int
+enumini(void *dot, void *)
+{
+	void *dev, *d;
+	uvlong sta;
+
+	if((dev = amlwalk(dot, "^")) == nil)
+		return 1;
+	for(d = amlwalk(dev, "^"); d != nil && d != amlroot; d = amlwalk(d, "^")){
+		sta = getsta(d);
+		if((sta & 8) == 0 && (sta & 3) == 0)
+			return 1;	/* below a device not there */
+	}
+	if(dev == amlroot || getsta(dev) & 1)
+		amleval(dot, "", nil);
 	return 1;
 }
 
@@ -219,6 +272,24 @@ enumtp(void *dot, void *)
 		break;
 	default:
 		return 1;
+	}
+
+	/*
+	 * nfront: the hotkeys, as acpithinkpad's thinkpad_enable_events:
+	 * MHKA's mask and the brightness keys (bits 15, 16) through MHKM,
+	 * then MHKC(1); they come as Notify(HKEY, 0x80), read by MHKP
+	 */
+	if(hkey == nil && (p = amlwalk(dot, "^MHKA")) != nil && amleval(p, "", &r) >= 0){
+		uvlong mask;
+
+		mask = amlint(r) | 1<<15 | 1<<16;
+		if((p = amlwalk(dot, "^MHKM")) != nil)
+			for(i = 0; i < 32; i++)
+				amleval(p, "ii", i+1, (mask & 1ULL<<i) != 0, nil);
+		if((p = amlwalk(dot, "^MHKC")) != nil && amleval(p, "i", 1, nil) >= 0){
+			hkey = amlwalk(dot, "^");
+			amltake(hkey);
+		}
 	}
 
 	if((p = amlwalk(dot, "^BCTG")) != nil){
@@ -508,13 +579,21 @@ fsread(Req *r)
 		respond(r, nil);
 		return;
 	}
+	if(aux == (void*)Events){
+		fsevread(r);
+		return;
+	}
 	if(r->ifcall.offset == 0){
+		qlock(&amllk);
 		if(aux == (void*)Temp)
 			tmpread(s, e);
 		else if(aux == (void*)Battery)
 			batteryread(s, e);
 		else if(aux == (void*)Pmctl)
 			pmctlread(s, e);
+		else if(aux == (void*)Backlight)
+			backlightread(s, e);
+		amldone();
 	}
 
 	readstr(r, msg);
@@ -532,7 +611,9 @@ fswrite(Req *r)
 	if(aux == (void*)Aml){
 		char *err, *reply;
 
+		qlock(&amllk);
 		err = amlrequest(r->ifcall.data, r->ifcall.count, &reply);
+		amldone();
 		free(r->fid->aux);
 		r->fid->aux = reply;
 		if(err != nil){
@@ -546,20 +627,43 @@ fswrite(Req *r)
 	snprint(msg, sizeof(msg), "%.*s",
 		utfnlen((char*)r->ifcall.data, r->ifcall.count), (char*)r->ifcall.data);
 	nf = tokenize(msg, f, nelem(f));
+	if(aux == (void*)Backlight){
+		char *err;
+
+		if(nf != 1){
+			respond(r, "bad level");
+			return;
+		}
+		qlock(&amllk);
+		err = backlightwrite(f[0]);
+		amldone();
+		if(err != nil){
+			respond(r, err);
+			return;
+		}
+	}
 	if(aux == (void*)Pmctl){
-		if(nf == 2 && strcmp(f[0], "power") == 0 && strcmp(f[1], "off") == 0){
-			if(poweroff() < 0){
-				 /* should not go any further here */
-				responderror(r);
-				return;
-			}
-		}else if(nf == 4 && strcmp(f[0], "charge") == 0){
-			if(tpclampcharge(f[1], atoi(f[2]), atoi(f[3])) < 0){
-				responderror(r);
-				return;
-			}
-		}else{
-			respond(r, "invalid ctl message");
+		char *err;
+		int rv;
+
+		/* nfront: one evaluation at a time with the events' */
+		err = nil;
+		qlock(&amllk);
+		if(nf == 2 && strcmp(f[0], "power") == 0 && strcmp(f[1], "off") == 0)
+			rv = poweroff();	/* should not go any further here */
+		else if(nf == 4 && strcmp(f[0], "charge") == 0)
+			rv = tpclampcharge(f[1], atoi(f[2]), atoi(f[3]));
+		else {
+			rv = 0;
+			err = "invalid ctl message";
+		}
+		amldone();
+		if(rv < 0){
+			responderror(r);
+			return;
+		}
+		if(err != nil){
+			respond(r, err);
 			return;
 		}
 	}
@@ -1053,9 +1157,532 @@ amlrequest(char *buf, int n, char **reply)
 	return nil;
 }
 
+/*
+ * nfront: ACPI's events.  A proc reads the kernel's #P/acpiev (the SCI's
+ * general-purpose events and PM1's fixed ones, masked until written
+ * back), runs each GPE's method (\_GPE._Lxx, _Exx; the embedded
+ * controller's: its queries' _Qxx), and the Notify those methods make
+ * (libaml's amlnotify) become lines of the file acpievents:
+ *	notify path 0xV		each Notify as it is
+ *	key brightnessup|brightnessdown|brightnesszero|brightnesscycle|
+ *	    displayoff|displayswitch
+ *				a display output's 0x85-0x89, a display
+ *				adapter's 0x80 (the ACPI video extension), a
+ *				ThinkPad's hotkeys 0x1010, 0x1011
+ *	hotkey 0xN		a ThinkPad's other hotkeys (MHKP)
+ *	button power|sleep	PM1's fixed buttons, PNP0C0C, PNP0C0E
+ *	lid open|closed		PNP0C0D (_LID)
+ *	ac online|offline	ACPI0003 (_PSR)
+ *	battery			PNP0C0A changed
+ * A reader gets the lines from its open on; one that falls 256 lines
+ * behind loses the oldest.
+ *
+ * What is done with which event follows OpenBSD's sys/dev/acpi, whose
+ * notices these are:
+ *
+ * acpi.c,v 1.458 (the GPEs' methods, PM1's buttons):
+ * Copyright (c) 2005 Thorsten Lockert <tholo@sigmasoft.com>
+ * Copyright (c) 2005 Jordan Hargrave <jordan@openbsd.org>
+ * acpiec.c,v 1.67 (the queries):
+ * Copyright (c) 2006 Can Erkin Acar <canacar@openbsd.org>
+ * acpivout.c,v 1.26 (a display output's notifications):
+ * Copyright (c) 2009 Paul Irofti <paul@irofti.net>
+ * acpivideo.c,v 1.14 (a display adapter's):
+ * Copyright (c) 2008 Federico G. Schwindt <fgsch@openbsd.org>
+ * Copyright (c) 2009 Paul Irofti <paul@irofti.net>
+ * acpithinkpad.c,v 1.74 (the hotkeys: MHKA, MHKM, MHKC, MHKP):
+ * Copyright (c) 2008 joshua stein <jcs@openbsd.org>
+ * acpibtn.c,v 1.56 (lid and buttons), acpiac.c,v 1.36 (AC adapter):
+ * Copyright (c) 2005 Marco Peereboom <marco@openbsd.org>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+enum {
+	Nev	= 256,	/* lines kept for readers */
+	Nnote	= 64,	/* Notifys of one evaluation */
+
+	Pwrbtn	= 1<<8,	/* PM1 status and enable */
+	Slpbtn	= 1<<9,
+};
+
+typedef struct Evreader Evreader;
+struct Evreader {
+	Evreader	*next;
+	uvlong	seq;	/* the next line it reads */
+	Req	*r;	/* its read, waiting */
+};
+
+static struct {
+	QLock;
+	char	*line[Nev];
+	uvlong	seq;	/* lines so far */
+	Evreader	*readers;
+} events;
+
+static struct {
+	void	*dot;
+	uvlong	v;
+} notes[Nnote];
+static int nnotes;
+
+static int ecq = -1;		/* #P/ecquery */
+static int evfd = -1;		/* #P/acpiev */
+static ulong facpflags;
+
+/* the lines a reader has not read, as many as its read takes; events held */
+static void
+evanswer(Evreader *e)
+{
+	char *s;
+	long n, m;
+	Req *r;
+
+	if((r = e->r) == nil || e->seq == events.seq)
+		return;
+	if(events.seq - e->seq > Nev)
+		e->seq = events.seq - Nev;
+	s = r->ofcall.data;
+	n = 0;
+	while(e->seq < events.seq){
+		m = strlen(events.line[e->seq % Nev]);
+		if(n + m > r->ifcall.count)
+			break;
+		memmove(s + n, events.line[e->seq % Nev], m);
+		n += m;
+		e->seq++;
+	}
+	if(n == 0 && e->seq < events.seq){
+		/* a line longer than the read */
+		respond(r, "read too short");
+		e->r = nil;
+		return;
+	}
+	r->ofcall.count = n;
+	e->r = nil;
+	respond(r, nil);
+}
+
+static void
+evpost(char *fmt, ...)
+{
+	Evreader *e;
+	va_list arg;
+	char *s;
+
+	va_start(arg, fmt);
+	s = vsmprint(fmt, arg);
+	va_end(arg);
+	if(s == nil)
+		return;
+	qlock(&events);
+	free(events.line[events.seq % Nev]);
+	events.line[events.seq % Nev] = smprint("%s\n", s);
+	events.seq++;
+	for(e = events.readers; e != nil; e = e->next)
+		evanswer(e);
+	qunlock(&events);
+	free(s);
+}
+
+/* libaml's Notify, inside an evaluation: noted, handled after it */
+static void
+amlnote(void *dot, uvlong v)
+{
+	if(nnotes < Nnote){
+		notes[nnotes].dot = dot;
+		notes[nnotes].v = v;
+		nnotes++;
+	}
+}
+
+static char*
+devhidof(void *dev)
+{
+	void *p;
+
+	if((p = amlbelow(dev, "_HID")) == nil)
+		return nil;
+	if(amleval(p, "", &p) < 0)
+		return nil;
+	return amleisaid(p);
+}
+
+static int
+evalint(void *dev, char *name, uvlong *v)
+{
+	void *p, *r;
+
+	if((p = amlbelow(dev, name)) == nil || amleval(p, "", &r) < 0)
+		return -1;
+	*v = amlint(r);
+	return 0;
+}
+
+/* a Notify: the line as it is, and what it means where that is known */
+static void
+evnote(void *dev, uvlong v)
+{
+	static char *vout[] = {
+		[0x85-0x85] "brightnesscycle", "brightnessup", "brightnessdown",
+		"brightnesszero", "displayoff",
+	};
+	char *hid;
+	uvlong x;
+	int i;
+
+	evpost("notify %N %#llux", dev, v);
+	hid = devhidof(dev);
+	if(dev == hkey && v == 0x80){
+		/* acpithinkpad: the hotkeys queued, until MHKP gives 0 */
+		for(i = 0; i < 64 && evalint(dev, "MHKP", &x) == 0 && x != 0; i++){
+			if(x == 0x1010)
+				evpost("key brightnessup");
+			else if(x == 0x1011)
+				evpost("key brightnessdown");
+			else
+				evpost("hotkey %#llux", x);
+		}
+		return;
+	}
+	if(hid != nil && strcmp(hid, "PNP0C0D") == 0 && v == 0x80){
+		if(evalint(dev, "_LID", &x) == 0)
+			evpost("lid %s", x ? "open" : "closed");
+		return;
+	}
+	if(hid != nil && strcmp(hid, "PNP0C0C") == 0 && v == 0x80){
+		evpost("button power");
+		return;
+	}
+	if(hid != nil && strcmp(hid, "PNP0C0E") == 0 && v == 0x80){
+		evpost("button sleep");
+		return;
+	}
+	if(hid != nil && strcmp(hid, "ACPI0003") == 0 && v == 0x80){
+		if(evalint(dev, "_PSR", &x) == 0)
+			evpost("ac %s", x ? "online" : "offline");
+		return;
+	}
+	if(hid != nil && strcmp(hid, "PNP0C0A") == 0 && (v == 0x80 || v == 0x81)){
+		evpost("battery");
+		return;
+	}
+	/* acpivout: an output with brightness levels; acpivideo: its adapter */
+	if(v >= 0x85 && v <= 0x89 && (amlbelow(dev, "_BCM") != nil || amlbelow(dev, "_BCL") != nil)){
+		evpost("key %s", vout[v - 0x85]);
+		return;
+	}
+	if(v == 0x80 && (amlbelow(dev, "_DOS") != nil || amlbelow(dev, "_DOD") != nil))
+		evpost("key displayswitch");
+}
+
+
+/* the evaluations done: their Notifys handled (which may evaluate more) */
+static void
+amldone(void)
+{
+	void *dot;
+	uvlong v;
+	int i;
+
+	/* (evnote's evaluations may note more: up to Nnote in all) */
+	for(i = 0; i < nnotes; i++){
+		dot = notes[i].dot;
+		v = notes[i].v;
+		evnote(dot, v);
+	}
+	nnotes = 0;
+	qunlock(&amllk);
+}
+
+/* acpiec: the queries while the controller has events, each its _Qxx */
+static void
+ecevents(void)
+{
+	char buf[16], name[8];
+	void *m;
+	int i, n, q;
+
+	for(i = 0; i < 64; i++){
+		if((n = pread(ecq, buf, sizeof buf - 1, 0)) <= 0)
+			break;
+		buf[n] = 0;
+		if((q = strtol(buf, nil, 0)) <= 0)
+			break;
+		snprint(name, sizeof name, "_Q%.2X", q);
+		if((m = amlbelow(ecdev, name)) != nil)
+			amleval(m, "", nil);
+	}
+}
+
+static void
+evproc(void *)
+{
+	char buf[512], name[8], *f[64], *l[2];
+	void *gpe, *m;
+	int i, n, nf, g, pm, edge;
+
+	threadsetname("acpievents");
+	gpe = amlwalk(amlroot, "\\_GPE");
+	for(;;){
+		if((n = read(evfd, buf, sizeof buf - 1)) <= 0){
+			fprint(2, "aux/acpi: #P/acpiev: %r\n");
+			return;
+		}
+		buf[n] = 0;
+		nf = getfields(buf, f, nelem(f), 1, "\n");
+		for(i = 0; i < nf; i++){
+			if(tokenize(f[i], l, nelem(l)) != 2)
+				continue;
+			if(strcmp(l[0], "pm1") == 0){
+				pm = strtoul(l[1], nil, 0);
+				if(pm & Pwrbtn)
+					evpost("button power");
+				if(pm & Slpbtn)
+					evpost("button sleep");
+				fprint(evfd, "pm1 %#ux ack", pm);
+				continue;
+			}
+			if(strcmp(l[0], "gpe") != 0)
+				continue;
+			g = atoi(l[1]);
+			edge = 0;
+			qlock(&amllk);
+			if(g == ecgpe && ecq >= 0)
+				ecevents();
+			else if(gpe != nil){
+				snprint(name, sizeof name, "_E%.2X", g);
+				if((m = amlbelow(gpe, name)) != nil){
+					/* an edge: cleared before, another one is not lost */
+					edge = 1;
+					fprint(evfd, "gpe %d clear", g);
+				}else{
+					snprint(name, sizeof name, "_L%.2X", g);
+					m = amlbelow(gpe, name);
+				}
+				if(m != nil)
+					amleval(m, "", nil);
+			}
+			amldone();
+			fprint(evfd, "gpe %d %s", g, edge ? "enable" : "ack");
+		}
+	}
+}
+
+/*
+ * acpivideo's acpivideo_set_policy: a display adapter's outputs and its
+ * panel's brightness are the OS's (_DOS 4: DOS_SWITCH_BY_OSPM |
+ * DOS_BRIGHTNESS_BY_OSPM), so the firmware notifies the keys (0x86,
+ * 0x87) instead of acting on them, or of not sending them at all
+ */
+static int
+enumdos(void *dot, void *)
+{
+	amleval(dot, "i", 4, nil);
+	return 1;
+}
+
+/*
+ * the events this machine has: each GPE with a method, the EC's, PM1's
+ * fixed buttons (where FADT's flags do not say they are devices), a
+ * ThinkPad's hotkeys
+ */
+static void
+evstart(void)
+{
+	char name[8];
+	void *gpe;
+	int g;
+
+	if((evfd = open("/dev/acpiev", ORDWR)) < 0 && (evfd = open("#P/acpiev", ORDWR)) < 0)
+		return;
+	if((ecq = open("/dev/ecquery", OREAD)) < 0)
+		ecq = open("#P/ecquery", OREAD);
+	if((gpe = amlwalk(amlroot, "\\_GPE")) != nil)
+		for(g = 0; g < 256; g++){
+			snprint(name, sizeof name, "_L%.2X", g);
+			if(amlbelow(gpe, name) == nil){
+				snprint(name, sizeof name, "_E%.2X", g);
+				if(amlbelow(gpe, name) == nil)
+					continue;
+			}
+			fprint(evfd, "gpe %d ack", g);
+		}
+	if(ecgpe >= 0 && ecq >= 0)
+		fprint(evfd, "gpe %d ack", ecgpe);
+	if((facpflags & 1<<4) == 0)
+		fprint(evfd, "pm1 %#ux ack", Pwrbtn);
+	if((facpflags & 1<<5) == 0)
+		fprint(evfd, "pm1 %#ux ack", Slpbtn);
+	amlnotify = amlnote;
+	amlenum(amlroot, "_DOS", enumdos, nil);
+	proccreate(evproc, nil, 64*1024);
+}
+
+static void
+fsevread(Req *r)
+{
+	Evreader *e;
+
+	qlock(&events);
+	if((e = r->fid->aux) == nil){
+		e = emalloc9p(sizeof *e);
+		e->seq = events.seq;
+		e->next = events.readers;
+		events.readers = e;
+		r->fid->aux = e;
+	}
+	if(e->r != nil){
+		qunlock(&events);
+		respond(r, "one read at a time");
+		return;
+	}
+	e->r = r;
+	evanswer(e);
+	qunlock(&events);
+}
+
+static void
+fsflush(Req *r)
+{
+	Evreader *e;
+
+	qlock(&events);
+	for(e = events.readers; e != nil; e = e->next)
+		if(e->r == r->oldreq){
+			e->r = nil;
+			respond(r->oldreq, "interrupted");
+			break;
+		}
+	qunlock(&events);
+	respond(r, nil);
+}
+
+static void
+evreaderfree(Evreader *e)
+{
+	Evreader **l;
+
+	qlock(&events);
+	for(l = &events.readers; *l != nil; l = &(*l)->next)
+		if(*l == e){
+			*l = e->next;
+			break;
+		}
+	qunlock(&events);
+	free(e);
+}
+
+/*
+ * nfront: the panel's brightness through the firmware (the ACPI video
+ * extension: _BCL's levels, _BCM sets one, _BQC reads it back), for a
+ * panel no GPU driver serves (VESA): aux/acpikeys takes it when gpu(4)
+ * has no backlight.  As gpu(4)'s: reading gives "level 100", writing n or
+ * n% the level nearest to it (one level on, if that is the one set).
+ * As OpenBSD's acpivout (sys/dev/acpi/acpivout.c,v 1.26) does it:
+ * Copyright (c) 2009 Paul Irofti <paul@irofti.net>, ISC license (above).
+ */
+static void *bcldev;		/* the output */
+static int bcl[101];		/* its levels, ascending */
+static int nbcl;
+static int bclcur = -1;		/* the level set last, -1: none yet */
+
+static int
+enumbcm(void *dot, void *)
+{
+	void *dev, *p, **e;
+	uvlong adr;
+	int i, j, n, v;
+
+	if((dev = amlwalk(dot, "^")) == nil || (p = amlwalk(dot, "^_BCL")) == nil)
+		return 1;
+	/* the internal flat panel (_ADR's display type 4) before others */
+	if(bcldev != nil && (evalint(dev, "_ADR", &adr) < 0 || (adr & 0xF00) != 0x400))
+		return 1;
+	if(amleval(p, "", &p) < 0 || amltag(p) != 'p' || (n = amllen(p)) < 3)
+		return 1;
+	e = amlval(p);
+	nbcl = 0;
+	/* the first two are the levels on AC and on battery: the list follows */
+	for(i = 2; i < n && nbcl < nelem(bcl); i++){
+		v = amlint(e[i]);
+		if(v < 0 || v > 100)
+			continue;
+		for(j = 0; j < nbcl && bcl[j] != v; j++)
+			;
+		if(j < nbcl)
+			continue;
+		for(j = nbcl; j > 0 && bcl[j-1] > v; j--)
+			bcl[j] = bcl[j-1];
+		bcl[j] = v;
+		nbcl++;
+	}
+	if(nbcl > 0){
+		if(bcldev != nil)
+			amldrop(bcldev);
+		bcldev = dev;
+		amltake(bcldev);
+	}
+	return 1;
+}
+
+static void
+backlightread(char *s, char *e)
+{
+	uvlong v;
+
+	if(bcldev != nil && evalint(bcldev, "_BQC", &v) == 0 && v <= 100)
+		bclcur = v;
+	seprint(s, e, "%d 100\n", bclcur >= 0 ? bclcur : bcl[nbcl-1]);
+}
+
+static char*
+backlightwrite(char *s)
+{
+	int i, best, v, cur;
+	uvlong q;
+	void *m;
+
+	v = strtol(s, nil, 0);
+	if(v < 0 || v > 100)
+		return "bad level";
+	cur = bclcur;
+	if(evalint(bcldev, "_BQC", &q) == 0 && q <= 100)
+		cur = q;
+	best = 0;
+	for(i = 1; i < nbcl; i++)
+		if(abs(bcl[i] - v) < abs(bcl[best] - v))
+			best = i;
+	/* the level set already: one on, toward v */
+	if(bcl[best] == cur && v != cur){
+		if(v > cur && best+1 < nbcl)
+			best++;
+		else if(v < cur && best > 0)
+			best--;
+	}
+	if((m = amlbelow(bcldev, "_BCM")) == nil || amleval(m, "i", bcl[best], nil) < 0)
+		return "_BCM failed";
+	bclcur = bcl[best];
+	return nil;
+}
+
 static void
 fsdestroyfid(Fid *f)
 {
+	if(f->file != nil && f->file->aux == (void*)Events){
+		if(f->aux != nil)
+			evreaderfree(f->aux);
+		return;
+	}
 	free(f->aux);
 }
 
@@ -1069,6 +1696,7 @@ usage(void)
 static Srv fs = {
 	.read = fsread,
 	.write = fswrite,
+	.flush = fsflush,
 	.destroyfid = fsdestroyfid,
 };
 
@@ -1168,6 +1796,8 @@ threadmain(int argc, char **argv)
 			amlload(t->data, l);
 		}else if(memcmp("FACP", t->sig, 4) == 0){
 			facp.ok = 1;
+			if(l >= 116 - Tblsz)
+				facpflags = get32(((uchar*)t) + 112);	/* nfront: the buttons' kind */
 			if(t->rev >= 3) {
 				/* try the ACPI 2.0 method */
 				facp.pm1aspace = *(((uchar*)t) + 172);
@@ -1229,9 +1859,11 @@ threadmain(int argc, char **argv)
 		sysfatal("%r");
 
 	amlenum(amlroot, "_HID", enumec, nil);
+	amlenum(amlroot, "_INI", enumini, nil);	/* nfront: after the EC's _REG */
 	amlenum(amlroot, "_BIF", enumbat, nil);
 	amlenum(amlroot, "_PSL", enumtmp, nil);
 	amlenum(amlroot, "_HID", enumtp, nil);
+	amlenum(amlroot, "_BCM", enumbcm, nil);	/* nfront */
 
 	fs.tree = alloctree(uid, uid, DMDIR|0555, nil);
 	if(nbats > 0)
@@ -1240,6 +1872,13 @@ threadmain(int argc, char **argv)
 		createfile(fs.tree->root, "cputemp", uid, 0444, (void*)Temp);
 	createfile(fs.tree->root, "pmctl", uid, 0666, (void*)Pmctl);
 	createfile(fs.tree->root, "aml", getuser(), 0600, (void*)Aml);
+
+	/* nfront: the events, where the kernel has them (#P/acpiev) */
+	evstart();
+	if(evfd >= 0)
+		createfile(fs.tree->root, "acpievents", uid, 0444, (void*)Events);
+	if(nbcl > 0)
+		createfile(fs.tree->root, "backlight", getuser(), 0644, (void*)Backlight);
 
 	threadpostmountsrv(&fs, srv, mtpt, MAFTER);
 	threadexits(nil);

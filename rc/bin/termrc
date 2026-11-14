@@ -85,6 +85,15 @@ if(! ~ $terminal *vx32*){
 			aux/timesync $TIMESYNCARGS
 }
 
+# nfront: ACPI's events (#P/acpiev; *noacpiev= in plan9.ini leaves
+# them out): aux/acpi runs the firmware's event methods (lid, buttons,
+# keys: its acpievents), aux/acpikeys the brightness keys on the panels'
+# backlight.  Before screenrc: a GPU driver uses this interpreter.
+if(test -e '#P/acpiev' && ! test -e /srv/acpi){
+	aux/acpi
+	aux/acpikeys &
+}
+
 # setup mouse and graphics
 screenrc
 
@@ -96,4 +105,4 @@ if(~ $terminal *reform*){
 	reform/audio
 }
 
-dontkill '^(9660srv|cfs|cs|cwfs.*|disk|dns|dossrv|ether|factotum|gefs|hjfs|ipconfig|kb|kfs|mntgen|paqfs|reboot|usbd|venti|wpa)$'
+dontkill '^(9660srv|acpi|acpikeys|cfs|cs|cwfs.*|disk|dns|dossrv|ether|factotum|gefs|hjfs|ipconfig|kb|kfs|mntgen|paqfs|reboot|usbd|venti|wpa)$'
