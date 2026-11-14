@@ -11,7 +11,8 @@ use p9win::keys as k;
 pub enum Key {
     Bytes(Vec<u8>),
     Del,
-    /// Shift and PgUp/PgDn or the wheel: term's own scrolling
+    /// PgUp/PgDn where no program has the alternate screen (Shift: always),
+    /// or the wheel: term's own scrolling
     Scroll(i32),
 }
 
@@ -20,8 +21,9 @@ fn csi(s: &str) -> Key {
 }
 
 /// c typed; appcursor: the program asked for the cursor keys' application mode;
-/// shift held
-pub fn key(c: char, appcursor: bool, shift: bool) -> Key {
+/// shift held; full: a program has the alternate screen (vi, less: PgUp/PgDn are
+/// its keys; in a shell they scroll term's scrollback)
+pub fn key(c: char, appcursor: bool, shift: bool, full: bool) -> Key {
     let r = c as u32;
     let cursor = |f: char| {
         if appcursor { Key::Bytes(format!("\x1bO{f}").into_bytes()) } else { csi(&f.to_string()) }
@@ -33,8 +35,8 @@ pub fn key(c: char, appcursor: bool, shift: bool) -> Key {
         k::LEFT => cursor('D'),
         k::HOME => cursor('H'),
         k::END => cursor('F'),
-        k::PGUP if shift => Key::Scroll(-1),
-        k::PGDOWN if shift => Key::Scroll(1),
+        k::PGUP if shift || !full => Key::Scroll(-1),
+        k::PGDOWN if shift || !full => Key::Scroll(1),
         k::PGUP => csi("5~"),
         k::PGDOWN => csi("6~"),
         k::INS => csi("2~"),

@@ -4075,6 +4075,20 @@ impl Wsys {
                 return;
             }
         }
+        // PgUp, PgDn: two thirds of the window back or on, as rio's (keyboard.h's
+        // Kpgup, Kpgdown); in a raw window they are the program's (above)
+        if c == '\u{f00f}' || c == '\u{f013}' {
+            let w = self.wins.get_mut(&n).unwrap();
+            let (total, _, nvis) = w.shown;
+            let page = (2 * nvis / 3).max(1);
+            w.scroll = if c == '\u{f00f}' {
+                (w.scroll + page).min(total.saturating_sub(nvis))
+            } else {
+                w.scroll.saturating_sub(page)
+            };
+            self.drawtext(n);
+            return;
+        }
         let w = self.wins.get_mut(&n).unwrap();
         match c {
             '\u{7f}' => {

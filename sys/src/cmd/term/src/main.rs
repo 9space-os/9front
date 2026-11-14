@@ -13,7 +13,8 @@
 //	-s	its line height in pixels (16)
 // Mouse, as in rio: button 1 selects, button 2's menu snarfs the selection,
 // pastes the snarf buffer or sends (the selection or the snarf buffer typed,
-// with a newline); the wheel or Shift-PgUp/PgDn scroll back; a program that
+// with a newline); the wheel or PgUp/PgDn scroll back (Shift-PgUp/PgDn where a
+// program has the alternate screen: there they are its keys); a program that
 // asked for the mouse gets it unless Shift is held. Del
 // interrupts where a shell reads lines (as in rio), else it is xterm's delete.
 // TERMDEBUG=screen: the screen's text in /tmp/term.<pid>.screen after each
@@ -145,7 +146,7 @@ impl Term {
 
     fn key(&mut self, c: char) {
         let s = self.vt.screen();
-        match keys::key(c, s.application_cursor(), self.shift) {
+        match keys::key(c, s.application_cursor(), self.shift, s.alternate_screen()) {
             keys::Key::Scroll(n) => {
                 let rows = self.view.rows as i32;
                 self.scroll(n * (rows / 2).max(1));
