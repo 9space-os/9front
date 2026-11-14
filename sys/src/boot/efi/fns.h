@@ -7,9 +7,10 @@ extern char hex[];
 void usleep(int t);
 void jump(void *pc, void *arg);
 
-int pxeinit(void **pf);
-int isoinit(void **pf);
-int fsinit(void **pf);
+int pxeinit(void **pf, int boot);
+int isoinit(void **pf, int how);
+int fsinit(void **pf, int boot);
+int onbootdev(void *h);
 
 void* (*open)(char *name);
 int (*read)(void *f, void *data, int len);

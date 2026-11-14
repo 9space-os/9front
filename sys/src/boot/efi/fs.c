@@ -89,8 +89,12 @@ fsclose(void *f)
 	eficall(((EFI_FILE_PROTOCOL*)f)->Close, f);
 }
 
+/*
+ * boot: only the file system this loader was read from, if
+ * it has a plan9.ini; else the others, the ESP the last
+ */
 int
-fsinit(void **pf)
+fsinit(void **pf, int boot)
 {
 	EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fs;
 	EFI_LOADED_IMAGE_PROTOCOL *image;
@@ -106,7 +110,7 @@ fsinit(void **pf)
 	 * from the device the loader was read from.
 	 * if that fails, fall back to old method.
 	 */
-	if(eficall(ST->BootServices->HandleProtocol, IH,
+	if(boot && eficall(ST->BootServices->HandleProtocol, IH,
 		&EFI_LOADED_IMAGE_PROTOCOL_GUID, &image) == 0 &&
 		eficall(ST->BootServices->HandleProtocol, image->DeviceHandle,
 		&EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID, &fs) == 0 &&
@@ -123,6 +127,8 @@ fsinit(void **pf)
 			goto gotit;
 		}
 	}
+	if(boot)
+		return -1;
 
 	Count = 0;
 	Handles = nil;
