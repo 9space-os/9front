@@ -22,7 +22,10 @@ TREES = [os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else nfpaths.get('F
 COMMITS = [l.split()[0] for l in open(os.path.join(D, 'FREEBSD')) if l.strip()]
 NAMES = ['freebsd', 'drm-kmod']
 WANT = [
-	['sys/compat/linuxkpi/common/include/', 'sys/compat/linuxkpi/common/src/'],
+	['sys/compat/linuxkpi/common/include/', 'sys/compat/linuxkpi/common/src/',
+	 # nfront: Realtek's rtw89 WLAN driver as FreeBSD carries it (GPL-2.0 OR
+	 # BSD-3-Clause: the BSD choice), for aux/rtw89
+	 'sys/contrib/dev/rtw89/'],
 	['linuxkpi/bsd/', 'drivers/gpu/drm/drm_sysfs.c', 'drivers/gpu/drm/drm_lease.c',
 	 'include/drm/drm_sysfs.h', 'drivers/gpu/drm/i915/intel_uncore_trace.h',
 	 'drivers/dma-buf/dma-buf.c', 'drivers/dma-buf/dma-fence.c',
@@ -32,6 +35,9 @@ WANT = [
 OK = re.compile(r'Public domain|Permission to use, copy, modify|Redistribution and use in source and binary'
 	r'|Permission is hereby granted|SPDX-License-Identifier:[^\n]*\b(MIT|BSD|ISC|X11)\b', re.I)
 GPL = re.compile(r'GPL|General Public License')
+# dual licensed, one of them permissive (the accepted exception, CLAUDE.md):
+# taken under that one, which NOTICE says; never a GPL-only file
+DUAL = re.compile(r'SPDX-License-Identifier:\s*[\w.+-]*GPL[\w.+-]*\s+OR\s+((BSD|MIT|ISC)[\w.+-]*)', re.I)
 
 def git(tree, *a):
 	return subprocess.run(['git', '-C', tree] + list(a), capture_output=True, check=True).stdout
@@ -59,6 +65,8 @@ def main():
 			n = notice(t)
 			if not t.strip() or (not n and not GPL.search(t)):
 				n = ''	# empty stubs, files without notice are FreeBSD's (BSD-2 tree)
+			elif DUAL.search(n):
+				n = n + '\n(nfront: taken under ' + DUAL.search(n).group(1) + ', its permissive choice)'
 			elif not OK.search(n) or GPL.search(n):
 				rejected.append(name + '/' + f)
 				continue

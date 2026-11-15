@@ -2763,6 +2763,10 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
  * SUCH DAMAGE.
  */
 
+==== freebsd/sys/compat/linuxkpi/common/include/linux/overflow.h
+/* SPDX-License-Identifier: GPL-2.0 OR MIT */
+(nfront: taken under MIT, its permissive choice)
+
 ==== freebsd/sys/compat/linuxkpi/common/include/linux/pci.h
 /*-
  * Copyright (c) 2010 Isilon Systems, Inc.
@@ -4290,4 +4294,210 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
+
+==== freebsd/sys/contrib/dev/rtw89/acpi.c
+// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+/* Copyright(c) 2021-2023  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/acpi.h
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
+/* Copyright(c) 2021-2023  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/cam.c
+==== freebsd/sys/contrib/dev/rtw89/coex.c
+==== freebsd/sys/contrib/dev/rtw89/core.c
+==== freebsd/sys/contrib/dev/rtw89/debug.c
+==== freebsd/sys/contrib/dev/rtw89/efuse.c
+==== freebsd/sys/contrib/dev/rtw89/fw.c
+==== freebsd/sys/contrib/dev/rtw89/mac.c
+==== freebsd/sys/contrib/dev/rtw89/mac80211.c
+==== freebsd/sys/contrib/dev/rtw89/mac_be.c
+==== freebsd/sys/contrib/dev/rtw89/phy.c
+==== freebsd/sys/contrib/dev/rtw89/ps.c
+==== freebsd/sys/contrib/dev/rtw89/regd.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852a.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852a_rfk.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852a_rfk_table.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852a_table.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852b_rfk_table.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852b_table.c
+==== freebsd/sys/contrib/dev/rtw89/sar.c
+==== freebsd/sys/contrib/dev/rtw89/ser.c
+// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+/* Copyright(c) 2019-2020  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/cam.h
+==== freebsd/sys/contrib/dev/rtw89/coex.h
+==== freebsd/sys/contrib/dev/rtw89/core.h
+==== freebsd/sys/contrib/dev/rtw89/debug.h
+==== freebsd/sys/contrib/dev/rtw89/efuse.h
+==== freebsd/sys/contrib/dev/rtw89/fw.h
+==== freebsd/sys/contrib/dev/rtw89/mac.h
+==== freebsd/sys/contrib/dev/rtw89/phy.h
+==== freebsd/sys/contrib/dev/rtw89/ps.h
+==== freebsd/sys/contrib/dev/rtw89/reg.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8852a.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8852a_rfk.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8852a_rfk_table.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8852a_table.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8852b_rfk_table.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8852b_table.h
+==== freebsd/sys/contrib/dev/rtw89/sar.h
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
+/* Copyright(c) 2019-2020  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/chan.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852be.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852ce.c
+// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+/* Copyright(c) 2020-2022  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/chan.h
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+ * Copyright(c) 2020-2022  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/efuse_be.c
+==== freebsd/sys/contrib/dev/rtw89/pci_be.c
+==== freebsd/sys/contrib/dev/rtw89/phy_be.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8922a.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8922a_rfk.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8922ae.c
+// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+/* Copyright(c) 2023  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/pci.c
+// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+/* Copyright(c) 2020  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/pci.h
+==== freebsd/sys/contrib/dev/rtw89/txrx.h
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
+/* Copyright(c) 2020  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/rtw8851b.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8851b_rfk.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8851b_rfk_table.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8851b_table.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8851be.c
+// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+/* Copyright(c) 2022-2023  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/rtw8851b.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8851b_rfk.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8851b_rfk_table.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8851b_table.h
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
+/* Copyright(c) 2022-2023  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/rtw8851bu.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852au.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852bu.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852cu.c
+==== freebsd/sys/contrib/dev/rtw89/usb.c
+// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+/* Copyright(c) 2025  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/rtw8852ae.c
+// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+/* Copyright(c) 2020-2021  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/rtw8852b.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852b_rfk.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852c.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852c_rfk.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852c_rfk_table.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852c_table.c
+==== freebsd/sys/contrib/dev/rtw89/wow.c
+// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+/* Copyright(c) 2019-2022  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/rtw8852b.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8852b_rfk.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8852c.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8852c_rfk.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8852c_rfk_table.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8852c_table.h
+==== freebsd/sys/contrib/dev/rtw89/wow.h
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
+/* Copyright(c) 2019-2022  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/rtw8852b_common.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852bte.c
+==== freebsd/sys/contrib/dev/rtw89/util.c
+// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+/* Copyright(c) 2024  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/rtw8852b_common.h
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
+/* Copyright(c) 2024  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/rtw8852bt.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852bt_rfk.c
+==== freebsd/sys/contrib/dev/rtw89/rtw8852bt_rfk_table.c
+// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+/* Copyright(c) 2024 Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/rtw8852bt.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8852bt_rfk.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8852bt_rfk_table.h
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
+/* Copyright(c) 2024 Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/rtw8922a.h
+==== freebsd/sys/contrib/dev/rtw89/rtw8922a_rfk.h
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
+/* Copyright(c) 2023  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/ser.h
+==== freebsd/sys/contrib/dev/rtw89/util.h
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+ * Copyright(c) 2019-2020  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
+
+==== freebsd/sys/contrib/dev/rtw89/usb.h
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
+/* Copyright(c) 2025  Realtek Corporation
+ */
+(nfront: taken under BSD-3-Clause, its permissive choice)
 
