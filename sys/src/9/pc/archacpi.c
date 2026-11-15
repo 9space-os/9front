@@ -627,9 +627,45 @@ enumgpio(void *dot, void *)
 
 /*
  * nfront: AMD's DesignWare I2C controllers (AMDI0010) for i2c(3)
- * (i2cdw.c), as the GPIO controller above: by _CRS, _STA not asked
+ * (i2cdw.c), as the GPIO controller above: by _CRS (one the firmware
+ * left off is left out by i2cdwinit), and the devices on each, the
+ * controller's children whose _CRS has an I2cSerialBus to it (their
+ * _STA is aux/i2chid's to ask, after _INI)
  */
 extern void i2cdwinit(char*, uvlong, ulong, int);
+extern void i2cdwdev(char*, int, int);
+
+typedef struct I2cbus I2cbus;
+struct I2cbus {
+	char	*path;	/* the controller's, \_SB.I2CB */
+	char	*name;	/* its bus, I2CB */
+};
+
+static int
+enumi2cdev(void *dot, void *a)
+{
+	I2cbus *bus = a;
+	uchar *b, *p, *e;
+	int n, t, tlen, src, len;
+
+	b = nil;
+	if(amleval(dot, "", &b) < 0 || amltag(b) != 'b')
+		return 1;
+	for(p = b, e = p + amllen(b); (n = reslen(p, e, &t)) > 0; p += n){
+		/* GenericSerialBus, I2C (ACPI 6.5, 6.4.3.8.2) */
+		if(t != 0x8E || n < 18 || p[5] != 1)
+			continue;
+		tlen = get16(p+10);
+		src = 12 + tlen;
+		if(src >= n)
+			continue;
+		len = strlen(bus->path);
+		if(n - src <= len || cistrncmp((char*)p+src, bus->path, len) != 0 || p[src+len] != 0)
+			continue;
+		i2cdwdev(bus->name, get16(p+16), get16(p+7) & 1);
+	}
+	return 1;
+}
 
 static int
 enumi2c(void *dot, void *)
@@ -660,8 +696,14 @@ enumi2c(void *dot, void *)
 	}
 	snprint(path, sizeof path, "%N", dev);
 	s = strrchr(path, '.');
-	if(pa != 0)
-		i2cdwinit(s != nil ? s+1 : path, pa, len, irq);
+	if(pa != 0){
+		I2cbus bus;
+
+		bus.path = path;
+		bus.name = s != nil ? s+1 : path;
+		i2cdwinit(bus.name, pa, len, irq);
+		amlenum(dev, "_CRS", enumi2cdev, &bus);
+	}
 	return 1;
 }
 

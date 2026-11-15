@@ -44,6 +44,10 @@ on a bus, which is done when accessing the
 .I bus
 directory.
 .PP
+On a PC, the busses of ACPI's I²C controllers (AMD's DesignWare,
+nfront) are not enumerated: they hold the devices ACPI names
+(their I2cSerialBus).
+.PP
 Platform specific code can also register individual devices,
 supplying a meaningful device configuration.
 It can also be necessary to manually register devices if

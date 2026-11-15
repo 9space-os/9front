@@ -2,7 +2,10 @@
  * nfront: Synopsys DesignWare I2C controllers, as an x86 SoC has them
  * (AMD's AMDI0010; Intel's are PCI devices, not here yet), busses of
  * i2c(3): found in ACPI at boot (archacpi.c: enumi2c calls i2cdwinit),
- * named as the ACPI device (\_SB.I2CB: i2cb).  Polled: an I2C-HID
+ * named as the ACPI device (\_SB.I2CB: i2cb).  Not scanned: the bus
+ * holds the devices ACPI names (i2cdwdev; a read at every address can
+ * upset what is wired there, and neither Linux nor OpenBSD scans these).
+ * *i2cdebug= prints each transfer that fails.  Polled: an I2C-HID
  * touchpad's reports are tens of bytes, its interrupt is a GPIO pin
  * (#γ).  The controller driven as OpenBSD's dwiic does
  * (sys/dev/ic/dwiic.c,v 1.21, its polled path):
@@ -81,6 +84,7 @@ struct Ctlr {
 
 static Ctlr ctlrs[Nctlr];
 static int nctlr;
+static int debug;
 
 static u32int
 rd(Ctlr *c, int r)
@@ -185,8 +189,11 @@ io(I2Cdev *dev, uchar *pkt, int olen, int ilen)
 	Ctlr *c;
 	int nw, o, issued, x;
 	u32int cmd;
+	char *why;
 
 	c = dev->bus->ctlr;
+	o = 0;
+	why = "";
 	if(olen <= 0)
 		return 0;
 	if((pkt[0] & 0xF8) == 0xF0)
@@ -210,8 +217,10 @@ io(I2Cdev *dev, uchar *pkt, int olen, int ilen)
 		 * transfer of no bytes: a byte read instead, its byte dropped
 		 */
 		wr(c, DataCmd, CmdRead|CmdStop);
+		why = "probe: no stop";
 		if(waitfor(c, stopped, 100) < 0)
 			goto Err;
+		why = "probe: not acknowledged";
 		if(rd(c, RawIntrStat) & IntrTxAbrt)
 			goto Err;
 		while(rd(c, Rxflr) > 0)
@@ -219,6 +228,7 @@ io(I2Cdev *dev, uchar *pkt, int olen, int ilen)
 		rd(c, ClrIntr);
 		return olen;
 	}
+	why = "no room to send";
 	for(x = 0; x < nw; x++){
 		if(waitfor(c, txroom, 50) < 0)
 			goto Err;
@@ -240,25 +250,36 @@ io(I2Cdev *dev, uchar *pkt, int olen, int ilen)
 			wr(c, DataCmd, cmd);
 			issued++;
 		}
+		why = "nothing received";
 		if(waitfor(c, rxany, 50) < 0)
 			goto Err;
 		while(rd(c, Rxflr) > 0 && o < olen + ilen)
 			pkt[o++] = rd(c, DataCmd);
 	}
+	why = "no stop";
 	if(waitfor(c, stopped, 100) < 0)
 		goto Err;
+	why = "not acknowledged";
 	if(rd(c, RawIntrStat) & IntrTxAbrt)
 		goto Err;	/* not acknowledged (no such device, refused) */
 	rd(c, ClrIntr);
 	return o;
 Err:
+	if(debug)
+		iprint("%s: %#ux: %s, status %#ux raw %#ux abort %#ux txflr %d rxflr %d, %d of %d bytes\n",
+			c->name, pkt[0]>>1, why, rd(c, Status), rd(c, RawIntrStat), rd(c, TxAbrtSource),
+			rd(c, Txflr), rd(c, Rxflr), o, olen+ilen);
 	rd(c, ClrTxAbrt);
 	rd(c, ClrIntr);
 	enable(c, 0);
 	return -1;
 }
 
-/* called by archacpi.c for AMDI0010 at boot: \_SB.name's registers, interrupt */
+/*
+ * called by archacpi.c for AMDI0010 at boot: \_SB.name's registers,
+ * interrupt.  A controller the firmware left off (its registers all
+ * ones) is not a bus; the bus is set up here, not scanned (i2cdwdev).
+ */
 void
 i2cdwinit(char *name, uvlong pa, ulong len, int irq)
 {
@@ -267,21 +288,53 @@ i2cdwinit(char *name, uvlong pa, ulong len, int irq)
 
 	if(nctlr >= Nctlr || len < 0x100)
 		return;
+	debug = getconf("*i2cdebug") != nil;
 	c = &ctlrs[nctlr];
-	if((c->regs = vmap(pa, len)) == nil){
-		print("i2c %s: can't map %#llux\n", name, pa);
-		return;
-	}
 	for(i = 0; i < sizeof c->name - 1 && name[i] != 0; i++)
 		c->name[i] = name[i] >= 'A' && name[i] <= 'Z' ? name[i] + 'a' - 'A' : name[i];
 	c->name[i] = 0;
+	if((c->regs = vmap(pa, len)) == nil){
+		print("i2c %s: can't map %#llux\n", c->name, pa);
+		return;
+	}
 	c->irq = irq;
 	c->bus.name = c->name;
 	c->bus.speed = 400000;
 	c->bus.ctlr = c;
 	c->bus.init = init;
 	c->bus.io = io;
+	if(rd(c, CompType) == 0xFFFFFFFF){
+		print("i2c %s: off\n", c->name);
+		vunmap(c->regs, len);
+		return;
+	}
+	if(init(&c->bus) < 0){
+		vunmap(c->regs, len);
+		return;
+	}
+	c->bus.probed = 1;
 	addi2cbus(&c->bus);
 	nctlr++;
 	print("i2c %s: designware %#llux irq %d\n", c->name, pa, irq);
+}
+
+/* a device on bus name that ACPI names (_CRS: I2cSerialBus) */
+void
+i2cdwdev(char *name, int addr, int a10)
+{
+	I2Cdev *d;
+	int i;
+
+	for(i = 0; i < nctlr; i++)
+		if(cistrcmp(ctlrs[i].name, name) == 0)
+			break;
+	if(i == nctlr || (d = malloc(sizeof *d)) == nil)
+		return;
+	d->bus = &ctlrs[i].bus;
+	d->addr = addr;
+	d->a10 = a10;
+	d->subaddr = 0;
+	d->size = 0;
+	addi2cdev(d);
+	print("i2c %s: device %#ux\n", ctlrs[i].name, addr);
 }
