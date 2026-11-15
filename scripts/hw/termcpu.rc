@@ -28,10 +28,8 @@ if(! test -s $nvram){
 	auth/wrkey || exit wrkey
 }
 auth/factotum -S -n || exit factotum
-if(! test -e $lib/keys){
-	touch $lib/keys
-	chmod 600 $lib/keys
-}
+# not made beforehand: keyfs takes an empty file for one of DES keys, and
+# dp9ik (drawterm) needs the AES ones it makes in a file it creates
 auth/keyfs -m /mnt/keys $lib/keys || exit keyfs
 if(! test -d /mnt/keys/$user){
 	echo 'termcpu: '$user'''s key: the same password'
