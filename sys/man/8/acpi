@@ -61,10 +61,31 @@ left as
 the status (a string, one of
 .BR unknown ,
 .BR critical ,
-.BR discharging
+.BR discharging ,
+.B charging
 or
-.BR charging ) 
+.BR idle :
+neither charging nor discharging, as on AC with the battery full;
+.B unknown
+when the firmware does not answer)
 and the charge start and stop limits in percent.
+The information comes from the battery's
+.B _BIX
+(ACPI 4.0) or else its
+.BR _BIF .
+.B Idle
+and
+.B _BIX
+are nfront additions.
+.TP
+.B ac
+Contains one line for each AC adapter (ACPI0003):
+.B online
+or
+.BR offline ,
+from its
+.BR _PSR .
+An nfront addition.
 .TP
 .B cputemp
 Each line provides a current temperature reading of a specific CPU.

@@ -82,6 +82,7 @@ enum {
 	Aml,
 	Events,		/* nfront: acpievents */
 	Backlight,	/* nfront: the panel's brightness through _BCM */
+	Ac,		/* nfront: the AC adapters' _PSR */
 
 	SLP_EN = 0x2000,
 	SLP_TM = 0x1c00,
@@ -91,6 +92,8 @@ static int ec, mem, iofd[5], nbats, ntherms;
 static char *uid = "pm", *units[] = {"mW", "mA"};
 static Therm therms[16];
 static Bat bats[4];
+static void *acs[4];	/* nfront: the AC adapters (ACPI0003) */
+static int nacs;
 static void *bccs, *bcss;
 static FACP facp;
 static char *amlrequest(char*, int, char**);	/* 9front-ng: the aml file */
@@ -162,12 +165,18 @@ enumini(void *dot, void *)
 	return 1;
 }
 
+/*
+ * a battery: the device with _BST (dot), its static information from
+ * _BIX (ACPI 4.0) or else _BIF, as OpenBSD's acpibat reads them.  nfront:
+ * _BIX is that of _BIF after a revision: everything one place on, the
+ * technology after the voltage; firmware with only _BIX had no battery.
+ */
 static int
 enumbat(void *dot, void *)
 {
 	void *p, *r, **rr;
 	Bat *b;
-	int n;
+	int n, o;
 
 	if(nbats >= nelem(bats))
 		return 1;
@@ -176,34 +185,69 @@ enumbat(void *dot, void *)
 		return 1;
 	if(amleval(p, "", &r) < 0 || (amlint(r)&3) != 3)
 		return 1;
-	if(amleval(dot, "", &r) < 0) /* _BIF */
-		return 1;
-	if(r == nil || amltag(r) != 'p' || amllen(r) < 7)
-		return 1;
+	o = 1;
+	if((p = amlwalk(dot, "^_BIX")) == nil || amleval(p, "", &r) < 0
+	|| r == nil || amltag(r) != 'p' || amllen(r) < 20){
+		o = 0;
+		if((p = amlwalk(dot, "^_BIF")) == nil || amleval(p, "", &r) < 0)
+			return 1;
+		if(r == nil || amltag(r) != 'p' || amllen(r) < 7)
+			return 1;
+	}
 
 	rr = amlval(r);
 	b = &bats[nbats];
-	if((n = amlint(rr[0])) >= nelem(units) || n < 0)
+	if((n = amlint(rr[o+0])) >= nelem(units) || n < 0)
 		b->unit = "??";
 	else
 		b->unit = units[n];
-	b->capacity = amlint(rr[1]);
+	b->capacity = amlint(rr[o+1]);
 	if(b->capacity < 0) /* even though _STA tells it's there */
 		return 1;
-	b->fullcharge = amlint(rr[2]);
-	b->voltage = amlint(rr[4]);
-	b->capacitywarn = amlint(rr[5]);
-	b->capacitylow = amlint(rr[6]);
+	b->fullcharge = amlint(rr[o+2]);
+	b->voltage = amlint(rr[o+4]);
+	b->capacitywarn = amlint(rr[o+5]);
+	b->capacitylow = amlint(rr[o+6]);
 	b->chargestart = 0;
 	b->chargestop = 100;
 
-	b->bst = amlwalk(dot, "^_BST");
-	if(b->bst != nil){
-		amltake(b->bst);
-		nbats++;
-	}
+	b->bst = dot;
+	amltake(b->bst);
+	nbats++;
 
 	return 1;
+}
+
+/* nfront: an AC adapter (ACPI0003), its _PSR: OpenBSD's acpiac */
+static int
+enumac(void *dot, void *)
+{
+	void *p;
+	char *id;
+
+	if(nacs >= nelem(acs))
+		return 1;
+	if((id = amleisaid(amlval(amlwalk(dot, "^_HID")))) == nil || strcmp(id, "ACPI0003") != 0)
+		return 1;
+	if((p = amlwalk(dot, "^_PSR")) == nil)
+		return 1;
+	amltake(p);
+	acs[nacs++] = p;
+	return 1;
+}
+
+static void
+acread(char *s, char *e)
+{
+	void *r;
+	int i;
+
+	for(i = 0; i < nacs; i++){
+		if(amleval(acs[i], "", &r) < 0)
+			s = seprint(s, e, "unknown\n");
+		else
+			s = seprint(s, e, "%s\n", amlint(r) ? "online" : "offline");
+	}
 }
 
 static int
@@ -351,6 +395,7 @@ batteryread(char *s, char *e)
 		ss = x = 0;
 
 		if(batstat(b, &st) == 0){
+			state = "idle";	/* nfront: neither charging nor discharging (OpenBSD's "battery idle") */
 			if(st.state & 4)
 				state = "critical";
 			else if(st.state & 1)
@@ -593,6 +638,8 @@ fsread(Req *r)
 			pmctlread(s, e);
 		else if(aux == (void*)Backlight)
 			backlightread(s, e);
+		else if(aux == (void*)Ac)
+			acread(s, e);
 		amldone();
 	}
 
@@ -1965,7 +2012,8 @@ threadmain(int argc, char **argv)
 
 	amlenum(amlroot, "_HID", enumec, nil);
 	amlenum(amlroot, "_INI", enumini, nil);	/* nfront: after the EC's _REG */
-	amlenum(amlroot, "_BIF", enumbat, nil);
+	amlenum(amlroot, "_BST", enumbat, nil);	/* nfront: with _BIX or _BIF */
+	amlenum(amlroot, "_HID", enumac, nil);	/* nfront */
 	amlenum(amlroot, "_PSL", enumtmp, nil);
 	amlenum(amlroot, "_HID", enumtp, nil);
 	amlenum(amlroot, "_BCM", enumbcm, nil);	/* nfront */
@@ -1973,6 +2021,8 @@ threadmain(int argc, char **argv)
 	fs.tree = alloctree(uid, uid, DMDIR|0555, nil);
 	if(nbats > 0)
 		createfile(fs.tree->root, "battery", uid, 0444, (void*)Battery);
+	if(nacs > 0)
+		createfile(fs.tree->root, "ac", uid, 0444, (void*)Ac);	/* nfront */
 	if(ntherms > 0)
 		createfile(fs.tree->root, "cputemp", uid, 0444, (void*)Temp);
 	createfile(fs.tree->root, "pmctl", uid, 0666, (void*)Pmctl);
