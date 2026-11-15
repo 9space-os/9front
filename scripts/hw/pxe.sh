@@ -115,8 +115,9 @@ if [ "${MCP:-1}" = 1 ]; then
 	mkdir -p "$X/rc/bin"
 	cat > "$X/rc/bin/termrc.local" <<'EOF2'
 # scripts/hw/pxe.sh: the MCP server, once the network is up
+# (rfork s, not n: the name space stays termrc's, which binds the network later)
 @{
-	rfork ns
+	rfork s
 	n=0
 	while(! test -e /net/dns && test $n -lt 120){
 		sleep 1
