@@ -242,6 +242,37 @@ p9_print(int fd, const char *s, long n)
 	write(fd, (char*)s, n);
 }
 
+/* files: a user-level driver's device files (#ω/wlanN: aux/rtw89's radio) */
+int
+p9_open(const char *path, int mode)
+{
+	return open((char*)path, mode);
+}
+
+long
+p9_read(int fd, void *buf, long n)
+{
+	return read(fd, buf, n);
+}
+
+long
+p9_write(int fd, const void *buf, long n)
+{
+	return write(fd, (void*)buf, n);
+}
+
+int
+p9_close(int fd)
+{
+	return close(fd);
+}
+
+void
+p9_errstr(char *buf, int n)
+{
+	rerrstr(buf, n);
+}
+
 void
 p9_random(void *buf, long n)
 {

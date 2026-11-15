@@ -111,6 +111,13 @@ void	p9_out(int width, unsigned long port, unsigned int v);
 /* files, output, randomness */
 int	p9_readfile(const char *path, void **data, long *size);	/* p9_malloc'd */
 void	p9_print(int fd, const char *s, long n);
+/* a file opened, read, written, closed (mode: P9_OREAD, ...): -1 on an error, p9_errstr says which */
+enum { P9_OREAD = 0, P9_OWRITE = 1, P9_ORDWR = 2 };
+int	p9_open(const char *path, int mode);
+long	p9_read(int fd, void *buf, long n);
+long	p9_write(int fd, const void *buf, long n);
+int	p9_close(int fd);
+void	p9_errstr(char *buf, int n);
 void	p9_random(void *buf, long n);
 void	p9_panic(const char *why) __attribute__((__noreturn__));	/* abort()s */
 void	p9_poweroff(int reboot);	/* fshalt [-r], in a process of its own */

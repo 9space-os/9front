@@ -15,6 +15,15 @@ int	kpi_param_set(const char *s);
 int	kpi_drm_start(void);
 
 /*
+ * WLAN (kpi/linux/mac80211.c, wlan.c): the hardware a driver registered
+ * as the radio of wlan(3)'s dir ("#ω/wlan1"): its address to ctl, the
+ * hardware started, frames between data and the driver; 0 or -errno.
+ * The state as a line into buf: its length.
+ */
+int	kpi_wlan_start(const char *dir);
+int	kpi_wlan_status(char *buf, int n);
+
+/*
  * kpi/plan9: a fault on a segment the KPI attached in another proc
  * attaches it in this one: 1 if so (the note handler goes on), else 0
  */
