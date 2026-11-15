@@ -10,3 +10,8 @@ firmware amdgpu/yellow_carp_*
 monitor=amdgpu
 vgasize=1920x1200x32
 mouseport=ps2
+# WLAN: the RTL8852CE to the user-level driver aux/rtw89 (gpu(3)'s
+# *userpci), its interface ether1 (wlan(3)), rtw89's firmware
+*userpci=10ec/c852
+ether1=type=wlan
+firmware rtw89/rtw8852c_fw*
