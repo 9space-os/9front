@@ -276,7 +276,8 @@ resource_size_t	pcibios_align_resource(void *data, const struct resource *r, res
 #define dev_is_untrusted(d)		0
 #define pci_root_buses			kpi_pci_root_buses
 extern struct list_head kpi_pci_root_buses;
-#define module_pci_driver(d)		static int __unused_##d
+/* 9front: the driver registered by its file server (aux/rtw89: kpi_init_rtw89_8852ce_driver), as module_init */
+#define module_pci_driver(d)		int kpi_init_##d(void) { return pci_register_driver(&(d)); }
 
 #include <linux/dma-mapping.h>	/* Linux's pci.h brings it */
 
@@ -311,8 +312,27 @@ struct pci_dev	*pci_get_base_class(unsigned int class, struct pci_dev *from);
 #define PCI_EXP_TYPE_DOWNSTREAM	0x6
 #endif
 
-/* 9front: PCIe capability registers, not read here (aqua_vanjaram: MI300) */
-static inline int pcie_capability_read_word(struct pci_dev *d, int pos, u16 *v) { *v = 0; return -EINVAL; }
+/* 9front: the registers of the device's PCIe capability (kpi/linux/pci.c); -EINVAL without one */
+int	pcie_capability_read_word(struct pci_dev *d, int pos, u16 *v);
+int	pcie_capability_write_word(struct pci_dev *d, int pos, u16 v);
+int	pcie_capability_clear_and_set_word(struct pci_dev *d, int pos, u16 clear, u16 set);
+#define pcie_capability_set_word(d, pos, set)	pcie_capability_clear_and_set_word(d, pos, 0, set)
+#define pcie_capability_clear_word(d, pos, clear)	pcie_capability_clear_and_set_word(d, pos, clear, 0)
+
+/* 9front: what rtw89 sets up (link power management) */
+#define PCI_VENDOR_ID_REALTEK		0x10ec
+#define PCI_VENDOR_ID_ASMEDIA		0x1b21
+#define PCI_EXP_LNKCTL			16	/* link control */
+#define  PCI_EXP_LNKCTL_ASPM_L1		0x0002
+#define  PCI_EXP_LNKCTL_CLKREQ_EN	0x0100
+#define  PCI_EXP_DEVCTL2_COMP_TMOUT_DIS	0x0010
+#define PCI_EXT_CAP_ID_L1SS		0x1e	/* L1 PM substates */
+#define PCI_L1SS_CTL1			0x08
+#define  PCI_L1SS_CTL1_L1SS_MASK	0x0000000f
+/* the regions are the file server's already (#G); no wake from D3 */
+#define pci_request_regions(d, name)	0
+#define pci_release_regions(d)		do { } while (0)
+#define pci_enable_wake(d, state, en)	0
 
 #define PCI_EXT_CAP_ID_ERR	0x01
 

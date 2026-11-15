@@ -35,6 +35,17 @@ dma_map_sgtable(struct device *d, struct sg_table *t, enum dma_data_direction di
 	return 0;
 }
 
+/* a run of the pool's pages is contiguous for the device too (page.c) */
+dma_addr_t
+dma_map_single_attrs(struct device *d, void *p, size_t size, enum dma_data_direction dir, unsigned long attrs)
+{
+	struct page *pg = virt_to_page(p);
+
+	if (WARN_ON_ONCE(!pg || !pg->kpi_chunk))
+		return DMA_MAPPING_ERROR;
+	return page_to_phys(pg) + offset_in_page(p);
+}
+
 void *
 dma_alloc_attrs(struct device *d, size_t size, dma_addr_t *handle, gfp_t gfp, unsigned long attrs)
 {

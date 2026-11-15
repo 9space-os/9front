@@ -98,5 +98,6 @@ int	vprintk(const char *fmt, va_list args);
 int	hex_dump_to_buffer(const void *buf, size_t len, int rowsize, int groupsize, char *linebuf, size_t linebuflen, bool ascii);
 
 #define print_hex_dump_debug(p, t, r, g, b, l, a)	do { } while (0)	/* 9front: no dynamic debug */
+#define print_hex_dump_bytes(p, t, b, l)	print_hex_dump(KERN_DEBUG, p, t, 16, 1, b, l, true)
 
 #endif

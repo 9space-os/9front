@@ -23,6 +23,11 @@ static inline dma_addr_t dma_map_page_attrs(struct device *d, struct page *p, si
 #define dma_unmap_page(d, a, s, r)		do { } while (0)
 #define dma_unmap_page_attrs(d, a, s, r, at)	do { } while (0)
 #define dma_map_resource(d, p, s, r, a)		((dma_addr_t)(p))
+/* memory of the page pool only (alloc_pages, an skb's data): the heap has no address for the device */
+dma_addr_t	dma_map_single_attrs(struct device *d, void *p, size_t size, enum dma_data_direction dir, unsigned long attrs);
+#define dma_map_single(d, p, s, r)		dma_map_single_attrs(d, p, s, r, 0)
+#define dma_unmap_single(d, a, s, r)		do { } while (0)
+#define dma_unmap_single_attrs(d, a, s, r, at)	do { } while (0)
 #define dma_unmap_resource(d, a, s, r, at)	do { } while (0)
 int	dma_map_sg_attrs(struct device *d, struct scatterlist *sg, int nents, enum dma_data_direction dir, unsigned long attrs);
 int	dma_map_sgtable(struct device *d, struct sg_table *t, enum dma_data_direction dir, unsigned long attrs);

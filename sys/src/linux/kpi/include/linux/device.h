@@ -119,6 +119,7 @@ static inline const char *dev_driver_string(const struct device *d) { return d->
 #define device_link_add(c, s, f)	((struct device_link *)NULL)
 #define device_link_del(l)		do { } while (0)
 #define device_set_wakeup_capable(d, c)	do { } while (0)
+#define device_set_wakeup_enable(d, e)	0	/* 9front: no wake from suspend */
 #define device_property_read_u32(d, n, v)	(-EINVAL)
 #define device_property_present(d, n)	0
 #define device_match_fwnode(d, f)	0

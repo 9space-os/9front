@@ -36,4 +36,9 @@ extern const char power_group_name[];
 #define pm_ptr(p)	(p)	/* 9front: CONFIG_PM is there */
 #endif
 
+/* the system sleep callbacks of a driver that has one pair (rtw89) */
+#define SIMPLE_DEV_PM_OPS(name, suspendfn, resumefn) \
+	const struct dev_pm_ops name = { .suspend = suspendfn, .resume = resumefn, \
+		.freeze = suspendfn, .thaw = resumefn, .poweroff = suspendfn, .restore = resumefn }
+
 #endif

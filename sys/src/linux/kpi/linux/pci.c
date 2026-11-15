@@ -333,6 +333,39 @@ pci_find_ext_capability(struct pci_dev *d, int cap)
 	return 0;
 }
 
+/* a register of the PCIe capability, at pos in it */
+int
+pcie_capability_read_word(struct pci_dev *d, int pos, u16 *v)
+{
+	int cap = pci_find_capability(d, PCI_CAP_ID_EXP);
+
+	*v = 0;
+	if (!cap || (pos & 1))
+		return -EINVAL;
+	return pci_read_config_word(d, cap + pos, v);
+}
+
+int
+pcie_capability_write_word(struct pci_dev *d, int pos, u16 v)
+{
+	int cap = pci_find_capability(d, PCI_CAP_ID_EXP);
+
+	if (!cap || (pos & 1))
+		return -EINVAL;
+	return pci_write_config_word(d, cap + pos, v);
+}
+
+int
+pcie_capability_clear_and_set_word(struct pci_dev *d, int pos, u16 clear, u16 set)
+{
+	u16 v;
+	int r;
+
+	if ((r = pcie_capability_read_word(d, pos, &v)) != 0)
+		return r;
+	return pcie_capability_write_word(d, pos, (v & ~clear) | set);
+}
+
 static void
 command(struct pci_dev *d, u16 set, u16 clear)
 {

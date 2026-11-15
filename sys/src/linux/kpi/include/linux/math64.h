@@ -74,6 +74,13 @@ DIV64_U64_ROUND_CLOSEST(uint64_t x, uint64_t y)
 	return div64_u64(x + y / 2, y);
 }
 
+/* 9front: x up to a multiple of y (rtw89's beacon times) */
+static inline uint64_t
+roundup_u64(uint64_t x, uint32_t y)
+{
+	return DIV_U64_ROUND_UP(x, y) * y;
+}
+
 static inline uint64_t
 mul_u64_u32_shr(uint64_t x, uint32_t y, unsigned int shift)
 {

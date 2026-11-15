@@ -28,12 +28,19 @@ void	free_irq(unsigned int, void *);
 void	disable_irq(unsigned int);
 void	enable_irq(unsigned int);
 
+/*
+ * 9front: the managed versions are the plain ones (the irq stays until
+ * devm_free_irq or the end of the file server): rtw89's interrupt
+ */
+struct device;
+int	request_threaded_irq(unsigned int irq, irq_handler_t h, irq_handler_t t, unsigned long flags, const char *name, void *dev);
 static inline int
 devm_request_threaded_irq(struct device *dev, u_int irq, irq_handler_t handler,
     irq_handler_t thread_fn, u_int irqflags, const char *devname, void *arg)
 {
-	return 0;
+	return request_threaded_irq(irq, handler, thread_fn, irqflags, devname, arg);
 }
+#define devm_free_irq(d, i, p)	free_irq(i, p)
 
 struct tasklet_struct {
 	union {

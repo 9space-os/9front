@@ -50,5 +50,10 @@ le16_add_cpu(uint16_t *p, uint16_t n)
 static inline void le32_add_cpu(__le32 *v, u32 a) { *v = cpu_to_le32(le32_to_cpu(*v) + a); }
 static inline void cpu_to_le32_array(u32 *b, unsigned int n) { (void)b; (void)n; }
 static inline void le32_to_cpu_array(u32 *b, unsigned int n) { (void)b; (void)n; }
+/* 9front: network byte order (linux/byteorder/generic.h's names), for rtw89 */
+#define htons(x)	cpu_to_be16(x)
+#define ntohs(x)	be16_to_cpu(x)
+#define htonl(x)	cpu_to_be32(x)
+#define ntohl(x)	be32_to_cpu(x)
 
 #endif

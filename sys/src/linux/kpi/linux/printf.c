@@ -4,8 +4,8 @@
  * with the %p extensions the drivers use: %pe (error name), %ph (hex
  * bytes), %pV (nested format), %p4cc (fourcc), %pa (phys_addr_t),
  * %pR/%pr (resource), %pE (escaped), %pb/%pbl (bitmap), %pU (uuid),
- * %pS/%ps (code address).  printk writes to standard error, one line
- * at a time, with Linux's level prefix as "<n>".
+ * %pS/%ps (code address), %pM/%pm (MAC address).  printk writes to
+ * standard error, one line at a time, with Linux's level prefix as "<n>".
  */
 #include <linux/kernel.h>
 #include <linux/string.h>
@@ -270,6 +270,10 @@ pointer(struct out *o, const char *fmt, void *p, int width, int prec, int flags)
 		hexbytes(o, p, width > 0 ? width : 1, sep);
 		return f - fmt;
 	}
+	case 'M':	/* a MAC address, 6 bytes: %pM with colons, %pm without (the WLAN drivers) */
+	case 'm':
+		hexbytes(o, p, 6, *f == 'M' ? ':' : 0);
+		return 1;
 	case 'V': {
 		struct va_format *vf = p;
 		va_list ap;

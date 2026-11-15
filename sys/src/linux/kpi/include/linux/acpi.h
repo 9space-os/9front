@@ -17,6 +17,7 @@
 typedef void *acpi_handle;
 typedef u32 acpi_status;
 typedef u64 acpi_size;
+typedef char *acpi_string;	/* 9front: rtw89 */
 struct device;
 /* 9front: an ACPI device object is only its node */
 struct acpi_device { acpi_handle handle; };

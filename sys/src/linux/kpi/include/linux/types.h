@@ -89,7 +89,8 @@ struct hlist_head {
 	struct hlist_node *first;
 };
 
-#define DECLARE_BITMAP(x, y)	unsigned long x[BITS_TO_LONGS(y)];
+/* 9front: without the semicolon, as Linux has it (an initializer may follow: rtw89) */
+#define DECLARE_BITMAP(x, y)	unsigned long x[BITS_TO_LONGS(y)]
 
 #define LINUX_PAGE_MASK		PAGE_MASK	/* 9front: PAGE_MASK is Linux's already */
 
