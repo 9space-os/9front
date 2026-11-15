@@ -45,6 +45,8 @@ enum {
 
 static Rsd *rsd;
 
+static void mcfginit(void);
+
 /* physical addresses visited by maptable() */
 static int ntblpa;
 static uvlong tblpa[64];
@@ -1309,6 +1311,7 @@ identify(void)
 	addarchfile("acpitbls", 0444, readtbls, nil);
 	addarchfile("acpimem", 0600, readmem, writemem);
 	acpievinit();	/* nfront: #P/acpiev */
+	mcfginit();	/* nfront: PCI Express's extended configuration space */
 	if(v == 0 || findtable("APIC") == nil)
 		return 1;
 	if((cp = getconf("*nomp")) != nil && strcmp(cp, "0") != 0)
@@ -1324,6 +1327,27 @@ identify(void)
 		archacpi.fastclock = tscticks;
 
 	return 0;
+}
+
+/*
+ * nfront: ACPI's MCFG table: the memory mapped configuration space
+ * (ECAM) of PCI segment 0 (pcipc.c), as OpenBSD's acpimcfg.c reads it:
+ * after 8 reserved bytes entries of 16: base[8] segment[2] start bus[1]
+ * end bus[1] reserved[4].  *nomcfg= leaves it.
+ */
+static void
+mcfginit(void)
+{
+	Tbl *t;
+	uchar *p, *e;
+
+	if(getconf("*nomcfg") != nil || (t = findtable("MCFG")) == nil)
+		return;
+	p = t->data + 8;
+	e = t->data + tbldlen(t);
+	for(; p + 16 <= e; p += 16)
+		if(get16(p+8) == 0)
+			pcimcfginit(get64(p), p[10], p[11]);
 }
 
 static int

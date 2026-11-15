@@ -168,10 +168,11 @@ pciread(Chan *c, void *va, long n, vlong offset)
 		p = pcimatchtbdf(tbdf);
 		if(p == nil)
 			error(Egreg);
-		if(offset > 256)
+		/* nfront: PCI Express's 4096 (pcipc.c: ECAM; ~0 without) */
+		if(offset >= 4096)
 			return 0;
-		if(n+offset > 256)
-			n = 256-offset;
+		if(n+offset > 4096)
+			n = 4096-offset;
 		r = offset;
 		if(!(r & 3) && n == 4){
 			x = pcicfgr32(p, r);
@@ -216,10 +217,11 @@ pciwrite(Chan *c, void *va, long n, vlong offset)
 		p = pcimatchtbdf(tbdf);
 		if(p == nil)
 			error(Egreg);
-		if(offset > 256)
+		/* nfront: PCI Express's 4096 (pcipc.c: ECAM; ~0 without) */
+		if(offset >= 4096)
 			return 0;
-		if(n+offset > 256)
-			n = 256-offset;
+		if(n+offset > 4096)
+			n = 4096-offset;
 		r = offset;
 		if(!(r & 3) && n == 4){
 			x = GBIT32(a);
