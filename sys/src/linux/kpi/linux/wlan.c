@@ -108,6 +108,80 @@ radio(void *arg)
 }
 
 /*
+ * the band the radio's capabilities come from: 5 GHz's where it has
+ * one (the same HT on both for rtw89), else 2.4 GHz's
+ */
+static struct ieee80211_supported_band *
+capband(struct lhw *l)
+{
+	struct ieee80211_supported_band *sb;
+
+	if ((sb = l->hw.wiphy->bands[NL80211_BAND_5GHZ]) != NULL && sb->ht_cap.ht_supported)
+		return sb;
+	if ((sb = l->hw.wiphy->bands[NL80211_BAND_2GHZ]) != NULL && sb->ht_cap.ht_supported)
+		return sb;
+	return NULL;
+}
+
+/* the HT capability bits for 20 MHz only: the channel context's width */
+#define HT20MASK	(~(IEEE80211_HT_CAP_SUP_WIDTH_20_40 | IEEE80211_HT_CAP_SGI_40 | IEEE80211_HT_CAP_DSSSCCK40))
+
+/*
+ * the radio's capability elements for wlan(3)'s ctl (caps hex), which
+ * wifi.c sends in the association request: the HT capabilities element
+ * of the driver's band (802.11-2020 9.4.2.55), 20 MHz only.  No VHT or
+ * HE: a VHT station is one of 80 MHz, and the context is 20 MHz.
+ */
+static int
+capsline(struct lhw *l, char *buf, int n)
+{
+	struct ieee80211_supported_band *sb;
+	struct ieee80211_ht_cap c;
+	u8 e[2 + sizeof(c)];
+	int i, k;
+
+	if ((sb = capband(l)) == NULL)
+		return 0;
+	memset(&c, 0, sizeof(c));
+	c.cap_info = cpu_to_le16(sb->ht_cap.cap & HT20MASK);
+	c.ampdu_params_info = (sb->ht_cap.ampdu_factor & 3) | (sb->ht_cap.ampdu_density & 7) << 2;
+	c.mcs = sb->ht_cap.mcs;
+	e[0] = WLAN_EID_HT_CAPABILITY;
+	e[1] = sizeof(c);
+	memcpy(e + 2, &c, sizeof(c));
+	k = snprintf(buf, n, "caps ");
+	for (i = 0; i < (int)sizeof(e) && k + 2 < n; i++)
+		k += snprintf(buf + k, n - k, "%02x", e[i]);
+	return k;
+}
+
+/*
+ * an association response to us: the access point's HT capabilities
+ * and WMM (its parameter element), for the station kpi80211_assoc makes
+ */
+static void
+apcaps(struct lhw *l, const u8 *f, int len)
+{
+	const u8 *p, *e;
+
+	if (len < 24 + 6 || (f[0] != 0x10 && f[0] != 0x30) ||
+	    !ether_addr_equal(f + 4, l->hw.wiphy->perm_addr))
+		return;
+	l->apht = false;
+	l->apwmm = false;
+	e = f + len;
+	for (p = f + 24 + 6; p + 2 <= e && p + 2 + p[1] <= e; p += 2 + p[1]) {
+		if (p[0] == WLAN_EID_HT_CAPABILITY && p[1] >= sizeof(l->apcap)) {
+			memcpy(&l->apcap, p + 2, sizeof(l->apcap));
+			l->apht = true;
+		}
+		if (p[0] == 221 && p[1] >= 7 && p[2] == 0x00 && p[3] == 0x50 && p[4] == 0xf2 &&
+		    p[5] == 0x02 && p[6] == 0x01)
+			l->apwmm = true;
+	}
+}
+
+/*
  * a frame of the driver's to wifi.c: without the FCS the hardware
  * keeps, none that failed its checks, none on a channel wifi.c cannot
  * name (6 GHz)
@@ -128,6 +202,7 @@ kpi_wlan_rx(struct lhw *l, struct sk_buff *skb)
 	if (len < 10 || len > Maxframe)
 		goto drop;
 	ch = linuxkpi_ieee80211_frequency_to_channel(rs->freq, 0);
+	apcaps(l, skb->data, len);
 	if (skb_headroom(skb) < Hdrrx) {
 		/* the driver's buffers have room before them; else a copy */
 		struct sk_buff *n = dev_alloc_skb(Hdrrx + len);
@@ -163,9 +238,9 @@ kpi_wlan_start(const char *dir)
 {
 	struct lhw *l = kpi80211_hw();
 	struct task_struct *t;
-	char path[96], ea[32], err[128];
+	char path[96], ea[32], err[128], caps[160];
 	const u8 *a;
-	int fd, r;
+	int fd, r, n;
 
 	if (l == NULL || !l->registered)
 		return -ENODEV;
@@ -180,6 +255,9 @@ kpi_wlan_start(const char *dir)
 		goto err;
 	snprintf(ea, sizeof(ea), "ea %02x%02x%02x%02x%02x%02x", a[0], a[1], a[2], a[3], a[4], a[5]);
 	r = p9_write(fd, ea, strlen(ea));
+	/* the capabilities for the association request (wifi.c sends those the AP has too) */
+	if (r >= 0 && (n = capsline(l, caps, sizeof(caps))) > 0)
+		r = p9_write(fd, caps, n);
 	p9_close(fd);
 	if (r < 0)
 		goto err;

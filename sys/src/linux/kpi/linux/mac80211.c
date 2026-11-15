@@ -999,6 +999,39 @@ basicrates(struct lhw *l)
 	return m ? m : 1;
 }
 
+/*
+ * the access point's HT, as mac80211 makes a station's from the element
+ * (ieee80211_ht_cap_ie_to_sta_ht_cap): its capabilities with ours, 20
+ * MHz (the context's), the MCS it receives that we send; rtw89's rate
+ * control then uses HT
+ */
+static void
+staht(struct lhw *l, struct ieee80211_sta *sta)
+{
+	struct linuxkpi_ieee80211_channel *c = l->hw.conf.chandef.chan;
+	struct ieee80211_supported_band *sb;
+	struct ieee80211_sta_ht_cap *h = &sta->deflink.ht_cap;
+	int i, nss;
+
+	if (!l->apht || c == NULL || (sb = l->hw.wiphy->bands[c->band]) == NULL || !sb->ht_cap.ht_supported)
+		return;
+	memset(h, 0, sizeof(*h));
+	h->ht_supported = true;
+	h->cap = le16_to_cpu(l->apcap.cap_info) & sb->ht_cap.cap &
+	    ~(IEEE80211_HT_CAP_SUP_WIDTH_20_40 | IEEE80211_HT_CAP_SGI_40 | IEEE80211_HT_CAP_DSSSCCK40);
+	h->ampdu_factor = l->apcap.ampdu_params_info & 3;
+	h->ampdu_density = l->apcap.ampdu_params_info >> 2 & 7;
+	nss = 0;
+	for (i = 0; i < IEEE80211_HT_MCS_MASK_LEN; i++) {
+		h->mcs.rx_mask[i] = l->apcap.mcs.rx_mask[i] & sb->ht_cap.mcs.rx_mask[i];
+		if (i < 4 && h->mcs.rx_mask[i])
+			nss = i + 1;
+	}
+	h->mcs.rx_highest = l->apcap.mcs.rx_highest;
+	h->mcs.tx_params = l->apcap.mcs.tx_params;
+	sta->deflink.rx_nss = nss > 0 ? nss : 1;
+}
+
 /* wifi.c associated with bssid as aid */
 int
 kpi80211_assoc(struct lhw *l, const u8 *bssid, u16 aid)
@@ -1028,6 +1061,11 @@ kpi80211_assoc(struct lhw *l, const u8 *bssid, u16 aid)
 	/* the access point's station, through the states */
 	if ((l->sta = newsta(l, l->bssid, aid)) == NULL)
 		return -ENOMEM;
+	staht(l, l->sta);
+	l->sta->wme = l->apwmm;
+	bss->qos = l->apwmm;
+	if (l->ops->link_info_changed)
+		l->ops->link_info_changed(hw, vif, bss, BSS_CHANGED_QOS | BSS_CHANGED_HT);
 	if ((r = stastate(l, IEEE80211_STA_NOTEXIST, IEEE80211_STA_NONE)) != 0) {
 		freesta(l);
 		return r;
@@ -1043,7 +1081,8 @@ kpi80211_assoc(struct lhw *l, const u8 *bssid, u16 aid)
 	/* wifi.c's (and aux/wpa's) keys are not the driver's: the port is open */
 	stastate(l, IEEE80211_STA_ASSOC, IEEE80211_STA_AUTHORIZED);
 	filter(l);
-	pr_info("mac80211: associated with %pM, aid %d\n", l->bssid, aid);
+	pr_info("mac80211: associated with %pM, aid %d%s%s\n", l->bssid, aid,
+	    l->sta->deflink.ht_cap.ht_supported ? ", HT" : "", l->apwmm ? ", WMM" : "");
 	return 0;
 }
 

@@ -36,6 +36,10 @@ struct lhw {
 	/* the radio (wlan.c) */
 	int	datafd;
 	unsigned long	ntx, nrx, ndrop;
+	/* the access point's association response: its HT capabilities, WMM */
+	bool	apht;
+	bool	apwmm;
+	struct ieee80211_ht_cap	apcap;
 
 	/* the driver's, aligned */
 	uint8_t	priv[0] __aligned(CACHE_LINE_SIZE);
