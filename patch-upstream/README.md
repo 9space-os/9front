@@ -100,6 +100,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0033 | 9boot (efi): the boot device first, PXE through the firmware's MTFTP | bug fix |
 | 0034 | bootrc: cdboot takes the ISO 9660 with this machine's init | bug fix |
 | 0035 | kbmap: the maps sorted by name | bug fix |
+| 0036 | nusb/kb: a collection's usage | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -527,6 +528,17 @@ directory: alphabetical from hjfs and cwfs, any order from others (the
 main branch's ufs serving a root from a Linux host). It sorts the names
 now. Shown by: kbmap on a machine booted by PXE with that root. Not
 done: compiled with 9front's own compilers.
+
+### 0036 nusb/kb: a collection's usage
+
+`repparse1` cleared the local items at a Collection, then read its usage
+from `l[Nu]`, past the list of usages (the first is `l[Nl]`): every
+collection's usage was only its page, and `hidparse`'s check for a
+touchscreen's finger (0x0D0022) that is not touching never matched. The
+usage is taken before the locals are cleared now. Found by: the main
+branch's precision touchpad code (aux/i2chid, `tests/hid`), which looks
+for the touchpad's collection 0x0D0005. Not done: compiled with 9front's
+own compilers, tried on a touchscreen.
 
 ## Not included
 
