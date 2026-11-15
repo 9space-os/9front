@@ -43,6 +43,70 @@ static uchar basicrates[] = {
 	0
 };
 
+/*
+ * nfront: the channels wifsproc scans (wifi->scan), in order.  The 2.4
+ * GHz ones as before, 1, 6 and 11 first; the 5 GHz ones (20 MHz) between
+ * them, so that the common channels come round about as often as they
+ * did: 36-48 and 149-165 after 1, 6, 11 and 3, 8, 13, then the channels
+ * with radar detection (DFS, 52-144), 1, 6 and 11 again in their middle.
+ */
+uchar wifiscan2g[] = {
+	1, 6, 11, 3, 8, 13, 5, 10, 2, 7, 12, 4, 9,
+	0
+};
+
+uchar wifiscan5g[] = {
+	1, 6, 11,
+	36, 40, 44, 48,
+	3, 8, 13,
+	149, 153, 157, 161, 165,
+	5, 10, 2, 7, 12, 4, 9,
+	52, 56, 60, 64,
+	1, 6, 11,
+	100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144,
+	0
+};
+
+/*
+ * nfront: channels with radar detection (DFS): a station may only listen
+ * there until it has heard an access point, so the scan sends no probe
+ * requests on them.  wifi.c has no regulatory domain otherwise (it
+ * probes on 12 and 13 too).
+ */
+static int
+passivechan(int channel)
+{
+	return channel >= 52 && channel <= 144;
+}
+
+/* nfront: the rates of wifi->rates valid on a channel: no 802.11b (DSSS) rates on 5 GHz */
+static ulong
+chanrates(Wifi *wifi, int channel)
+{
+	ulong valid;
+	int i, r;
+
+	valid = 0;
+	if(wifi->rates == nil)
+		return 0;
+	for(i = 0; i < 32 && wifi->rates[i] != 0; i++){
+		r = wifi->rates[i] & 0x7f;
+		if(channel > 14 && (r == 2 || r == 4 || r == 11 || r == 22))
+			continue;
+		valid |= 1UL<<i;
+	}
+	return valid;
+}
+
+/* nfront: the driver's transmit, noting the channel it tunes to */
+static void
+radiotx(Wifi *wifi, Wnode *wn, Block *b)
+{
+	if(wn->channel != 0)
+		wifi->channel = wn->channel;
+	(*wifi->transmit)(wifi, wn, b);
+}
+
 static Block* wifidecrypt(Wifi *, Wnode *, Block *);
 static Block* wifiencrypt(Wifi *, Wnode *, Block *);
 static void freewifikeys(Wifi *, Wnode *);
@@ -188,7 +252,7 @@ wifitx(Wifi *wifi, Wnode *wn, Block *b)
 		wn->actrate = a;
 	}
 
-	(*wifi->transmit)(wifi, wn, b);
+	radiotx(wifi, wn, b);
 }
 
 static Wnode*
@@ -295,7 +359,7 @@ wifiprobe(Wifi *wifi, Wnode *wn)
 	n = strlen(wifi->essid);
 	if(n == 0){
 		/* no specific essid, just tell driver to tune channel */
-		(*wifi->transmit)(wifi, wn, nil);
+		radiotx(wifi, wn, nil);
 		return;
 	}
 
@@ -317,9 +381,11 @@ wifiprobe(Wifi *wifi, Wnode *wn)
 
 	p = putrates(p, wifi->rates, wn->validrates, wn->basicrates);
 
-	*p++ = 3;	/* ds parameter set */
-	*p++ = 1;
-	*p++ = wn->channel;
+	if(wn->channel <= 14){	/* nfront: the 2.4 GHz (DSSS) band's only */
+		*p++ = 3;	/* ds parameter set */
+		*p++ = 1;
+		*p++ = wn->channel;
+	}
 
 	b->wp = p;
 	wifitx(wifi, wn, b);
@@ -455,7 +521,7 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 {
 	static uchar wpa1oui[4] = { 0x00, 0x50, 0xf2, 0x01 };
 	uchar *e, *x, *p, t;
-	int rsnset;
+	int rsnset, dschan, htchan;
 
 	len -= 8+2+2;
 	if(len < 0)
@@ -473,6 +539,7 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 	wn->dtimperiod = 1;
 
 	rsnset = 0;
+	dschan = htchan = 0;
 	for(e = d + len; d+2 <= e; d = x){
 		d += 2;
 		x = d + d[-1];
@@ -516,7 +583,11 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			break;
 		case 3:		/* DSPARAMS */
 			if(d != x)
-				wn->channel = d[0];
+				dschan = d[0];
+			break;
+		case 61:	/* nfront: HT operation, its primary channel */
+			if(d != x)
+				htchan = d[0];
 			break;
 		case 5:
 			if(x - d < 2)
@@ -538,6 +609,18 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			break;
 		}
 	}
+
+	/*
+	 * nfront: on 5 GHz the DS parameter set is optional; then the HT
+	 * operation element's primary channel, else the channel the radio
+	 * is tuned to
+	 */
+	if(dschan != 0)
+		wn->channel = dschan;
+	else if(htchan != 0)
+		wn->channel = htchan;
+	else if(wn->channel == 0)
+		wn->channel = wifi->channel;
 }
 
 static void
@@ -573,7 +656,7 @@ wifideauth(Wifi *wifi, Wnode *wn)
 		return;
 
 	/* notify driver about node aid association */
-	(*wifi->transmit)(wifi, wn, nil);
+	radiotx(wifi, wn, nil);
 
 	/* notify aux/wpa with a zero length packet that we got deassociated from the ap */
 	ether = wifi->ether;
@@ -682,7 +765,7 @@ wifiproc(void *arg)
 			recvassoc(wifi, wn, b->rp, BLEN(b));
 			/* notify driver about node aid association */
 			if(wn == wifi->bss)
-				(*wifi->transmit)(wifi, wn, nil);
+				radiotx(wifi, wn, nil);
 			break;
 		case 0xb0:	/* auth */
 			if(wifi->debug)
@@ -782,7 +865,8 @@ wifsproc(void *arg)
 	Wnode wnscan;
 	Wnode *wn;
 	ulong now, tmout;
-	uchar *rate;
+	uchar *rate, *scan, *list;
+	int dwell, i;
 
 	wifi = arg;
 	ether = wifi->ether;
@@ -791,16 +875,36 @@ wifsproc(void *arg)
 	memset(wn, 0, sizeof(*wn));
 	memmove(wn->bssid, ether->Netif.bcast, Eaddrlen);
 
+	scan = nil;
+	i = 0;
 	while(waserror())
 		;
 Scan:
-	/* scan for access point */
+	/*
+	 * scan for access point
+	 * nfront: the channels of wifi->scan; on channels with radar
+	 * detection only listen (a beacon, 100 TU, in 200 ms); a probe
+	 * response comes fast: 100 ms on the others on 5 GHz
+	 */
 	while(wifi->bss == nil){
 		ethersetlink(ether, 0);
-		wnscan.channel = 1 + ((wnscan.channel+4) % 13);
-		wifiprobe(wifi, &wnscan);
+		list = wifi->scan != nil ? wifi->scan : wifiscan2g;
+		if(list != scan || list[i] == 0){
+			scan = list;	/* the driver may set it after wifiattach */
+			i = 0;
+		}
+		wnscan.channel = scan[i++];
+		wnscan.validrates = chanrates(wifi, wnscan.channel);
+		dwell = 200;
+		if(passivechan(wnscan.channel))
+			radiotx(wifi, &wnscan, nil);
+		else {
+			wifiprobe(wifi, &wnscan);
+			if(wnscan.channel > 14 && wifi->essid[0] != 0)
+				dwell = 100;
+		}
 		do {
-			tsleep(&up->sleep, return0, 0, 200);
+			tsleep(&up->sleep, return0, 0, dwell);
 			now = MACHP(0)->PMach.ticks;
 		} while(TK2MS(now-wifi->lastauth) < 1000);
 	}

@@ -46,6 +46,25 @@ the next 8 bytes are the frame's timestamp, little endian) and those
 The data file is open once, by the radio; frames sent while it is
 not are dropped.
 .PP
+The kernel's 802.11 code scans the 2.4 GHz channels 1 to 13 and the
+5 GHz channels 36 to 64, 100 to 144 and 149 to 165 (20 MHz), the
+common ones 1, 6 and 11 first and 36 to 48 and 149 to 165 between the
+2.4 GHz ones; a radio ignores what it cannot tune to.
+On the channels with radar detection (DFS, 52 to 144) it only listens
+for beacons, 200 ms, and sends nothing until it has heard the access
+point it wants; on the others it sends probe requests (when an
+.B essid
+is set) and waits 200 ms (2.4 GHz) or 100 ms (5 GHz).
+There is no regulatory domain: it scans every channel of the list.
+The rate in the header is 802.11b's or OFDM's (6 to 54 Mb/s; on 5 GHz
+only these): for management and group addressed frames the access
+point's lowest, for data the kernel's choice; while scanning 1 Mb/s
+on 2.4 GHz and 6 Mb/s on 5 GHz.
+The channel of a frame received is not used: an access point's is the
+one its beacons name (the DS parameter set, else on 5 GHz the HT
+operation element's primary channel), else the one the radio was tuned
+to.
+.PP
 Written,
 .B ctl
 takes
@@ -63,6 +82,9 @@ Only the host owner opens the files.
 .IR wpa (8),
 .IR plan9.ini (8)
 .SH BUGS
-The kernel's 802.11 code scans the 2.4 GHz channels only.
+No 6 GHz channels: their numbers are those of the 2.4 GHz band; the
+header would need the band.
+No HT, VHT or HE rates: a radio with rate control in its firmware
+(rtw89) chooses its own.
 .br
 Written for nfront.

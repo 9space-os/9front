@@ -79,6 +79,14 @@ struct Wifi
 	/* supported data rates by hardware */
 	uchar	*rates;
 
+	/*
+	 * nfront: the channels to scan, in order (0 ends; nil: wifiscan2g,
+	 * 2.4 GHz only) and the channel the radio was last tuned to (for
+	 * beacons that do not tell theirs)
+	 */
+	uchar	*scan;
+	int	channel;
+
 	/* effective base station */
 	Wnode	*bss;
 
@@ -99,6 +107,10 @@ struct Wifipkt
 enum {
 	Btimestamp = 1<<15,
 };
+
+/* nfront: scan lists for wifi->scan */
+extern uchar wifiscan2g[];	/* 2.4 GHz, channels 1-13 (the default) */
+extern uchar wifiscan5g[];	/* 2.4 GHz and 5 GHz, 36-64, 100-144, 149-165 */
 
 Wifi *wifiattach(Ether *ether, void (*transmit)(Wifi*, Wnode*, Block*));
 void wifiiq(Wifi*, Block*);

@@ -36,11 +36,51 @@
 Wlan wlans[Nwlan];
 int nwlan;
 
+/* the rates wifi.c may choose (500 kb/s): 802.11b, then 802.11a/g's OFDM */
+static uchar wlanrates[] = {
+	0x80 | 2,
+	0x80 | 4,
+	0x80 | 11,
+	0x80 | 22,
+
+	0x80 | 12,
+	0x80 | 18,
+	0x80 | 24,
+	0x80 | 36,
+	0x80 | 48,
+	0x80 | 72,
+	0x80 | 96,
+	0x80 | 108,
+	0
+};
+
 static void
 put16(uchar *p, int v)
 {
 	p[0] = v;
 	p[1] = v>>8;
+}
+
+/*
+ * the rate of a frame: management and group addressed frames the
+ * node's lowest, data its current one (wifi.c's rate adaption); without
+ * them (scanning) the band's lowest, 1 Mb/s (2.4 GHz) or 6 Mb/s (5 GHz)
+ */
+static int
+txrate(Wnode *wn, Block *b)
+{
+	Wifipkt *w;
+	uchar *r;
+
+	r = wn->actrate;
+	if(b != nil && BLEN(b) >= 10){
+		w = (Wifipkt*)b->rp;
+		if((w->fc[0] & 0x0c) != 0x08 || (w->a1[0] & 1) != 0)
+			r = wn->minrate;
+	}
+	if(r != nil)
+		return *r & 0x7f;
+	return wn->channel > 14 ? 12 : 2;
 }
 
 /* wifi.c's: a frame for the node, or (b nil) tune to its channel */
@@ -60,7 +100,7 @@ transmit(Wifi *wifi, Wnode *wn, Block *b)
 	n = b != nil ? BLEN(b) : 0;
 	h = allocb(Hdrtx + n);
 	put16(h->wp, wn->channel);
-	h->wp[2] = wn->actrate != nil ? *wn->actrate & 0x7f : 2;
+	h->wp[2] = txrate(wn, b);
 	h->wp[3] = b == nil ? Ftune : 0;
 	put16(h->wp+4, wn->aid);
 	memmove(h->wp+6, wn->bssid, Eaddrlen);
@@ -88,8 +128,11 @@ wlanattach(Ether *edev)
 		nexterror();
 	}
 	if(!ctlr->attached){
-		if(ctlr->wifi == nil)
+		if(ctlr->wifi == nil){
 			ctlr->wifi = wifiattach(edev, transmit);
+			ctlr->wifi->rates = wlanrates;
+			ctlr->wifi->scan = wifiscan5g;	/* 2.4 and 5 GHz */
+		}
 		for(i = 0; i < edev->ISAConf.nopt; i++)
 			wificfg(ctlr->wifi, edev->ISAConf.opt[i]);
 		ctlr->attached = 1;
