@@ -32,6 +32,7 @@ file system of the guest: in `PATH` or `~/go/bin/ufs`).
 |---|---|---|---|
 | `static` | source checks: manifests match their generators, no GPL text of Linux in the LinuxKPI (`scripts/linux/provenance.py --check` against LINUX and LINUX_OLD of the distribution's paths.env; fails without them), no `ulong == ~0UL`, no unreviewed casts, member paths as in 9front, struct layouts of file/wire formats as kencc's (`scripts/check/cmp-struct-layout.sh`), GAS ports beside 9front's `.s`, the rc build steps parse (plan9port rc) | nothing | seconds |
 | `asm` | the GAS ports of 9front's assembly (libc amd64, libmp and libsec amd64/386, lib387) as host unit tests, against glibc or the portable C | gcc | seconds |
+| `hid` | `sys/src/cmd/nusb/kb/hid.c` (nusb/kb's and aux/i2chid's HID code) compiled on the host (`inc/`: Plan 9's types) and fed a precision touchpad's reports: the Input Mode feature report, one finger's motion (speed-dependent), taps with one to three fingers, two fingers' scrolling (also natural), the pad's button by the fingers on it, a drag, a palm, hybrid reports | the host's cc | seconds |
 | `syscall` | the generated amd64 system call stubs (`scripts/build/gen-9syscall.sh`), whatever objtype | gcc | seconds |
 | `build` | the build's results: libraries, programs, kernel; kernel without endless busy-waits (`scripts/check/find-spinloops.sh`) | a build | seconds |
 | `guest` | unit tests built with the port and run inside 9front: libc, libthread, libmp, auth, pak, APE (`tests/guest/*.c`) | a build, QEMU | ~1 min |

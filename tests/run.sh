@@ -3,6 +3,7 @@
 #
 #   static   source checks, no build needed
 #   asm      host unit tests of the GAS ports of libc's amd64 assembly
+#   hid      host unit test of nusb/kb's hid.c: a precision touchpad's gestures
 #   syscall  generated system call stubs (scripts/build/gen-9syscall.sh)
 #   build    results of the build tool (libraries, commands, kernel)
 #   guest    libc unit tests built with the port toolchain, run in 9front
@@ -44,7 +45,7 @@
 #
 # usage: tests/run.sh [category...]     (default: all, in the order above)
 cd "$(dirname "$0")"
-cats=${*:-static asm syscall build guest boot replica pmc acpi gpu gui ui draw disk iso rio usb gcc go rust mcp hw}
+cats=${*:-static asm hid syscall build guest boot replica pmc acpi gpu gui ui draw disk iso rio usb gcc go rust mcp hw}
 failed=()
 for c in $cats; do
 	[ -x "$c/run.sh" ] || { echo "unknown category $c"; exit 2; }

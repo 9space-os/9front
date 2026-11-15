@@ -1,0 +1,13 @@
+</$objtype/mkfile
+
+TARG=i2chid
+OFILES=i2chid.$O hid.$O
+HFILES=../../nusb/kb/hid.h
+
+BIN=/$objtype/bin/aux
+
+</sys/src/cmd/mkone
+CFLAGS=-I../../nusb/kb $CFLAGS
+
+hid.$O: ../../nusb/kb/hid.c
+	$CC $CFLAGS -o $target ../../nusb/kb/hid.c

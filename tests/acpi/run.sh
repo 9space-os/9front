@@ -4,7 +4,8 @@
 # button), a PCI device hot-plugged (QMP device_add: GPE 1, \_GPE._E01,
 # its Notify), and an SSDT of our own (ssdt.py) whose methods notify a
 # display output (0x86: brightness up) and a lid, evaluated through
-# aux/acpi's aml file.  amd64 only (#P/acpiev is pc's).
+# aux/acpi's aml file, and a touchpad on I2C for aux/i2chid to find.
+# amd64 only (#P/acpiev is pc's).
 . "$(dirname "$0")/../lib.sh"
 HERE=$(cd "$(dirname "$0")" && pwd)
 [ "$objtype" = amd64 ] || { skip "acpi" "objtype=$objtype"; done_tests; exit; }
@@ -47,6 +48,7 @@ acpiboot(){
 		"echo backlight \`{cat /dev/backlight}; echo 10 >/dev/backlight; echo backlight \`{cat /dev/backlight}" \
 		"echo 10 >/dev/backlight; echo backlight \`{cat /dev/backlight}; echo 40 >/dev/backlight" \
 		"aux/acpikeys & sleep 1; echo -n 'eval \\NFBU 0' >/dev/aml; sleep 2; echo backlight \`{cat /dev/backlight}" \
+		"aux/i2chid -d >[2=1] | sed 's/^/i2chid: /'" \
 		"sed 's/^/acpiev: /' /tmp/acpiev; echo acpitest: done" > "$TMPD/boot" 2>&1
 	tr -d '\r' < "$CLI_DIR/console.log" > "$TMPD/console"
 	grep -q '^acpitest: done' "$TMPD/console" || { tail -20 "$TMPD/console"; false; }
@@ -63,4 +65,6 @@ check "aux/acpi's backlight (_BCL, _BQC): 40 of 100 at the start" grep -q '^back
 check "10 written: level 10 through _BCM" bash -c "grep '^backlight ' '$TMPD/console' | sed -n 2p | grep -q '^backlight 10 100\$'"
 check "10 again at the lowest level: stays 10" bash -c "grep '^backlight ' '$TMPD/console' | sed -n 3p | grep -q '^backlight 10 100\$'"
 check "aux/acpikeys, no GPU driver: brightnessup moves the firmware's level 40 to 70" bash -c "grep '^backlight ' '$TMPD/console' | sed -n 4p | grep -q '^backlight 70 100\$'"
+grep '^i2chid: ' "$TMPD/console" | sed 's/^/       /'
+check "aux/i2chid: PNP0C50's bus, address, GpioInt from _CRS" grep -qF 'i2chid: aux/i2chid: \_SB.NFTP: i2cb address 0x15, gpio pin 9 level low' "$TMPD/console"
 done_tests

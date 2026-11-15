@@ -14,11 +14,21 @@
 #	}
 #	Method (\NFBU) { Notify (\_SB.NFLC, 0x86) }	the brightness up key
 #	Method (\NFLI) { Notify (\_SB.NFLD, 0x80) }	the lid
+#	Device (\_SB.NFTP) {			a touchpad on I2C (HID over I2C)
+#		Name (_HID, "NFRT0001")
+#		Name (_CID, EisaId ("PNP0C50"))
+#		Name (_CRS, ResourceTemplate () {
+#			I2cSerialBusV2 (0x15, , 400000, , "\_SB.I2CB")
+#			GpioInt (Level, ActiveLow, , , , "\_SB.GPIO") { 9 }
+#		})
+#		Method (_DSM, 4) { Return (0x20) }	the HID descriptor's register
+#	}
 #
 # tests/acpi/run.sh evaluates \NFBU and \NFLI through aux/acpi's aml file:
 # their Notify must come out of acpievents as "key brightnessup" and
 # "lid open"; aux/acpi's backlight sets LEVL through _BCM, and
-# aux/acpikeys (no GPU driver here) moves it on the key.
+# aux/acpikeys (no GPU driver here) moves it on the key; aux/i2chid -d
+# finds NFTP and its bus, address, pin (QEMU has no such bus: no more).
 import struct
 import sys
 
@@ -59,7 +69,26 @@ lid = (b'\x5b\x82' + pkg(path('_SB', 'NFLD') +
 	b'\x14' + pkg(name('_LID') + b'\x00' + b'\xa4\x01')))
 nfbu = b'\x14' + pkg(b'\\' + name('NFBU') + b'\x00' + b'\x86' + path('_SB', 'NFLC') + b'\x0a\x86')
 nfli = b'\x14' + pkg(b'\\' + name('NFLI') + b'\x00' + b'\x86' + path('_SB', 'NFLD') + b'\x0a\x80')
-body = lcd + lid + nfbu + nfli
+def i2cbus(addr, speed, src):
+	src = src.encode() + b'\0'
+	d = struct.pack('<BBBBHBH', 2, 0, 1, 2, 0, 1, 6) + struct.pack('<IH', speed, addr) + src
+	return b'\x8e' + struct.pack('<H', len(d)) + d
+
+
+def gpioint(pin, flags, src):
+	src = src.encode() + b'\0'
+	d = struct.pack('<BBHHBHHHBHHH', 1, 0, 0, flags, 0, 0, 0, 23, 0, 25, 25 + len(src), 0)
+	d += struct.pack('<H', pin) + src
+	return b'\x8c' + struct.pack('<H', len(d)) + d
+
+
+crs = i2cbus(0x15, 400000, '\\_SB.I2CB') + gpioint(9, 1 << 1, '\\_SB.GPIO') + b'\x79\x00'
+tp = (b'\x5b\x82' + pkg(path('_SB', 'NFTP') +
+	b'\x08' + name('_HID') + b'\x0d' + b'NFRT0001\0' +
+	b'\x08' + name('_CID') + b'\x0c' + eisaid('PNP0C50') +
+	b'\x08' + name('_CRS') + b'\x11' + pkg(b'\x0a' + bytes([len(crs)]) + crs) +
+	b'\x14' + pkg(name('_DSM') + b'\x04' + b'\xa4\x0a\x20')))
+body = lcd + lid + nfbu + nfli + tp
 n = 36 + len(body)
 hdr = struct.pack('<4sIBB6s8sI4sI', b'SSDT', n, 2, 0, b'NFRONT', b'NFEVENTS', 1, b'NFRT', 1)
 t = bytearray(hdr + body)

@@ -65,6 +65,7 @@ DIRS=\
 	flashfs\
 	gps\
 	gpu\
+	i2chid\
 	kbdfs\
 	na\
 	vga\
