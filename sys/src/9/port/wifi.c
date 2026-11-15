@@ -248,55 +248,37 @@ wifitxfail(Wifi *wifi, Block *b)
 static uchar*
 putrates(uchar *p, uchar *rates, ulong valid, ulong basic)
 {
-	int n, i, j;
+	uchar r[32];
+	int n, i, m;
 
+	/*
+	 * nfront: the basic rates first, the first 8 in the supported
+	 * rates element, the others in the extended supported rates
+	 * element (9front repeated all of them there)
+	 */
 	valid |= basic;
-
-	for(i = n = 0; i < 32 && rates[i] != 0; i++)
-		if(valid & (1UL<<i))
-			n++;
-
-	valid &= ~basic;
+	n = 0;
+	for(i = 0; i < 32 && rates[i] != 0; i++)
+		if(basic & (1UL<<i))
+			r[n++] = rates[i] | 0x80;
+	for(i = 0; i < 32 && rates[i] != 0; i++)
+		if((valid & ~basic) & (1UL<<i))
+			r[n++] = rates[i] & 0x7f;
 
 	if(n > 0){
 		/* supported rates */
+		m = n > 8 ? 8 : n;
 		*p++ = 1;
-		*p++ = n;
-		for(i = j = 0; i < 32 && j < n; i++){
-			if(basic & (1UL<<i)){
-				*p++ = rates[i] | 0x80;
-				j++;
-			}
-		}
-		for(i = 0; i < 32 && j < n; i++){
-			if(valid & (1UL<<i)){
-				*p++ = rates[i] & 0x7f;
-				j++;
-			}
-		}
+		*p++ = m;
+		memmove(p, r, m);
+		p += m;
 	}
-
 	if(n > 8){
-		/* truncate supported rates element */
-		p -= n;
-		p[-1] = 8;
-		p += 8;
-
 		/* extended supported rates */
 		*p++ = 50;
-		*p++ = n;
-		for(i = j = 0; i < 32 && j < n; i++){
-			if(basic & (1UL<<i)){
-				*p++ = rates[i] | 0x80;
-				j++;
-			}
-		}
-		for(i = 0; i < 32 && j < n; i++){
-			if(valid & (1UL<<i)){
-				*p++ = rates[i] & 0x7f;
-				j++;
-			}
-		}
+		*p++ = n - 8;
+		memmove(p, r + 8, n - 8);
+		p += n - 8;
 	}
 
 	return p;
@@ -427,6 +409,13 @@ setstatus(Wifi *wifi, Wnode *wn, char *new)
 
 	old = wn->status;
 	wn->status = new;
+	/*
+	 * nfront: the link is up once the access point is ours, not at
+	 * wifsproc's next round (up to 500 ms later): what is sent in
+	 * between was dropped (devether's oq while the link is down)
+	 */
+	if(wn == wifi->bss && (new == Sassoc || new == Sblocked))
+		ethersetlink(wifi->ether, 1);
 	if(wifi->debug && new != old)
 		print("#l%d: status %E: %.12ld %.12ld: %s -> %s (from pc=%#p)\n",
 			wifi->ether->ctlrno, 
