@@ -135,7 +135,8 @@ wlanpnp(Ether *edev)
 {
 	Wlan *ctlr;
 
-	if(nwlan >= Nwlan)
+	/* only an interface plan9.ini names (type=wlan), not every free one devether probes */
+	if(edev->ISAConf.type == nil || cistrcmp(edev->ISAConf.type, "wlan") != 0 || nwlan >= Nwlan)
 		return -1;
 	ctlr = &wlans[nwlan];
 	ctlr->txq = qopen(256*1024, Qmsg, 0, 0);

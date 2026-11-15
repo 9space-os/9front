@@ -203,9 +203,18 @@ gpureset(void)
 	Pcidev *p;
 	Gpu *g;
 
+	/* the display controllers first: their numbers do not depend on *userpci */
 	p = nil;
 	while(ngpu < Maxgpu && (p = pcimatch(p, 0, 0)) != nil){
-		if(p->ccrb != Pcibcdisp && !userpci(p))
+		if(p->ccrb != Pcibcdisp)
+			continue;
+		g = &gpus[ngpu];
+		g->pci = p;
+		g->id = ngpu++;
+	}
+	p = nil;
+	while(ngpu < Maxgpu && (p = pcimatch(p, 0, 0)) != nil){
+		if(p->ccrb == Pcibcdisp || !userpci(p))
 			continue;
 		g = &gpus[ngpu];
 		g->pci = p;

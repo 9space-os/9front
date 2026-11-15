@@ -28,8 +28,7 @@ are named in
 .IR plan9.ini (8)'s
 .BI *userpci= vid / did
 (hex, several separated by blanks or commas);
-they get the same files, numbered after the display controllers
-before them; the framebuffer's, dirty's and cursor's mean nothing there.
+they get the same files, numbered after all display controllers; the framebuffer's, dirty's and cursor's mean nothing there.
 .PP
 Each controller has a directory
 .IR n ,
