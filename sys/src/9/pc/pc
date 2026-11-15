@@ -28,6 +28,7 @@ dev
 	vga		pci
 	gpio
 	i2c
+	wlan
 
 	sd
 	floppy		dma
@@ -81,6 +82,7 @@ link
 	etheriwl	pci wifi
 	etherwpi	pci wifi
 	etherrt2860	pci wifi
+	etherwlan	wifi
 	ethervirtio	pci
 	ethervirtio10	pci virtio10pc
 	ethermedium

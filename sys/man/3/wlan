@@ -1,0 +1,68 @@
+.TH WLAN 3
+.SH NAME
+wlan \- the radio of an 802.11 interface driven by a program
+.SH SYNOPSIS
+.nf
+.B bind -a #ω /dev
+.PP
+.BI /dev/wlan N /data
+.BI /dev/wlan N /ctl
+.fi
+.SH DESCRIPTION
+An ethernet interface of type
+.B wlan
+.RB ( ether\fIN\fP=type=wlan
+in
+.IR plan9.ini (8))
+is an 802.11 interface as
+.IR ether (3)'s
+WLAN drivers are: the kernel's 802.11 code scans, authenticates,
+associates and ciphers
+.RB ( essid ,
+.B bssid
+and keys by its
+.B clone
+file;
+.IR wpa (8)
+for WPA), but its radio is a program, a user-level driver of the
+hardware or a simulation.
+The program has the interface's directory
+.BI wlan N
+here, after its
+.IR ether (3)
+number
+.IR N .
+.PP
+Read, the data file gives a frame the interface sends, or a request
+to tune (no frame), each read one, after a header of 12 bytes:
+the channel (2 bytes, little endian), the rate (in 500 kb/s), flags
+(1: tune only, no frame), the association id (2 bytes) and the
+access point's address (6 bytes): the channel and the access point
+the radio is to be on.
+Written, it takes a frame received, after a header of 12 bytes: the
+channel (2 bytes), the signal strength (in dBm, signed), flags (1:
+the next 8 bytes are the frame's timestamp, little endian) and those
+8 bytes.
+The data file is open once, by the radio; frames sent while it is
+not are dropped.
+.PP
+Written,
+.B ctl
+takes
+.BI ea " addr"
+(12 hex digits): the station's address, set by the radio from its
+hardware before the interface is used.
+Read, it gives the state and counts of frames.
+Only the host owner opens the files.
+.SH SOURCE
+.B /sys/src/9/port/etherwlan.c
+.br
+.B /sys/src/9/port/devwlan.c
+.SH SEE ALSO
+.IR ether (3),
+.IR wpa (8),
+.IR plan9.ini (8)
+.SH BUGS
+The kernel's 802.11 code scans the 2.4 GHz channels only.
+.br
+Written for nfront.

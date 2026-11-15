@@ -1,0 +1,21 @@
+[
+	{
+		"Name": "wlan-tests",
+		"Include": [
+			"/$ARCH/cflags.json"
+		],
+		"Install": "/tests/wlan/root/tests/",
+		"Oflags": [
+			"--entry=_main"
+		],
+		"Libs": [
+			"--start-group",
+			"/$ARCH/lib.gcc/libip.a",
+			"/$ARCH/lib.gcc/libc.a",
+			"--end-group"
+		],
+		"SourceFilesCmd": [
+			"wlansim.c"
+		]
+	}
+]
