@@ -601,15 +601,22 @@ done(void *a)
 	return ((Ctlr*)a)->status != 0;
 }
 
-/* TRANS_OK within ms, or error */
+/*
+ * TRANS_OK within ms, or error; the interrupt's work done here every
+ * 10ms too, as pmmc does (a slot whose interrupt is not routed works,
+ * slower)
+ */
 static void
 waitintr(Ctlr *c, int ms)
 {
 	u32int status;
 
-	if(!waserror()){
-		tsleep(&c->r, done, c, ms);
-		poperror();
+	for(; ms > 0 && !done(c); ms -= 10){
+		if(!waserror()){
+			tsleep(&c->r, done, c, 10);
+			poperror();
+		}
+		interrupt(nil, c);
 	}
 	ilock(c);
 	status = c->status;
