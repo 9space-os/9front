@@ -94,7 +94,7 @@ static Lock globalseglock;
 	Segment* (*_globalsegattach)(char*);
 static	Segment* globalsegattach(char *name);
 
-static	Segment* fixedseg(uintptr va, ulong len, int type, uintptr align);
+static	Segment* fixedseg(uintptr va, ulong len, int type, uintptr align, uvlong limit);
 
 /*
  * 9front-ng: the ranges of SHAREDBASE..SHAREDTOP handed out by "va 0 len",
@@ -1037,21 +1037,36 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 			if(cb->nf >= 4 && strcmp(cb->f[3], "fixed") == 0){
 				if(!iseve())
 					error(Eperm);
-				g->Segio.s = fixedseg(va, len/BY2PG, SG_FIXED, BY2PG);
-			} else if(cb->nf >= 5 && strcmp(cb->f[3], "sticky") == 0 && strcmp(cb->f[4], "contig") == 0){
+				g->Segio.s = fixedseg(va, len/BY2PG, SG_FIXED, BY2PG, 0);
+			} else if(cb->nf >= 5 && strcmp(cb->f[3], "sticky") == 0
+			&& (strcmp(cb->f[4], "contig") == 0 || strcmp(cb->f[4], "dma32") == 0)){
 				uintptr align;
+				uvlong limit;
+				int i;
 
 				/*
 				 * 9front-ng: sticky, physically contiguous and aligned
 				 * to its size (up to 2 MB), as a buddy allocator's
 				 * blocks are: a GPU driver's pool of pages, whose
-				 * higher orders must be so (Linux's alloc_pages)
+				 * higher orders must be so (Linux's alloc_pages).
+				 * nfront: dma32: below 4 GB, for a device that
+				 * addresses no more (aux/rtw89's card); contiguous
+				 * then too (a run of pages, aligned only with contig)
 				 */
 				if(!iseve())
 					error(Eperm);
-				for(align = BY2PG; align < len && align < 2*1024*1024; align <<= 1)
-					;
-				g->Segio.s = fixedseg(va, len/BY2PG, SG_STICKY, align);
+				align = BY2PG;
+				limit = 0;
+				for(i = 4; i < cb->nf; i++){
+					if(strcmp(cb->f[i], "contig") == 0)
+						for(align = BY2PG; align < len && align < 2*1024*1024; align <<= 1)
+							;
+					else if(strcmp(cb->f[i], "dma32") == 0)
+						limit = 1ULL<<32;
+					else
+						error(Ebadarg);
+				}
+				g->Segio.s = fixedseg(va, len/BY2PG, SG_STICKY, align, limit);
 			} else if(cb->nf >= 4 && strcmp(cb->f[3], "sticky") == 0){
 				Segment *s;
 
@@ -1271,10 +1286,11 @@ Found:
 /*
  * allocate a fixed segment with sequential run of of adjacent
  * user memory pages.  9front-ng: or a sticky one (type), the run's
- * physical start aligned to align
+ * physical start aligned to align.  nfront: the run's end at most limit
+ * (0: anywhere)
  */
 static Segment*
-fixedseg(uintptr va, ulong len, int type, uintptr align)
+fixedseg(uintptr va, ulong len, int type, uintptr align, uvlong limit)
 {
 	Segment *s;
 	Page **f, *p, *l, *h, *t;
@@ -1299,6 +1315,7 @@ fixedseg(uintptr va, ulong len, int type, uintptr align)
 		 * before the retry -- seconds with gigabytes of memory
 		 */
 		if(l->Ref.ref != 0 || l->image != nil
+		|| (limit != 0 && (uvlong)l->pa + BY2PG > limit)
 		|| (i != 0 ? (l[-1].pa+BY2PG) != l->pa : l->color != color || (l->pa & (align-1)) != 0)){
 		Retry:
 			i = 0;

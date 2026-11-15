@@ -4,7 +4,8 @@
  * buffer object as one), each found by its address (seg's binary search:
  * write and read every one), /proc/n/segment lists them, a fork's child
  * has them all, detaching every other one and attaching again reuses the
- * free slots, an exec keeps them (segattach(2)).
+ * free slots, an exec keeps them (segattach(2)).  nfront: a sticky
+ * segment with dma32 (segment(3)) has its pages below 4 GB, contiguous.
  * Prints "ok ..." / "FAIL ..." lines and a summary.
  *
  * usage: segtest [n]
@@ -57,6 +58,65 @@ nsegs(int pid)
 			lines += buf[i] == '\n';
 	close(fd);
 	return lines;
+}
+
+/*
+ * nfront: "va VA LEN sticky [contig] dma32": its pages (#g/name/pa)
+ * below 4 GB and contiguous; aligned to the size with contig
+ */
+static void
+dma32(char *name, uintptr va, ulong len, int contig)
+{
+	char path[64];
+	uchar b[8];
+	uvlong pa, first, align;
+	ulong i;
+	int fd;
+
+	snprint(path, sizeof path, "#g/%s", name);
+	if((fd = create(path, OREAD, DMDIR|0700)) < 0){
+		fail("%s: create: %r", name);
+		return;
+	}
+	close(fd);
+	snprint(path, sizeof path, "#g/%s/ctl", name);
+	if((fd = open(path, OWRITE)) < 0 || fprint(fd, "va %#p %#lux sticky%s dma32", va, len, contig ? " contig" : "") < 0){
+		fail("%s: ctl: %r", name);
+		goto out;
+	}
+	close(fd);
+	snprint(path, sizeof path, "#g/%s/pa", name);
+	if((fd = open(path, OREAD)) < 0){
+		fail("%s: pa: %r", name);
+		goto out;
+	}
+	first = 0;
+	for(i = 0; i < len/4096; i++){
+		if(readn(fd, b, 8) != 8){
+			fail("%s: pa: short", name);
+			break;
+		}
+		pa = (uvlong)b[0] | (uvlong)b[1]<<8 | (uvlong)b[2]<<16 | (uvlong)b[3]<<24
+			| (uvlong)b[4]<<32 | (uvlong)b[5]<<40 | (uvlong)b[6]<<48 | (uvlong)b[7]<<56;
+		if(i == 0)
+			first = pa;
+		if(pa + 4096 > 1ULL<<32 || pa != first + i*4096){
+			fail("%s: page %lud at %#llux (first %#llux)", name, i, pa, first);
+			break;
+		}
+	}
+	close(fd);
+	for(align = 4096; align < len && align < 2*1024*1024; align <<= 1)
+		;
+	if(i == len/4096){
+		if(contig && (first & (align-1)) != 0)
+			fail("%s: at %#llux, not aligned to %#llux", name, first, align);
+		else
+			ok("%s: %lud pages below 4 GB from %#llux", name, i, first);
+	}
+out:
+	snprint(path, sizeof path, "#g/%s", name);
+	remove(path);
 }
 
 /* each segment holds its number: are they all where they were */
@@ -172,6 +232,9 @@ main(int argc, char **argv)
 			ok("exec keeps them");
 		free(w);
 	}
+
+	dma32("segtest.dma32", 0x5000000000ULL, 8*1024*1024, 0);
+	dma32("segtest.dma32c", 0x5001000000ULL, 8*1024*1024, 1);
 
 	print(nfail ? "segtest: %d failed\n" : "segtest: all passed\n", nfail);
 	exits(nfail ? "failed" : nil);

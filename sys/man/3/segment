@@ -82,6 +82,16 @@ a sticky segment's pages are also physically contiguous, starting at
 an address aligned to the segment's size (at most 2 MB), as a buddy
 allocator's blocks are; it fails when no such run of free memory is
 left.
+With
+.B dma32
+(after
+.B sticky
+or
+.BR contig )
+the pages are below 4 GB, for a device that addresses no more,
+and contiguous too (aligned only with
+.BR contig );
+an nfront addition.
 Only the hostowner is allowed to create
 .B fixed
 or
