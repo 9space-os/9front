@@ -7,6 +7,9 @@ rtw89 \- Realtek RTL8852CE WLAN driver
 .B -l
 .I loglevel
 ] [
+.B -m
+.I memlimit
+] [
 .B -p
 .IB name = value
 ]... [
@@ -66,7 +69,17 @@ access point, the association, so that the card's firmware chooses the
 rates for it.
 .PP
 .B -l
-sets the level of the driver's messages (as Linux's printk, default 6),
+sets the level of the driver's messages (as Linux's printk, default 6;
+8 shows rtw89's debug messages),
+.B -m
+where the frames' memory lies, as FreeBSD's
+.B compat.linuxkpi.skb.mem_limit
+(0 anywhere, 1 below 4 GB, the default, 2 below 64 GB: the card does
+not work reliably with frames above 4 GB, FreeBSD's
+.IR rtw89 (4)
+says; plan9.ini's
+.B *dma32
+keeps memory there),
 .B -p
 one of rtw89's module parameters, such as
 .B debug_mask=0x...

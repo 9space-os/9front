@@ -87,9 +87,12 @@ trapnote(void *v, char *note)
 static void
 usage(void)
 {
-	fprint(2, "usage: %s [-l loglevel] [-p name=value]... [-g #G/n] [-w #ω/wlanN]\n", argv0);
+	fprint(2, "usage: %s [-l loglevel] [-m memlimit] [-p name=value]... [-g #G/n] [-w #ω/wlanN]\n", argv0);
 	threadexitsall("usage");
 }
+
+/* the LinuxKPI's skbuff.c: FreeBSD's compat.linuxkpi.skb.mem_limit */
+extern int kpi_skb_memlimit;
 
 void
 threadmain(int argc, char **argv)
@@ -101,7 +104,16 @@ threadmain(int argc, char **argv)
 	wdir = nil;
 	nparam = 0;
 	loglevel = 6;	/* KERN_INFO */
+	/*
+	 * the skbs' data below 4 GB: the card does not fetch frames above
+	 * (the firmware download never arrived), as FreeBSD's rtw89(4)
+	 * says of machines with more than 4 GB (its BUGS)
+	 */
+	kpi_skb_memlimit = 1;
 	ARGBEGIN{
+	case 'm':
+		kpi_skb_memlimit = atoi(EARGF(usage()));
+		break;
 	case 'l':
 		loglevel = atoi(EARGF(usage()));
 		break;

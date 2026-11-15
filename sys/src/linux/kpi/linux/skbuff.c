@@ -30,7 +30,9 @@
  * LinuxKPI for 9front: FreeBSD's linux_skbuff.c (freebsd/, 584f44221f45),
  * changed where marked 9front: an skb's data is a run of the page pool's
  * pages (page.c), which the device reaches (dma_map_single: rtw89's
- * receive buffers and frames to send); no UMA zone, no mbufs, no sysctls.
+ * receive buffers and frames to send); no UMA zone, no mbufs, no sysctls:
+ * FreeBSD's compat.linuxkpi.skb.mem_limit is kpi_skb_memlimit, set by
+ * the program (aux/rtw89).
  */
 
 #include <linux/skbuff.h>
@@ -38,12 +40,22 @@
 #include <linux/gfp.h>
 #include <linux/mm.h>
 
+/*
+ * FreeBSD's linuxkpi_skb_memlimit: Realtek's drivers (rtw88, rtw89) do
+ * not work reliably with more than 4 GB of memory unless the data of the
+ * skbs is below (FreeBSD's rtw89(4), BUGS): 0 no limit, 1 32 bits, 2 36
+ * bits (the device's mask bounds the pool to that anyway, page.c)
+ */
+int kpi_skb_memlimit;
+
 /* 9front: the data, contiguous for the device too */
 static void *
 skb_data_alloc(size_t len, gfp_t gfp)
 {
 	struct page *p;
 
+	if (kpi_skb_memlimit != 0 && kpi_skb_memlimit != 2)
+		gfp |= __GFP_DMA32;
 	p = alloc_pages(gfp | __GFP_ZERO, get_order(len));
 	return p != NULL ? page_address(p) : NULL;
 }

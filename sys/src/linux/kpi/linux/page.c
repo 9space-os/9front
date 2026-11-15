@@ -9,11 +9,13 @@
  * A run of 2^order pages must be contiguous both ways; pages are found
  * again by address (virt_to_page) and by frame number (pfn_to_page).
  *
- * nfront: the device's DMA mask (dma_set_mask, dma.c; 32 bits until the
- * driver sets one, as in Linux) bounds the pool: pages are given only
- * from chunks the device reaches, made below 4 GB (segment(3)'s dma32)
- * for a 32-bit device.  Linux bounces or remaps (swiotlb, an IOMMU)
- * where we have neither.
+ * nfront: the device's DMA mask (dma_set_mask, dma.c), once the driver
+ * sets one, and GFP_DMA32 bound the pool: pages are given only from
+ * chunks the device reaches, made below 4 GB (segment(3)'s dma32) for
+ * 32 bits.  Linux bounces or remaps (swiotlb, an IOMMU) where we have
+ * neither.  Without a mask there is no bound: Linux's default is 32
+ * bits, but memory below 4 GB is scarce here (plan9.ini(8)'s *dma32),
+ * and the drivers that need it say so (aux/rtw89: kpi_skb_memlimit).
  */
 #include <linux/mm.h>
 #include <linux/gfp.h>
@@ -42,7 +44,7 @@ struct chunk {
 	u64	maxpa;		/* nfront: its highest byte's physical address */
 };
 
-u64 kpi_dma_limit = DMA_BIT_MASK(32);	/* nfront: the device's DMA mask (dma.c) */
+u64 kpi_dma_limit = DMA_BIT_MASK(64);	/* nfront: the device's DMA mask (dma.c) */
 
 static u64 plock[4];		/* QLock */
 static struct chunk *chunks;
@@ -82,9 +84,10 @@ newchunk(u64 limit)
 	dma32 = limit <= DMA_BIT_MASK(32) ? P9SEGDMA32 : 0;
 Again:
 	c->va = p9_segalloc(c->name, CHUNK, pa, P9SEGCONTIG | dma32);
-	if (!c->va && !dma32) {
+	if (!c->va) {
+		/* scattered pages; below 4 GB a run, not aligned (segment(3)) */
 		snprintf(c->name, sizeof(c->name), "kpi.%d.%ds", p9_getpid(), nchunks);
-		c->va = p9_segalloc(c->name, CHUNK, pa, 0);
+		c->va = p9_segalloc(c->name, CHUNK, pa, dma32);
 	}
 	if (!c->va)
 		goto err;
