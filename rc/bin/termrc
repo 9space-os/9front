@@ -101,8 +101,12 @@ if(test -e '#P/acpiev' && ! test -e /srv/acpi){
 # RTL8852CE that plan9.ini hands to user level (*userpci=10ec/c852,
 # etherN=type=wlan; rtw89(8)); in the background: its firmware takes
 # seconds
-if(ls '#ω' >[2]/dev/null | grep -s wlan && grep -s '^id 10ec/c852' '#G'/*/ctl >[2]/dev/null)
-	aux/rtw89 &
+if(ls '#ω' >[2]/dev/null | grep -s wlan && grep -s '^id 10ec/c852' '#G'/*/ctl >[2]/dev/null){
+	if(test -w /sys/log)
+		aux/rtw89 >>[2]/sys/log/rtw89 &
+	if not
+		aux/rtw89 &
+}
 
 # setup mouse and graphics
 screenrc
