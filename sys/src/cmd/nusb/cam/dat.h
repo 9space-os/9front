@@ -31,6 +31,7 @@ struct Cam {
 	QLock qulock;
 	int cvtid;
 	int framemode;
+	int skip;	/* nfront: frames dropped before frame's (the sensor settling) */
 };
 
 extern int nunit;

@@ -162,7 +162,9 @@ cvtproc(void *v)
 		if(c->abort || rc < 0) break;
 		if(rc == 0) continue;
 		if((ob ^ buf[1]) & 1){
-			if(bufn == frsz){
+			if(bufn == frsz && c->skip > 0)
+				c->skip--;
+			else if(bufn == frsz){
 				of = grabframe(c);
 				cvt->fn(f, g, fbuf, of);
 				pushframe(c, of);
@@ -287,6 +289,16 @@ err:
 	mkframes(c);
 	c->active = 1;
 	c->framemode = fr;
+	/*
+	 * nfront: frame's picture after a second of them: a sensor just
+	 * started gives black ones while its exposure settles (a laptop's,
+	 * 30c9:00c2: all black at first, its pictures after some)
+	 */
+	c->skip = 0;
+	if(fr && GET4(c->pc.dwFrameInterval) > 0)
+		c->skip = 10000000 / GET4(c->pc.dwFrameInterval);
+	if(c->skip > 60)
+		c->skip = 60;
 	qunlock(&c->qulock);
 	c->cvtid = proccreate(cvtproc, c, 16384);
 	return 0;
