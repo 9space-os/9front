@@ -618,7 +618,7 @@ static Lock seglk;
 static uvlong segnext = 0x4000000000ULL;
 
 void*
-p9_segalloc(const char *name, unsigned long size, unsigned long long *pa, int contig)
+p9_segalloc(const char *name, unsigned long size, unsigned long long *pa, int flags)
 {
 	char path[96];
 	uchar *b;
@@ -638,7 +638,8 @@ p9_segalloc(const char *name, unsigned long size, unsigned long long *pa, int co
 	snprint(path, sizeof path, "#g/%s/ctl", name);
 	if((fd = open(path, OWRITE)) < 0)
 		return nil;
-	if(fprint(fd, "va %#llux %#lux sticky%s", va, size, contig ? " contig" : "") < 0){
+	if(fprint(fd, "va %#llux %#lux sticky%s%s", va, size,
+	    flags & P9SEGCONTIG ? " contig" : "", flags & P9SEGDMA32 ? " dma32" : "") < 0){
 		close(fd);
 		goto err;
 	}

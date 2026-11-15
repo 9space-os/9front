@@ -8,6 +8,12 @@
  * struct page, with where the server sees it and where the device does.
  * A run of 2^order pages must be contiguous both ways; pages are found
  * again by address (virt_to_page) and by frame number (pfn_to_page).
+ *
+ * nfront: the device's DMA mask (dma_set_mask, dma.c; 32 bits until the
+ * driver sets one, as in Linux) bounds the pool: pages are given only
+ * from chunks the device reaches, made below 4 GB (segment(3)'s dma32)
+ * for a 32-bit device.  Linux bounces or remaps (swiotlb, an IOMMU)
+ * where we have neither.
  */
 #include <linux/mm.h>
 #include <linux/gfp.h>
@@ -17,6 +23,7 @@
 #include <linux/vmalloc.h>
 #include <linux/pagevec.h>
 #include <linux/smp.h>
+#include <linux/dma-mapping.h>
 #include <kpi/p9.h>
 
 #define CHUNK		(8UL << 20)
@@ -32,7 +39,10 @@ struct chunk {
 	struct page	*pages;
 	unsigned long	used[BITS_TO_LONGS(CHUNKPAGES)];
 	unsigned long	nfree;
+	u64	maxpa;		/* nfront: its highest byte's physical address */
 };
+
+u64 kpi_dma_limit = DMA_BIT_MASK(32);	/* nfront: the device's DMA mask (dma.c) */
 
 static u64 plock[4];		/* QLock */
 static struct chunk *chunks;
@@ -42,13 +52,14 @@ static struct page *hash[NHASH];
 static inline unsigned int hashpfn(unsigned long pfn) { return (pfn * 2654435761UL) % NHASH; }
 
 static struct chunk *
-newchunk(void)
+newchunk(u64 limit)
 {
 	unsigned long long *pa;
 	struct chunk *c;
 	struct page *p;
 	unsigned long i;
 	unsigned int h;
+	int dma32;
 
 	c = kzalloc(sizeof(*c), GFP_KERNEL);
 	pa = kmalloc_array(CHUNKPAGES, sizeof(*pa), GFP_KERNEL);
@@ -63,13 +74,33 @@ newchunk(void)
 	 * free (then every block of an order is naturally aligned, as
 	 * Linux's buddy allocator gives them), else scattered pages
 	 */
-	c->va = p9_segalloc(c->name, CHUNK, pa, 1);
-	if (!c->va) {
+	/*
+	 * nfront: below 4 GB if the device addresses no more; a chunk
+	 * above a wider mask (more memory than the device reaches) again
+	 * so
+	 */
+	dma32 = limit <= DMA_BIT_MASK(32) ? P9SEGDMA32 : 0;
+Again:
+	c->va = p9_segalloc(c->name, CHUNK, pa, P9SEGCONTIG | dma32);
+	if (!c->va && !dma32) {
 		snprintf(c->name, sizeof(c->name), "kpi.%d.%ds", p9_getpid(), nchunks);
 		c->va = p9_segalloc(c->name, CHUNK, pa, 0);
 	}
 	if (!c->va)
 		goto err;
+	c->maxpa = 0;
+	for (i = 0; i < CHUNKPAGES; i++)
+		if (pa[i] + PAGE_SIZE - 1 > c->maxpa)
+			c->maxpa = pa[i] + PAGE_SIZE - 1;
+	if (c->maxpa > limit) {
+		p9_segfree(c->name, c->va);
+		c->va = NULL;
+		if (dma32)
+			goto err;
+		dma32 = P9SEGDMA32;
+		snprintf(c->name, sizeof(c->name), "kpi.%d.%dl", p9_getpid(), nchunks);
+		goto Again;
+	}
 	for (i = 0; i < CHUNKPAGES; i++) {
 		p = &c->pages[i];
 		p->virtual = c->va + i * PAGE_SIZE;
@@ -125,17 +156,21 @@ alloc_pages(gfp_t gfp, unsigned int order)
 	struct page *p;
 	long i = -1;
 	int shrunk = 0;
+	u64 limit;
 
 	if (n > CHUNKPAGES)
 		return NULL;
+	limit = kpi_dma_limit;
+	if ((gfp & __GFP_DMA32) && limit > DMA_BIT_MASK(32))
+		limit = DMA_BIT_MASK(32);
 again:
 	p9_qlock(plock);
 	for (c = chunks; c; c = c->next)
-		if (c->nfree >= n && (i = findrun(c, n)) >= 0)
+		if (c->maxpa <= limit && c->nfree >= n && (i = findrun(c, n)) >= 0)
 			break;
 	if (!c) {
 		/* a new chunk; a higher order may still fail there, then the caller tries lower */
-		c = newchunk();
+		c = newchunk(limit);
 		if (!c && !(gfp & __GFP_NORETRY) && !shrunk) {
 			/* no more memory: what the shrinkers give back, then again */
 			p9_qunlock(plock);

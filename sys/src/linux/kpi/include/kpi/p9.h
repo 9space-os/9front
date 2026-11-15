@@ -61,8 +61,16 @@ unsigned long	p9_msize(void *p);
  * memory for the device: a #g segment of pinned pages, attached to the
  * file server at va; pa[] gets each page's physical address
  */
-void	*p9_segalloc(const char *name, unsigned long size, unsigned long long *pa, int contig);
-/* contig: the pages physically contiguous, aligned to the size (up to 2 MB): segment(3)'s "sticky contig" */
+void	*p9_segalloc(const char *name, unsigned long size, unsigned long long *pa, int flags);
+/*
+ * flags: P9SEGCONTIG: the pages physically contiguous, aligned to the
+ * size (up to 2 MB): segment(3)'s "sticky contig"; P9SEGDMA32: below 4 GB
+ * (and contiguous): "dma32"
+ */
+enum {
+	P9SEGCONTIG	= 1,
+	P9SEGDMA32	= 2,
+};
 void	p9_segfree(const char *name, void *va);
 /* an alias segment (segment(3)): page i is at offset off[i] of segment src[i]; attached here if attach */
 void	*p9_segalias(const char *name, int n, const char **src, unsigned long long *off, int attach);

@@ -41,15 +41,18 @@ int	dma_map_sgtable(struct device *d, struct sg_table *t, enum dma_data_directio
 #define dma_sync_sgtable_for_device(d, t, r)	do { } while (0)
 #define dma_sync_single_for_cpu(d, a, s, r)	do { } while (0)
 #define dma_sync_single_for_device(d, a, s, r)	do { } while (0)
-#define dma_set_mask(d, m)			0
-#define dma_set_coherent_mask(d, m)		0
-#define dma_set_mask_and_coherent(d, m)		0
-#define dma_coerce_mask_and_coherent(d, m)	0
+/* nfront: the device's mask bounds the page pool (page.c) */
+extern u64 kpi_dma_limit;
+int	kpi_dma_set_mask(struct device *d, u64 mask);
+#define dma_set_mask(d, m)			kpi_dma_set_mask(d, m)
+#define dma_set_coherent_mask(d, m)		kpi_dma_set_mask(d, m)
+#define dma_set_mask_and_coherent(d, m)		kpi_dma_set_mask(d, m)
+#define dma_coerce_mask_and_coherent(d, m)	kpi_dma_set_mask(d, m)
 #define dma_set_max_seg_size(d, s)		0
 #define dma_get_max_seg_size(d)			(UINT_MAX & PAGE_MASK)
 #define dma_max_mapping_size(d)			SIZE_MAX
 #define dma_addressing_limited(d)		0
-#define dma_get_mask(d)				DMA_BIT_MASK(64)
+#define dma_get_mask(d)				kpi_dma_limit
 void	*dma_alloc_attrs(struct device *d, size_t size, dma_addr_t *handle, gfp_t gfp, unsigned long attrs);
 void	dma_free_attrs(struct device *d, size_t size, void *cpu, dma_addr_t handle, unsigned long attrs);
 void	*dma_alloc_coherent(struct device *d, size_t size, dma_addr_t *handle, gfp_t gfp);
