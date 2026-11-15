@@ -53,6 +53,7 @@
             "cp ../pc/mtrr.c mtrr.c",
             "cp ../pc/pcipc.c pcipc.c",
             "cp ../pc/pmmc.c pmmc.c",
+            "cp ../pc/rtsx.c rtsx.c",
             "cp ../pc/screen.c screen.c",
             "cp ../pc/sd53c8xx.c sd53c8xx.c",
             "cp ../pc/sdiahci.c sdiahci.c",
@@ -248,7 +249,8 @@
                     "usbehci pci usbehcipc",
                     "usbxhcipci pci usbxhci",
                     "audiohda pci",
-                    "pmmc pci"
+                    "pmmc pci",
+                    "rtsx pci"
                 ],
                 "Ip": [
                     "tcp",
@@ -274,7 +276,7 @@
                     "sdiahci pci sdscsi led",
                     "sdvirtio pci sdscsi",
                     "sdvirtio10 pci sdscsi virtio10pc",
-                    "sdmmc pci pmmc",
+                    "sdmmc pci pmmc rtsx",
                     "sdnvme pci",
                     "sdloop",
                     "sdram",
@@ -421,6 +423,7 @@
             "../ip/pktmedium.c",
             "pmcio.c",
             "pmmc.c",
+            "rtsx.c",
             "../port/portclock.c",
             "../port/print.c",
             "../port/proc.c",

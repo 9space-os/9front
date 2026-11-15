@@ -100,6 +100,7 @@ link
 	audiohda	pci
 
 	pmmc		pci
+	rtsx		pci
 
 misc
 	pci		pcipc
@@ -116,6 +117,7 @@ misc
 #	sdodin		pci sdscsi led
 	sdvirtio	pci sdscsi
 	sdvirtio10	pci sdscsi virtio10pc
+	sdmmc		pci pmmc rtsx
 	sdnvme		pci
 	sdloop
 	sdram

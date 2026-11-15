@@ -162,7 +162,8 @@
 					"audiosb16 dma",
 					"audioac97 pci audioac97mix",
 					"audiohda pci",
-					"pmmc pci"
+					"pmmc pci",
+					"rtsx pci"
 				],
 				"Ip": [
 					"tcp",
@@ -190,7 +191,7 @@
 					"sdodin pci sdscsi led",
 					"sdvirtio pci sdscsi",
 					"sdvirtio10 pci sdscsi virtio10pc",
-					"sdmmc pci pmmc",
+					"sdmmc pci pmmc rtsx",
 					"sdnvme pci",
 					"sdloop",
 					"sdram",
@@ -369,6 +370,7 @@
 			"pcmciamodem.c",
 			"../ip/pktmedium.c",
 			"pmmc.c",
+			"rtsx.c",
 			"../ip/rudp.c",
 			"screen.c",
 			"sd53c8xx.c",

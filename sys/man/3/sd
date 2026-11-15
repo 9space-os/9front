@@ -43,6 +43,22 @@ etc. up to a maximum of 16 controllers
 There can be a maximum of 16 units per SCSI controller
 .RB ([ 0-9a-f ]).
 .PP
+SD and MMC cards are units of controller
+.L M
+.RB ( sdM0 ;
+an MMC card's boot partitions
+.B sdM1
+and
+.BR sdM2 ),
+through the PC's host controllers:
+an SDHCI on PCI
+.RB ( pmmc )
+and Realtek's PCI Express card readers RTS5209, 5227, 5229, 522A, 5249,
+525A and RTL8402, 8411, 8411B
+.RB ( rtsx ,
+nfront).
+A card is found when the unit is first used after it was inserted.
+.PP
 Units are not accessed before the first attach.
 Units may be individually attached using the attach specifier,
 for example
@@ -239,6 +255,10 @@ or
 .B /sys/src/9/port/devsd.c
 .br
 .B /sys/src/9/*/sd*.[hc]
+.br
+.B /sys/src/9/pc/pmmc.c
+.br
+.B /sys/src/9/pc/rtsx.c
 .SH SEE ALSO
 .IR scuzz (8)
 .SH BUGS
