@@ -102,8 +102,9 @@ if(test -e '#P/acpiev' && ! test -e /srv/acpi){
 # etherN=type=wlan; rtw89(8)); in the background: its firmware takes
 # seconds
 if(ls '#ω' >[2]/dev/null | grep -s wlan && grep -s '^id 10ec/c852' '#G'/*/ctl >[2]/dev/null){
+	# (appended to as a try: a file server's mode bits need not say it, ufs's)
 	rtwlog=/fd/2
-	if(test -w /sys/log)
+	if(echo -n >>/sys/log/rtw89 >[2]/dev/null)
 		rtwlog=/sys/log/rtw89
 	aux/rtw89 >>[2]$rtwlog &
 }
