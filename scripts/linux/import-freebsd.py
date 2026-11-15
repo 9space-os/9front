@@ -25,7 +25,10 @@ WANT = [
 	['sys/compat/linuxkpi/common/include/', 'sys/compat/linuxkpi/common/src/',
 	 # nfront: Realtek's rtw89 WLAN driver as FreeBSD carries it (GPL-2.0 OR
 	 # BSD-3-Clause: the BSD choice), for aux/rtw89
-	 'sys/contrib/dev/rtw89/'],
+	 'sys/contrib/dev/rtw89/',
+	 # net80211's protocol and radiotap definitions (BSD), the numbers FreeBSD's
+	 # linux/ieee80211.h, net/cfg80211.h and net/ieee80211_radiotap.h take from them
+	 'sys/net80211/ieee80211.h', 'sys/net80211/ieee80211_radiotap.h'],
 	['linuxkpi/bsd/', 'drivers/gpu/drm/drm_sysfs.c', 'drivers/gpu/drm/drm_lease.c',
 	 'include/drm/drm_sysfs.h', 'drivers/gpu/drm/i915/intel_uncore_trace.h',
 	 'drivers/dma-buf/dma-buf.c', 'drivers/dma-buf/dma-fence.c',
