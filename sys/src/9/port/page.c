@@ -17,7 +17,7 @@ void
 pageinit(void)
 {
 	int color, i, j;
-	Page *p, **t;
+	Page *p, **t, *lowhead, **lt;
 	Confmem *cm;
 	vlong m, v, u;
 
@@ -38,7 +38,14 @@ pageinit(void)
 	palloc.freecount = 0;
 	palloc.head = nil;
 
+	/*
+	 * nfront: the pages below 4 GB last on the free list when there
+	 * are others (xalloc.c's dma32pages): kept for the devices that
+	 * need them as long as memory lasts
+	 */
 	t = &palloc.head;
+	lowhead = nil;
+	lt = &lowhead;
 	p = palloc.pages;
 
 	for(i=0; i<nelem(conf.mem); i++){
@@ -50,11 +57,15 @@ pageinit(void)
 				continue;
 			p->color = color;
 			color = (color+1)%NCOLOR;
-			*t = p, t = &p->next;
+			if((uvlong)p->pa + BY2PG <= 1ULL<<32)
+				*lt = p, lt = &p->next;
+			else
+				*t = p, t = &p->next;
 			palloc.freecount++;
 			p++;
 		}
 	}
+	*t = lowhead;
 
 	palloc.user = p - palloc.pages;
 	u = palloc.user*BY2PG;

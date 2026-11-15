@@ -1296,6 +1296,7 @@ fixedseg(uintptr va, ulong len, int type, uintptr align, uvlong limit)
 	Page **f, *p, *l, *h, *t;
 	ulong n, i;
 	int color;
+	uvlong floor;
 
 	s = newseg(type, va, len);
 	if(waserror()){
@@ -1303,6 +1304,12 @@ fixedseg(uintptr va, ulong len, int type, uintptr align, uvlong limit)
 		nexterror();
 	}
 
+	/*
+	 * nfront: without a limit the pages above 4 GB first, then any:
+	 * the ones below are kept for dma32 (plan9.ini(8)'s *dma32)
+	 */
+	floor = limit == 0 ? 1ULL<<32 : 0;
+Again:
 	lock(&palloc.Lock);
 	i = 0;
 	l = palloc.pages;
@@ -1316,6 +1323,7 @@ fixedseg(uintptr va, ulong len, int type, uintptr align, uvlong limit)
 		 */
 		if(l->Ref.ref != 0 || l->image != nil
 		|| (limit != 0 && (uvlong)l->pa + BY2PG > limit)
+		|| (uvlong)l->pa < floor
 		|| (i != 0 ? (l[-1].pa+BY2PG) != l->pa : l->color != color || (l->pa & (align-1)) != 0)){
 		Retry:
 			i = 0;
@@ -1369,6 +1377,10 @@ fixedseg(uintptr va, ulong len, int type, uintptr align, uvlong limit)
 		return s;
 	}
 	unlock(&palloc.Lock);
+	if(floor != 0){
+		floor = 0;
+		goto Again;
+	}
 
 	error(Enomem);
 }
