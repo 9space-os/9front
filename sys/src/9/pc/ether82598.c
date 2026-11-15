@@ -550,7 +550,8 @@ rim(void *v)
 void
 rproc(void *v)
 {
-	uint m, rdh;
+	uint m;
+	volatile uint rdh;	/* GCC port: changed after waserror() and read after the jump back to it: in memory, as kencc keeps it */
 	Block *b;
 	Ctlr *c;
 	Ether *e;
