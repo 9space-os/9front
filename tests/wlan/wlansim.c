@@ -24,7 +24,8 @@
  * Behind them is a host, 10.0.9.1 (ethernet 02:00:00:00:00:01): ARP and
  * ICMP echo.  Prints what happens on stderr, and what is wrong: probe
  * requests on a channel with radar detection, 802.11b rates on 5 GHz.
- * As the radio it offers HT (ctl caps); an access point with WMM sees
+ * As the radio it offers HT and VHT (ctl caps; nfront5 offers VHT, 80 MHz
+ * around channel 42); an access point with WMM sees
  * whether the association request has WMM's element and the HT
  * capabilities, and then exchanges QoS data (CCMP with the TID).  Then it
  * asks for a block ack agreement (A-MPDU, TID 0) and agrees to the
@@ -126,6 +127,15 @@ static uchar htcap[] = {
 	0, 0, 0, 0,		/* beamforming */
 	0,			/* ASEL */
 };
+/* VHT capabilities: MCS 0-9 on one stream (the access point's and the radio's) */
+static uchar vhtcap[] = {
+	191, 12,
+	0x00, 0x00, 0x00, 0x00,	/* capability info: 80 MHz only */
+	0xfe, 0xff, 0x00, 0x00,	/* rx MCS map: one stream, MCS 0-9; highest */
+	0xfe, 0xff, 0x00, 0x00,	/* tx */
+};
+/* VHT operation: 80 MHz around channel 42 (36-48) */
+static uchar vhtop[] = { 192, 5, 1, 42, 0, 0xfc, 0xff };
 /* WMM parameter element, version 1, the default access categories */
 static uchar wmmparam[] = {
 	221, 24, 0x00, 0x50, 0xf2, 0x02, 0x01, 0x01, 0x00, 0x00,
@@ -276,6 +286,14 @@ ies(Ap *ap, uchar *p)
 	if(ap->wmm){
 		memmove(p, htcap, sizeof htcap);
 		p += sizeof htcap;
+		if(ap->channel > 14){
+			memmove(p, vhtcap, sizeof vhtcap);
+			p += sizeof vhtcap;
+			if(ap->ht){
+				memmove(p, vhtop, sizeof vhtop);
+				p += sizeof vhtop;
+			}
+		}
 		memmove(p, wmmparam, sizeof wmmparam);
 		p += sizeof wmmparam;
 	}
@@ -1002,8 +1020,9 @@ frame(uchar *f, int n)
 				return;
 			}
 			ap->qos = ap->wmm && haswmm(f+24+4, f+n);
-			fprint(2, "wlansim: %s: associated %E on channel %d%s%s\n", ap->essid, sta, ap->channel,
-				ap->qos ? ", with WMM" : "", ap->wmm && hasie(f+24+4, f+n, 45) ? ", HT capabilities" : "");
+			fprint(2, "wlansim: %s: associated %E on channel %d%s%s%s\n", ap->essid, sta, ap->channel,
+				ap->qos ? ", with WMM" : "", ap->wmm && hasie(f+24+4, f+n, 45) ? ", HT capabilities" : "",
+				hasie(f+24+4, f+n, 191) ? ", VHT capabilities" : "");
 			put16(p+2, 0);	/* success */
 			put16(p+4, 0xc001);	/* aid 1 */
 			p = putrates(ap, p+6);
@@ -1112,9 +1131,9 @@ main(int argc, char *argv[])
 				aps[i].pmk, sizeof aps[i].pmk, hmac_sha1, SHA1dlen);
 	if((fd = open(smprint("%s/data", dev), ORDWR)) < 0)
 		sysfatal("%s: %r", dev);
-	/* the radio's capabilities: HT, as aux/rtw89 tells its own */
+	/* the radio's capabilities: HT and VHT, as aux/rtw89 tells its own */
 	if((i = open(smprint("%s/ctl", dev), OWRITE)) >= 0){
-		fprint(i, "caps %.*H", (int)sizeof htcap, htcap);
+		fprint(i, "caps %.*H%.*H", (int)sizeof htcap, htcap, (int)sizeof vhtcap, vhtcap);
 		close(i);
 	}
 	switch(rfork(RFPROC|RFMEM|RFNOWAIT)){

@@ -51,8 +51,9 @@ check "5 GHz: the scan found nfront5, associated on channel 36" bash -c "grep -q
 check "5 GHz: ping through nfront5, no echo lost" bash -c "grep '^wlan5ping: ' '$C' | grep -q 'rtt\|time' && ! grep -q '^wlan5ping: .*lost' '$C'"
 check "5 GHz: no 802.11b rates (association request, frames sent)" bash -c "! grep -q '802.11b rate' '$C'"
 check "channels with radar detection (52-144): no probe requests" bash -c "! grep -q 'radar detection' '$C'"
-check "the radio's capabilities in its ctl: HT (caps 2d1a...)" grep -q '^wlanctl: caps 2d1a' "$C"
-check "WMM: nfront5 associated with WMM and the radio's HT capabilities" grep -q 'wlansim: wlansim: nfront5: associated 020000000002 on channel 36, with WMM, HT capabilities' "$C"
+check "the radio's capabilities in its ctl: HT and VHT (caps 2d1a... bf0c...)" bash -c "grep '^wlanctl: caps 2d1a' '$C' | grep -q 'bf0c'"
+check "WMM: nfront5 associated with WMM and the radio's HT and VHT capabilities" grep -q 'wlansim: wlansim: nfront5: associated 020000000002 on channel 36, with WMM, HT capabilities, VHT capabilities' "$C"
+check "VHT only on 5 GHz where offered: none to nfront (2.4 GHz)" bash -c "grep 'wlansim: wlansim: nfront: associated' '$C' | grep -qv 'VHT'"
 check "ifstats: nfront5 offers wmm and ht, our data is QoS (qos: wmm)" bash -c "grep -q '^wlan5stat: offers: wmm ht' '$C' && grep -q '^wlan5stat: qos: wmm' '$C' && grep -q '^wlanstat: qos: none' '$C'"
 check "WMM: QoS data (TID 0), no frame of the wrong kind (nfront without WMM)" bash -c "grep -q 'wlansim: wlansim: nfront5: QoS data from 020000000002, TID 0' '$C' && ! grep -q 'wrong: .*data from' '$C'"
 # WPA2-PSK: nfrontwpa on 100 (passive scan; its beacons tell no channel), aux/wpa
