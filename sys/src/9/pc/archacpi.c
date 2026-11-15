@@ -584,6 +584,87 @@ enumec(void *dot, void *)
 	return 1;
 }
 
+/*
+ * nfront: AMD's GPIO controller (AMDI0030, AMD0030, _UID 0) for #γ
+ * (devgpio.c): its registers (Memory32Fixed) and interrupt (Extended
+ * IRQ) by _CRS, while the AML interpreter is there.  Its _STA wants an
+ * _INI the kernel does not run (the OS's type): not asked.
+ */
+extern void amdgpioinit(uvlong, ulong, int);
+
+static int
+enumgpio(void *dot, void *)
+{
+	uchar *b, *p, *e;
+	uvlong pa;
+	ulong len;
+	int irq, n, t;
+	void *x;
+	char *id;
+
+	id = amleisaid(amlval(amlwalk(dot, "^_HID")));
+	if(id == nil || strcmp(id, "AMDI0030") != 0 && strcmp(id, "AMD0030") != 0)
+		return 1;
+	if((x = amlwalk(dot, "^_UID")) != nil && amleval(x, "", &x) >= 0 && amlint(x) != 0)
+		return 1;
+	b = nil;
+	if((x = amlwalk(dot, "^_CRS")) == nil || amleval(x, "", &b) < 0 || amltag(b) != 'b')
+		return 1;
+	pa = 0;
+	len = 0;
+	irq = -1;
+	for(p = b, e = p + amllen(b); (n = reslen(p, e, &t)) > 0; p += n){
+		if(t == 0x86 && n >= 12){	/* Memory32Fixed */
+			pa = get32(p+4);
+			len = get32(p+8);
+		} else if(t == 0x89 && n >= 9 && irq < 0)	/* Extended IRQ */
+			irq = get32(p+5);
+	}
+	if(pa != 0 && irq >= 0)
+		amdgpioinit(pa, len, irq);
+	return 1;
+}
+
+/*
+ * nfront: AMD's DesignWare I2C controllers (AMDI0010) for i2c(3)
+ * (i2cdw.c), as the GPIO controller above: by _CRS, _STA not asked
+ */
+extern void i2cdwinit(char*, uvlong, ulong, int);
+
+static int
+enumi2c(void *dot, void *)
+{
+	uchar *b, *p, *e;
+	char path[64], *s;
+	uvlong pa;
+	ulong len;
+	int irq, n, t;
+	void *x, *dev;
+	char *id;
+
+	id = amleisaid(amlval(amlwalk(dot, "^_HID")));
+	if(id == nil || strcmp(id, "AMDI0010") != 0 || (dev = amlwalk(dot, "^")) == nil)
+		return 1;
+	b = nil;
+	if((x = amlwalk(dot, "^_CRS")) == nil || amleval(x, "", &b) < 0 || amltag(b) != 'b')
+		return 1;
+	pa = 0;
+	len = 0;
+	irq = -1;
+	for(p = b, e = p + amllen(b); (n = reslen(p, e, &t)) > 0; p += n){
+		if(t == 0x86 && n >= 12){	/* Memory32Fixed */
+			pa = get32(p+4);
+			len = get32(p+8);
+		} else if(t == 0x89 && n >= 9 && irq < 0)	/* Extended IRQ */
+			irq = get32(p+5);
+	}
+	snprint(path, sizeof path, "%N", dev);
+	s = strrchr(path, '.');
+	if(pa != 0)
+		i2cdwinit(s != nil ? s+1 : path, pa, len, irq);
+	return 1;
+}
+
 static long
 readmem(Chan*, void *v, long n, vlong o)
 {
@@ -1060,6 +1141,10 @@ acpiinit(void)
 
 	/* find embedded controller */
 	amlenum(amlroot, "_HID", enumec, nil);
+
+	/* nfront: AMD's GPIO controller (#γ), its I2C controllers (i2c(3)) */
+	amlenum(amlroot, "_HID", enumgpio, nil);
+	amlenum(amlroot, "_HID", enumi2c, nil);
 
 	/* look for PCI interrupt mappings */
 	amlenum(amlroot, "_PRT", enumprt, nil);

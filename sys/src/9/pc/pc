@@ -26,6 +26,8 @@ dev
 	draw		screen vga vgax vgasoft
 	mouse		mouse
 	vga		pci
+	gpio
+	i2c
 
 	sd
 	floppy		dma
@@ -103,7 +105,7 @@ misc
 	pci		pcipc pcibios bios32
 
 	archgeneric	devkbd i8259 i8253
-	archacpi	mp apic squidboy ec hpet
+	archacpi	mp apic squidboy ec hpet i2cdw
 	archmp		mp apic squidboy
 	mtrr
 
@@ -115,7 +117,6 @@ misc
 	sdodin		pci sdscsi led
 	sdvirtio	pci sdscsi
 	sdvirtio10	pci sdscsi virtio10pc
-	sdmmc		pci pmmc
 	sdnvme		pci
 	sdloop
 	sdram

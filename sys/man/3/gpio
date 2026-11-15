@@ -1,0 +1,90 @@
+.TH GPIO 3
+.SH NAME
+gpio \- general-purpose I/O pins and their interrupts
+.SH SYNOPSIS
+.nf
+.B bind -a #γ /dev
+.PP
+.B /dev/gpio/ctl
+.B /dev/gpio/event
+.fi
+.SH DESCRIPTION
+The PC's GPIO controller
+(AMD's, ACPI's
+.B AMDI0030
+or
+.BR AMD0030 ,
+found at boot)
+gives its pins to the programs that drive what is wired to them:
+.IR acpi (8)
+runs the firmware's methods for the pins of
+.B _AEI
+(a laptop's power button),
+.IR i2chid (8)
+reads a touchpad when its pin
+.RB ( GpioInt )
+signals.
+.PP
+Written, the control file
+.B ctl
+takes:
+.TF "\fIn\fP int level|edge high|low|both"
+.TP
+.IB n " int level|edge high|low|both"
+pin
+.IR n 's
+interrupt, triggered by its level or an edge, active high, low or both.
+It is masked when it comes, until a reader of
+.B event
+acknowledges it.
+.TP
+.IB n " out 0|1"
+drive pin
+.IR n .
+.TP
+.IB n " off"
+neither.
+.PD
+.PP
+Read, it gives a line
+.IP
+.BI pin " n use mode polarity level"
+.PP
+per pin in use
+.RI ( use :
+.B int
+or
+.BR out ;
+.IR level :
+the pin's input, 0 or 1)
+and the number of interrupts in a last line,
+.BI interrupts " n" \fR.
+.PP
+Each open of
+.B event
+hears of its own pins.
+Written,
+.BI watch " n ..."
+adds pins to them,
+.BI ack " n"
+unmasks pin
+.IR n 's
+interrupt again (a level stays until its cause is handled: ack after
+handling it).
+A read blocks until one of its pins' interrupts has come and returns a line
+.IB n \en
+per such pin.
+.SH SOURCE
+.B /sys/src/9/pc/devgpio.c
+.SH SEE ALSO
+.IR acpi (8),
+.IR i2chid (8)
+.SH HISTORY
+Written for nfront.
+The Raspberry Pi's
+.B #G
+(9front's
+.BR /sys/src/9/bcm/devgpio.c )
+has the same files with other messages:
+its event file is one reader's, a mask of 32 pins;
+this controller has 184 and interrupts by level, acknowledged.
