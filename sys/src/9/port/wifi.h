@@ -1,3 +1,4 @@
+typedef struct Wba Wba;
 typedef struct Wkey Wkey;
 typedef struct Wnode Wnode;
 typedef struct Wifi Wifi;
@@ -19,6 +20,28 @@ struct Wkey
 	int		len;
 	uvlong		tsc;
 	uchar		key[];
+};
+
+/*
+ * nfront: a block ack agreement the access point made (A-MPDU, received):
+ * its window of sequence numbers from head, the frames held until those
+ * before them are there (or the wait is over: since)
+ */
+enum {
+	Nba	= 64,	/* the largest window: our answer's buffer size */
+	Ntid	= 16,
+};
+
+struct Wba
+{
+	int	on;
+	int	head;		/* the first sequence number of the window */
+	int	win;		/* its size */
+	int	n;		/* frames held */
+	ulong	since;		/* ticks: since when the head is missing */
+	ulong	held;		/* frames that came before ones missing */
+	ulong	expired;	/* waits over: frames given up */
+	Block	*buf[Nba];
 };
 
 struct Wnode
@@ -68,6 +91,9 @@ struct Wnode
 	uchar	vht;
 	uchar	he;
 	uchar	qos;
+	ushort	qseq[Ntid];	/* nfront: the QoS data's sequence numbers, per TID */
+	ushort	txba;		/* nfront: the TIDs whose block ack agreement we made */
+	uchar	batoken;	/* the last ADDBA request's dialog token */
 };
 
 struct Wifi
@@ -105,6 +131,18 @@ struct Wifi
 	 */
 	uchar	caps[256];
 	int	ncaps;
+
+	/*
+	 * nfront: the driver's radio answers aggregates with block acks
+	 * (ba): wifi.c then agrees to the access point's ADDBA requests
+	 * and holds the frames until they are in order (rxba, per TID),
+	 * and asks for one itself (TID 0); else it declines them
+	 */
+	int	ba;
+	int	baproc;
+	ulong	replays;	/* frames CCMP's (TKIP's) replay check dropped */
+	Lock	balock;
+	Wba	rxba[Ntid];
 
 	/* effective base station */
 	Wnode	*bss;

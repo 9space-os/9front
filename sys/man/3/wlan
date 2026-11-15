@@ -86,6 +86,19 @@ and whether the data is QoS
 .RB ( qos: " wmm" ).
 The radio sets the access point's station up from the association
 response it passes on (its HT capabilities, its WMM parameters).
+.PP
+The radio answers aggregates (A-MPDU) with block acks: wifi.c agrees to
+the access point's block ack agreements (buffer size at most 64, no
+A-MSDU in them), holds the frames of such a TID until they are in order
+(at most 100 ms for one missing), asks for one itself for TID 0, and
+takes A-MSDUs apart; the radio learns of the agreements from the ADDBA
+and DELBA frames passing through it.
+.B ifstats
+counts the frames held and the waits given up
+.RB ( rxba: ),
+the TIDs we aggregate on
+.RB ( txba: )
+and CCMP's replays.
 Read, it gives the state, the capabilities and counts of frames.
 Only the host owner opens the files.
 .SH SOURCE
@@ -101,6 +114,5 @@ No 6 GHz channels: their numbers are those of the 2.4 GHz band; the
 header would need the band.
 HT at 20 MHz only, no VHT or HE (a VHT station is one of 80 MHz): the
 radio's firmware (rtw89) chooses the rates.
-No A-MPDU: wifi.c answers no block ack agreements.
 .br
 Written for nfront.

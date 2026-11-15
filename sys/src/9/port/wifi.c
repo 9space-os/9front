@@ -108,6 +108,9 @@ radiotx(Wifi *wifi, Wnode *wn, Block *b)
 }
 
 static Block* wifidecrypt(Wifi *, Wnode *, Block *);
+static void wifirecv(Wifi*, Block*);	/* nfront */
+static void wifitx(Wifi*, Wnode*, Block*);
+static void amsdu(Wifi*, Block*);
 static Block* wifiencrypt(Wifi *, Wnode *, Block *);
 static void freewifikeys(Wifi *, Wnode *);
 
@@ -158,8 +161,8 @@ getts(uchar *d)
 		(uvlong)d[7]<<56;
 }
 
-void
-wifiiq(Wifi *wifi, Block *b)
+static void
+wifirecv(Wifi *wifi, Block *b)
 {
 	SNAP s;
 	Wifipkt h, *w;
@@ -199,6 +202,11 @@ wifiiq(Wifi *wifi, Block *b)
 		case 0x00:
 			break;
 		}
+		/* nfront: an A-MSDU (QoS control bit 7): its subframes */
+		if((w->fc[0] & 0x80) != 0 && (((uchar*)w)[hdrlen-2] & 0x80) != 0){
+			amsdu(wifi, b);
+			return;
+		}
 		if(BLEN(b) < SNAPHDRSIZE)
 			break;
 		memmove(&s, b->rp, SNAPHDRSIZE);
@@ -219,6 +227,357 @@ drop:
 	freeb(b);
 }
 
+/*
+ * nfront: an A-MSDU's subframes, each an ethernet frame (802.11-2020
+ * 9.3.2.2.2: DA, SA, length, the MSDU with its LLC/SNAP, padded to 4)
+ */
+static void
+amsdu(Wifi *wifi, Block *b)
+{
+	Etherpkt *e;
+	Block *nb;
+	SNAP s;
+	int n;
+
+	while(BLEN(b) >= 14){
+		n = b->rp[12]<<8 | b->rp[13];
+		if(n < SNAPHDRSIZE || 14 + n > BLEN(b))
+			break;
+		memmove(&s, b->rp+14, SNAPHDRSIZE);
+		if(s.dsap == 0xAA && s.ssap == 0xAA && s.control == 3
+		&& s.orgcode[0] == 0 && s.orgcode[1] == 0 && s.orgcode[2] == 0){
+			nb = allocb(ETHERHDRSIZE + n - SNAPHDRSIZE);
+			e = (Etherpkt*)nb->wp;
+			memmove(e->d, b->rp, Eaddrlen);
+			memmove(e->s, b->rp+6, Eaddrlen);
+			memmove(e->type, s.type, 2);
+			memmove(nb->wp + ETHERHDRSIZE, b->rp + 14 + SNAPHDRSIZE, n - SNAPHDRSIZE);
+			nb->wp += ETHERHDRSIZE + n - SNAPHDRSIZE;
+			etheriq(wifi->ether, nb);
+		}
+		n = 14 + n;
+		if(n < BLEN(b))
+			n = (n + 3) & ~3;
+		if(n > BLEN(b))
+			break;
+		b->rp += n;
+	}
+	freeb(b);
+}
+
+/*
+ * nfront: the receive side of A-MPDU, as mac80211's reorder buffer does
+ * it (ieee80211_sta_manage_reorder_buf): QoS data of a TID with a block
+ * ack agreement waits until the frames before it are there, or the wait
+ * is over (Batimeout), so that wifi.c (and CCMP's replay check) sees
+ * them in order of their sequence numbers.
+ */
+enum {
+	Batimeout = 100,	/* ms */
+};
+
+static int
+seqdiff(int a, int b)
+{
+	return (a - b) & 0xfff;
+}
+
+/* the frames from the head on, up to the first missing one, to *l */
+static Block**
+bainorder(Wba *ba, Block **l)
+{
+	Block *b;
+
+	while((b = ba->buf[ba->head % Nba]) != nil){
+		ba->buf[ba->head % Nba] = nil;
+		ba->n--;
+		*l = b;
+		l = &b->next;
+		ba->head = (ba->head + 1) & 0xfff;
+	}
+	ba->since = ba->n > 0 ? MACHP(0)->PMach.ticks : 0;
+	return l;
+}
+
+/* the head n on, the frames before it to *l, held ones in order */
+static Block**
+baadvance(Wba *ba, int n, Block **l)
+{
+	Block *b;
+
+	for(; n > 0; n--){
+		if((b = ba->buf[ba->head % Nba]) != nil){
+			ba->buf[ba->head % Nba] = nil;
+			ba->n--;
+			*l = b;
+			l = &b->next;
+		}
+		ba->head = (ba->head + 1) & 0xfff;
+	}
+	return l;
+}
+
+static void
+barelease(Wifi *wifi, Block *b)
+{
+	Block *next;
+
+	for(; b != nil; b = next){
+		next = b->next;
+		b->next = nil;
+		wifirecv(wifi, b);
+	}
+}
+
+/* an agreement over: the frames held, in order */
+static void
+baoff(Wifi *wifi, int tid)
+{
+	Block *out, **l;
+	Wba *ba;
+
+	ba = &wifi->rxba[tid];
+	out = nil;
+	l = &out;
+	lock(&wifi->balock);
+	if(ba->on){
+		l = baadvance(ba, Nba, l);
+		ba->on = 0;
+		ba->n = 0;
+		ba->since = 0;
+	}
+	*l = nil;
+	unlock(&wifi->balock);
+	barelease(wifi, out);
+}
+
+/* held too long: the missing ones are given up */
+static void
+batick(Wifi *wifi)
+{
+	Block *out, **l;
+	Wba *ba;
+	int i;
+
+	for(i = 0; i < Ntid; i++){
+		ba = &wifi->rxba[i];
+		out = nil;
+		l = &out;
+		lock(&wifi->balock);
+		if(ba->on && ba->n > 0 && ba->since != 0
+		&& TK2MS(MACHP(0)->PMach.ticks - ba->since) >= Batimeout){
+			while(ba->buf[ba->head % Nba] == nil){
+				ba->head = (ba->head + 1) & 0xfff;
+				ba->expired++;
+			}
+			l = bainorder(ba, l);
+		}
+		*l = nil;
+		unlock(&wifi->balock);
+		barelease(wifi, out);
+	}
+}
+
+static void
+wifbaproc(void *arg)
+{
+	Wifi *wifi;
+
+	wifi = arg;
+	while(waserror())
+		;
+	for(;;){
+		tsleep(&up->sleep, return0, 0, 20);
+		batick(wifi);
+	}
+}
+
+/*
+ * a frame from the radio: QoS data of the access point's under a block
+ * ack agreement to its window, the rest on (wifirecv)
+ */
+void
+wifiiq(Wifi *wifi, Block *b)
+{
+	Block *out, **l;
+	Wifipkt *w;
+	Wnode *wn;
+	Wba *ba;
+	int hdrlen, tid, seq, d;
+
+	if(!wifi->ba || BLEN(b) < WIFIHDRSIZE)
+		goto pass;
+	w = (Wifipkt*)b->rp;
+	if((w->fc[0] & 0x8c) != 0x88 || (w->fc[1] & 3) != 0x02 || (w->a1[0] & 1) != 0)
+		goto pass;
+	hdrlen = wifihdrlen(w);
+	if(BLEN(b) < hdrlen || (wn = wifi->bss) == nil || memcmp(w->a2, wn->bssid, Eaddrlen) != 0)
+		goto pass;
+	tid = b->rp[hdrlen-2] & 15;
+	ba = &wifi->rxba[tid];
+	if(!ba->on)
+		goto pass;
+	seq = (w->seq[0] | w->seq[1]<<8) >> 4;
+	out = nil;
+	l = &out;
+	lock(&wifi->balock);
+	if(!ba->on){
+		unlock(&wifi->balock);
+		goto pass;
+	}
+	d = seqdiff(seq, ba->head);
+	if(d >= 2048){
+		/* before the window: had or given up */
+		unlock(&wifi->balock);
+		freeb(b);
+		return;
+	}
+	if(d >= ba->win)
+		l = baadvance(ba, d - ba->win + 1, l);
+	if(ba->buf[seq % Nba] != nil){
+		/* a retry of one held */
+		*l = nil;
+		unlock(&wifi->balock);
+		barelease(wifi, out);
+		freeb(b);
+		return;
+	}
+	ba->buf[seq % Nba] = b;
+	ba->n++;
+	if(seq != ba->head)
+		ba->held++;
+	l = bainorder(ba, l);
+	*l = nil;
+	unlock(&wifi->balock);
+	barelease(wifi, out);
+	return;
+pass:
+	wifirecv(wifi, b);
+}
+
+/* nfront: a block ack action frame (category 3) to the access point */
+static void
+sendba(Wifi *wifi, Wnode *wn, uchar *body, int n)
+{
+	Wifipkt *w;
+	Block *b;
+
+	b = allocb(WIFIHDRSIZE + n);
+	w = (Wifipkt*)b->wp;
+	w->fc[0] = 0xd0;	/* action */
+	w->fc[1] = 0x00;
+	memmove(w->a1, wn->bssid, Eaddrlen);
+	memmove(w->a2, wifi->ether->ea, Eaddrlen);
+	memmove(w->a3, wn->bssid, Eaddrlen);
+	b->wp += WIFIHDRSIZE;
+	memmove(b->wp, body, n);
+	b->wp += n;
+	wifitx(wifi, wn, b);
+}
+
+/*
+ * nfront: the block ack action frames (802.11-2020 9.6.4): an ADDBA
+ * request is agreed to where the radio answers aggregates (wifi->ba;
+ * buffer size at most Nba, no A-MSDU in them), declined (37) where not;
+ * an ADDBA response to ours, a DELBA end one
+ */
+static void
+recvba(Wifi *wifi, Wnode *wn, uchar *d, int len)
+{
+	uchar r[9];
+	int param, tid, size, st;
+	Wba *ba;
+
+	if(len < 2 || d[0] != 3 || wn != wifi->bss)
+		return;
+	switch(d[1]){
+	case 0:	/* ADDBA request */
+		if(len < 9)
+			return;
+		param = d[3] | d[4]<<8;
+		tid = param>>2 & 15;
+		size = param>>6;
+		if(size == 0 || size > Nba)
+			size = Nba;
+		st = wifi->ba && wn->qos && (param & 2) != 0 ? 0 : 37;
+		if(st == 0){
+			ba = &wifi->rxba[tid];
+			baoff(wifi, tid);
+			lock(&wifi->balock);
+			ba->head = (d[7] | d[8]<<8) >> 4;
+			ba->win = size;
+			ba->n = 0;
+			ba->since = 0;
+			ba->held = ba->expired = 0;
+			ba->on = 1;
+			unlock(&wifi->balock);
+			if(!wifi->baproc){
+				wifi->baproc = 1;
+				kproc("wifiba", wifbaproc, wifi);
+			}
+		}
+		r[0] = 3;
+		r[1] = 1;	/* ADDBA response */
+		r[2] = d[2];	/* dialog token */
+		r[3] = st;
+		r[4] = st>>8;
+		param = (param & 2) | tid<<2 | size<<6;	/* no A-MSDU */
+		r[5] = param;
+		r[6] = param>>8;
+		r[7] = d[5];	/* timeout */
+		r[8] = d[6];
+		sendba(wifi, wn, r, 9);
+		if(wifi->debug)
+			print("#l%d: addba from %E: tid %d size %d: %s\n", wifi->ether->ctlrno,
+				wn->bssid, tid, size, st == 0 ? "agreed" : "declined");
+		break;
+	case 1:	/* ADDBA response */
+		if(len < 9 || d[2] != wn->batoken)
+			return;
+		param = d[5] | d[6]<<8;
+		tid = param>>2 & 15;
+		if((d[3] | d[4]<<8) == 0)
+			wn->txba |= 1<<tid;
+		break;
+	case 2:	/* DELBA */
+		if(len < 6)
+			return;
+		param = d[2] | d[3]<<8;
+		tid = param>>12 & 15;
+		if(param & (1<<11))
+			baoff(wifi, tid);	/* the access point's, our receiving */
+		else
+			wn->txba &= ~(1<<tid);
+		break;
+	}
+}
+
+/*
+ * nfront: our ADDBA request for TID 0 (best effort), once associated with
+ * WMM and HT where the radio aggregates: buffer size 64, immediate block
+ * ack, no A-MSDU, starting at the TID's next sequence number
+ */
+static void
+sendaddba(Wifi *wifi, Wnode *wn)
+{
+	uchar r[9];
+	int param;
+
+	if(!wifi->ba || !wn->qos || !wn->ht)
+		return;
+	r[0] = 3;
+	r[1] = 0;	/* ADDBA request */
+	r[2] = ++wn->batoken;
+	param = 2 | 0<<2 | Nba<<6;
+	r[3] = param;
+	r[4] = param>>8;
+	r[5] = 0;	/* no timeout */
+	r[6] = 0;
+	r[7] = wn->qseq[0]<<4;
+	r[8] = wn->qseq[0]>>4;
+	sendba(wifi, wn, r, 9);
+}
+
 static void
 wifitx(Wifi *wifi, Wnode *wn, Block *b)
 {
@@ -227,10 +586,14 @@ wifitx(Wifi *wifi, Wnode *wn, Block *b)
 
 	wn->lastsend = MACHP(0)->PMach.ticks;
 
-	seq = incref(&wifi->txseq);
+	w = (Wifipkt*)b->rp;
+	/* nfront: QoS data numbered per TID (802.11 10.3.2.14), the rest as before */
+	if((w->fc[0] & 0x8c) == 0x88)
+		seq = wn->qseq[((uchar*)w)[wifihdrlen(w)-2] & 15]++;
+	else
+		seq = incref(&wifi->txseq);
 	seq <<= 4;
 
-	w = (Wifipkt*)b->rp;
 	w->dur[0] = 1;
 	w->dur[1] = 0;
 	w->seq[0] = seq;
@@ -535,6 +898,9 @@ setstatus(Wifi *wifi, Wnode *wn, char *new)
 	 */
 	if(wn == wifi->bss && (new == Sassoc || new == Sblocked))
 		ethersetlink(wifi->ether, 1);
+	/* nfront: our block ack agreement, once the port is open */
+	if(wn == wifi->bss && new == Sassoc && old != Sassoc)
+		sendaddba(wifi, wn);
 	if(wifi->debug && new != old)
 		print("#l%d: status %E: %.12ld %.12ld: %s -> %s (from pc=%#p)\n",
 			wifi->ether->ctlrno, 
@@ -725,6 +1091,11 @@ wifideauth(Wifi *wifi, Wnode *wn)
 	if(wn != wifi->bss)
 		return;
 
+	/* nfront: the block ack agreements are over */
+	for(i = 0; i < Ntid; i++)
+		baoff(wifi, i);
+	wn->txba = 0;
+
 	/* notify driver about node aid association */
 	radiotx(wifi, wn, nil);
 
@@ -788,7 +1159,7 @@ wifiproc(void *arg)
 				if(w->fc[1] & 0x40)
 					continue;
 				b->flag &= ~Btimestamp;
-				wifiiq(wifi, b);
+				wifirecv(wifi, b);	/* nfront: in order already (wifiiq) */
 				b = nil;
 			}
 			continue;
@@ -854,6 +1225,10 @@ wifiproc(void *arg)
 			if(wifi->debug)
 				print("#l%d: got deauth from %E\n", wifi->ether->ctlrno, wn->bssid);
 			wifideauth(wifi, wn);
+			break;
+		case 0xd0:	/* nfront: action */
+			b->rp += wifihdrlen(w);
+			recvba(wifi, wn, b->rp, BLEN(b));
 			break;
 		}
 	}
@@ -1283,6 +1658,16 @@ wifistat(Wifi *wifi, char *p, char *e)
 		p = seprint(p, e, "offers:%s%s%s%s\n", wn->wmm ? " wmm" : "", wn->ht ? " ht" : "",
 			wn->vht ? " vht" : "", wn->he ? " he" : "");
 		p = seprint(p, e, "qos: %s\n", wn->qos ? "wmm" : "none");
+		/* nfront: the block ack agreements, the frames CCMP dropped as replays */
+		for(i = 0; i < Ntid; i++){
+			Wba *ba = &wifi->rxba[i];
+			if(ba->on)
+				p = seprint(p, e, "rxba: tid %d win %d held %lud expired %lud\n",
+					i, ba->win, ba->held, ba->expired);
+		}
+		if(wn->txba)
+			p = seprint(p, e, "txba: %#ux\n", wn->txba);
+		p = seprint(p, e, "replays: %lud\n", wifi->replays);
 
 		/* only print key ciphers and key length */
 		rlock(&wifi->crypt);
@@ -1421,8 +1806,10 @@ wifidecrypt(Wifi *wifi, Wnode *wn, Block *b)
 			(uvlong)b->rp[0]<<8 |
 			(uvlong)b->rp[2];
 		b->rp += 8;
-		if(tsc <= k->tsc)
+		if(tsc <= k->tsc){
+			wifi->replays++;	/* nfront */
 			goto drop;
+		}
 		if(tkipdecrypt(k, w, b, tsc) != 0)
 			goto drop;
 		break;
@@ -1434,8 +1821,10 @@ wifidecrypt(Wifi *wifi, Wnode *wn, Block *b)
 			(uvlong)b->rp[1]<<8 |
 			(uvlong)b->rp[0];
 		b->rp += 8;
-		if(tsc <= k->tsc)
+		if(tsc <= k->tsc){
+			wifi->replays++;	/* nfront */
 			goto drop;
+		}
 		if(ccmpdecrypt(k, w, b, tsc) != 0)
 			goto drop;
 		break;

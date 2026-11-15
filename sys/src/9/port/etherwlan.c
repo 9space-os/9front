@@ -136,6 +136,7 @@ wlanattach(Ether *edev)
 			ctlr->wifi->scan = wifiscan5g;	/* 2.4 and 5 GHz */
 			memmove(ctlr->wifi->caps, ctlr->caps, ctlr->ncaps);
 			ctlr->wifi->ncaps = ctlr->ncaps;
+			ctlr->wifi->ba = 1;	/* the radio answers aggregates (aux/rtw89: its firmware) */
 		}
 		for(i = 0; i < edev->ISAConf.nopt; i++)
 			wificfg(ctlr->wifi, edev->ISAConf.opt[i]);
