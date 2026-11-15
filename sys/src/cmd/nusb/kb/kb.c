@@ -280,8 +280,9 @@ repparse1(uchar *d, uchar *e, int g[], int l[], int c,
 		case 0:	/* main item*/
 			switch(t){
 			case Collection:
+				/* its usage, before the locals are cleared */
+				i = l[UsgCnt] > 0 ? l[Nl] : g[UsagPg]<<16;
 				memset(l, 0, Nl*sizeof(l[0]));
-				i = l[Nu] | g[UsagPg]<<16;
 				l[Usage] = i;
 				(*f)(t, v, g, l, c, a);
 
