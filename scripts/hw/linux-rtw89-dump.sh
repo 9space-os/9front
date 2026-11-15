@@ -14,6 +14,10 @@
 # usage: sudo sh linux-rtw89-dump.sh	(then once more after booting
 #        with amd_iommu=off on the kernel's command line)
 set -u
+if [ "$(id -u)" != 0 ]; then
+	echo "linux-rtw89-dump: run as root: sudo sh $0" >&2
+	exit 1
+fi
 OUT=${OUT:-rtw89-$(uname -r)-$(date +%Y%m%d-%H%M%S)$(grep -q 'iommu=off' /proc/cmdline && echo -nommu).txt}
 exec >"$OUT" 2>&1
 
