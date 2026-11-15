@@ -171,6 +171,7 @@ extern uchar wifiscan5g[];	/* 2.4 GHz and 5 GHz, 36-64, 100-144, 149-165 */
 
 Wifi *wifiattach(Ether *ether, void (*transmit)(Wifi*, Wnode*, Block*));
 void wifiiq(Wifi*, Block*);
+void wifiradiogone(Wifi*);	/* nfront */
 int wifihdrlen(Wifipkt*);
 void wifitxfail(Wifi*, Block*);
 

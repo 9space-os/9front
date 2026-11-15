@@ -109,7 +109,13 @@ radioclose(Chan *c)
 	if(QTYPE(c->qid) == Qdata && (c->flag & COPEN) != 0){
 		ctlr = &wlans[QCTLR(c->qid)];
 		qhangup(ctlr->txq, "radio gone");
-		decref(&ctlr->radio);
+		/*
+		 * the radio's state (the association, the block ack
+		 * agreements in its hardware) is gone with it: wifi.c's
+		 * association too, the next radio's is made anew
+		 */
+		if(decref(&ctlr->radio) == 0 && ctlr->wifi != nil)
+			wifiradiogone(ctlr->wifi);
 	}
 }
 

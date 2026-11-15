@@ -1112,6 +1112,21 @@ wifideauth(Wifi *wifi, Wnode *wn)
 	qflush(ether->oq);
 }
 
+/*
+ * nfront: the radio went away (etherwlan: its data file closed) with its
+ * state: the association is over, the scan starts again for the next one
+ */
+void
+wifiradiogone(Wifi *wifi)
+{
+	Wnode *wn;
+
+	if((wn = wifi->bss) != nil){
+		wifideauth(wifi, wn);
+		wifi->bss = nil;
+	}
+}
+
 /* check if a node qualifies as our bss matching bssid and essid */
 static int
 goodbss(Wifi *wifi, Wnode *wn)
