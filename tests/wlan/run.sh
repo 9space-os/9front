@@ -33,4 +33,18 @@ check "the station's address by the radio's ctl: 020000000002" grep -q '^0200000
 check "wifi.c found the access point and associated" grep -q '^wlanstat: status: associated' "$TMPD/console"
 check "the access point saw authentication and association" grep -q 'wlansim: wlansim: associated 020000000002' "$TMPD/console"
 check "ping 10.0.9.1 through it: echoes answered" bash -c "grep '^wlanping: ' '$TMPD/console' | grep -q 'rtt\|time'"
+
+# gpu(3)'s *userpci=: another PCI device for a user-level driver (as
+# aux/rtw89's WLAN card): QEMU's pci-testdev (1b36/0005)
+rm -f "$CLI_DIR/console.log"
+userpciboot(){
+	QEMU_EXTRA="-device pci-testdev" KARGS="*userpci=1b36/0005" CMDWAIT=20 \
+	bash "$ROOT/scripts/guest/boot-cli.sh" \
+		"for(d in '#G'/*) sed 's/^/userpci: /' \$d/ctl; echo userpcitest: done" > "$TMPD/boot2" 2>&1
+	tr -d '\r' < "$CLI_DIR/console.log" > "$TMPD/console2"
+	grep -q '^userpcitest: done' "$TMPD/console2" || { tail -20 "$TMPD/console2"; false; }
+}
+check "boot with *userpci=1b36/0005 and QEMU's pci-testdev" userpciboot
+grep '^userpci: ' "$TMPD/console2" | sed 's/^/       /' | head -8
+check "#G has it: id 1b36/0005, its bars" bash -c "grep -q '^userpci: id 1b36/0005' '$TMPD/console2' && grep -q '^userpci: bar' '$TMPD/console2'"
 done_tests

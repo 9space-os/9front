@@ -1,7 +1,8 @@
 /*
  * SPDX-License-Identifier: MIT
  *
- * #G: minimal kernel stub for user-space GPU drivers.
+ * #G: minimal kernel stub for user-space GPU drivers (nfront: and for
+ * other PCI devices plan9.ini's *userpci= names, e.g. a WLAN card's).
  *
  *	#G/N/ctl	r: pci, id, bars, segments, framebuffer
  *			w: bme on|off, fb <bytes>, irq ack, bar <n> cached,
@@ -176,6 +177,26 @@ gpusegs(Gpu *g)
 	}
 }
 
+/*
+ * nfront: plan9.ini's *userpci=vid/did ...: other PCI devices a user-level
+ * driver drives through the same files (aux/rtw89: a WLAN card)
+ */
+static int
+userpci(Pcidev *p)
+{
+	char buf[128], *s, *e, *f[8];
+	int i, n;
+
+	if((s = getconf("*userpci")) == nil)
+		return 0;
+	strecpy(buf, buf+sizeof buf, s);
+	n = getfields(buf, f, nelem(f), 1, " ,");
+	for(i = 0; i < n; i++)
+		if(strtoul(f[i], &e, 16) == p->vid && *e == '/' && strtoul(e+1, nil, 16) == p->did)
+			return 1;
+	return 0;
+}
+
 static void
 gpureset(void)
 {
@@ -184,7 +205,7 @@ gpureset(void)
 
 	p = nil;
 	while(ngpu < Maxgpu && (p = pcimatch(p, 0, 0)) != nil){
-		if(p->ccrb != Pcibcdisp)
+		if(p->ccrb != Pcibcdisp && !userpci(p))
 			continue;
 		g = &gpus[ngpu];
 		g->pci = p;

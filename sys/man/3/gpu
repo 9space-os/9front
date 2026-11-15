@@ -21,6 +21,15 @@ in
 .IR gpu (4).
 It knows nothing about mode setting, memory management, command
 submission or firmware.
+Other PCI devices a user-level driver drives the same way (nfront:
+a WLAN card for
+.IR aux/rtw89 )
+are named in
+.IR plan9.ini (8)'s
+.BI *userpci= vid / did
+(hex, several separated by blanks or commas);
+they get the same files, numbered after the display controllers
+before them; the framebuffer's, dirty's and cursor's mean nothing there.
 .PP
 Each controller has a directory
 .IR n ,
