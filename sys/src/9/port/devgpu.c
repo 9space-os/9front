@@ -157,6 +157,13 @@ gpusegs(Gpu *g)
 		return;
 	g->segs = 1;
 	p = g->pci;
+	/*
+	 * nfront: as 9front's drivers do: the device in D0 and the bridges
+	 * above it on, with bus mastering, or its DMA gets no further than
+	 * the first bridge left off (a master abort: the ThinkBook's WLAN
+	 * card behind 00:02.2, which the firmware leaves without it)
+	 */
+	pcienable(p);
 	for(i = 0; i < nelem(p->mem); i++){
 		if(p->mem[i].size == 0 || p->mem[i].bar & 1)
 			continue;
