@@ -97,6 +97,13 @@ if(test -e '#P/acpiev' && ! test -e /srv/acpi){
 	aux/i2chid &
 }
 
+# nfront: aux/rtw89, the radio of a wlan(3) interface on a Realtek
+# RTL8852CE that plan9.ini hands to user level (*userpci=10ec/c852,
+# etherN=type=wlan; rtw89(8)); in the background: its firmware takes
+# seconds
+if(ls '#ω' >[2]/dev/null | grep -s wlan && grep -s '^id 10ec/c852' '#G'/*/ctl >[2]/dev/null)
+	aux/rtw89 &
+
 # setup mouse and graphics
 screenrc
 
@@ -108,4 +115,4 @@ if(~ $terminal *reform*){
 	reform/audio
 }
 
-dontkill '^(9660srv|acpi|acpikeys|cfs|cs|cwfs.*|disk|dns|dossrv|ether|factotum|gefs|hjfs|i2chid|ipconfig|kb|kfs|mntgen|paqfs|reboot|usbd|venti|wpa)$'
+dontkill '^(9660srv|acpi|acpikeys|cfs|cs|cwfs.*|disk|dns|dossrv|ether|factotum|gefs|hjfs|i2chid|ipconfig|kb|kfs|mntgen|paqfs|reboot|rtw89|usbd|venti|wpa)$'
