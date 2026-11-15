@@ -58,6 +58,7 @@
 			"kpi/linux/dma_fence.c",
 			"kpi/linux/dmabuf.c",
 			"kpi/linux/dmi.c",
+			"kpi/linux/drm.c",
 			"kpi/linux/drm_linux.c",
 			"kpi/linux/fence.c",
 			"kpi/linux/file.c",

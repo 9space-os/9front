@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 /*
  * LinuxKPI for 9front: starting up.  What Linux does at boot for the
- * drivers (the processor, the system workqueues, the PCI device) and
- * the module_init of DRM's core and helpers; a driver's own module_init
- * comes after, from its file server (aux/i915: i915_init).
+ * drivers (the processor, the system workqueues, the PCI device; DRM's
+ * core and helpers in drm.c); a driver's own module_init comes after,
+ * from its file server (aux/i915: i915_init).
  */
 #include <linux/kernel.h>
 #include <linux/pci.h>
@@ -28,10 +28,6 @@ kpi_meminit(void)
 void	kpi_cpu_init(void);
 void	drm_linux_init(void);	/* OpenBSD's: the system workqueues, tasklets, pools */
 struct pci_dev	*kpi_pci_gpu(const char *gdir);
-int	kpi_init_drm_core_init(void);
-int	kpi_init_drm_display_helper_module_init(void);
-int	kpi_init_gpu_buddy_module_init(void);
-int	kpi_init_mipi_dsi_bus_init(void);
 
 void	kpi_constructors(void);
 
@@ -51,18 +47,4 @@ kpi_start(const char *gdir)
 		return -ENODEV;
 	}
 	return 0;
-}
-
-int
-kpi_drm_start(void)
-{
-	int r;
-
-	if ((r = kpi_init_drm_core_init()) < 0)
-		return r;
-	if ((r = kpi_init_gpu_buddy_module_init()) < 0)
-		return r;
-	if ((r = kpi_init_mipi_dsi_bus_init()) < 0)
-		return r;
-	return kpi_init_drm_display_helper_module_init();
 }
