@@ -10,6 +10,8 @@
 		],
 		"Libs": [
 			"--start-group",
+			"/$ARCH/lib.gcc/libsec.a",
+			"/$ARCH/lib.gcc/libmp.a",
 			"/$ARCH/lib.gcc/libip.a",
 			"/$ARCH/lib.gcc/libc.a",
 			"--end-group"

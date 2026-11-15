@@ -1,38 +1,126 @@
 /*
  * tests/wlan: wlansim, the radio of an etherwlan interface (#ω/wlanN,
- * etherwlan.c) and an open access point on it: essid nfront, bssid
- * 02:00:00:00:00:aa, channel 6.  It sends beacons while the interface is
- * tuned to channel 6, answers probe requests, authentication and
- * association, and in the data frames ARP and ICMP echo for 10.0.9.1
- * (ethernet 02:00:00:00:00:01, behind the access point).  Prints what
- * happens on stderr.
+ * etherwlan.c) and three access points on it:
+ *
+ *	nfront		02:00:00:00:00:aa	channel 6 (2.4 GHz), open
+ *	nfront5		02:00:00:00:00:bb	channel 36 (5 GHz), open; its
+ *					beacons have no DS parameter set,
+ *					the HT operation element says the
+ *					channel
+ *	nfrontwpa	02:00:00:00:00:cc	channel 100 (5 GHz, radar
+ *					detection: the station only listens),
+ *					WPA2-PSK (CCMP), passphrase
+ *					nfront-secret; its beacons tell no
+ *					channel at all
+ *
+ * Each sends beacons while the interface is tuned to its channel and
+ * answers probe requests, authentication and association; a WPA2 one
+ * then runs the authenticator's side of the 4-way handshake (PTK from
+ * the PMK, MIC with HMAC-SHA1 (key descriptor version 2), the GTK
+ * wrapped with AES key wrap) and ciphers its data frames with CCMP.
+ * Behind them is a host, 10.0.9.1 (ethernet 02:00:00:00:00:01): ARP and
+ * ICMP echo.  Prints what happens on stderr, and what is wrong: probe
+ * requests on a channel with radar detection, 802.11b rates on 5 GHz.
+ *
+ * The CCMP code (aesCCMencrypt, aesCCMdecrypt, setupCCMP) is adapted
+ * from 9front's /sys/src/9/port/wifi.c, the PRF from factotum's
+ * wpapsk.c (/sys/src/cmd/auth/factotum).
  *
  * usage: wlansim [-d] [#ω/wlan1]
  */
 #include <u.h>
 #include <libc.h>
 #include <ip.h>
+#include <libsec.h>
 
 enum {
 	Hdrtx	= 12,
 	Hdrrx	= 12,
 	Ftune	= 1,
-	Channel	= 6,
 	Nframe	= 4096,
+
+	/* EAPOL-Key key information */
+	Kvers2	= 2,	/* HMAC-SHA1 MIC, AES key wrap */
+	Fptk	= 1<<3,
+	Fins	= 1<<6,
+	Fack	= 1<<7,
+	Fmic	= 1<<8,
+	Fsec	= 1<<9,
+	Fenc	= 1<<12,
+
+	/* offsets in the key descriptor */
+	Kinfo	= 1,
+	Klen	= 3,
+	Krepc	= 5,
+	Knonce	= 13,
+	Kmic	= 77,
+	Kdatalen	= 93,
+	Kdata	= 95,
+
+	/* the handshake */
+	Hnone	= 0,
+	Hm1,		/* message 1 sent */
+	Hm3,		/* message 3 sent */
+	Hdone,		/* keys installed */
 };
 
-static uchar bssid[6] = { 0x02, 0, 0, 0, 0, 0xaa };
+typedef struct Ap Ap;
+struct Ap {
+	char	*essid;
+	uchar	bssid[6];
+	int	channel;
+	int	ht;	/* HT operation element, no DS parameter set */
+	int	wpa;
+	uchar	*rates;
+	int	nrates;
+
+	/* the station's */
+	int	assoc;
+	int	hs;
+	int	tries;
+	vlong	sent;	/* ms */
+	uvlong	repc;
+	uchar	anonce[32];
+	uchar	pmk[32];
+	uchar	ptk[64];	/* KCK[16] KEK[16] TK[16] */
+	uchar	gtk[16];
+	AESstate	tk;
+	uvlong	txpn;
+	uvlong	rxpn;
+};
+
+static uchar rates24[] = { 0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6c };
+static uchar rates5[] = { 0x8c, 0x12, 0x98, 0x24, 0xb0, 0x48, 0x60, 0x6c };
+
+static Ap aps[] = {
+	{ "nfront",	{ 0x02, 0, 0, 0, 0, 0xaa },	6,	0,	0,	rates24,	sizeof rates24 },
+	{ "nfront5",	{ 0x02, 0, 0, 0, 0, 0xbb },	36,	1,	0,	rates5,	sizeof rates5 },
+	{ "nfrontwpa",	{ 0x02, 0, 0, 0, 0, 0xcc },	100,	0,	1,	rates5,	sizeof rates5 },
+};
+static char passphrase[] = "nfront-secret";
+
+/* the AP's RSN element: WPA2, CCMP, PSK */
+static uchar rsnie[] = {
+	0x30, 0x14,
+	0x01, 0x00,
+	0x00, 0x0f, 0xac, 0x04,
+	0x01, 0x00, 0x00, 0x0f, 0xac, 0x04,
+	0x01, 0x00, 0x00, 0x0f, 0xac, 0x02,
+	0x00, 0x00,
+};
+
 static uchar host[6] = { 0x02, 0, 0, 0, 0, 0x01 };
 static uchar hostip[4] = { 10, 0, 9, 1 };
 static uchar bcast[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
-static char essid[] = "nfront";
-static uchar rates[] = { 0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24 };
+static uchar snap[6] = { 0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00 };
 
 static int fd;
 static int debug;
 static int tuned;
 static int seq;
 static uchar sta[6];
+static Lock lk;
+static int badrate, dfsprobe;
 
 static void
 put16(uchar *p, int v)
@@ -47,16 +135,43 @@ get16(uchar *p)
 	return p[0] | p[1]<<8;
 }
 
-/* a frame to the station */
 static void
-send(uchar *f, int n)
+putbe64(uchar *p, uvlong v)
+{
+	int i;
+
+	for(i = 7; i >= 0; i--, v >>= 8)
+		p[i] = v;
+}
+
+static int
+is11b(int r)
+{
+	r &= 0x7f;
+	return r == 2 || r == 4 || r == 11 || r == 22;
+}
+
+static Ap*
+apbybssid(uchar *a)
+{
+	int i;
+
+	for(i = 0; i < nelem(aps); i++)
+		if(memcmp(aps[i].bssid, a, 6) == 0)
+			return &aps[i];
+	return nil;
+}
+
+/* a frame to the station, received on the AP's channel */
+static void
+send(Ap *ap, uchar *f, int n)
 {
 	uchar b[Hdrrx+Nframe];
 
 	if(n > Nframe)
 		return;
 	memset(b, 0, Hdrrx);
-	put16(b, Channel);
+	put16(b, ap->channel);
 	b[2] = (uchar)-40;	/* rssi */
 	memmove(b+Hdrrx, f, n);
 	if(write(fd, b, Hdrrx+n) != Hdrrx+n)
@@ -65,80 +180,441 @@ send(uchar *f, int n)
 
 /* a management frame's header */
 static uchar*
-mgmt(uchar *f, int sub, uchar *da)
+mgmt(Ap *ap, uchar *f, int sub, uchar *da)
 {
 	memset(f, 0, 24);
 	f[0] = sub<<4;
 	memmove(f+4, da, 6);
-	memmove(f+10, bssid, 6);
-	memmove(f+16, bssid, 6);
+	memmove(f+10, ap->bssid, 6);
+	memmove(f+16, ap->bssid, 6);
 	put16(f+22, (seq++ & 0xfff) << 4);
 	return f+24;
 }
 
 static uchar*
-ies(uchar *p)
+putrates(Ap *ap, uchar *p)
 {
+	int n;
+
+	n = ap->nrates > 8 ? 8 : ap->nrates;
+	*p++ = 1;
+	*p++ = n;
+	memmove(p, ap->rates, n);
+	p += n;
+	if(ap->nrates > 8){
+		*p++ = 50;
+		*p++ = ap->nrates - 8;
+		memmove(p, ap->rates + 8, ap->nrates - 8);
+		p += ap->nrates - 8;
+	}
+	return p;
+}
+
+static uchar*
+ies(Ap *ap, uchar *p)
+{
+	int n;
+
+	n = strlen(ap->essid);
 	*p++ = 0;
-	*p++ = strlen(essid);
-	memmove(p, essid, strlen(essid));
-	p += strlen(essid);
-	*p++ = 1;
-	*p++ = sizeof rates;
-	memmove(p, rates, sizeof rates);
-	p += sizeof rates;
-	*p++ = 3;
-	*p++ = 1;
-	*p++ = Channel;
+	*p++ = n;
+	memmove(p, ap->essid, n);
+	p += n;
+	p = putrates(ap, p);
+	if(ap->channel <= 14){
+		*p++ = 3;	/* DS parameter set */
+		*p++ = 1;
+		*p++ = ap->channel;
+	}
+	if(ap->ht){
+		*p++ = 61;	/* HT operation */
+		*p++ = 22;
+		memset(p, 0, 22);
+		p[0] = ap->channel;	/* primary channel */
+		p += 22;
+	}
+	if(ap->wpa){
+		memmove(p, rsnie, sizeof rsnie);
+		p += sizeof rsnie;
+	}
 	return p;
 }
 
 /* a beacon (sub 8) or probe response (sub 5) */
 static void
-beacon(int sub, uchar *da)
+beacon(Ap *ap, int sub, uchar *da)
 {
-	uchar f[256], *p;
+	uchar f[512], *p;
 
-	p = mgmt(f, sub, da);
+	p = mgmt(ap, f, sub, da);
 	memset(p, 0, 8);	/* timestamp */
 	p += 8;
 	put16(p, 100);		/* interval */
-	put16(p+2, 0x0001);	/* ESS */
-	p = ies(p+4);
-	send(f, p - f);
+	put16(p+2, 0x0001 | (ap->wpa ? 0x0010 : 0));	/* ESS, privacy */
+	p = ies(ap, p+4);
+	send(ap, f, p - f);
+}
+
+/*
+ * CCMP, from 9front's /sys/src/9/port/wifi.c
+ */
+static uchar*
+putbe(uchar *p, int L, uint v)
+{
+	while(--L >= 0)
+		*p++ = (v >> L*8) & 0xFF;
+	return p;
 }
 
 static void
-beaconproc(void)
+xblock(int L, int M, uchar *N, uchar *a, int la, int lm, uchar t[16], AESstate *s)
 {
-	for(;;){
-		if(tuned == Channel)
-			beacon(8, bcast);
-		sleep(100);
+	uchar l[8], *p, *x, *e;
+
+	assert(M >= 4 && M <= 16);
+	assert(L >= 2 && L <= 4);
+
+	t[0] = ((la > 0)<<6) | ((M-2)/2)<<3 | (L-1);	/* flags */
+	memmove(&t[1], N, 15-L);
+	putbe(&t[16-L], L, lm);
+	aes_encrypt(s->ekey, s->rounds, t, t);
+
+	if(la > 0){
+		assert(la < 0xFF00);
+		for(p = l, e = putbe(l, 2, la), x = t; p < e; x++, p++)
+			*x ^= *p;
+		for(e = a + la; a < e; x = t){
+			for(; a < e && x < &t[16]; x++, a++)
+				*x ^= *a;
+			aes_encrypt(s->ekey, s->rounds, t, t);
+		}
 	}
 }
 
-/* a data frame from the host (behind the access point) to the station */
-static void
-data(int type, uchar *pl, int n)
+static uchar*
+sblock(int L, uchar *N, uint i, uchar b[16], AESstate *s)
 {
-	uchar f[Nframe], *p;
+	b[0] = L-1;	/* flags */
+	memmove(&b[1], N, 15-L);
+	putbe(&b[16-L], L, i);
+	aes_encrypt(s->ekey, s->rounds, b, b);
+	return b;
+}
 
-	if(24 + 8 + n > Nframe)
+static void
+aesCCMencrypt(int L, int M, uchar *N, uchar *a, int la, uchar *m, int lm, AESstate *s)
+{
+	uchar t[16], b[16], *p, *x;
+	uint i;
+
+	xblock(L, M, N, a, la, lm, t, s);
+	for(i = 1; lm >= 16; i++, m += 16, lm -= 16){
+		sblock(L, N, i, b, s);
+		for(x = t, p = b; x < &t[16]; x++, p++, m++){
+			*x ^= *m;
+			*m ^= *p;
+		}
+		m -= 16;
+		aes_encrypt(s->ekey, s->rounds, t, t);
+	}
+	if(lm > 0){
+		for(p = sblock(L, N, i, b, s), x = t; p < &b[lm]; x++, m++, p++){
+			*x ^= *m;
+			*m ^= *p;
+		}
+		aes_encrypt(s->ekey, s->rounds, t, t);
+	}
+	for(p = sblock(L, N, 0, b, s), x = t; p < &b[M]; x++, p++)
+		*x ^= *p;
+	memmove(m, t, M);
+}
+
+static int
+aesCCMdecrypt(int L, int M, uchar *N, uchar *a, int la, uchar *m, int lm, AESstate *s)
+{
+	uchar t[16], b[16], *p, *x;
+	uint i;
+
+	xblock(L, M, N, a, la, lm, t, s);
+	for(i = 1; lm >= 16; i++, m += 16, lm -= 16){
+		sblock(L, N, i, b, s);
+		for(x = t, p = b; x < &t[16]; x++, p++, m++){
+			*m ^= *p;
+			*x ^= *m;
+		}
+		m -= 16;
+		aes_encrypt(s->ekey, s->rounds, t, t);
+	}
+	if(lm > 0){
+		for(p = sblock(L, N, i, b, s), x = t; p < &b[lm]; x++, m++, p++){
+			*m ^= *p;
+			*x ^= *m;
+		}
+		aes_encrypt(s->ekey, s->rounds, t, t);
+	}
+	for(p = sblock(L, N, 0, b, s), x = t; p < &b[M]; x++, p++)
+		*x ^= *p;
+	return tsmemcmp(m, t, M);
+}
+
+/* f: the 24-byte header of a data frame (no QoS, no a4) */
+static int
+setupCCMP(uchar *f, uvlong tsc, uchar nonce[13], uchar auth[32])
+{
+	uchar *p;
+
+	nonce[0] = ((f[0] & 0x0c) == 0x00) << 4;
+	memmove(&nonce[1], f+10, 6);	/* a2 */
+	nonce[7]  = tsc >> 40;
+	nonce[8]  = tsc >> 32;
+	nonce[9]  = tsc >> 24;
+	nonce[10] = tsc >> 16;
+	nonce[11] = tsc >> 8;
+	nonce[12] = tsc;
+
+	p = auth;
+	*p++ = (f[0] & (((f[0] & 0x0c) == 0x08) ? 0x0f : 0xff));
+	*p++ = (f[1] & ~0x38) | 0x40;
+	memmove(p, f+4, 18);	/* a1, a2, a3 */
+	p += 18;
+	*p++ = f[22] & 0x0f;
+	*p++ = 0;
+	return p - auth;
+}
+
+/*
+ * the keys: PMK = PBKDF2-SHA1(passphrase, ssid, 4096), PTK = PRF-512 (as
+ * factotum's wpapsk.c), the key wrap of RFC 3394 (aux/wpa unwraps)
+ */
+static void
+prf(uchar *k, int klen, char *a, uchar *b, int blen, uchar *d, int dlen)
+{
+	uchar r[SHA1dlen], i;
+	DigestState *ds;
+	int n;
+
+	i = 0;
+	while(dlen > 0){
+		ds = hmac_sha1((uchar*)a, strlen(a)+1, k, klen, nil, nil);
+		hmac_sha1(b, blen, k, klen, nil, ds);
+		hmac_sha1(&i, 1, k, klen, r, ds);
+		i++;
+		n = dlen > sizeof r ? sizeof r : dlen;
+		memmove(d, r, n);
+		d += n;
+		dlen -= n;
+	}
+}
+
+static void
+calcptk(Ap *ap, uchar *snonce)
+{
+	uchar b[2*6 + 2*32];
+
+	if(memcmp(sta, ap->bssid, 6) > 0){
+		memmove(b, ap->bssid, 6);
+		memmove(b+6, sta, 6);
+	} else {
+		memmove(b, sta, 6);
+		memmove(b+6, ap->bssid, 6);
+	}
+	if(memcmp(snonce, ap->anonce, 32) > 0){
+		memmove(b+12, ap->anonce, 32);
+		memmove(b+44, snonce, 32);
+	} else {
+		memmove(b+12, snonce, 32);
+		memmove(b+44, ap->anonce, 32);
+	}
+	prf(ap->pmk, 32, "Pairwise key expansion", b, sizeof b, ap->ptk, sizeof ap->ptk);
+}
+
+static int
+aeswrap(uchar *kek, uchar *data, int n, uchar *out)
+{
+	uchar B[16], *A, *R;
+	AESstate s;
+	int i, j, m;
+	uint t;
+
+	if(n < 16 || n % 8)
+		return -1;
+	m = n/8;
+	setupAESstate(&s, kek, 16, nil);
+	A = out;
+	memset(A, 0xa6, 8);
+	memmove(out+8, data, n);
+	for(j = 0; j < 6; j++)
+		for(i = 1; i <= m; i++){
+			R = out + 8*i;
+			memmove(B, A, 8);
+			memmove(B+8, R, 8);
+			aes_encrypt(s.ekey, s.rounds, B, B);
+			t = m*j + i;
+			memmove(A, B, 8);
+			A[7] ^= t;
+			A[6] ^= t>>8;
+			A[5] ^= t>>16;
+			A[4] ^= t>>24;
+			memmove(R, B+8, 8);
+		}
+	return n + 8;
+}
+
+/* a data frame from the AP (src: the host behind it or the AP) to the station */
+static void
+data(Ap *ap, uchar *src, int type, uchar *pl, int n)
+{
+	uchar f[Nframe], nonce[13], auth[32], *p;
+	uvlong pn;
+
+	if(24 + 8 + 8 + n + 8 > Nframe)
 		return;
 	memset(f, 0, 24);
 	f[0] = 0x08;
 	f[1] = 0x02;	/* from DS */
 	memmove(f+4, sta, 6);
-	memmove(f+10, bssid, 6);
-	memmove(f+16, host, 6);
+	memmove(f+10, ap->bssid, 6);
+	memmove(f+16, src, 6);
 	put16(f+22, (seq++ & 0xfff) << 4);
 	p = f+24;
-	memmove(p, "\xaa\xaa\x03\x00\x00\x00", 6);
+	if(ap->wpa && ap->hs == Hdone){
+		pn = ++ap->txpn;
+		p[0] = pn;
+		p[1] = pn>>8;
+		p[2] = 0;
+		p[3] = 0<<6 | 0x20;	/* key id 0, extended iv */
+		p[4] = pn>>16;
+		p[5] = pn>>24;
+		p[6] = pn>>32;
+		p[7] = pn>>40;
+		p += 8;
+	}
+	memmove(p, snap, 6);
 	p[6] = type>>8;
 	p[7] = type;
 	memmove(p+8, pl, n);
-	send(f, 24 + 8 + n);
+	n += 8;
+	if(ap->wpa && ap->hs == Hdone){
+		aesCCMencrypt(2, 8, nonce, auth, setupCCMP(f, pn, nonce, auth), p, n, &ap->tk);
+		f[1] |= 0x40;	/* protected */
+		n += 8;
+	}
+	send(ap, f, p + n - f);
+}
+
+/* an EAPOL-Key frame of the handshake to the station */
+static void
+eapolkey(Ap *ap, int info, uchar *kdata, int nkdata)
+{
+	uchar f[512], digest[SHA1dlen], *k;
+	int n;
+
+	n = 4 + Kdata + nkdata;
+	if(n > sizeof f)
+		return;
+	memset(f, 0, n);
+	f[0] = 2;	/* 802.1X-2004 */
+	f[1] = 3;	/* key */
+	f[2] = (n-4)>>8;
+	f[3] = n-4;
+	k = f+4;
+	k[0] = 2;	/* RSN key descriptor */
+	k[Kinfo] = info>>8;
+	k[Kinfo+1] = info;
+	k[Klen+1] = 16;
+	putbe64(k+Krepc, ++ap->repc);
+	memmove(k+Knonce, ap->anonce, 32);
+	k[Kdatalen] = nkdata>>8;
+	k[Kdatalen+1] = nkdata;
+	memmove(k+Kdata, kdata, nkdata);
+	if(info & Fmic){
+		hmac_sha1(f, n, ap->ptk, 16, digest, nil);
+		memmove(k+Kmic, digest, 16);
+	}
+	ap->sent = nsec()/1000000;
+	data(ap, ap->bssid, 0x888e, f, n);
+}
+
+static void
+message1(Ap *ap)
+{
+	eapolkey(ap, Kvers2|Fptk|Fack, nil, 0);
+	ap->hs = Hm1;
+	fprint(2, "wlansim: %s: 4-way handshake: message 1 to %E\n", ap->essid, sta);
+}
+
+static void
+message3(Ap *ap)
+{
+	uchar kd[128], wrapped[136], *p;
+	int n;
+
+	/* the AP's RSN element, the GTK's KDE (key id 1), padding */
+	p = kd;
+	memmove(p, rsnie, sizeof rsnie);
+	p += sizeof rsnie;
+	*p++ = 0xdd;
+	*p++ = 6 + sizeof ap->gtk;
+	memmove(p, "\x00\x0f\xac\x01", 4);
+	p += 4;
+	*p++ = 1;	/* key id 1 */
+	*p++ = 0;
+	memmove(p, ap->gtk, sizeof ap->gtk);
+	p += sizeof ap->gtk;
+	if((p - kd) % 8 != 0){
+		*p++ = 0xdd;
+		while((p - kd) % 8 != 0)
+			*p++ = 0;
+	}
+	n = aeswrap(ap->ptk+16, kd, p - kd, wrapped);
+	eapolkey(ap, Kvers2|Fptk|Fins|Fack|Fmic|Fsec|Fenc, wrapped, n);
+	ap->hs = Hm3;
+	fprint(2, "wlansim: %s: 4-way handshake: message 3 to %E\n", ap->essid, sta);
+}
+
+/* an EAPOL frame from the station (f: the EAPOL header) */
+static void
+fromeapol(Ap *ap, uchar *f, int n)
+{
+	uchar mic[16], digest[SHA1dlen], *k;
+	int info, len;
+
+	if(!ap->wpa || n < 4 + Kdata || f[1] != 3)
+		return;
+	len = f[2]<<8 | f[3];
+	if(len < Kdata || 4 + len > n)
+		return;
+	n = 4 + len;
+	k = f+4;
+	info = k[Kinfo]<<8 | k[Kinfo+1];
+	if((info & Fmic) == 0 || (info & 7) != Kvers2){
+		fprint(2, "wlansim: %s: eapol key info %#x?\n", ap->essid, info);
+		return;
+	}
+	if(ap->hs == Hm1){
+		/* message 2: the station's nonce, its RSN element */
+		calcptk(ap, k+Knonce);
+	}
+	memmove(mic, k+Kmic, 16);
+	memset(k+Kmic, 0, 16);
+	hmac_sha1(f, n, ap->ptk, 16, digest, nil);
+	if(tsmemcmp(mic, digest, 16) != 0){
+		fprint(2, "wlansim: %s: 4-way handshake: bad mic from %E\n", ap->essid, sta);
+		return;
+	}
+	if(ap->hs == Hm1 && (info & Fsec) == 0){
+		fprint(2, "wlansim: %s: 4-way handshake: message 2 from %E, mic ok\n", ap->essid, sta);
+		setupAESstate(&ap->tk, ap->ptk+32, 16, nil);
+		ap->tries = 0;
+		message3(ap);
+		return;
+	}
+	if(ap->hs == Hm3 && (info & Fsec) != 0){
+		fprint(2, "wlansim: %s: 4-way handshake: message 4 from %E, mic ok: keys installed\n", ap->essid, sta);
+		ap->hs = Hdone;
+		ap->txpn = 0;
+		ap->rxpn = 0;
+	}
 }
 
 static int
@@ -159,11 +635,21 @@ cksum(uchar *p, int n)
 
 /* what the station sends the host: ARP for hostip, ICMP echo to it */
 static void
-fromsta(int type, uchar *p, int n)
+fromsta(Ap *ap, int type, uchar *p, int n, int prot)
 {
 	uchar r[1600];
 	int hl, c;
 
+	if(type == 0x888e){
+		fromeapol(ap, p, n);
+		return;
+	}
+	if(ap->wpa && ap->hs != Hdone)
+		return;	/* the port is blocked */
+	if(ap->wpa && !prot){
+		fprint(2, "wlansim: %s: data in the clear from %E\n", ap->essid, sta);
+		return;
+	}
 	if(type == 0x0806 && n >= 28 && get16(p+6) == 0x0100 && memcmp(p+24, hostip, 4) == 0){
 		memmove(r, p, 28);
 		r[7] = 2;	/* reply */
@@ -172,7 +658,7 @@ fromsta(int type, uchar *p, int n)
 		memmove(r+18, p+8, 10);	/* to the asker */
 		if(debug)
 			fprint(2, "wlansim: arp: %V is %E\n", hostip, host);
-		data(0x0806, r, 28);
+		data(ap, host, 0x0806, r, 28);
 		return;
 	}
 	if(type == 0x0800 && n >= 20 && p[9] == 1 && memcmp(p+16, hostip, 4) == 0){
@@ -193,58 +679,176 @@ fromsta(int type, uchar *p, int n)
 		c = cksum(r+hl, n-hl);
 		r[hl+2] = c>>8;
 		r[hl+3] = c;
-		fprint(2, "wlansim: echo from %V\n", p+12);
-		data(0x0800, r, n);
+		fprint(2, "wlansim: %s: echo from %V%s\n", ap->essid, p+12, prot ? " (ccmp)" : "");
+		data(ap, host, 0x0800, r, n);
 	}
+}
+
+/* the rates of an association request: none of 802.11b on 5 GHz */
+static void
+checkrates(Ap *ap, uchar *p, uchar *e)
+{
+	uchar *x;
+	int i;
+
+	for(; p+2 <= e; p = x){
+		x = p+2+p[1];
+		if(x > e)
+			break;
+		if(p[0] != 1 && p[0] != 50)
+			continue;
+		for(i = 2; p+i < x; i++)
+			if(ap->channel > 14 && is11b(p[i])){
+				fprint(2, "wlansim: %s: 802.11b rate %d in the association request\n", ap->essid, p[i] & 0x7f);
+				return;
+			}
+	}
+}
+
+static int
+hasrsn(uchar *p, uchar *e)
+{
+	for(; p+2 <= e && p+2+p[1] <= e; p += 2+p[1])
+		if(p[0] == 48)
+			return 1;
+	return 0;
+}
+
+/* a protected data frame from the station: decrypt it in place */
+static int
+unprotect(Ap *ap, uchar *f, int n)
+{
+	uchar nonce[13], auth[32], *p;
+	uvlong pn;
+
+	if(ap->hs != Hdone || n < 24+8+8)
+		return -1;
+	p = f+24;
+	pn = (uvlong)p[7]<<40 | (uvlong)p[6]<<32 | (uvlong)p[5]<<24 |
+		(uvlong)p[4]<<16 | (uvlong)p[1]<<8 | (uvlong)p[0];
+	if(pn <= ap->rxpn){
+		fprint(2, "wlansim: %s: replayed pn %llud\n", ap->essid, pn);
+		return -1;
+	}
+	if(aesCCMdecrypt(2, 8, nonce, auth, setupCCMP(f, pn, nonce, auth), p+8, n-24-8-8, &ap->tk) != 0){
+		fprint(2, "wlansim: %s: ccmp: bad mic\n", ap->essid);
+		return -1;
+	}
+	ap->rxpn = pn;
+	memmove(p, p+8, n-24-8-8);
+	return n-8-8;
 }
 
 static void
 frame(uchar *f, int n)
 {
-	uchar r[256], *p;
-	int type, sub;
+	uchar r[512], *p;
+	int i, type, sub, prot;
+	Ap *ap;
 
 	if(n < 24)
 		return;
 	type = f[0]>>2 & 3;
 	sub = f[0]>>4;
-	if(type == 0){
-		if(memcmp(f+4, bssid, 6) != 0 && memcmp(f+4, bcast, 6) != 0)
-			return;
-		switch(sub){
-		case 4:	/* probe request */
+	if(type == 0 && sub == 4){	/* probe request */
+		if(tuned >= 52 && tuned <= 144 && !dfsprobe){
+			dfsprobe = 1;
+			fprint(2, "wlansim: probe request on channel %d (radar detection)\n", tuned);
+		}
+		for(i = 0; i < nelem(aps); i++){
+			ap = &aps[i];
+			if(ap->channel != tuned)
+				continue;
 			if(debug)
-				fprint(2, "wlansim: probe from %E\n", f+10);
-			beacon(5, f+10);
-			return;
+				fprint(2, "wlansim: %s: probe from %E\n", ap->essid, f+10);
+			beacon(ap, 5, f+10);
+		}
+		return;
+	}
+	if((ap = apbybssid(f+4)) == nil)
+		return;
+	if(type == 0){
+		switch(sub){
 		case 11:	/* authentication */
 			memmove(sta, f+10, 6);
-			fprint(2, "wlansim: auth from %E\n", sta);
-			p = mgmt(r, 11, sta);
+			fprint(2, "wlansim: %s: auth from %E\n", ap->essid, sta);
+			p = mgmt(ap, r, 11, sta);
 			put16(p, 0);	/* open system */
 			put16(p+2, 2);	/* sequence */
 			put16(p+4, 0);	/* success */
-			send(r, p+6 - r);
+			send(ap, r, p+6 - r);
 			return;
 		case 0:	/* association request */
 			memmove(sta, f+10, 6);
-			fprint(2, "wlansim: associated %E\n", sta);
-			p = mgmt(r, 1, sta);
+			checkrates(ap, f+24+4, f+n);
+			p = mgmt(ap, r, 1, sta);
 			put16(p, 0x0001);
+			if(ap->wpa && !hasrsn(f+24+4, f+n)){
+				fprint(2, "wlansim: %s: association without RSN element refused\n", ap->essid);
+				put16(p+2, 1);	/* unspecified failure */
+				put16(p+4, 0);
+				send(ap, r, p+6 - r);
+				return;
+			}
+			fprint(2, "wlansim: %s: associated %E on channel %d\n", ap->essid, sta, ap->channel);
 			put16(p+2, 0);	/* success */
 			put16(p+4, 0xc001);	/* aid 1 */
-			p += 6;
-			*p++ = 1;
-			*p++ = sizeof rates;
-			memmove(p, rates, sizeof rates);
-			p += sizeof rates;
-			send(r, p - r);
+			p = putrates(ap, p+6);
+			send(ap, r, p - r);
+			ap->assoc = 1;
+			ap->hs = Hnone;
+			if(ap->wpa){
+				genrandom(ap->anonce, sizeof ap->anonce);
+				genrandom(ap->gtk, sizeof ap->gtk);
+				ap->tries = 0;
+				message1(ap);
+			}
+			return;
+		case 10:	/* disassociation */
+		case 12:	/* deauthentication */
+			ap->assoc = 0;
+			ap->hs = Hnone;
 			return;
 		}
 		return;
 	}
-	if(type == 2 && (f[1] & 3) == 1 && n >= 32 && memcmp(f+24, "\xaa\xaa\x03\x00\x00\x00", 6) == 0)
-		fromsta(f[30]<<8 | f[31], f+32, n-32);
+	if(type != 2 || (f[1] & 3) != 1)
+		return;
+	prot = (f[1] & 0x40) != 0;
+	if(prot && (n = unprotect(ap, f, n)) < 0)
+		return;
+	if(n >= 32 && memcmp(f+24, snap, 6) == 0)
+		fromsta(ap, f[30]<<8 | f[31], f+32, n-32, prot);
+}
+
+/* beacons; the handshake's messages again while unanswered */
+static void
+beaconproc(void)
+{
+	vlong now;
+	int i;
+	Ap *ap;
+
+	for(;;){
+		lock(&lk);
+		now = nsec()/1000000;
+		for(i = 0; i < nelem(aps); i++){
+			ap = &aps[i];
+			if(tuned == ap->channel)
+				beacon(ap, 8, bcast);
+			if((ap->hs == Hm1 || ap->hs == Hm3) && now - ap->sent >= 1000){
+				if(++ap->tries > 30){
+					ap->hs = Hnone;
+					fprint(2, "wlansim: %s: 4-way handshake: no answer\n", ap->essid);
+				} else if(ap->hs == Hm1)
+					message1(ap);
+				else
+					message3(ap);
+			}
+		}
+		unlock(&lk);
+		sleep(100);
+	}
 }
 
 static void
@@ -259,7 +863,7 @@ main(int argc, char *argv[])
 {
 	uchar b[Hdrtx+Nframe];
 	char *dev;
-	int n;
+	int i, n;
 
 	ARGBEGIN{
 	case 'd':
@@ -271,6 +875,11 @@ main(int argc, char *argv[])
 	dev = argc > 0 ? argv[0] : "#ω/wlan1";
 	fmtinstall('E', eipfmt);
 	fmtinstall('V', eipfmt);
+	for(i = 0; i < nelem(aps); i++)
+		if(aps[i].wpa)
+			pbkdf2_x((uchar*)passphrase, strlen(passphrase),
+				(uchar*)aps[i].essid, strlen(aps[i].essid), 4096,
+				aps[i].pmk, sizeof aps[i].pmk, hmac_sha1, SHA1dlen);
 	if((fd = open(smprint("%s/data", dev), ORDWR)) < 0)
 		sysfatal("%s: %r", dev);
 	switch(rfork(RFPROC|RFMEM|RFNOWAIT)){
@@ -285,10 +894,17 @@ main(int argc, char *argv[])
 			sysfatal("read: %r");
 		if(n < Hdrtx)
 			continue;
+		lock(&lk);
 		tuned = get16(b);
 		if(debug > 1)
-			fprint(2, "wlansim: tx channel %d flags %#x %d bytes\n", tuned, b[3], n-Hdrtx);
-		if((b[3] & Ftune) == 0)
+			fprint(2, "wlansim: tx channel %d rate %d flags %#x %d bytes\n", tuned, b[2], b[3], n-Hdrtx);
+		if((b[3] & Ftune) == 0){
+			if(tuned > 14 && is11b(b[2]) && !badrate){
+				badrate = 1;
+				fprint(2, "wlansim: frame at 802.11b rate %d on channel %d\n", b[2], tuned);
+			}
 			frame(b+Hdrtx, n-Hdrtx);
+		}
+		unlock(&lk);
 	}
 }
