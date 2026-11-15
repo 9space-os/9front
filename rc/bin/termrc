@@ -89,11 +89,12 @@ if(! ~ $terminal *vx32*){
 # them out): aux/acpi runs the firmware's event methods (lid, buttons,
 # keys: its acpievents), aux/acpikeys the brightness keys on the panels'
 # backlight.  Before screenrc: a GPU driver uses this interpreter.
-# aux/i2chid: the touchpads and keyboards on I²C the firmware names.
+# aux/i2chid: the touchpads and keyboards on I²C the firmware names
+# (in the background: a device's reset takes up to 5s).
 if(test -e '#P/acpiev' && ! test -e /srv/acpi){
 	aux/acpi
 	aux/acpikeys &
-	aux/i2chid
+	aux/i2chid &
 }
 
 # setup mouse and graphics
