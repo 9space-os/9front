@@ -101,6 +101,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0034 | bootrc: cdboot takes the ISO 9660 with this machine's init | bug fix |
 | 0035 | kbmap: the maps sorted by name | bug fix |
 | 0036 | nusb/kb: a collection's usage | bug fix |
+| 0037 | pci: the BARs of a device of class 0xFF | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -539,6 +540,17 @@ usage is taken before the locals are cleared now. Found by: the main
 branch's precision touchpad code (aux/i2chid, `tests/hid`), which looks
 for the touchpad's collection 0x0D0005. Not done: compiled with 9front's
 own compilers, tried on a touchscreen.
+
+### 0037 pci: the BARs of a device of class 0xFF
+
+`pciscan` read and sized the base address registers only for the classes
+it lists; a device that fits no class (0xFF: Realtek's PCI Express card
+readers) kept `p->mem[]` empty, and its driver found no registers. Class
+0xFF is read as the others now. Found by: the main branch's rtsx driver on
+a Lenovo ThinkBook 16 G7 ARP (RTS522A: "no registers", while Linux shows
+BAR 0 at 0x98900000 and 9front's `#$/pci/3.0.0raw` has it too). Shown by:
+the card reader then reading an SD card. Not done: compiled with 9front's
+own compilers.
 
 ## Not included
 

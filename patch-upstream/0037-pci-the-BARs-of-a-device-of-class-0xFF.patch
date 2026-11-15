@@ -1,0 +1,30 @@
+From 5ed527c70080c9a0f6b9342425ef2d4476b2e266 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sun, 15 Nov 2026 10:54:00 +0100
+Subject: [PATCH] pci: the BARs of a device of class 0xFF
+
+pciscan read and sized the base address registers only for the classes
+it lists; a device that fits no class (0xFF: Realtek's PCI Express card
+readers, RTS522A and others) kept p->mem[] empty, its driver found no
+registers.  Class 0xFF is read as the others now.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/port/pci.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/sys/src/9/port/pci.c b/sys/src/9/port/pci.c
+index d35e71bd5..12a65bd25 100644
+--- a/sys/src/9/port/pci.c
++++ b/sys/src/9/port/pci.c
+@@ -603,6 +603,7 @@ pciscan(int bno, Pcidev** list, Pcidev *parent)
+ 			case 0x0F:		/* sattelite communication controllers */
+ 			case 0x10:		/* encryption/decryption controllers */
+ 			case 0x11:		/* signal processing controllers */
++			case 0xFF:		/* fits no class (Realtek's card readers) */
+ 				if((hdt & 0x7F) != 0)
+ 					break;
+ 				rno = PciBAR0;
+-- 
+2.56.0
+
