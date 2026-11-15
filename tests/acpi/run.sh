@@ -4,7 +4,8 @@
 # button), a PCI device hot-plugged (QMP device_add: GPE 1, \_GPE._E01,
 # its Notify), and an SSDT of our own (ssdt.py) whose methods notify a
 # display output (0x86: brightness up) and a lid, evaluated through
-# aux/acpi's aml file, and a touchpad on I2C for aux/i2chid to find.
+# aux/acpi's aml file, a touchpad on I2C for aux/i2chid to find, and two
+# batteries (_BIX, _BIF) and an AC adapter for aux/acpi's files.
 # amd64 only (#P/acpiev is pc's).
 . "$(dirname "$0")/../lib.sh"
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -49,6 +50,7 @@ acpiboot(){
 		"echo 10 >/dev/backlight; echo backlight \`{cat /dev/backlight}; echo 40 >/dev/backlight" \
 		"aux/acpikeys & sleep 1; echo -n 'eval \\NFBU 0' >/dev/aml; sleep 2; echo backlight \`{cat /dev/backlight}" \
 		"aux/i2chid -d >[2=1] | sed 's/^/i2chid: /'" \
+		"sed 's/^/battery: /' /dev/battery; sed 's/^/ac: /' /dev/ac" \
 		"sed 's/^/acpiev: /' /tmp/acpiev; echo acpitest: done" > "$TMPD/boot" 2>&1
 	tr -d '\r' < "$CLI_DIR/console.log" > "$TMPD/console"
 	grep -q '^acpitest: done' "$TMPD/console" || { tail -20 "$TMPD/console"; false; }
@@ -67,4 +69,8 @@ check "10 again at the lowest level: stays 10" bash -c "grep '^backlight ' '$TMP
 check "aux/acpikeys, no GPU driver: brightnessup moves the firmware's level 40 to 70" bash -c "grep '^backlight ' '$TMPD/console' | sed -n 4p | grep -q '^backlight 70 100\$'"
 grep '^i2chid: ' "$TMPD/console" | sed 's/^/       /'
 check "aux/i2chid: PNP0C50's bus, address, GpioInt from _CRS" grep -qF 'i2chid: aux/i2chid: \_SB.NFTP: i2cb address 0x15, gpio pin 9 level low' "$TMPD/console"
+grep '^battery: \|^ac: ' "$TMPD/console" | sed 's/^/       /'
+check "a battery with _BIX only (ACPI 4.0): 75 %, mW, 3 h left, discharging" grep -q '^battery: 75 mW 30000 40000 50000 2000 1000 mV 11800 11550 03:00:00 discharging 0 100$' "$TMPD/console"
+check "a battery with _BIF only: 50 %, mA, idle (neither charging nor discharging)" grep -q '^battery: 50 mA 2000 4000 5000 400 200 mV 12100 12000 00:00:00 idle 0 100$' "$TMPD/console"
+check "an AC adapter (ACPI0003, _PSR): online" grep -q '^ac: online$' "$TMPD/console"
 done_tests

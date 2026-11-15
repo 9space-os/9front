@@ -23,12 +23,32 @@
 #		})
 #		Method (_DSM, 4) { Return (0x20) }	the HID descriptor's register
 #	}
+#	Device (\_SB.NFBT) {			a battery with _BIX only (mW),
+#		Name (_HID, EisaId ("PNP0C0A"))	discharging: 75 %, 3 h left
+#		Method (_STA) { Return (0x1f) }
+#		Name (_BIX, Package () { 0, 0, 50000, 40000, 1, 11550, 2000,
+#			1000, 10, 100000, 0, 0, 0, 0, 100, 100, "NF", "1",
+#			"LION", "NFRONT" })
+#		Name (_BST, Package () { 1, 10000, 30000, 11800 })
+#	}
+#	Device (\_SB.NFB2) {			a battery with _BIF only (mA),
+#		Name (_HID, EisaId ("PNP0C0A"))	idle: 50 %
+#		Method (_STA) { Return (0x1f) }
+#		Name (_BIF, Package () { 1, 5000, 4000, 1, 12000, 400, 200, 10,
+#			10, "NF2", "2", "LION", "NFRONT" })
+#		Name (_BST, Package () { 0, 0, 2000, 12100 })
+#	}
+#	Device (\_SB.NFAC) {			an AC adapter, online
+#		Name (_HID, "ACPI0003")
+#		Method (_PSR) { Return (One) }
+#	}
 #
 # tests/acpi/run.sh evaluates \NFBU and \NFLI through aux/acpi's aml file:
 # their Notify must come out of acpievents as "key brightnessup" and
 # "lid open"; aux/acpi's backlight sets LEVL through _BCM, and
 # aux/acpikeys (no GPU driver here) moves it on the key; aux/i2chid -d
-# finds NFTP and its bus, address, pin (QEMU has no such bus: no more).
+# finds NFTP and its bus, address, pin (QEMU has no such bus: no more);
+# aux/acpi's battery and ac files show NFBT, NFB2 and NFAC.
 import struct
 import sys
 
@@ -88,7 +108,41 @@ tp = (b'\x5b\x82' + pkg(path('_SB', 'NFTP') +
 	b'\x08' + name('_CID') + b'\x0c' + eisaid('PNP0C50') +
 	b'\x08' + name('_CRS') + b'\x11' + pkg(b'\x0a' + bytes([len(crs)]) + crs) +
 	b'\x14' + pkg(name('_DSM') + b'\x04' + b'\xa4\x0a\x20')))
-body = lcd + lid + nfbu + nfli + tp
+def integer(v):
+	if v == 0:
+		return b'\x00'
+	if v == 1:
+		return b'\x01'
+	if v < 0x100:
+		return b'\x0a' + bytes([v])
+	if v < 0x10000:
+		return b'\x0b' + struct.pack('<H', v)
+	return b'\x0c' + struct.pack('<I', v)
+
+
+def string(t):
+	return b'\x0d' + t.encode() + b'\0'
+
+
+def package(*elems):
+	b = b''.join(integer(e) if isinstance(e, int) else string(e) for e in elems)
+	return b'\x12' + pkg(bytes([len(elems)]) + b)
+
+
+sta = b'\x14' + pkg(name('_STA') + b'\x00' + b'\xa4\x0a\x1f')
+bat1 = (b'\x5b\x82' + pkg(path('_SB', 'NFBT') +
+	b'\x08' + name('_HID') + b'\x0c' + eisaid('PNP0C0A') + sta +
+	b'\x08' + name('_BIX') + package(0, 0, 50000, 40000, 1, 11550, 2000, 1000, 10, 100000,
+		0, 0, 0, 0, 100, 100, 'NF', '1', 'LION', 'NFRONT') +
+	b'\x08' + name('_BST') + package(1, 10000, 30000, 11800)))
+bat2 = (b'\x5b\x82' + pkg(path('_SB', 'NFB2') +
+	b'\x08' + name('_HID') + b'\x0c' + eisaid('PNP0C0A') + sta +
+	b'\x08' + name('_BIF') + package(1, 5000, 4000, 1, 12000, 400, 200, 10, 10, 'NF2', '2', 'LION', 'NFRONT') +
+	b'\x08' + name('_BST') + package(0, 0, 2000, 12100)))
+ac = (b'\x5b\x82' + pkg(path('_SB', 'NFAC') +
+	b'\x08' + name('_HID') + b'\x0d' + b'ACPI0003\0' +
+	b'\x14' + pkg(name('_PSR') + b'\x00' + b'\xa4\x01')))
+body = lcd + lid + nfbu + nfli + tp + bat1 + bat2 + ac
 n = 36 + len(body)
 hdr = struct.pack('<4sIBB6s8sI4sI', b'SSDT', n, 2, 0, b'NFRONT', b'NFEVENTS', 1, b'NFRT', 1)
 t = bytearray(hdr + body)
