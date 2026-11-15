@@ -2,7 +2,7 @@
 # linux-rtw89-dump.sh: what Linux's rtw89 does with a Realtek RTL8852CE
 # (10ec:c852), to compare with nfront's aux/rtw89 (rtw89(8)).  Run as root
 # from a Linux live system (a USB stick); it reads, it does not write a
-# disk: it mounts nothing, touches no block device, writes only its report
+# disk: it mounts no file system but debugfs, touches no block device, writes only its report
 # (a file in the current directory, or $OUT).
 #
 # It records: the system (kernel, command line, IOMMU), the card and the
