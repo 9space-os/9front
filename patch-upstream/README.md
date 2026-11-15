@@ -102,6 +102,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0035 | kbmap: the maps sorted by name | bug fix |
 | 0036 | nusb/kb: a collection's usage | bug fix |
 | 0037 | pci: the BARs of a device of class 0xFF | bug fix |
+| 0038 | nusb(4): cam's file is formats | documentation |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -551,6 +552,12 @@ a Lenovo ThinkBook 16 G7 ARP (RTS522A: "no registers", while Linux shows
 BAR 0 at 0x98900000 and 9front's `#$/pci/3.0.0raw` has it too). Shown by:
 the card reader then reading an SD card. Not done: compiled with 9front's
 own compilers.
+
+### 0038 nusb(4): cam's file is formats
+
+The page named the file of a camera's resolutions and frame rates
+`format`; nusb/cam serves `formats`. Found by: reading it on a laptop's
+camera.
 
 ## Not included
 

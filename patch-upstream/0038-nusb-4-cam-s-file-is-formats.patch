@@ -1,0 +1,29 @@
+From 82aa291105aefca5c6336f5e05409511aa0785a6 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sun, 15 Nov 2026 11:35:27 +0100
+Subject: [PATCH] nusb(4): cam's file is formats
+
+The page named it format; nusb/cam serves formats (the resolutions and
+frame rates).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/man/4/nusb | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sys/man/4/nusb b/sys/man/4/nusb
+index 8a4b2d71d..8775e55a8 100644
+--- a/sys/man/4/nusb
++++ b/sys/man/4/nusb
+@@ -338,7 +338,7 @@ under a directory named
+ It provides the following files:
+ .BR desc ,
+ showing all of the device's internal descriptors and their values;
+-.BR format ,
++.BR formats ,
+ listing admissible image resolutions and framerates;
+ .BR ctl ,
+ the picture settings control file;
+-- 
+2.56.0
+
