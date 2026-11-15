@@ -6,12 +6,12 @@
  *	nfront5		02:00:00:00:00:bb	channel 36 (5 GHz), open; its
  *					beacons have no DS parameter set,
  *					the HT operation element says the
- *					channel
+ *					channel; WMM and HT
  *	nfrontwpa	02:00:00:00:00:cc	channel 100 (5 GHz, radar
  *					detection: the station only listens),
  *					WPA2-PSK (CCMP), passphrase
  *					nfront-secret; its beacons tell no
- *					channel at all
+ *					channel at all; WMM and HT
  *
  * Each sends beacons while the interface is tuned to its channel and
  * answers probe requests, authentication and association; a WPA2 one
@@ -21,6 +21,9 @@
  * Behind them is a host, 10.0.9.1 (ethernet 02:00:00:00:00:01): ARP and
  * ICMP echo.  Prints what happens on stderr, and what is wrong: probe
  * requests on a channel with radar detection, 802.11b rates on 5 GHz.
+ * As the radio it offers HT (ctl caps); an access point with WMM sees
+ * whether the association request has WMM's element and the HT
+ * capabilities, and then exchanges QoS data (CCMP with the TID).
  *
  * The CCMP code (aesCCMencrypt, aesCCMdecrypt, setupCCMP) is adapted
  * from 9front's /sys/src/9/port/wifi.c, the PRF from factotum's
@@ -71,11 +74,13 @@ struct Ap {
 	int	channel;
 	int	ht;	/* HT operation element, no DS parameter set */
 	int	wpa;
+	int	wmm;	/* WMM and HT capabilities in the beacon */
 	uchar	*rates;
 	int	nrates;
 
 	/* the station's */
 	int	assoc;
+	int	qos;	/* it associated with WMM: QoS data */
 	int	hs;
 	int	tries;
 	vlong	sent;	/* ms */
@@ -93,11 +98,29 @@ static uchar rates24[] = { 0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24, 0x30,
 static uchar rates5[] = { 0x8c, 0x12, 0x98, 0x24, 0xb0, 0x48, 0x60, 0x6c };
 
 static Ap aps[] = {
-	{ "nfront",	{ 0x02, 0, 0, 0, 0, 0xaa },	6,	0,	0,	rates24,	sizeof rates24 },
-	{ "nfront5",	{ 0x02, 0, 0, 0, 0, 0xbb },	36,	1,	0,	rates5,	sizeof rates5 },
-	{ "nfrontwpa",	{ 0x02, 0, 0, 0, 0, 0xcc },	100,	0,	1,	rates5,	sizeof rates5 },
+	{ "nfront",	{ 0x02, 0, 0, 0, 0, 0xaa },	6,	0,	0,	0,	rates24,	sizeof rates24 },
+	{ "nfront5",	{ 0x02, 0, 0, 0, 0, 0xbb },	36,	1,	0,	1,	rates5,	sizeof rates5 },
+	{ "nfrontwpa",	{ 0x02, 0, 0, 0, 0, 0xcc },	100,	0,	1,	1,	rates5,	sizeof rates5 },
 };
 static char passphrase[] = "nfront-secret";
+/* HT capabilities: 20 MHz, MCS 0-7 (the access point's and the radio's) */
+static uchar htcap[] = {
+	45, 26,
+	0x00, 0x00,		/* capability info */
+	0x00,			/* A-MPDU */
+	0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,	/* MCS set */
+	0, 0,			/* extended */
+	0, 0, 0, 0,		/* beamforming */
+	0,			/* ASEL */
+};
+/* WMM parameter element, version 1, the default access categories */
+static uchar wmmparam[] = {
+	221, 24, 0x00, 0x50, 0xf2, 0x02, 0x01, 0x01, 0x00, 0x00,
+	0x03, 0xa4, 0x00, 0x00,	/* AC_BE */
+	0x27, 0xa4, 0x00, 0x00,	/* AC_BK */
+	0x42, 0x43, 0x5e, 0x00,	/* AC_VI */
+	0x62, 0x32, 0x2f, 0x00,	/* AC_VO */
+};
 
 /* the AP's RSN element: WPA2, CCMP, PSK */
 static uchar rsnie[] = {
@@ -120,7 +143,7 @@ static int tuned;
 static int seq;
 static uchar sta[6];
 static Lock lk;
-static int badrate, dfsprobe;
+static int badrate, dfsprobe, badqos, sawqos;
 
 static void
 put16(uchar *p, int v)
@@ -236,6 +259,12 @@ ies(Ap *ap, uchar *p)
 	if(ap->wpa){
 		memmove(p, rsnie, sizeof rsnie);
 		p += sizeof rsnie;
+	}
+	if(ap->wmm){
+		memmove(p, htcap, sizeof htcap);
+		p += sizeof htcap;
+		memmove(p, wmmparam, sizeof wmmparam);
+		p += sizeof wmmparam;
 	}
 	return p;
 }
@@ -357,13 +386,21 @@ aesCCMdecrypt(int L, int M, uchar *N, uchar *a, int la, uchar *m, int lm, AESsta
 	return tsmemcmp(m, t, M);
 }
 
-/* f: the 24-byte header of a data frame (no QoS, no a4) */
+/*
+ * f: the header of a data frame (no a4), with QoS control (26 bytes) if
+ * QoS data: then its TID in the nonce and the AAD, as wifi.c (nfront)
+ * and OpenBSD's ieee80211_ccmp_phase1 do
+ */
 static int
 setupCCMP(uchar *f, uvlong tsc, uchar nonce[13], uchar auth[32])
 {
 	uchar *p;
+	int qos;
 
+	qos = (f[0] & 0x8c) == 0x88;
 	nonce[0] = ((f[0] & 0x0c) == 0x00) << 4;
+	if(qos)
+		nonce[0] |= f[24] & 0x0f;
 	memmove(&nonce[1], f+10, 6);	/* a2 */
 	nonce[7]  = tsc >> 40;
 	nonce[8]  = tsc >> 32;
@@ -373,12 +410,16 @@ setupCCMP(uchar *f, uvlong tsc, uchar nonce[13], uchar auth[32])
 	nonce[12] = tsc;
 
 	p = auth;
-	*p++ = (f[0] & (((f[0] & 0x0c) == 0x08) ? 0x0f : 0xff));
-	*p++ = (f[1] & ~0x38) | 0x40;
+	*p++ = (f[0] & (((f[0] & 0x0c) == 0x08) ? 0x8f : 0xff));
+	*p++ = (f[1] & (qos ? ~0xb8 : ~0x38)) | 0x40;
 	memmove(p, f+4, 18);	/* a1, a2, a3 */
 	p += 18;
 	*p++ = f[22] & 0x0f;
 	*p++ = 0;
+	if(qos){
+		*p++ = f[24] & 0x0f;
+		*p++ = 0;
+	}
 	return p - auth;
 }
 
@@ -467,16 +508,21 @@ data(Ap *ap, uchar *src, int type, uchar *pl, int n)
 	uchar f[Nframe], nonce[13], auth[32], *p;
 	uvlong pn;
 
-	if(24 + 8 + 8 + n + 8 > Nframe)
+	if(26 + 8 + 8 + n + 8 > Nframe)
 		return;
-	memset(f, 0, 24);
-	f[0] = 0x08;
+	memset(f, 0, 26);
+	f[0] = ap->qos ? 0x88 : 0x08;	/* QoS data with WMM */
 	f[1] = 0x02;	/* from DS */
 	memmove(f+4, sta, 6);
 	memmove(f+10, ap->bssid, 6);
 	memmove(f+16, src, 6);
 	put16(f+22, (seq++ & 0xfff) << 4);
 	p = f+24;
+	if(ap->qos){
+		p[0] = 0;	/* TID 0 */
+		p[1] = 0;
+		p += 2;
+	}
 	if(ap->wpa && ap->hs == Hdone){
 		pn = ++ap->txpn;
 		p[0] = pn;
@@ -706,10 +752,26 @@ checkrates(Ap *ap, uchar *p, uchar *e)
 }
 
 static int
-hasrsn(uchar *p, uchar *e)
+hasie(uchar *p, uchar *e, int id)
 {
 	for(; p+2 <= e && p+2+p[1] <= e; p += 2+p[1])
-		if(p[0] == 48)
+		if(p[0] == id)
+			return 1;
+	return 0;
+}
+
+static int
+hasrsn(uchar *p, uchar *e)
+{
+	return hasie(p, e, 48);
+}
+
+/* WMM's information element (00:50:f2, type 2, subtype 0) */
+static int
+haswmm(uchar *p, uchar *e)
+{
+	for(; p+2 <= e && p+2+p[1] <= e; p += 2+p[1])
+		if(p[0] == 221 && p[1] >= 7 && memcmp(p+2, "\x00\x50\xf2\x02\x00", 5) == 0)
 			return 1;
 	return 0;
 }
@@ -720,22 +782,24 @@ unprotect(Ap *ap, uchar *f, int n)
 {
 	uchar nonce[13], auth[32], *p;
 	uvlong pn;
+	int h;
 
-	if(ap->hs != Hdone || n < 24+8+8)
+	h = (f[0] & 0x80) ? 26 : 24;
+	if(ap->hs != Hdone || n < h+8+8)
 		return -1;
-	p = f+24;
+	p = f+h;
 	pn = (uvlong)p[7]<<40 | (uvlong)p[6]<<32 | (uvlong)p[5]<<24 |
 		(uvlong)p[4]<<16 | (uvlong)p[1]<<8 | (uvlong)p[0];
 	if(pn <= ap->rxpn){
 		fprint(2, "wlansim: %s: replayed pn %llud\n", ap->essid, pn);
 		return -1;
 	}
-	if(aesCCMdecrypt(2, 8, nonce, auth, setupCCMP(f, pn, nonce, auth), p+8, n-24-8-8, &ap->tk) != 0){
+	if(aesCCMdecrypt(2, 8, nonce, auth, setupCCMP(f, pn, nonce, auth), p+8, n-h-8-8, &ap->tk) != 0){
 		fprint(2, "wlansim: %s: ccmp: bad mic\n", ap->essid);
 		return -1;
 	}
 	ap->rxpn = pn;
-	memmove(p, p+8, n-24-8-8);
+	memmove(p, p+8, n-h-8-8);
 	return n-8-8;
 }
 
@@ -743,7 +807,7 @@ static void
 frame(uchar *f, int n)
 {
 	uchar r[512], *p;
-	int i, type, sub, prot;
+	int i, type, sub, prot, h;
 	Ap *ap;
 
 	if(n < 24)
@@ -790,7 +854,9 @@ frame(uchar *f, int n)
 				send(ap, r, p+6 - r);
 				return;
 			}
-			fprint(2, "wlansim: %s: associated %E on channel %d\n", ap->essid, sta, ap->channel);
+			ap->qos = ap->wmm && haswmm(f+24+4, f+n);
+			fprint(2, "wlansim: %s: associated %E on channel %d%s%s\n", ap->essid, sta, ap->channel,
+				ap->qos ? ", with WMM" : "", ap->wmm && hasie(f+24+4, f+n, 45) ? ", HT capabilities" : "");
 			put16(p+2, 0);	/* success */
 			put16(p+4, 0xc001);	/* aid 1 */
 			p = putrates(ap, p+6);
@@ -814,11 +880,20 @@ frame(uchar *f, int n)
 	}
 	if(type != 2 || (f[1] & 3) != 1)
 		return;
+	h = (f[0] & 0x80) ? 26 : 24;	/* QoS data: its control after the header */
+	if(ap->qos != (h == 26) && !badqos){
+		badqos = 1;
+		fprint(2, "wlansim: %s: wrong: %s data from %E (WMM %d)\n", ap->essid, h == 26 ? "QoS" : "non-QoS", sta, ap->qos);
+	}
+	if(h == 26 && ap->qos && !sawqos){
+		sawqos = 1;
+		fprint(2, "wlansim: %s: QoS data from %E, TID %d\n", ap->essid, sta, f[24] & 0x0f);
+	}
 	prot = (f[1] & 0x40) != 0;
 	if(prot && (n = unprotect(ap, f, n)) < 0)
 		return;
-	if(n >= 32 && memcmp(f+24, snap, 6) == 0)
-		fromsta(ap, f[30]<<8 | f[31], f+32, n-32, prot);
+	if(n >= h+8 && memcmp(f+h, snap, 6) == 0)
+		fromsta(ap, f[h+6]<<8 | f[h+7], f+h+8, n-h-8, prot);
 }
 
 /* beacons; the handshake's messages again while unanswered */
@@ -875,6 +950,7 @@ main(int argc, char *argv[])
 	dev = argc > 0 ? argv[0] : "#ω/wlan1";
 	fmtinstall('E', eipfmt);
 	fmtinstall('V', eipfmt);
+	fmtinstall('H', encodefmt);
 	for(i = 0; i < nelem(aps); i++)
 		if(aps[i].wpa)
 			pbkdf2_x((uchar*)passphrase, strlen(passphrase),
@@ -882,6 +958,11 @@ main(int argc, char *argv[])
 				aps[i].pmk, sizeof aps[i].pmk, hmac_sha1, SHA1dlen);
 	if((fd = open(smprint("%s/data", dev), ORDWR)) < 0)
 		sysfatal("%s: %r", dev);
+	/* the radio's capabilities: HT, as aux/rtw89 tells its own */
+	if((i = open(smprint("%s/ctl", dev), OWRITE)) >= 0){
+		fprint(i, "caps %.*H", (int)sizeof htcap, htcap);
+		close(i);
+	}
 	switch(rfork(RFPROC|RFMEM|RFNOWAIT)){
 	case -1:
 		sysfatal("rfork: %r");

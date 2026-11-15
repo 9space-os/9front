@@ -47,9 +47,14 @@ check "5 GHz: the scan found nfront5, associated on channel 36" bash -c "grep -q
 check "5 GHz: ping through nfront5, no echo lost" bash -c "grep '^wlan5ping: ' '$C' | grep -q 'rtt\|time' && ! grep -q '^wlan5ping: .*lost' '$C'"
 check "5 GHz: no 802.11b rates (association request, frames sent)" bash -c "! grep -q '802.11b rate' '$C'"
 check "channels with radar detection (52-144): no probe requests" bash -c "! grep -q 'radar detection' '$C'"
+check "the radio's capabilities in its ctl: HT (caps 2d1a...)" grep -q '^wlanctl: caps 2d1a' "$C"
+check "WMM: nfront5 associated with WMM and the radio's HT capabilities" grep -q 'wlansim: wlansim: nfront5: associated 020000000002 on channel 36, with WMM, HT capabilities' "$C"
+check "ifstats: nfront5 offers wmm and ht, our data is QoS (qos: wmm)" bash -c "grep -q '^wlan5stat: offers: wmm ht' '$C' && grep -q '^wlan5stat: qos: wmm' '$C' && grep -q '^wlanstat: qos: none' '$C'"
+check "WMM: QoS data (TID 0), no frame of the wrong kind (nfront without WMM)" bash -c "grep -q 'wlansim: wlansim: nfront5: QoS data from 020000000002, TID 0' '$C' && ! grep -q 'wrong: .*data from' '$C'"
 # WPA2-PSK: nfrontwpa on 100 (passive scan; its beacons tell no channel), aux/wpa
 check "WPA2: aux/wpa's 4-way handshake with nfrontwpa on channel 100" bash -c "grep -q 'nfrontwpa: 4-way handshake: message 4 from 020000000002, mic ok: keys installed' '$C' && grep -q '^wlanwpastat: status: associated' '$C' && grep -q '^wlanwpastat: channel: 100' '$C'"
 check "WPA2: the keys, pairwise and group: ccmp" bash -c "grep -q '^wlanwpastat: txkey0: ccmp:\[16\]' '$C' && grep -q '^wlanwpastat: rxkey4: ccmp:\[16\]' '$C' && grep -q '^wlanwpastat: rxkey1: ccmp:\[16\]' '$C'"
+check "WPA2 with WMM: nfrontwpa associated with WMM (CCMP of QoS data: the TID)" grep -q 'wlansim: wlansim: nfrontwpa: associated 020000000002 on channel 100, with WMM' "$C"
 check "WPA2: ping through nfrontwpa, ciphered with CCMP" bash -c "grep '^wlanwpaping: ' '$C' | grep -q 'rtt\|time' && ! grep -q '^wlanwpaping: .*lost' '$C' && grep -q 'nfrontwpa: echo from 10.0.9.2 (ccmp)' '$C'"
 
 # gpu(3)'s *userpci=: another PCI device for a user-level driver (as
