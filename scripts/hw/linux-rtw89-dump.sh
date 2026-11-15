@@ -9,7 +9,8 @@
 # bridge above it (lspci, configuration space), the rtw89 driver loaded
 # again with its firmware debug messages (debug_mask=0x1000), and the
 # card's registers after the firmware download (BAR2 by
-# /sys/bus/pci/devices/*/resource2, read only, python3).
+# /sys/bus/pci/devices/*/resource2, read only, python3; under lockdown by
+# rtw89's debugfs, read_reg, mounting debugfs if it is not).
 #
 # usage: sudo sh linux-rtw89-dump.sh	(then once more after booting
 #        with amd_iommu=off on the kernel's command line)
@@ -66,6 +67,7 @@ sleep 5
 dmesg | sed -n "/$MARK/,\$p" | grep -iE 'rtw89|firmware|MSS|fwdl|section' | head -200
 
 section registers after the download
+grep -q debugfs /proc/mounts || mount -t debugfs none /sys/kernel/debug 2>/dev/null
 python3 - "$BDF" <<'EOF'
 import mmap, os, struct, sys
 bdf = sys.argv[1]
@@ -78,11 +80,32 @@ regs = [
 	(0x8380, "HCI_FUNC_EN"), (0x83F0, "BOOT_DBG"), (0x8400, "DMAC_FUNC_EN"),
 	(0x8404, "DMAC_CLK_EN"), (0x8410, "LTR_CTRL_0"),
 ]
-path = "/sys/bus/pci/devices/%s/resource2" % bdf
-fd = os.open(path, os.O_RDONLY | os.O_SYNC)
-m = mmap.mmap(fd, 0x10000, mmap.MAP_SHARED, mmap.PROT_READ)
-for off, name in regs:
-	print("%#06x %-22s %08x" % (off, name, struct.unpack_from("<I", m, off)[0]))
+def bar():
+	fd = os.open("/sys/bus/pci/devices/%s/resource2" % bdf, os.O_RDONLY)
+	m = mmap.mmap(fd, 0x10000, mmap.MAP_SHARED, mmap.PROT_READ)
+	return lambda off: struct.unpack_from("<I", m, off)[0]
+
+def debugfs():
+	# rtw89's debugfs: write "addr len" to read_reg, read the value back
+	import glob
+	d = glob.glob("/sys/kernel/debug/ieee80211/phy*/rtw89")
+	if not d:
+		raise OSError("no rtw89 debugfs")
+	def rd(off):
+		open(d[0] + "/read_reg", "w").write("%#x 4" % off)
+		t = open(d[0] + "/read_reg").read()
+		return int(t.split()[-1], 16)
+	return rd
+
+for how in (bar, debugfs):
+	try:
+		rd = how()
+		print("by", how.__name__)
+		for off, name in regs:
+			print("%#06x %-22s %08x" % (off, name, rd(off)))
+		break
+	except Exception as e:
+		print(how.__name__, "failed:", e)
 EOF
 
 section interface
