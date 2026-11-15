@@ -49,7 +49,13 @@
 // A window made by new is a text window, as rio's: while no program has its
 // mouse open, wsys shows the end of what was written to its cons (and text) and
 // the line being typed, in a font of font(6); the wheel scrolls it. Button 1
-// selects text; button 2's menu cuts, pastes, snarfs (the snarf buffer is
+// selects text; the selection is where typing goes (an empty one: the tick), as
+// rio's: what is typed replaces it (snarfed), anywhere in the window; only what
+// is after the output point (the end of what the program wrote) is the program's
+// to read, line by line; ^H, ^U, ^W erase before the tick (not past the output
+// point), left and right move it, ^A, ^E to the line's start and end, ^B to the
+// output point, Del leaves what was typed unread; the text file is all of it.
+// Button 2's menu cuts, pastes, snarfs (the snarf buffer is
 // /dev/snarf's, rio's when wsys runs in rio) and sends. Button 3's menu, on the
 // background or a text window, as rio's: New (sweep, a shell in it), Resize
 // (sweep from the window), Move, Delete, Hide, and the hidden windows to bring
@@ -1203,7 +1209,11 @@ impl Wsys {
                     Kind::RootWinname => text(self.core.as_ref().map(|c| c.winname.as_str()).unwrap_or("").as_bytes()),
                     Kind::File(n, F::Label) => text(self.wins[&n].label.as_bytes()),
                     Kind::File(n, F::Wdir) => text(self.wins[&n].wdir.as_bytes()),
-                    Kind::File(n, F::Text) => text(self.wins[&n].text.as_bytes()),
+                    // all of it, as rio's: also what is typed and not yet read
+                    Kind::File(n, F::Text) => {
+                        let w = &self.wins[&n];
+                        text(format!("{}{}", w.text, w.line).as_bytes())
+                    }
                     Kind::File(n, F::Cursor) => text(&self.wins[&n].cursor),
                     Kind::File(n, F::Winname) => text(self.wins[&n].name.as_bytes()),
                     Kind::File(n, F::Winid) => text(format!("{n:11} ").as_bytes()),
@@ -3468,11 +3478,25 @@ impl Wsys {
                 }
                 rows.push(Row { y, runes: line.iter().map(|r| (inner.x0 + r.1, r.2, r.3)).collect(), end: *lend });
             }
-            if scroll == 0 && !raw {
-                // the tick where typing goes
-                let y = inner.y0 + (end - begin - 1) as i32 * h;
-                let t = Rect::new(inner.x0 + x, y, inner.x0 + x + 1, y + h).clip(&inner);
-                d.draw(l, &t, black, 0, 0)?;
+            if sel.0 == sel.1 && !raw {
+                // the tick where typing goes (the selection, empty), if shown: at its
+                // rune, else at the end of the line it ends
+                let q = sel.0;
+                let mut at = None;
+                for (row, (line, lend)) in lines[begin..end].iter().enumerate() {
+                    if let Some(&(_, cx, _, _)) = line.iter().find(|r| r.3 == q) {
+                        at = Some((row, cx));
+                        break;
+                    }
+                    if *lend == q {
+                        at = Some((row, line.last().map(|r| r.1 + r.2).unwrap_or(0)));
+                    }
+                }
+                if let Some((row, tx)) = at {
+                    let y = inner.y0 + row as i32 * h;
+                    let t = Rect::new(inner.x0 + tx, y, inner.x0 + tx + 1, y + h).clip(&inner);
+                    d.draw(l, &t, black, 0, 0)?;
+                }
             }
             d.flush()
         })();
@@ -4102,19 +4126,49 @@ impl Wsys {
             self.drawtext(n);
             return;
         }
+        // as rio's: the selection is where typing goes (an empty one: the tick);
+        // what is after the output point (the text's end: qh) is the line the
+        // program reads, what is before it the window's text, which can be
+        // edited too
         let w = self.wins.get_mut(&n).unwrap();
+        let qh = w.text.len();
+        let all = w.text.len() + w.line.len();
+        let (q0, q1) = (w.sel.0.min(all), w.sel.1.min(all));
         match c {
+            '\u{f011}' => {
+                // left, right: the tick a rune on
+                let p = Self::runeback(w, q0, 1);
+                w.sel = (p, p);
+            }
+            '\u{f012}' => {
+                let p = Self::runeon(w, q1);
+                w.sel = (p, p);
+            }
+            '\u{f00d}' => w.scroll = usize::MAX, // Home: the text's start shown
+            '\u{f018}' => w.scroll = 0,          // End: its end
+            '\u{1}' => {
+                // ^A: the line's start (not before the output point)
+                if q0 != 0 && q0 != qh {
+                    let p = q0 - Self::bswidth(w, q0, '\u{15}');
+                    w.sel = (p, p);
+                }
+            }
+            '\u{5}' => {
+                // ^E: the line's end
+                let s = format!("{}{}", w.text, w.line);
+                let p = s[q0..].find('\n').map(|i| q0 + i).unwrap_or(s.len());
+                w.sel = (p, p);
+            }
+            '\u{2}' => w.sel = (qh, qh), // ^B: the output point
             '\u{7f}' => {
-                // Del: interrupt, the line goes
-                w.line.clear();
+                // Del: interrupt; what was typed stays in the text, unread
+                let l = std::mem::take(&mut w.line);
+                w.text.push_str(&l);
+                w.scroll = 0;
                 if let Some(pid) = w.pid {
                     postnote(pid, "interrupt");
                 }
             }
-            '\u{8}' => {
-                w.line.pop(); // backspace: the last rune
-            }
-            '\u{15}' => w.line.clear(), // ^U: the line
             '\u{4}' => {
                 // ^D: the line as it is; on an empty one, end of file
                 if w.line.is_empty() {
@@ -4123,19 +4177,150 @@ impl Wsys {
                 let l = std::mem::take(&mut w.line);
                 w.cons.extend(l.as_bytes());
                 w.text.push_str(&l);
+                let e = w.text.len();
+                w.sel = (e, e);
             }
-            '\n' if w.hold => w.line.push('\n'), // held: it waits
-            '\n' => {
-                // the line goes to the program, and stays in the text as typed
-                let mut l = std::mem::take(&mut w.line);
-                l.push('\n');
-                w.cons.extend(l.as_bytes());
-                w.text.push_str(&l);
-                w.scroll = 0;
+            _ => {
+                // the selection goes (to the snarf buffer, as rio's), then
+                // erasing or the rune where it was
+                if q0 < q1 {
+                    let cut = format!("{}{}", w.text, w.line)[q0..q1].to_string();
+                    self.snarf = cut.into_bytes();
+                    self.putsnarf();
+                }
+                let w = self.wins.get_mut(&n).unwrap();
+                let q = Self::replace(w, q0, q1, "");
+                match c {
+                    '\u{8}' | '\u{15}' | '\u{17}' => {
+                        // ^H, ^U, ^W: a rune, the line, a word back; not over the output point
+                        let qh = w.text.len();
+                        if q != 0 && q != qh {
+                            let nb = Self::bswidth(w, q, c);
+                            Self::replace(w, q - nb, q, "");
+                        }
+                    }
+                    _ => {
+                        let mut b = [0u8; 4];
+                        Self::replace(w, q, q, c.encode_utf8(&mut b));
+                    }
+                }
+                if c == '\n' && !w.hold {
+                    Self::deliver(w);
+                }
             }
-            _ => w.line.push(c),
         }
+        let w = self.wins.get_mut(&n).unwrap();
         Self::trim(w);
+    }
+
+    /// q back n runes in window w's text and line
+    fn runeback(w: &Win, q: usize, n: usize) -> usize {
+        let s = format!("{}{}", w.text, w.line);
+        let mut p = q.min(s.len());
+        for _ in 0..n {
+            if p == 0 {
+                break;
+            }
+            p -= 1;
+            while !s.is_char_boundary(p) {
+                p -= 1;
+            }
+        }
+        p
+    }
+
+    fn runeon(w: &Win, q: usize) -> usize {
+        let s = format!("{}{}", w.text, w.line);
+        let mut p = q.min(s.len());
+        if p < s.len() {
+            p += 1;
+            while !s.is_char_boundary(p) {
+                p += 1;
+            }
+        }
+        p
+    }
+
+    /// rio's wbswidth: the bytes ^H (a rune), ^U (to the line's start) or ^W
+    /// (a word and the blanks after it) erase before q, not past the output point
+    fn bswidth(w: &Win, q: usize, c: char) -> usize {
+        let s = format!("{}{}", w.text, w.line);
+        let qh = w.text.len();
+        let stop = if q > qh { qh } else { 0 };
+        let before: Vec<(usize, char)> = s[stop..q].char_indices().map(|(i, c)| (stop + i, c)).collect();
+        if c == '\u{8}' {
+            return before.last().map(|&(i, _)| q - i).unwrap_or(0);
+        }
+        let word = |c: char| c.is_alphanumeric() || c == '_';
+        let mut p = q;
+        let mut it = before.iter().rev().peekable();
+        if c == '\u{17}' {
+            // the non-word runes, then the word
+            while let Some(&&(i, r)) = it.peek() {
+                if r == '\n' || word(r) {
+                    break;
+                }
+                p = i;
+                it.next();
+            }
+            while let Some(&&(i, r)) = it.peek() {
+                if !word(r) {
+                    break;
+                }
+                p = i;
+                it.next();
+            }
+            return q - p;
+        }
+        // ^U: to the line's start; a newline right before: it
+        if let Some(&&(i, '\n')) = it.peek() {
+            return q - i;
+        }
+        for &(i, r) in it {
+            if r == '\n' {
+                break;
+            }
+            p = i;
+        }
+        q - p
+    }
+
+    /// window w's text and line from q0 to q1 replaced by s, the output point
+    /// moved as rio's winsert and wdelete move it (something put right at it
+    /// is typed: in the line); the tick after s
+    fn replace(w: &mut Win, q0: usize, q1: usize, s: &str) -> usize {
+        let mut all = format!("{}{}", w.text, w.line);
+        let mut qh = w.text.len();
+        let q1 = q1.min(all.len());
+        let q0 = q0.min(q1);
+        if !all.is_char_boundary(q0) || !all.is_char_boundary(q1) {
+            return q0;
+        }
+        all.replace_range(q0..q1, s);
+        if q1 <= qh {
+            qh -= q1 - q0;
+        } else if q0 < qh {
+            qh = q0;
+        }
+        if q0 < qh {
+            qh += s.len();
+        }
+        w.line = all.split_off(qh);
+        w.text = all;
+        let q = q0 + s.len();
+        w.sel = (q, q);
+        q
+    }
+
+    /// the whole lines typed after the output point go to the program and
+    /// stay in the text
+    fn deliver(w: &mut Win) {
+        if let Some(i) = w.line.rfind('\n') {
+            let l: String = w.line.drain(..=i).collect();
+            w.cons.extend(l.as_bytes());
+            w.text.push_str(&l);
+            w.scroll = 0;
+        }
     }
 
     /// a window's text no longer than MAXTEXT, its selection moved with it
@@ -4238,18 +4423,9 @@ impl Wsys {
         all.get(q0..q1).unwrap_or("").to_string()
     }
 
-    /// what is in window n's line, as typed: each newline sends the line
-    fn typeline(&mut self, n: u32, s: &str) {
-        for c in s.chars() {
-            self.typed(n, c);
-        }
-        self.wake(n);
-    }
-
     /// a command of button 2's menu in text window n
     fn menu2(&mut self, n: u32, cmd: &str) {
         let w = &self.wins[&n];
-        let tl = w.text.len();
         let (q0, q1) = w.sel;
         match cmd {
             "snarf" | "cut" => {
@@ -4258,32 +4434,22 @@ impl Wsys {
                     self.putsnarf();
                 }
                 if cmd == "cut" && q0 < q1 {
-                    let w = self.wins.get_mut(&n).unwrap();
-                    // the part in the line, then the part in the text
-                    let (l0, l1) = (q0.max(tl) - tl, q1.max(tl) - tl);
-                    if l0 < l1 && w.line.is_char_boundary(l0) && w.line.is_char_boundary(l1.min(w.line.len())) {
-                        w.line.replace_range(l0..l1.min(w.line.len()), "");
-                    }
-                    let (t0, t1) = (q0.min(tl), q1.min(tl));
-                    if t0 < t1 && w.text.is_char_boundary(t0) && w.text.is_char_boundary(t1) {
-                        w.text.replace_range(t0..t1, "");
-                    }
-                    w.sel = (q0, q0);
+                    Self::replace(self.wins.get_mut(&n).unwrap(), q0, q1, "");
                 }
             }
             "paste" => {
+                // as rio's wpaste: over the selection, which is then what was pasted;
+                // its whole lines after the output point go
                 self.getsnarf();
                 let s = String::from_utf8_lossy(&self.snarf).into_owned();
                 let w = self.wins.get_mut(&n).unwrap();
-                if q0 >= tl && q1 - tl <= w.line.len() && w.line.is_char_boundary(q0 - tl) && w.line.is_char_boundary(q1 - tl) {
-                    // over a selection in the line: it is replaced, the rest is typed after it
-                    let tail = w.line.split_off(q1 - tl);
-                    w.line.truncate(q0 - tl);
-                    w.sel = (q0, q0 + s.len());
-                    self.typeline(n, &format!("{s}{tail}"));
-                } else {
-                    self.typeline(n, &s);
+                let q = Self::replace(w, q0, q1, &s);
+                w.sel = (q - s.len(), q);
+                if !w.hold {
+                    Self::deliver(w);
                 }
+                Self::trim(w);
+                self.wake(n);
             }
             "plumb" => self.plumb(n),
             "look" => {
@@ -4306,7 +4472,15 @@ impl Wsys {
                 }
                 self.snarf = s.clone().into_bytes();
                 self.putsnarf();
-                self.typeline(n, &s);
+                // as rio's: at the end, then it goes
+                let w = self.wins.get_mut(&n).unwrap();
+                let e = w.text.len() + w.line.len();
+                Self::replace(w, e, e, &s);
+                if !w.hold {
+                    Self::deliver(w);
+                }
+                Self::trim(w);
+                self.wake(n);
             }
             "scroll" | "noscroll" => self.setscrolling(n, cmd == "scroll"),
             _ => {}

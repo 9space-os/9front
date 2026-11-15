@@ -11,7 +11,7 @@
 # key, resize (wctl) and delete, and rio in a window of wsys with a shell typed into
 # (uipeek -k: kbd(3) messages). text.rc: wsys' own text windows, a shell in one
 # typed into (its output on the screen: uipeek -n counts the text's pixels),
-# backspace, Del, drawtest started from it and quit. sel.rc: button 1 selects (the
+# backspace, Del, drawtest started from it and quit. sel.rc: button 1 selects and places the insertion point (the
 # pale on the screen), button 2's menu snarfs, pastes, cuts, sends. menu3.rc: button
 # 3's menu: New with a shell, Move, Resize, Hide and back, Delete. scroll.rc: double
 # clicks (a word, a line, in brackets) and the scroll bar. hold.rc: look, hold mode
@@ -97,7 +97,7 @@ done < <(grep -E '^(ok|FAIL) ' "$TMPD/log")
 check "wsystest: all passed" grep -q '^wsystest: all passed' "$TMPD/log"
 check "rio4 (draw(3) programs, window(1), rio in wsys): all passed" grep -q '^rio4: all passed' "$TMPD/log"
 check "text windows (a shell typed into, backspace, Del, a draw(3) program and back): all passed" grep -q '^text: all passed' "$TMPD/log"
-check "selecting and snarfing (button 1, button 2's cut paste snarf send): all passed" grep -q '^sel: all passed' "$TMPD/log"
+check "selecting, snarfing, the insertion point (button 1, button 2's cut paste snarf send; typing, backspace where clicked, old output edited): all passed" grep -q '^sel: all passed' "$TMPD/log"
 check "button 3's menu (New, Move, Resize, Hide and back, Delete): all passed" grep -q '^menu3: all passed' "$TMPD/log"
 check "double clicks (word, line, brackets) and the scroll bar (1 held, 3, 2): all passed" grep -q '^scroll: all passed' "$TMPD/log"
 check "look, hold mode and plumb (the plumber started before wsys): all passed" grep -q '^hold: all passed' "$TMPD/log"

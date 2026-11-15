@@ -51,7 +51,8 @@ menu 2
 ~ `{snarf | wc -c} 7 || fail double click at the end of a line: `{snarf | xd -c}
 echo ok double click: the line, marked and its newline
 
-# in brackets: from the ( to the )
+# in brackets: from the ( to the ); typed after ^B (the selection is row 1's)
+/tests/uipeek -k `{awk 'BEGIN{printf "%c", 2}'}
 key 'echo (alpha beta)'
 c=`{echo $p+6 | hoc}
 dclick `{x $c} `{y 2}

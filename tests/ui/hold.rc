@@ -45,6 +45,8 @@ test $a -eq 0 && test $b -gt 0 || fail look: pale $a in the first, $b in the sec
 echo ok look: the second look selected
 
 # hold: Esc, then a line typed waits; the border blue; Esc again sends it
+# (typed after ^B: the selection is look's)
+/tests/uipeek -k `{awk 'BEGIN{printf "%c", 2}'}
 key `{awk 'BEGIN{printf "%c", 27}'}
 key 'echo held'; nl
 sleep 0.5
