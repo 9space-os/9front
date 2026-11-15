@@ -1,6 +1,8 @@
 #!/bin/rc
-# termcpu: this terminal as an auth server and cpu server of its own, for
-# drawterm (and rcpu) from another machine:
+# termcpu (scripts/hw/pxe.sh puts it in a test machine's root as
+# /rc/bin/termcpu; for testing, not part of the system): this terminal as
+# an auth server and cpu server of its own, for drawterm (and rcpu) from
+# another machine:
 #
 #	drawterm -h ADDR -a ADDR -u glenda
 #
@@ -9,7 +11,8 @@
 # $user's key: auth/changeuser asks once, the same password).  A factotum
 # of its own (-S: its keys from that nvram) serves authsrv on tcp!*!567 and
 # rcpu on tcp!*!17019 in a name space of their own; they run until killed.
-# Nothing is asked again once the files are there.
+# Nothing is asked again once the files are there: termrc.local then
+# starts it at boot.
 rfork ne
 if(! ~ $#* 0){
 	echo usage: termcpu >[1=2]

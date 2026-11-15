@@ -72,6 +72,7 @@ Called by `build.exe` (Pre/Post steps); rarely run by hand.
 | `mkstick.sh` | build the stick image (9fat with logs, hjfs root with the test runner and test programs) in a QEMU guest; `PACK=1`: a hand-off dir (packed image, collect.py, HOWTO.txt with the dd line). `scripts/hw/mkstick.sh [image]` |
 | `collect.py` | copy `hwtest/` from the stick's 9fat (or the image) and print the summaries. `scripts/hw/collect.py /dev/sdX [dir]` |
 | `pxe.sh` | boot a machine of the LAN by PXE from this host: proxy DHCP and TFTP by dnsmasq (9boot, the kernel, `/cfg/pxe/<mac>`), the root by ufs; `tests/hw/machines/<machine>`: its plan9.ini lines and firmware; `QEMU=1`: a rehearsal in QEMU. `scripts/hw/pxe.sh mac [machine]` |
+| `termcpu.rc` | installed by pxe.sh as a test machine's `/rc/bin/termcpu`: the terminal as its own auth and cpu server (authsrv, rcpu) for drawterm; asks for the keys once, then termrc.local starts it at boot. For testing only |
 | `linux-rtw89-dump.sh` | on a Linux live system (as root): what Linux's rtw89 does with the RTL8852CE (system, IOMMU, lspci of card and bridge, rtw89 reloaded with `debug_mask=0x1000`, BAR2 registers after the firmware download), to compare with aux/rtw89; reads only, writes its report. `sudo sh linux-rtw89-dump.sh` |
 
 ## guest/ — QEMU guest, install media, boot loaders

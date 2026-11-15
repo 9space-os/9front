@@ -16,6 +16,9 @@
 # $PXE_DIR/mcptoken), started at boot (/rc/bin/termrc.local; MCP=0: not);
 # scripts/guest/mcp.py reaches it
 # (MCPURL=http://machine:8090/mcp MCPTOKEN=`cat $PXE_DIR/mcptoken`).
+# And /rc/bin/termcpu (scripts/hw/termcpu.rc): the machine as its own auth
+# and cpu server for drawterm; run once by hand (it asks for the keys),
+# then termrc.local starts it at boot.
 #
 # usage: scripts/hw/pxe.sh mac [machine]	e.g. 80:ca:52:83:8a:6a thinkbook16g7
 #   machine: tests/hw/machines/<machine>, plan9.ini lines the machine always
@@ -89,6 +92,10 @@ GO=$GO_DIR/go/bin/go
 GOOS=plan9 GOARCH=amd64 CGO_ENABLED=0 GOCACHE=$P/gocache \
 	"$GO" build -C "$MCP_DIR" -o "$X/amd64/bin/9front-mcp" . || die "9front-mcp did not build"
 cp "$MCP_DIR/deny.example" "$X/sys/lib/mcp/deny"
+# drawterm's way in, for testing (scripts/hw/termcpu.rc)
+mkdir -p "$X/rc/bin"
+cp "$ROOT/scripts/hw/termcpu.rc" "$X/rc/bin/termcpu"
+chmod +x "$X/rc/bin/termcpu"
 # the machine's firmware (linux-firmware's, as the host has it: .zst, .xz or plain)
 FWDIR=${FWDIR:-/usr/lib/firmware}
 [ -z "$MACHINE" ] || grep '^firmware ' "$MACHINE" | while read -r _ pat; do
@@ -123,6 +130,9 @@ if [ "${MCP:-1}" = 1 ]; then
 		sleep 1
 		n=`{echo $n+1 | hoc}
 	}
+	# drawterm's way in, once termcpu has the keys (asked the first time)
+	if(test -s /usr/glenda/lib/nvram && test -s /usr/glenda/lib/keys)
+		termcpu >/tmp/termcpu.log >[2=1]
 	9front-mcp -http 'tcp!*!8090' -tokenfile /usr/glenda/lib/mcptoken -deny /sys/lib/mcp/deny -dir /usr/glenda >[2]/tmp/mcp.log
 } </dev/null >/dev/null >[2]/dev/null &
 EOF2
