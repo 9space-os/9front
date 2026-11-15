@@ -136,7 +136,8 @@ struct Hidreport
  * 0 to 1<<31); the state between reports is in the Hid.  hidtouchpad
  * puts a precision touchpad into its mode (setfeature: the transport's
  * SET_REPORT of a feature report, its id first): then hidinput makes
- * mouse(3)'s events of its fingers.
+ * mouse(3)'s events of its fingers; hidtimer, called every few
+ * milliseconds, lets go of a tap's button when no drag followed it.
  */
 typedef struct Hid Hid;
 typedef struct Hidfinger Hidfinger;
@@ -183,6 +184,9 @@ struct Hidtouch
 	int	maxn;
 	int	moved;
 	int	clicked;
+	int	tapb;		/* a tap's button, held a while: a drag may follow */
+	vlong	tapat;
+	int	drag;		/* the button a drag after a tap holds */
 	int	b;		/* the buttons given */
 };
 
@@ -207,4 +211,5 @@ extern int hiddebug;
 
 void	hidinput(Hid*, uchar *p, int n);
 int	hidtouchpad(Hid*, int (*setfeature)(Hid*, uchar *rep, int n));
+void	hidtimer(Hid*);
 int	hidscan(uchar *buf, uchar sc, int up);

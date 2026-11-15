@@ -81,6 +81,7 @@ struct Dev {
 	uchar	rep[Maxrep];
 	int	nrep;
 	Hid	hid;
+	QLock	lk;	/* hid: the reader's, the timer's */
 };
 
 static int debug;
@@ -518,6 +519,18 @@ setup(Dev *d)
 	return 0;
 }
 
+/* a touchpad's: hid.c lets go of a tap's button when no drag follows */
+static void
+timer(Dev *d)
+{
+	for(;;){
+		sleep(20);
+		qlock(&d->lk);
+		hidtimer(&d->hid);
+		qunlock(&d->lk);
+	}
+}
+
 /* one proc per device: an input report per interrupt */
 static void
 reader(Dev *d)
@@ -546,7 +559,9 @@ reader(Dev *d)
 		while((n = input(d, buf, sizeof buf)) > 0){
 			if(debug > 1)
 				fprint(2, "%s: %.*H\n", d->path, n+2, buf);
+			qlock(&d->lk);
 			hidinput(&d->hid, buf+2, n);
+			qunlock(&d->lk);
 			if(efd < 0 || !d->edge)
 				break;	/* level: the pin again while there is more */
 		}
@@ -652,6 +667,14 @@ main(int argc, char *argv[])
 			reader(d);
 			exits(nil);
 		}
+		if(d->hid.tp.on)
+			switch(rfork(RFPROC|RFMEM|RFNOWAIT)){
+			case -1:
+				sysfatal("rfork: %r");
+			case 0:
+				timer(d);
+				exits(nil);
+			}
 	}
 	exits(nil);
 }

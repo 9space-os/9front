@@ -547,7 +547,7 @@ hidinput(Hid *h, uchar *data, int n)
  * first with a count of 0).  The gestures are our own: one finger
  * moves, two scroll, the pad pressed with one, two, three fingers is
  * buttons 1, 3, 2 (a thumb resting at the bottom not counted), a tap
- * the same.
+ * the same; a touch right after a one-finger tap drags with button 1.
  */
 enum {
 	UInputmode	= 0x0D0052,
@@ -942,11 +942,17 @@ tpframe(Hid *h)
 		t->moved = 0;
 		t->clicked = t->pbutton != 0;
 		t->fx = t->fy = t->scroll = 0;
+		/* soon after a tap: a drag, its button held until the finger goes */
+		if(t->tapb != 0 && now - t->tapat < Taptime){
+			t->drag = t->tapb;
+			t->clicked = 1;
+		}
+		t->tapb = 0;
 	}
 	if(n > t->maxn)
 		t->maxn = n;
 
-	b = t->button;
+	b = t->button | t->drag | t->tapb;
 	dx = dy = 0;
 	if(moving && (n == 1 || t->button != 0)){
 		i = now - t->tlast > 100 ? 100 : now - t->tlast;
@@ -967,16 +973,38 @@ tpframe(Hid *h)
 	}
 	tpmouse(h, dx, dy, b);
 
-	/* all fingers up: was it a tap? */
-	if(n == 0 && t->nlast > 0 && !t->clicked
+	/* all fingers up: the end of a drag, or a tap */
+	if(n == 0 && t->nlast > 0 && t->drag != 0){
+		t->drag = 0;
+		tpmouse(h, 0, 0, t->button);
+	} else if(n == 0 && t->nlast > 0 && !t->clicked
 	&& now - t->t0 < Taptime && t->moved < Tapmove){
 		tap = t->maxn <= 1 ? 1 : t->maxn == 2 ? 4 : 2;
-		tpmouse(h, 0, 0, b|tap);
-		tpmouse(h, 0, 0, b);
+		if(tap == 1){
+			/* held: let go by hidtimer, or a drag if a touch comes soon */
+			t->tapb = tap;
+			t->tapat = now;
+			tpmouse(h, 0, 0, b|tap);
+		} else {
+			tpmouse(h, 0, 0, b|tap);
+			tpmouse(h, 0, 0, b);
+		}
 	}
 	memmove(t->last, cur, n * sizeof cur[0]);
 	t->nlast = n;
 	t->tlast = now;
+}
+
+/* every few milliseconds: a tap's button let go when no drag followed */
+void
+hidtimer(Hid *h)
+{
+	Hidtouch *t = &h->tp;
+
+	if(!t->on || t->tapb == 0 || nsec()/1000000 - t->tapat < Taptime)
+		return;
+	t->tapb = 0;
+	tpmouse(h, 0, 0, t->button | t->drag);
 }
 
 /* a report of the touchpad's: 1, or 0 if it is another one's */

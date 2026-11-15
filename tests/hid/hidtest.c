@@ -197,7 +197,34 @@ main(void)
 	report(&h, 1, f, 1, 0, 50);
 	f[0].on = 0;
 	report(&h, 1, f, 1, 0, 50);
-	ok(nev == 2 && ev[0].b == 1 && ev[1].b == 0, "a tap: button 1 pressed and released");
+	ok(nev == 1 && ev[0].b == 1, "a tap: button 1 pressed (held a while: a drag may follow)");
+	now += 250;
+	hidtimer(&h);
+	ok(nev == 2 && ev[1].b == 0, "no touch after it: hidtimer lets go of it after 200ms");
+
+	/* a tap, a touch right after it, moved, lifted: a drag with button 1 */
+	nev = 0;
+	f[0] = (F){1, 20, 2000, 2000, 1};
+	report(&h, 1, f, 1, 0, 1000);
+	f[0].on = 0;
+	report(&h, 1, f, 1, 0, 60);
+	f[0] = (F){1, 21, 2000, 2000, 1};
+	report(&h, 1, f, 1, 0, 80);	/* within 200ms */
+	hidtimer(&h);			/* (too early to let go) */
+	for(i = 1; i <= 10; i++){
+		f[0].x = 2000 + i*41;
+		report(&h, 1, f, 1, 0, 40);
+	}
+	f[0].on = 0;
+	report(&h, 1, f, 1, 0, 10);
+	now += 300;
+	hidtimer(&h);
+	sx = 0;
+	for(i = 0; i < nev; i++)
+		if(ev[i].b == 1)
+			sx += ev[i].x;
+	ok(ev[0].b == 1 && sx >= 90 && ev[nev-1].b == 0 && count(0) == 1,
+		"tap, then touch and move within 200ms: button 1 held while dragging, let go at the end");
 
 	/* a long touch is no tap */
 	nev = 0;

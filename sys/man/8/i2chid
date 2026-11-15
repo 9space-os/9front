@@ -58,7 +58,9 @@ two fingers moved up or down scroll (buttons 8 and 16 of
 the pad pressed with one, two or three fingers on it is button 1, 3 or 2
 (a thumb resting in the pad's bottom fifth not counted: pressed with it
 while another finger drags is button 1),
-and a short tap with as many fingers clicks the same buttons.
+and a short tap with as many fingers clicks the same buttons;
+a touch right after a one-finger tap drags with button 1 held until the
+finger goes.
 A contact the pad takes for a palm counts for nothing.
 Other touchpads stay in their mouse mode.
 .PP
