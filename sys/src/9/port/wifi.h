@@ -57,6 +57,17 @@ struct Wnode
 	int	channel;
 	int	brsnelen;
 	uchar	brsne[258];
+
+	/*
+	 * nfront: what the access point's beacon offers (WMM, HT, VHT,
+	 * HE) and whether we associated with WMM: our data frames are
+	 * then QoS data
+	 */
+	uchar	wmm;
+	uchar	ht;
+	uchar	vht;
+	uchar	he;
+	uchar	qos;
 };
 
 struct Wifi
@@ -86,6 +97,14 @@ struct Wifi
 	 */
 	uchar	*scan;
 	int	channel;
+
+	/*
+	 * nfront: the radio's capability elements (HT 45, VHT 191, HE
+	 * 255/35, ...: id, length, contents, one after another), sent in
+	 * the association request where the access point offers the same
+	 */
+	uchar	caps[256];
+	int	ncaps;
 
 	/* effective base station */
 	Wnode	*bss;

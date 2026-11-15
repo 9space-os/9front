@@ -119,6 +119,7 @@ radioread(Chan *c, void *a, long n, vlong off)
 	char *buf, *s, *e;
 	Wlan *ctlr;
 	long r;
+	int i;
 
 	if(c->qid.type & QTDIR)
 		return devdirread(c, a, n, nil, 0, wlangen);
@@ -137,6 +138,12 @@ radioread(Chan *c, void *a, long n, vlong off)
 		s = seprint(s, e, "ether %d attached %d radio %ld\n",
 			ctlr->edev->ctlrno, ctlr->attached, ctlr->radio.ref);
 		s = seprint(s, e, "ea %E\n", ctlr->edev->ea);
+		if(ctlr->ncaps > 0){
+			s = seprint(s, e, "caps ");
+			for(i = 0; i < ctlr->ncaps; i++)
+				s = seprint(s, e, "%.2ux", ctlr->caps[i]);
+			s = seprint(s, e, "\n");
+		}
 		seprint(s, e, "tx %lud rx %lud dropped %lud\n", ctlr->ntx, ctlr->nrx, ctlr->ndrop);
 		r = readstr(off, a, n, buf);
 		poperror();
@@ -162,7 +169,7 @@ hexval(int c)
 static long
 radiowrite(Chan *c, void *a, long n, vlong)
 {
-	uchar *p, ea[Eaddrlen];
+	uchar *p, ea[Eaddrlen], caps[256];
 	Cmdbuf *cb;
 	Wlan *ctlr;
 	Block *b;
@@ -205,6 +212,29 @@ radiowrite(Chan *c, void *a, long n, vlong)
 			}
 			memmove(ctlr->edev->ea, ea, Eaddrlen);
 			memmove(ctlr->edev->Netif.addr, ea, Eaddrlen);	/* the addr file's */
+		} else if(cb->nf == 2 && strcmp(cb->f[0], "caps") == 0){
+			/* the radio's capability elements, checked as elements */
+			l = strlen(cb->f[1]);
+			if(l % 2 != 0 || l/2 > sizeof ctlr->caps)
+				error(Ebadarg);
+			for(i = 0; i < l/2; i++){
+				h = hexval(cb->f[1][2*i]);
+				if(h < 0 || hexval(cb->f[1][2*i+1]) < 0)
+					error(Ebadarg);
+				caps[i] = h<<4 | hexval(cb->f[1][2*i+1]);
+			}
+			for(h = 0; h+2 <= l/2; h += 2+caps[h+1])
+				;
+			if(h != l/2)
+				error("caps: not elements");
+			qlock(ctlr);
+			memmove(ctlr->caps, caps, l/2);
+			ctlr->ncaps = l/2;
+			if(ctlr->wifi != nil){
+				memmove(ctlr->wifi->caps, caps, l/2);
+				ctlr->wifi->ncaps = l/2;
+			}
+			qunlock(ctlr);
 		} else
 			error(Ebadctl);
 		poperror();

@@ -70,8 +70,23 @@ Written,
 takes
 .BI ea " addr"
 (12 hex digits): the station's address, set by the radio from its
-hardware before the interface is used.
-Read, it gives the state and counts of frames.
+hardware before the interface is used, and
+.BI caps " hex"
+: the radio's capability elements (id, length, contents, one after
+another: HT capabilities, 45; VHT, 191; HE, 255 with 35), which the
+association request carries where the access point's beacon offers the
+same.
+With an access point that offers WMM the association request has WMM's
+information element and the station's data frames are QoS data (TID 0);
+the interface's
+.B ifstats
+says what the access point offers
+.RB ( offers: " wmm ht vht he" )
+and whether the data is QoS
+.RB ( qos: " wmm" ).
+The radio sets the access point's station up from the association
+response it passes on (its HT capabilities, its WMM parameters).
+Read, it gives the state, the capabilities and counts of frames.
 Only the host owner opens the files.
 .SH SOURCE
 .B /sys/src/9/port/etherwlan.c
@@ -84,7 +99,8 @@ Only the host owner opens the files.
 .SH BUGS
 No 6 GHz channels: their numbers are those of the 2.4 GHz band; the
 header would need the band.
-No HT, VHT or HE rates: a radio with rate control in its firmware
-(rtw89) chooses its own.
+HT at 20 MHz only, no VHT or HE (a VHT station is one of 80 MHz): the
+radio's firmware (rtw89) chooses the rates.
+No A-MPDU: wifi.c answers no block ack agreements.
 .br
 Written for nfront.

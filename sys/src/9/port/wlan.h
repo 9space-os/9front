@@ -20,6 +20,8 @@ struct Wlan {
 	Queue	*txq;		/* frames for the radio */
 	Ref	radio;		/* the radio's data open */
 	ulong	ntx, nrx, ndrop;
+	uchar	caps[256];	/* the radio's capability elements (ctl caps), for wifi.c */
+	int	ncaps;
 };
 
 extern Wlan wlans[Nwlan];

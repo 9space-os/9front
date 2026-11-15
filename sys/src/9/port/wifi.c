@@ -420,6 +420,57 @@ sendauth(Wifi *wifi, Wnode *bss)
 	wifitx(wifi, bss, b);
 }
 
+/*
+ * nfront: the radio's capability elements the access point offers too
+ * (HT, VHT, HE), then WMM's information element where it has WMM: QoS
+ * data from then on (bss->qos).  As OpenBSD's ieee80211_get_assoc_req
+ * adds them (ieee80211_add_htcaps, ieee80211_add_wme_info); the radio
+ * says what it has, wifi.c only what the access point offers.
+ */
+static uchar*
+putcaps(Wifi *wifi, Wnode *bss, uchar *p)
+{
+	uchar *c, *e;
+	int ok;
+
+	bss->qos = 0;
+	c = wifi->caps;
+	e = c + wifi->ncaps;
+	for(; c+2 <= e && c+2+c[1] <= e; c += 2+c[1]){
+		switch(c[0]){
+		case 45:
+			ok = bss->ht;
+			break;
+		case 191:
+			ok = bss->vht && bss->channel > 14;
+			break;
+		case 255:
+			ok = bss->he && c[1] > 0 && c[2] == 35;
+			break;
+		default:
+			ok = 0;
+		}
+		if(ok){
+			memmove(p, c, 2+c[1]);
+			p += 2+c[1];
+		}
+	}
+	if(bss->wmm){
+		/* WMM information element, version 1, no U-APSD */
+		*p++ = 221;
+		*p++ = 7;
+		*p++ = 0x00;
+		*p++ = 0x50;
+		*p++ = 0xf2;
+		*p++ = 0x02;
+		*p++ = 0x00;	/* subtype: information */
+		*p++ = 0x01;	/* version */
+		*p++ = 0x00;	/* QoS info */
+		bss->qos = 1;
+	}
+	return p;
+}
+
 static void
 sendassoc(Wifi *wifi, Wnode *bss)
 {
@@ -463,6 +514,8 @@ sendassoc(Wifi *wifi, Wnode *bss)
 		memmove(p, bss->rsne, n);
 		p += n;
 	}
+
+	p = putcaps(wifi, bss, p);
 
 	b->wp = p;
 	wifitx(wifi, bss, b);
@@ -520,6 +573,7 @@ static void
 recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 {
 	static uchar wpa1oui[4] = { 0x00, 0x50, 0xf2, 0x01 };
+	static uchar wmmoui[4] = { 0x00, 0x50, 0xf2, 0x02 };	/* nfront */
 	uchar *e, *x, *p, t;
 	int rsnset, dschan, htchan;
 
@@ -537,6 +591,7 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 
 	wn->dtimcount = 0;
 	wn->dtimperiod = 1;
+	wn->wmm = wn->ht = wn->vht = wn->he = 0;	/* nfront: as this beacon says */
 
 	rsnset = 0;
 	dschan = htchan = 0;
@@ -589,6 +644,16 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			if(d != x)
 				htchan = d[0];
 			break;
+		case 45:	/* nfront: HT capabilities */
+			wn->ht = 1;
+			break;
+		case 191:	/* nfront: VHT capabilities */
+			wn->vht = 1;
+			break;
+		case 255:	/* nfront: an extension: 35 HE capabilities */
+			if(d != x && d[0] == 35)
+				wn->he = 1;
+			break;
 		case 5:
 			if(x - d < 2)
 				break;
@@ -598,6 +663,11 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			break;
 		case 221:	/* vendor specific */
 			len = x - d;
+			/* nfront: WMM's information or parameter element (Wi-Fi Alliance) */
+			if(len >= 5 && memcmp(d, wmmoui, sizeof(wmmoui)) == 0 && (d[4] == 0 || d[4] == 1)){
+				wn->wmm = 1;
+				break;
+			}
 			if(rsnset || len < sizeof(wpa1oui) || memcmp(d, wpa1oui, sizeof(wpa1oui)) != 0)
 				break;
 			/* no break */
@@ -813,7 +883,7 @@ wifietheroq(Wifi *wifi, Block *b)
 	} else if(wn->status != Sassoc)
 		goto drop;
 
-	h.fc[0] = 0x08;	/* data */
+	h.fc[0] = wn->qos ? 0x88 : 0x08;	/* data; nfront: QoS data with WMM */
 	memmove(h.a1, wn->bssid, Eaddrlen);
 	if(memcmp(e.s, wifi->ether->ea, Eaddrlen) == 0) {
 		h.fc[1] = 0x01;	/* STA->AP */
@@ -827,6 +897,11 @@ wifietheroq(Wifi *wifi, Block *b)
 	hdrlen = wifihdrlen(&h);
 	b = padblock(b, hdrlen + SNAPHDRSIZE);
 	memmove(b->rp, &h, hdrlen);
+	if(wn->qos){
+		/* nfront: QoS control after the header: TID 0 (best effort), normal ack */
+		b->rp[hdrlen-2] = 0;
+		b->rp[hdrlen-1] = 0;
+	}
 	s = (SNAP*)(b->rp + hdrlen);
 	s->dsap = s->ssap = 0xAA;
 	s->control = 0x03;
@@ -1204,6 +1279,10 @@ wifistat(Wifi *wifi, char *p, char *e)
 		p = seprint(p, e, "bssid: %E\n", wn->bssid);
 		p = seprint(p, e, "status: %s\n", wn->status);
 		p = seprint(p, e, "channel: %.2d\n", wn->channel);
+		/* nfront: what the access point offers, and whether our data is QoS (WMM) */
+		p = seprint(p, e, "offers:%s%s%s%s\n", wn->wmm ? " wmm" : "", wn->ht ? " ht" : "",
+			wn->vht ? " vht" : "", wn->he ? " he" : "");
+		p = seprint(p, e, "qos: %s\n", wn->qos ? "wmm" : "none");
 
 		/* only print key ciphers and key length */
 		rlock(&wifi->crypt);
@@ -1799,9 +1878,21 @@ aesCCMdecrypt(int L, int M, uchar *N /* N[15-L] */,
 static int
 setupCCMP(Wifipkt *w, uvlong tsc, uchar nonce[13], uchar auth[32])
 {
-	uchar *p;
+	uchar *p, *qc;
+	int qos;
 
+	/*
+	 * nfront: QoS data as OpenBSD's ieee80211_ccmp_phase1 (802.11-2012
+	 * 11.4.3.3): its TID in the nonce and after the AAD, the subtype's
+	 * QoS bit kept, the order bit masked; 9front masked the whole
+	 * subtype and left the QoS control out, which only non-QoS frames
+	 * survive
+	 */
+	qos = (w->fc[0] & 0x8c) == 0x88;
+	qc = (uchar*)w + wifihdrlen(w) - 2;
 	nonce[0] = ((w->fc[0] & 0x0c) == 0x00) << 4;
+	if(qos)
+		nonce[0] |= qc[0] & 0x0f;
 	memmove(&nonce[1], w->a2, Eaddrlen);
 	nonce[7]  = tsc >> 40;
 	nonce[8]  = tsc >> 32;
@@ -1811,8 +1902,8 @@ setupCCMP(Wifipkt *w, uvlong tsc, uchar nonce[13], uchar auth[32])
 	nonce[12] = tsc;
 
 	p = auth;
-	*p++ = (w->fc[0] & (((w->fc[0] & 0x0c) == 0x08) ? 0x0f : 0xff));
-	*p++ = (w->fc[1] & ~0x38) | 0x40;
+	*p++ = (w->fc[0] & (((w->fc[0] & 0x0c) == 0x08) ? 0x8f : 0xff));
+	*p++ = (w->fc[1] & (qos ? ~0xb8 : ~0x38)) | 0x40;
 	memmove(p, w->a1, Eaddrlen); p += Eaddrlen;
 	memmove(p, w->a2, Eaddrlen); p += Eaddrlen;
 	memmove(p, w->a3, Eaddrlen); p += Eaddrlen;
@@ -1821,6 +1912,10 @@ setupCCMP(Wifipkt *w, uvlong tsc, uchar nonce[13], uchar auth[32])
 	if((w->fc[1] & 3) == 0x03) {
 		memmove(p, w->a4, Eaddrlen);
 		p += Eaddrlen;
+	}
+	if(qos){
+		*p++ = qc[0] & 0x0f;
+		*p++ = 0;
 	}
 
 	return p - auth;

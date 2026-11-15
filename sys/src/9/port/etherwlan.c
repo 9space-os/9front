@@ -17,7 +17,9 @@
  *		One open at a time: the radio.  Frames while there is none
  *		are dropped.
  *	ctl	write: ea 0123456789ab (the station's address, before the
- *		interface is used); read: the state
+ *		interface is used); caps hex... (the radio's capability
+ *		elements: HT, VHT, HE; wifi.c sends those the access point
+ *		offers too); read: the state
  *
  * Only the host owner opens them.
  */
@@ -132,6 +134,8 @@ wlanattach(Ether *edev)
 			ctlr->wifi = wifiattach(edev, transmit);
 			ctlr->wifi->rates = wlanrates;
 			ctlr->wifi->scan = wifiscan5g;	/* 2.4 and 5 GHz */
+			memmove(ctlr->wifi->caps, ctlr->caps, ctlr->ncaps);
+			ctlr->wifi->ncaps = ctlr->ncaps;
 		}
 		for(i = 0; i < edev->ISAConf.nopt; i++)
 			wificfg(ctlr->wifi, edev->ISAConf.opt[i]);
