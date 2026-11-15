@@ -123,14 +123,12 @@ capband(struct lhw *l)
 	return NULL;
 }
 
-/* the HT capability bits for 20 MHz only: the channel context's width */
-#define HT20MASK	(~(IEEE80211_HT_CAP_SUP_WIDTH_20_40 | IEEE80211_HT_CAP_SGI_40 | IEEE80211_HT_CAP_DSSSCCK40))
-
 /*
  * the radio's capability elements for wlan(3)'s ctl (caps hex), which
  * wifi.c sends in the association request: the HT capabilities element
- * of the driver's band (802.11-2020 9.4.2.55), 20 MHz only.  No VHT or
- * HE: a VHT station is one of 80 MHz, and the context is 20 MHz.
+ * of the driver's band (802.11-2020 9.4.2.55), with 40 MHz where it has
+ * it (kpi80211_assoc follows the access point's HT operation).  No VHT
+ * or HE yet: a VHT station is one of 80 MHz.
  */
 static int
 capsline(struct lhw *l, char *buf, int n)
@@ -143,7 +141,7 @@ capsline(struct lhw *l, char *buf, int n)
 	if ((sb = capband(l)) == NULL)
 		return 0;
 	memset(&c, 0, sizeof(c));
-	c.cap_info = cpu_to_le16(sb->ht_cap.cap & HT20MASK);
+	c.cap_info = cpu_to_le16(sb->ht_cap.cap & ~IEEE80211_HT_CAP_DSSSCCK40);
 	c.ampdu_params_info = (sb->ht_cap.ampdu_factor & 3) | (sb->ht_cap.ampdu_density & 7) << 2;
 	c.mcs = sb->ht_cap.mcs;
 	e[0] = WLAN_EID_HT_CAPABILITY;
@@ -169,12 +167,16 @@ apcaps(struct lhw *l, const u8 *f, int len)
 		return;
 	l->apht = false;
 	l->apwmm = false;
+	l->apsec = 0;
 	e = f + len;
 	for (p = f + 24 + 6; p + 2 <= e && p + 2 + p[1] <= e; p += 2 + p[1]) {
 		if (p[0] == WLAN_EID_HT_CAPABILITY && p[1] >= sizeof(l->apcap)) {
 			memcpy(&l->apcap, p + 2, sizeof(l->apcap));
 			l->apht = true;
 		}
+		/* HT operation (61): the secondary channel's offset where any width is allowed */
+		if (p[0] == 61 && p[1] >= 2 && (p[3] & 4) != 0)
+			l->apsec = p[3] & 3;
 		if (p[0] == 221 && p[1] >= 7 && p[2] == 0x00 && p[3] == 0x50 && p[4] == 0xf2 &&
 		    p[5] == 0x02 && p[6] == 0x01)
 			l->apwmm = true;

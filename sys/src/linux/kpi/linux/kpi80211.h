@@ -39,6 +39,7 @@ struct lhw {
 	/* the access point's association response: its HT capabilities, WMM */
 	bool	apht;
 	bool	apwmm;
+	u8	apsec;		/* its HT operation: secondary channel above (1), below (3), none (0) */
 	struct ieee80211_ht_cap	apcap;
 	/*
 	 * the block ack agreements wifi.c makes (the ADDBA/DELBA frames

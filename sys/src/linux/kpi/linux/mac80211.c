@@ -1005,10 +1005,52 @@ basicrates(struct lhw *l)
 
 /*
  * the access point's HT, as mac80211 makes a station's from the element
- * (ieee80211_ht_cap_ie_to_sta_ht_cap): its capabilities with ours, 20
- * MHz (the context's), the MCS it receives that we send; rtw89's rate
- * control then uses HT
+ * (ieee80211_ht_cap_ie_to_sta_ht_cap): its capabilities with ours, 40 MHz
+ * where both have it and its HT operation names a secondary channel
+ * (wide40), the MCS it receives that we send; rtw89's rate control then
+ * uses HT
  */
+/*
+ * 40 MHz with the access point: both have it, its HT operation names the
+ * secondary channel (above or below), the hardware has that channel;
+ * then def is the 40 MHz chandef
+ */
+static bool
+wide40(struct lhw *l, struct linuxkpi_ieee80211_channel *c, struct ieee80211_supported_band *sb,
+    struct cfg80211_chan_def *def)
+{
+	struct linuxkpi_ieee80211_channel *s;
+	int f;
+
+	if (!l->apht || (l->apsec != 1 && l->apsec != 3) ||
+	    !(sb->ht_cap.cap & IEEE80211_HT_CAP_SUP_WIDTH_20_40) ||
+	    !(le16_to_cpu(l->apcap.cap_info) & IEEE80211_HT_CAP_SUP_WIDTH_20_40))
+		return false;
+	f = c->center_freq + (l->apsec == 1 ? 20 : -20);
+	if ((s = linuxkpi_ieee80211_get_channel(l->hw.wiphy, f)) == NULL || (s->flags & IEEE80211_CHAN_DISABLED))
+		return false;
+	if (def != NULL)
+		cfg80211_chandef_create(def, c, l->apsec == 1 ? NL80211_CHAN_HT40PLUS : NL80211_CHAN_HT40MINUS);
+	return true;
+}
+
+/* the channel context to def's width (40 MHz with the access point, 20 again without) */
+static void
+setwidth(struct lhw *l, struct cfg80211_chan_def *def)
+{
+	struct ieee80211_hw *hw = &l->hw;
+
+	hw->conf.chandef = *def;
+	if (l->ctx != NULL) {
+		l->ctx->def = *def;
+		l->ctx->min_def = *def;
+		l->vif->bss_conf.chanreq.oper = *def;
+		if (l->ops->change_chanctx)
+			l->ops->change_chanctx(hw, l->ctx, IEEE80211_CHANCTX_CHANGE_WIDTH);
+	} else
+		l->ops->config(hw, -1, IEEE80211_CONF_CHANGE_CHANNEL);
+}
+
 static void
 staht(struct lhw *l, struct ieee80211_sta *sta)
 {
@@ -1021,8 +1063,9 @@ staht(struct lhw *l, struct ieee80211_sta *sta)
 		return;
 	memset(h, 0, sizeof(*h));
 	h->ht_supported = true;
-	h->cap = le16_to_cpu(l->apcap.cap_info) & sb->ht_cap.cap &
-	    ~(IEEE80211_HT_CAP_SUP_WIDTH_20_40 | IEEE80211_HT_CAP_SGI_40 | IEEE80211_HT_CAP_DSSSCCK40);
+	h->cap = le16_to_cpu(l->apcap.cap_info) & sb->ht_cap.cap & ~IEEE80211_HT_CAP_DSSSCCK40;
+	if (!wide40(l, c, sb, NULL))
+		h->cap &= ~(IEEE80211_HT_CAP_SUP_WIDTH_20_40 | IEEE80211_HT_CAP_SGI_40);
 	h->ampdu_factor = l->apcap.ampdu_params_info & 3;
 	h->ampdu_density = l->apcap.ampdu_params_info >> 2 & 7;
 	nss = 0;
@@ -1066,6 +1109,15 @@ kpi80211_assoc(struct lhw *l, const u8 *bssid, u16 aid)
 	if ((l->sta = newsta(l, l->bssid, aid)) == NULL)
 		return -ENOMEM;
 	staht(l, l->sta);
+	if (l->sta->deflink.ht_cap.cap & IEEE80211_HT_CAP_SUP_WIDTH_20_40) {
+		struct cfg80211_chan_def def;
+		struct linuxkpi_ieee80211_channel *c = hw->conf.chandef.chan;
+
+		if (wide40(l, c, hw->wiphy->bands[c->band], &def)) {
+			setwidth(l, &def);
+			l->sta->deflink.bandwidth = IEEE80211_STA_RX_BW_40;
+		}
+	}
 	l->sta->wme = l->apwmm;
 	bss->qos = l->apwmm;
 	if (l->ops->link_info_changed)
@@ -1085,8 +1137,9 @@ kpi80211_assoc(struct lhw *l, const u8 *bssid, u16 aid)
 	/* wifi.c's (and aux/wpa's) keys are not the driver's: the port is open */
 	stastate(l, IEEE80211_STA_ASSOC, IEEE80211_STA_AUTHORIZED);
 	filter(l);
-	pr_info("mac80211: associated with %pM, aid %d%s%s\n", l->bssid, aid,
-	    l->sta->deflink.ht_cap.ht_supported ? ", HT" : "", l->apwmm ? ", WMM" : "");
+	pr_info("mac80211: associated with %pM, aid %d%s%s%s\n", l->bssid, aid,
+	    l->sta->deflink.ht_cap.ht_supported ? ", HT" : "",
+	    l->sta->deflink.bandwidth == IEEE80211_STA_RX_BW_40 ? " 40 MHz" : "", l->apwmm ? ", WMM" : "");
 	return 0;
 }
 
@@ -1112,6 +1165,13 @@ kpi80211_disassoc(struct lhw *l)
 	stastate(l, IEEE80211_STA_NONE, IEEE80211_STA_NOTEXIST);
 	freesta(l);
 	l->txagg = 0;
+	/* 20 MHz again for the scan */
+	if (hw->conf.chandef.width != NL80211_CHAN_WIDTH_20_NOHT && hw->conf.chandef.chan != NULL) {
+		struct cfg80211_chan_def def;
+
+		cfg80211_chandef_create(&def, hw->conf.chandef.chan, NL80211_CHAN_NO_HT);
+		setwidth(l, &def);
+	}
 	eth_zero_addr(l->bssid);	/* bss->bssid's */
 	eth_zero_addr(vif->cfg.ap_addr);
 	if (l->ops->link_info_changed)

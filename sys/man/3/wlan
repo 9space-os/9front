@@ -112,7 +112,8 @@ Only the host owner opens the files.
 .SH BUGS
 No 6 GHz channels: their numbers are those of the 2.4 GHz band; the
 header would need the band.
-HT at 20 MHz only, no VHT or HE (a VHT station is one of 80 MHz): the
-radio's firmware (rtw89) chooses the rates.
+HT at 20 or 40 MHz (where the access point's HT operation names a
+secondary channel), no VHT or HE yet (a VHT station is one of 80 MHz):
+the radio's firmware (rtw89) chooses the rates.
 .br
 Written for nfront.
