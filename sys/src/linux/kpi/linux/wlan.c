@@ -127,16 +127,18 @@ capband(struct lhw *l)
  * the radio's capability elements for wlan(3)'s ctl (caps hex), which
  * wifi.c sends in the association request: the HT capabilities element
  * of the driver's band (802.11-2020 9.4.2.55), with 40 MHz where it has
- * it (kpi80211_assoc follows the access point's HT operation).  No VHT
- * or HE yet: a VHT station is one of 80 MHz.
+ * it (kpi80211_assoc follows the access point's HT operation), and the
+ * VHT capabilities element of its 5 GHz band (9.4.2.157), up to 80 MHz.
+ * No HE yet.
  */
 static int
 capsline(struct lhw *l, char *buf, int n)
 {
 	struct ieee80211_supported_band *sb;
 	struct ieee80211_ht_cap c;
-	u8 e[2 + sizeof(c)];
-	int i, k;
+	struct ieee80211_vht_cap v;
+	u8 e[2 + sizeof(c) + 2 + sizeof(v)];
+	int i, k, ne;
 
 	if ((sb = capband(l)) == NULL)
 		return 0;
@@ -147,8 +149,20 @@ capsline(struct lhw *l, char *buf, int n)
 	e[0] = WLAN_EID_HT_CAPABILITY;
 	e[1] = sizeof(c);
 	memcpy(e + 2, &c, sizeof(c));
+	ne = 2 + sizeof(c);
+	sb = l->hw.wiphy->bands[NL80211_BAND_5GHZ];
+	if (sb != NULL && sb->vht_cap.vht_supported) {
+		memset(&v, 0, sizeof(v));
+		v.vht_cap_info = cpu_to_le32(sb->vht_cap.cap &
+		    ~(IEEE80211_VHT_CAP_SUPP_CHAN_WIDTH_MASK | IEEE80211_VHT_CAP_SHORT_GI_160));
+		v.supp_mcs = sb->vht_cap.vht_mcs;
+		e[ne] = WLAN_EID_VHT_CAPABILITY;
+		e[ne + 1] = sizeof(v);
+		memcpy(e + ne + 2, &v, sizeof(v));
+		ne += 2 + sizeof(v);
+	}
 	k = snprintf(buf, n, "caps ");
-	for (i = 0; i < (int)sizeof(e) && k + 2 < n; i++)
+	for (i = 0; i < ne && k + 2 < n; i++)
 		k += snprintf(buf + k, n - k, "%02x", e[i]);
 	return k;
 }
@@ -203,8 +217,8 @@ apcaps(struct lhw *l, const u8 *f, int len)
 		a->used = true;
 	}
 	a->when = jiffies;
-	a->ht = a->wmm = false;
-	a->sec = 0;
+	a->ht = a->wmm = a->vht = false;
+	a->sec = a->vwidth = a->vseg0 = 0;
 	e = f + len;
 	for (p = f + 24 + off; p + 2 <= e && p + 2 + p[1] <= e; p += 2 + p[1]) {
 		if (p[0] == WLAN_EID_HT_CAPABILITY && p[1] >= sizeof(a->cap)) {
@@ -213,6 +227,15 @@ apcaps(struct lhw *l, const u8 *f, int len)
 		}
 		if (p[0] == 61 && p[1] >= 2 && (p[3] & 4) != 0)
 			a->sec = p[3] & 3;
+		if (p[0] == WLAN_EID_VHT_CAPABILITY && p[1] >= sizeof(a->vcap)) {
+			memcpy(&a->vcap, p + 2, sizeof(a->vcap));
+			a->vht = true;
+		}
+		/* VHT operation (192): the channel width, the 80 MHz block's centre */
+		if (p[0] == 192 && p[1] >= 3) {
+			a->vwidth = p[2];
+			a->vseg0 = p[3];
+		}
 		if (p[0] == 221 && p[1] >= 7 && p[2] == 0x00 && p[3] == 0x50 && p[4] == 0xf2 &&
 		    p[5] == 0x02 && p[6] == 0x01)
 			a->wmm = true;
@@ -224,14 +247,18 @@ kpi_wlan_apinfo(struct lhw *l, const u8 *bssid)
 {
 	int i;
 
-	l->apht = l->apwmm = false;
-	l->apsec = 0;
+	l->apht = l->apwmm = l->apvht = false;
+	l->apsec = l->apvwidth = l->apvseg0 = 0;
 	for (i = 0; i < (int)nitems(l->seen); i++)
 		if (l->seen[i].used && ether_addr_equal(l->seen[i].bssid, bssid)) {
 			l->apht = l->seen[i].ht;
 			l->apwmm = l->seen[i].wmm;
 			l->apsec = l->seen[i].sec;
 			l->apcap = l->seen[i].cap;
+			l->apvht = l->seen[i].vht;
+			l->apvwidth = l->seen[i].vwidth;
+			l->apvseg0 = l->seen[i].vseg0;
+			l->apvcap = l->seen[i].vcap;
 			return;
 		}
 }

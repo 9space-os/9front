@@ -43,14 +43,20 @@ struct lhw {
 	 */
 	struct apinfo {
 		u8	bssid[ETH_ALEN];
-		bool	used, ht, wmm;
+		bool	used, ht, wmm, vht;
 		u8	sec;
+		u8	vwidth, vseg0;
 		unsigned long	when;
 		struct ieee80211_ht_cap	cap;
+		struct ieee80211_vht_cap	vcap;
 	} seen[16];
 	bool	apht;
 	bool	apwmm;
 	u8	apsec;		/* its HT operation: secondary channel above (1), below (3), none (0) */
+	bool	apvht;
+	u8	apvwidth;	/* its VHT operation: 0 20/40 MHz, 1 80, ...; seg0 the 80's centre channel */
+	u8	apvseg0;
+	struct ieee80211_vht_cap	apvcap;
 	struct work_struct	bw_work;	/* the width its beacons now say */
 	struct ieee80211_ht_cap	apcap;
 	/*

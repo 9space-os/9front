@@ -1081,6 +1081,83 @@ staht(struct lhw *l, struct ieee80211_sta *sta)
 	sta->deflink.rx_nss = nss > 0 ? nss : 1;
 }
 
+/*
+ * the access point's VHT, as mac80211's ieee80211_vht_cap_ie_to_sta_vht_cap:
+ * its capabilities with ours (no 160 MHz), per spatial stream the MCS it
+ * receives that we send and it sends that we receive (3: none)
+ */
+static void
+stavht(struct lhw *l, struct ieee80211_sta *sta)
+{
+	struct linuxkpi_ieee80211_channel *c = l->hw.conf.chandef.chan;
+	struct ieee80211_supported_band *sb;
+	struct ieee80211_sta_vht_cap *v = &sta->deflink.vht_cap;
+	u16 aprx, aptx, ourrx, ourtx, rx, tx;
+	int i, a, b, nss;
+
+	if (!l->apvht || c == NULL || c->band != NL80211_BAND_5GHZ ||
+	    (sb = l->hw.wiphy->bands[c->band]) == NULL || !sb->vht_cap.vht_supported ||
+	    !sta->deflink.ht_cap.ht_supported)
+		return;
+	memset(v, 0, sizeof(*v));
+	v->vht_supported = true;
+	v->cap = le32_to_cpu(l->apvcap.vht_cap_info) & sb->vht_cap.cap &
+	    ~(IEEE80211_VHT_CAP_SUPP_CHAN_WIDTH_MASK | IEEE80211_VHT_CAP_SHORT_GI_160);
+	aprx = le16_to_cpu(l->apvcap.supp_mcs.rx_mcs_map);
+	aptx = le16_to_cpu(l->apvcap.supp_mcs.tx_mcs_map);
+	ourrx = le16_to_cpu(sb->vht_cap.vht_mcs.rx_mcs_map);
+	ourtx = le16_to_cpu(sb->vht_cap.vht_mcs.tx_mcs_map);
+	rx = tx = 0;
+	nss = 0;
+	for (i = 0; i < 8; i++) {
+		a = aprx >> 2*i & 3;
+		b = ourtx >> 2*i & 3;
+		rx |= (a == 3 || b == 3 ? 3 : min(a, b)) << 2*i;
+		if (a != 3 && b != 3)
+			nss = i + 1;
+		a = aptx >> 2*i & 3;
+		b = ourrx >> 2*i & 3;
+		tx |= (a == 3 || b == 3 ? 3 : min(a, b)) << 2*i;
+	}
+	v->vht_mcs.rx_mcs_map = cpu_to_le16(rx);
+	v->vht_mcs.tx_mcs_map = cpu_to_le16(tx);
+	v->vht_mcs.rx_highest = l->apvcap.supp_mcs.rx_highest;
+	v->vht_mcs.tx_highest = l->apvcap.supp_mcs.tx_highest;
+	if (nss > sta->deflink.rx_nss)
+		sta->deflink.rx_nss = nss;
+}
+
+/*
+ * the width with the access point: 80 MHz where both are VHT stations
+ * and its VHT operation says 80 around a centre whose four channels the
+ * hardware has, else 40 (wide40), else 20; def its chandef
+ */
+static enum ieee80211_sta_rx_bandwidth
+apwidth(struct lhw *l, struct linuxkpi_ieee80211_channel *c, struct cfg80211_chan_def *def)
+{
+	struct ieee80211_supported_band *sb = l->hw.wiphy->bands[c->band];
+	struct linuxkpi_ieee80211_channel *s;
+	int f, k;
+
+	if (sb == NULL || !wide40(l, c, sb, def)) {
+		cfg80211_chandef_create(def, c, l->apht ? NL80211_CHAN_HT20 : NL80211_CHAN_NO_HT);
+		return IEEE80211_STA_RX_BW_20;
+	}
+	if (l->sta == NULL || !l->sta->deflink.vht_cap.vht_supported || l->apvwidth < 1 ||
+	    c->band != NL80211_BAND_5GHZ)
+		return IEEE80211_STA_RX_BW_40;
+	f = linuxkpi_ieee80211_channel_to_frequency(l->apvseg0, NL80211_BAND_5GHZ);
+	if (f == 0 || c->center_freq < f - 30 || c->center_freq > f + 30)
+		return IEEE80211_STA_RX_BW_40;
+	for (k = -30; k <= 30; k += 20)
+		if ((s = linuxkpi_ieee80211_get_channel(l->hw.wiphy, f + k)) == NULL ||
+		    (s->flags & IEEE80211_CHAN_DISABLED))
+			return IEEE80211_STA_RX_BW_40;
+	def->width = NL80211_CHAN_WIDTH_80;
+	def->center_freq1 = f;
+	return IEEE80211_STA_RX_BW_80;
+}
+
 /* wifi.c associated with bssid as aid */
 int
 kpi80211_assoc(struct lhw *l, const u8 *bssid, u16 aid)
@@ -1112,13 +1189,15 @@ kpi80211_assoc(struct lhw *l, const u8 *bssid, u16 aid)
 		return -ENOMEM;
 	kpi_wlan_apinfo(l, l->bssid);
 	staht(l, l->sta);
+	stavht(l, l->sta);
 	if (l->sta->deflink.ht_cap.cap & IEEE80211_HT_CAP_SUP_WIDTH_20_40) {
 		struct cfg80211_chan_def def;
-		struct linuxkpi_ieee80211_channel *c = hw->conf.chandef.chan;
+		enum ieee80211_sta_rx_bandwidth bw;
 
-		if (wide40(l, c, hw->wiphy->bands[c->band], &def)) {
+		bw = apwidth(l, hw->conf.chandef.chan, &def);
+		if (bw != IEEE80211_STA_RX_BW_20) {
 			setwidth(l, &def);
-			l->sta->deflink.bandwidth = IEEE80211_STA_RX_BW_40;
+			l->sta->deflink.bandwidth = bw;
 		}
 	}
 	l->sta->wme = l->apwmm;
@@ -1140,8 +1219,10 @@ kpi80211_assoc(struct lhw *l, const u8 *bssid, u16 aid)
 	/* wifi.c's (and aux/wpa's) keys are not the driver's: the port is open */
 	stastate(l, IEEE80211_STA_ASSOC, IEEE80211_STA_AUTHORIZED);
 	filter(l);
-	pr_info("mac80211: associated with %pM, aid %d%s%s%s\n", l->bssid, aid,
+	pr_info("mac80211: associated with %pM, aid %d%s%s%s%s\n", l->bssid, aid,
 	    l->sta->deflink.ht_cap.ht_supported ? ", HT" : "",
+	    l->sta->deflink.vht_cap.vht_supported ? ", VHT" : "",
+	    l->sta->deflink.bandwidth == IEEE80211_STA_RX_BW_80 ? " 80 MHz" :
 	    l->sta->deflink.bandwidth == IEEE80211_STA_RX_BW_40 ? " 40 MHz" : "", l->apwmm ? ", WMM" : "");
 	return 0;
 }
@@ -1277,18 +1358,27 @@ void
 kpi80211_beacon(struct lhw *l, const u8 *f, int len)
 {
 	const u8 *p, *e;
-	int sec;
+	int sec, vw, vs;
 
 	if (!l->assoc || len < 24 + 12 || f[0] != 0x80 || !ether_addr_equal(f + 16, l->bssid))
 		return;
 	sec = -1;
+	vw = l->apvwidth;
+	vs = l->apvseg0;
 	e = f + len;
-	for (p = f + 24 + 12; p + 2 <= e && p + 2 + p[1] <= e; p += 2 + p[1])
+	for (p = f + 24 + 12; p + 2 <= e && p + 2 + p[1] <= e; p += 2 + p[1]) {
 		if (p[0] == 61 && p[1] >= 2)
 			sec = (p[3] & 4) ? p[3] & 3 : 0;
-	if (sec < 0 || sec == l->apsec)
+		if (p[0] == 192 && p[1] >= 3) {
+			vw = p[2];
+			vs = p[3];
+		}
+	}
+	if (sec < 0 || (sec == l->apsec && vw == l->apvwidth && vs == l->apvseg0))
 		return;
 	l->apsec = sec;
+	l->apvwidth = vw;
+	l->apvseg0 = vs;
 	queue_work(l->wq, &l->bw_work);
 }
 
@@ -1299,31 +1389,30 @@ bw_work(struct work_struct *w)
 	struct ieee80211_hw *hw = &l->hw;
 	struct linuxkpi_ieee80211_channel *c;
 	struct cfg80211_chan_def def;
-	struct ieee80211_supported_band *sb;
-	bool wide;
+	enum ieee80211_sta_rx_bandwidth bw, old;
 
 	wiphy_lock(hw->wiphy);
 	c = hw->conf.chandef.chan;
-	if (l->sta == NULL || c == NULL || (sb = hw->wiphy->bands[c->band]) == NULL ||
+	if (l->sta == NULL || c == NULL || hw->wiphy->bands[c->band] == NULL ||
 	    !(l->sta->deflink.ht_cap.cap & IEEE80211_HT_CAP_SUP_WIDTH_20_40)) {
 		wiphy_unlock(hw->wiphy);
 		return;
 	}
-	wide = wide40(l, c, sb, &def);
-	if (wide != (l->sta->deflink.bandwidth == IEEE80211_STA_RX_BW_40)) {
-		if (!wide)
-			cfg80211_chandef_create(&def, c, NL80211_CHAN_HT20);
+	bw = apwidth(l, c, &def);
+	old = l->sta->deflink.bandwidth;
+	if (bw != old) {
 		/* narrower: the station first; wider: the channel first */
-		if (!wide)
-			l->sta->deflink.bandwidth = IEEE80211_STA_RX_BW_20;
+		if (bw < old)
+			l->sta->deflink.bandwidth = bw;
 		setwidth(l, &def);
-		if (wide)
-			l->sta->deflink.bandwidth = IEEE80211_STA_RX_BW_40;
+		if (bw > old)
+			l->sta->deflink.bandwidth = bw;
 		if (l->ops->link_sta_rc_update)
 			l->ops->link_sta_rc_update(hw, l->vif, &l->sta->deflink, IEEE80211_RC_BW_CHANGED);
 		else if (l->ops->sta_rc_update)
 			l->ops->sta_rc_update(hw, l->vif, l->sta, IEEE80211_RC_BW_CHANGED);
-		pr_info("mac80211: the access point's width now %d MHz\n", wide ? 40 : 20);
+		pr_info("mac80211: the access point's width now %d MHz\n",
+		    bw == IEEE80211_STA_RX_BW_80 ? 80 : bw == IEEE80211_STA_RX_BW_40 ? 40 : 20);
 	}
 	wiphy_unlock(hw->wiphy);
 }
