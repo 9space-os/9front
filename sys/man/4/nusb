@@ -338,7 +338,7 @@ under a directory named
 It provides the following files:
 .BR desc ,
 showing all of the device's internal descriptors and their values;
-.BR format ,
+.BR formats ,
 listing admissible image resolutions and framerates;
 .BR ctl ,
 the picture settings control file;
