@@ -23,7 +23,12 @@
  * requests on a channel with radar detection, 802.11b rates on 5 GHz.
  * As the radio it offers HT (ctl caps); an access point with WMM sees
  * whether the association request has WMM's element and the HT
- * capabilities, and then exchanges QoS data (CCMP with the TID).
+ * capabilities, and then exchanges QoS data (CCMP with the TID).  Then it
+ * asks for a block ack agreement (A-MPDU, TID 0) and agrees to the
+ * station's; under its agreement each echo reply comes with sequence
+ * number s+1 before a frame with s (an ARP reply, an older CCMP packet
+ * number: only wifi.c's reordering lets it through), every third one
+ * without s at all (the wait must expire), the first as an A-MSDU.
  *
  * The CCMP code (aesCCMencrypt, aesCCMdecrypt, setupCCMP) is adapted
  * from 9front's /sys/src/9/port/wifi.c, the PRF from factotum's
@@ -81,6 +86,9 @@ struct Ap {
 	/* the station's */
 	int	assoc;
 	int	qos;	/* it associated with WMM: QoS data */
+	int	ba;	/* the station agreed to our block ack agreement */
+	int	qseq;	/* the QoS data's sequence numbers (TID 0) */
+	int	nreply;
 	int	hs;
 	int	tries;
 	vlong	sent;	/* ms */
@@ -501,25 +509,37 @@ aeswrap(uchar *kek, uchar *data, int n, uchar *out)
 	return n + 8;
 }
 
-/* a data frame from the AP (src: the host behind it or the AP) to the station */
-static void
-data(Ap *ap, uchar *src, int type, uchar *pl, int n)
+/*
+ * a data frame from the AP (src: the host behind it or the AP) to the
+ * station into f, QoS data numbered sq (< 0: the next); its length
+ */
+static int amsdunext;	/* the next frame an A-MSDU of one subframe */
+
+static int
+mkdata(Ap *ap, uchar *f, uchar *src, int type, uchar *pl, int n, int sq)
 {
-	uchar f[Nframe], nonce[13], auth[32], *p;
+	int am;
+
+	uchar nonce[13], auth[32], *p;
 	uvlong pn;
 
 	if(26 + 8 + 8 + n + 8 > Nframe)
-		return;
+		return -1;
 	memset(f, 0, 26);
 	f[0] = ap->qos ? 0x88 : 0x08;	/* QoS data with WMM */
 	f[1] = 0x02;	/* from DS */
 	memmove(f+4, sta, 6);
 	memmove(f+10, ap->bssid, 6);
 	memmove(f+16, src, 6);
-	put16(f+22, (seq++ & 0xfff) << 4);
+	if(ap->qos)
+		put16(f+22, ((sq >= 0 ? sq : ap->qseq++) & 0xfff) << 4);
+	else
+		put16(f+22, (seq++ & 0xfff) << 4);
 	p = f+24;
+	am = ap->qos && amsdunext;
+	amsdunext = 0;
 	if(ap->qos){
-		p[0] = 0;	/* TID 0 */
+		p[0] = am ? 0x80 : 0;	/* TID 0; A-MSDU present */
 		p[1] = 0;
 		p += 2;
 	}
@@ -535,17 +555,126 @@ data(Ap *ap, uchar *src, int type, uchar *pl, int n)
 		p[7] = pn>>40;
 		p += 8;
 	}
-	memmove(p, snap, 6);
-	p[6] = type>>8;
-	p[7] = type;
-	memmove(p+8, pl, n);
-	n += 8;
+	if(am){
+		/* one subframe: DA, SA, length, the MSDU with its LLC/SNAP */
+		memmove(p, sta, 6);
+		memmove(p+6, src, 6);
+		p[12] = (n+8)>>8;
+		p[13] = n+8;
+		memmove(p+14, snap, 6);
+		p[20] = type>>8;
+		p[21] = type;
+		memmove(p+22, pl, n);
+		n += 22;
+	} else {
+		memmove(p, snap, 6);
+		p[6] = type>>8;
+		p[7] = type;
+		memmove(p+8, pl, n);
+		n += 8;
+	}
 	if(ap->wpa && ap->hs == Hdone){
 		aesCCMencrypt(2, 8, nonce, auth, setupCCMP(f, pn, nonce, auth), p, n, &ap->tk);
 		f[1] |= 0x40;	/* protected */
 		n += 8;
 	}
+	return p + n - f;
+}
+
+static void
+data(Ap *ap, uchar *src, int type, uchar *pl, int n)
+{
+	uchar f[Nframe];
+
+	if((n = mkdata(ap, f, src, type, pl, n, -1)) > 0)
+		send(ap, f, n);
+}
+
+/* a block ack action frame (category 3) to the station */
+static void
+sendba(Ap *ap, uchar *body, int n)
+{
+	uchar f[64], *p;
+
+	p = mgmt(ap, f, 13, sta);
+	memmove(p, body, n);
 	send(ap, f, p + n - f);
+}
+
+/* our ADDBA request: TID 0, buffer size 32, from the next sequence number */
+static void
+addba(Ap *ap)
+{
+	uchar r[9];
+	int param;
+
+	param = 2 | 0<<2 | 32<<6;
+	r[0] = 3;
+	r[1] = 0;
+	r[2] = 7;	/* dialog token */
+	put16(r+3, param);
+	put16(r+5, 0);
+	put16(r+7, ap->qseq << 4);
+	sendba(ap, r, 9);
+}
+
+/* the station's block ack action frames */
+static void
+fromba(Ap *ap, uchar *d, int n)
+{
+	uchar r[9];
+	int param;
+
+	if(n < 2 || d[0] != 3)
+		return;
+	switch(d[1]){
+	case 0:	/* its ADDBA request: agreed */
+		if(n < 9)
+			return;
+		param = get16(d+3);
+		fprint(2, "wlansim: %s: addba request from %E: tid %d size %d\n", ap->essid, sta, param>>2 & 15, param>>6);
+		r[0] = 3;
+		r[1] = 1;
+		r[2] = d[2];
+		put16(r+3, 0);
+		put16(r+5, param & ~1);
+		put16(r+7, get16(d+5));
+		sendba(ap, r, 9);
+		break;
+	case 1:	/* its answer to ours */
+		if(n < 9)
+			return;
+		param = get16(d+5);
+		ap->ba = get16(d+3) == 0;
+		fprint(2, "wlansim: %s: addba response from %E: status %d tid %d size %d%s\n", ap->essid, sta,
+			get16(d+3), param>>2 & 15, param>>6, param & 1 ? " amsdu" : "");
+		break;
+	}
+}
+
+/*
+ * an echo reply under our block ack agreement: s+1 first, then (but every
+ * third time) an ARP reply as s, built first: its CCMP packet number the
+ * older; the station's reordering must deliver both
+ */
+static void
+reorderedreply(Ap *ap, uchar *r, int n, uchar *arp)
+{
+	uchar fa[Nframe], fb[Nframe];
+	int na, nb, s;
+
+	s = ap->qseq;
+	ap->qseq += 2;
+	na = mkdata(ap, fa, host, 0x0806, arp, 28, s);
+	amsdunext = ap->nreply == 0;	/* the first echo reply as an A-MSDU */
+	if(amsdunext)
+		fprint(2, "wlansim: %s: an echo reply as an A-MSDU\n", ap->essid);
+	nb = mkdata(ap, fb, host, 0x0800, r, n, s+1);
+	if(na < 0 || nb < 0)
+		return;
+	send(ap, fb, nb);
+	if(++ap->nreply % 3 != 0)
+		send(ap, fa, na);
 }
 
 /* an EAPOL-Key frame of the handshake to the station */
@@ -658,6 +787,8 @@ fromeapol(Ap *ap, uchar *f, int n)
 	if(ap->hs == Hm3 && (info & Fsec) != 0){
 		fprint(2, "wlansim: %s: 4-way handshake: message 4 from %E, mic ok: keys installed\n", ap->essid, sta);
 		ap->hs = Hdone;
+		if(ap->qos)
+			addba(ap);
 		ap->txpn = 0;
 		ap->rxpn = 0;
 	}
@@ -726,7 +857,18 @@ fromsta(Ap *ap, int type, uchar *p, int n, int prot)
 		r[hl+2] = c>>8;
 		r[hl+3] = c;
 		fprint(2, "wlansim: %s: echo from %V%s\n", ap->essid, p+12, prot ? " (ccmp)" : "");
-		data(ap, host, 0x0800, r, n);
+		if(ap->ba){
+			/* an ARP reply to the station: the host's address once more */
+			uchar arp[28];
+
+			memmove(arp, "\x00\x01\x08\x00\x06\x04\x00\x02", 8);
+			memmove(arp+8, host, 6);
+			memmove(arp+14, hostip, 4);
+			memmove(arp+18, sta, 6);
+			memmove(arp+24, p+12, 4);
+			reorderedreply(ap, r, n, arp);
+		} else
+			data(ap, host, 0x0800, r, n);
 	}
 }
 
@@ -863,6 +1005,9 @@ frame(uchar *f, int n)
 			send(ap, r, p - r);
 			ap->assoc = 1;
 			ap->hs = Hnone;
+			ap->ba = 0;
+			if(ap->qos && !ap->wpa)
+				addba(ap);
 			if(ap->wpa){
 				genrandom(ap->anonce, sizeof ap->anonce);
 				genrandom(ap->gtk, sizeof ap->gtk);
@@ -874,6 +1019,10 @@ frame(uchar *f, int n)
 		case 12:	/* deauthentication */
 			ap->assoc = 0;
 			ap->hs = Hnone;
+			ap->ba = 0;
+			return;
+		case 13:	/* action */
+			fromba(ap, f+24, n-24);
 			return;
 		}
 		return;

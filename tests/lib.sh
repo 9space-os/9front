@@ -14,7 +14,8 @@ export SMP=${SMP:-4}
 BUILDEXE=$ROOT/sys/src/cmd/build/build.exe
 BUILDHOW="CC=gcc ARCH=$objtype sys/src/cmd/build/build.exe"
 TMPD=$(mktemp -d)
-trap 'rm -rf "$TMPD"' EXIT
+# KEEPTMP=1: the work dir stays (its consoles, logs), its name on stderr
+trap 'if [ -n "$KEEPTMP" ]; then echo "tests: kept $TMPD" >&2; else rm -rf "$TMPD"; fi' EXIT
 npass=0
 nfail=0
 
