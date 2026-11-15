@@ -36,10 +36,22 @@ struct lhw {
 	/* the radio (wlan.c) */
 	int	datafd;
 	unsigned long	ntx, nrx, ndrop;
-	/* the access point's association response: its HT capabilities, WMM */
+	/*
+	 * the access point's HT capabilities, WMM and HT operation, from the
+	 * frames the radio passes on (seen: per BSS, beacons, probe and
+	 * association responses), taken at association (kpi_wlan_apinfo)
+	 */
+	struct apinfo {
+		u8	bssid[ETH_ALEN];
+		bool	used, ht, wmm;
+		u8	sec;
+		unsigned long	when;
+		struct ieee80211_ht_cap	cap;
+	} seen[16];
 	bool	apht;
 	bool	apwmm;
 	u8	apsec;		/* its HT operation: secondary channel above (1), below (3), none (0) */
+	struct work_struct	bw_work;	/* the width its beacons now say */
 	struct ieee80211_ht_cap	apcap;
 	/*
 	 * the block ack agreements wifi.c makes (the ADDBA/DELBA frames
@@ -72,8 +84,12 @@ struct lhw	*kpi80211_hw(void);	/* the one ieee80211_alloc_hw made */
 
 /* wlan.c: a frame received, to the radio's file */
 void	kpi_wlan_rx(struct lhw *l, struct sk_buff *skb);
+/* wlan.c: what the frames said of bssid, to l->apht, apwmm, apsec, apcap */
+void	kpi_wlan_apinfo(struct lhw *l, const u8 *bssid);
 
 /* mac80211.c: a block ack action frame passing (tx: ours), its ampdu_action */
 void	kpi80211_ba(struct lhw *l, const u8 *f, int len, bool tx);
+/* mac80211.c: a beacon of the access point's: the width its HT operation says */
+void	kpi80211_beacon(struct lhw *l, const u8 *f, int len);
 
 #endif

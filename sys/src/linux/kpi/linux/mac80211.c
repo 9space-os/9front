@@ -183,6 +183,7 @@ lkpi_get_linuxkpi_ieee80211_regdomain(size_t nrules)
 
 static void	restart_work(struct work_struct *w);
 static void	ba_work(struct work_struct *w);
+static void	bw_work(struct work_struct *w);
 static void	chanctxdown(struct lhw *l);
 
 /*
@@ -214,6 +215,7 @@ linuxkpi_ieee80211_alloc_hw(size_t priv_len, const struct ieee80211_ops *ops)
 	INIT_WORK(&l->wwk_work, wwk_run);
 	INIT_WORK(&l->restart_work, restart_work);
 	INIT_WORK(&l->ba_work, ba_work);
+	INIT_WORK(&l->bw_work, bw_work);
 	spin_lock_init(&l->ba_lock);
 	INIT_LIST_HEAD(&l->ba_list);
 	l->wq = alloc_ordered_workqueue("mac80211", 0);
@@ -1108,6 +1110,7 @@ kpi80211_assoc(struct lhw *l, const u8 *bssid, u16 aid)
 	/* the access point's station, through the states */
 	if ((l->sta = newsta(l, l->bssid, aid)) == NULL)
 		return -ENOMEM;
+	kpi_wlan_apinfo(l, l->bssid);
 	staht(l, l->sta);
 	if (l->sta->deflink.ht_cap.cap & IEEE80211_HT_CAP_SUP_WIDTH_20_40) {
 		struct cfg80211_chan_def def;
@@ -1261,6 +1264,68 @@ ba_work(struct work_struct *w)
 		wiphy_unlock(l->hw.wiphy);
 		kfree(op);
 	}
+}
+
+/*
+ * the access point's width while associated, as mac80211 follows its
+ * beacons (ieee80211_config_bw): its HT operation names a secondary
+ * channel or no longer does (20/40 MHz coexistence on 2.4 GHz: a
+ * neighbour makes it go to 20 MHz); the context and the station follow,
+ * the driver's rate control told (link_sta_rc_update, BW_CHANGED)
+ */
+void
+kpi80211_beacon(struct lhw *l, const u8 *f, int len)
+{
+	const u8 *p, *e;
+	int sec;
+
+	if (!l->assoc || len < 24 + 12 || f[0] != 0x80 || !ether_addr_equal(f + 16, l->bssid))
+		return;
+	sec = -1;
+	e = f + len;
+	for (p = f + 24 + 12; p + 2 <= e && p + 2 + p[1] <= e; p += 2 + p[1])
+		if (p[0] == 61 && p[1] >= 2)
+			sec = (p[3] & 4) ? p[3] & 3 : 0;
+	if (sec < 0 || sec == l->apsec)
+		return;
+	l->apsec = sec;
+	queue_work(l->wq, &l->bw_work);
+}
+
+static void
+bw_work(struct work_struct *w)
+{
+	struct lhw *l = container_of(w, struct lhw, bw_work);
+	struct ieee80211_hw *hw = &l->hw;
+	struct linuxkpi_ieee80211_channel *c;
+	struct cfg80211_chan_def def;
+	struct ieee80211_supported_band *sb;
+	bool wide;
+
+	wiphy_lock(hw->wiphy);
+	c = hw->conf.chandef.chan;
+	if (l->sta == NULL || c == NULL || (sb = hw->wiphy->bands[c->band]) == NULL ||
+	    !(l->sta->deflink.ht_cap.cap & IEEE80211_HT_CAP_SUP_WIDTH_20_40)) {
+		wiphy_unlock(hw->wiphy);
+		return;
+	}
+	wide = wide40(l, c, sb, &def);
+	if (wide != (l->sta->deflink.bandwidth == IEEE80211_STA_RX_BW_40)) {
+		if (!wide)
+			cfg80211_chandef_create(&def, c, NL80211_CHAN_HT20);
+		/* narrower: the station first; wider: the channel first */
+		if (!wide)
+			l->sta->deflink.bandwidth = IEEE80211_STA_RX_BW_20;
+		setwidth(l, &def);
+		if (wide)
+			l->sta->deflink.bandwidth = IEEE80211_STA_RX_BW_40;
+		if (l->ops->link_sta_rc_update)
+			l->ops->link_sta_rc_update(hw, l->vif, &l->sta->deflink, IEEE80211_RC_BW_CHANGED);
+		else if (l->ops->sta_rc_update)
+			l->ops->sta_rc_update(hw, l->vif, l->sta, IEEE80211_RC_BW_CHANGED);
+		pr_info("mac80211: the access point's width now %d MHz\n", wide ? 40 : 20);
+	}
+	wiphy_unlock(hw->wiphy);
 }
 
 void
