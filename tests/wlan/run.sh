@@ -30,7 +30,10 @@ wlanboot(){
 		"ip/ping -n 3 10.0.9.1 >[2=1] | sed 's/^/wlan5ping: /'; grep 'rxba|replays' /net/ether1/ifstats | sed 's/^/wlan5ba: /'" \
 		"echo 'key proto=wpapsk essid=nfrontwpa !password=nfront-secret' >/mnt/factotum/ctl; aux/wpa -s nfrontwpa /net/ether1; pfx=wlanwpa; ch=100; $waitassoc" \
 		"ip/ping -n 3 10.0.9.1 >[2=1] | sed 's/^/wlanwpaping: /'; grep 'rxba|replays' /net/ether1/ifstats | sed 's/^/wlanwpaba: /'" \
-		"sed 's/^/wlansim: /' /tmp/sim.log; cat /dev/wlan1/ctl | sed 's/^/wlanctl: /'; echo wlantest: done" > "$TMPD/boot" 2>&1
+		"for(p in \`{ps | awk '\$NF==\"wlansim\" {print \$2}'}) echo kill >/proc/\$p/ctl; sleep 1; grep 'status' /net/ether1/ifstats | sed 's/^/wlangone: /'; echo wlangone: done" \
+		"/tests/wlansim -d /dev/wlan1 >[2]/tmp/sim2.log &" \
+		"pfx=wlanre; ch=100; $waitassoc; ip/ping -n 2 10.0.9.1 >[2=1] | sed 's/^/wlanreping: /'" \
+		"sed 's/^/wlansim: /' /tmp/sim.log; sed 's/^/wlansim2: /' /tmp/sim2.log; cat /dev/wlan1/ctl | sed 's/^/wlanctl: /'; echo wlantest: done" > "$TMPD/boot" 2>&1
 	tr -d '\r' < "$CLI_DIR/console.log" > "$TMPD/console"
 	grep -q '^wlantest: done' "$TMPD/console" || { tail -20 "$TMPD/console"; false; }
 }
@@ -72,6 +75,8 @@ userpciboot(){
 	tr -d '\r' < "$CLI_DIR/console.log" > "$TMPD/console2"
 	grep -q '^userpcitest: done' "$TMPD/console2" || { tail -20 "$TMPD/console2"; false; }
 }
+check "the radio gone (wlansim killed): wifi.c no longer associated" bash -c "grep -q '^wlangone: done' '$C' && ! grep -q '^wlangone: status: associated' '$C'"
+check "a new radio: associated anew, aux/wpa's handshake again, ping" bash -c "grep -q 'wlansim2: wlansim: nfrontwpa: associated 020000000002 on channel 100' '$C' && grep -q 'wlansim2: wlansim: nfrontwpa: 4-way handshake: message 4 from 020000000002, mic ok: keys installed' '$C' && grep '^wlanreping: ' '$C' | grep -q 'rtt'"
 check "boot with *userpci=1b36/0005 and QEMU's pci-testdev" userpciboot
 grep '^userpci: ' "$TMPD/console2" | sed 's/^/       /' | head -8
 check "#G has it: id 1b36/0005, its bars" bash -c "grep -q '^userpci: id 1b36/0005' '$TMPD/console2' && grep -q '^userpci: bar' '$TMPD/console2'"
