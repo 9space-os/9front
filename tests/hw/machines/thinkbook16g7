@@ -4,3 +4,9 @@
 *nonvme=1
 # the Radeon 680M (Rembrandt, "yellow carp") for aux/amdgpu
 firmware amdgpu/yellow_carp_*
+# booted without questions: the screen by aux/amdgpu (its panel's mode;
+# vgasize is VESA's, if amdgpu fails), the keyboard's PS/2 port (the
+# touchpad is aux/i2chid's)
+monitor=amdgpu
+vgasize=1920x1200x32
+mouseport=ps2

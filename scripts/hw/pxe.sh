@@ -13,12 +13,14 @@
 #
 # The root also has the MCP server (MCP_DIR, tools/mcp: /amd64/bin/9front-mcp,
 # /sys/lib/mcp/deny, the token in /usr/glenda/lib/mcptoken, kept in
-# $PXE_DIR/mcptoken); started on the machine, scripts/guest/mcp.py reaches it
+# $PXE_DIR/mcptoken), started at boot (/rc/bin/termrc.local; MCP=0: not);
+# scripts/guest/mcp.py reaches it
 # (MCPURL=http://machine:8090/mcp MCPTOKEN=`cat $PXE_DIR/mcptoken`).
 #
 # usage: scripts/hw/pxe.sh mac [machine]	e.g. 80:ca:52:83:8a:6a thinkbook16g7
 #   machine: tests/hw/machines/<machine>, plan9.ini lines the machine always
-#   gets (e.g. *nonvme=1: its own disk is not to be touched), and lines
+#   gets (e.g. *nonvme=1: its own disk is not to be touched; mouseport=,
+#   monitor=, vgasize= there: not asked at boot), and lines
 #   "firmware pattern": the host's /usr/lib/firmware/pattern (FWDIR),
 #   unpacked into the root's /lib/firmware (e.g. amdgpu/yellow_carp_*)
 #   env:	IFACE	the LAN interface (default: the one of the default route)
@@ -71,9 +73,10 @@ cp "$KERNEL" "$T/amd64/9pc64"
 	echo "fsport=$UFS_PORT"
 	echo "service=terminal"
 	echo "user=glenda"
-	echo "mouseport=ask"
-	echo "monitor=ask"
-	echo "vgasize=ask"
+	# asked at boot unless the machine says (then it boots on by itself)
+	for v in mouseport monitor vgasize; do
+		[ -n "$MACHINE" ] && grep -q "^$v=" "$MACHINE" || echo "$v=ask"
+	done
 	[ -z "$MACHINE" ] || grep -v '^#' "$MACHINE" | grep -v '^$' | grep -v '^firmware '
 	for a in $KARGS; do echo "$a"; done
 } > "$T/cfg/pxe/$(echo "$MAC" | tr -d :)"
@@ -106,6 +109,23 @@ FWDIR=${FWDIR:-/usr/lib/firmware}
 done
 [ -s "$P/mcptoken" ] || head -c 18 /dev/urandom | base64 | tr -d '/+=' > "$P/mcptoken"
 cp "$P/mcptoken" "$X/usr/glenda/lib/mcptoken"
+# the MCP server started at boot (MCP=0: not): termrc reads termrc.local
+# before the network is up, so it waits for ndb/dns (after ipconfig)
+if [ "${MCP:-1}" = 1 ]; then
+	mkdir -p "$X/rc/bin"
+	cat > "$X/rc/bin/termrc.local" <<'EOF2'
+# scripts/hw/pxe.sh: the MCP server, once the network is up
+@{
+	rfork ns
+	n=0
+	while(! test -e /net/dns && test $n -lt 120){
+		sleep 1
+		n=`{echo $n+1 | hoc}
+	}
+	9front-mcp -http 'tcp!*!8090' -tokenfile /usr/glenda/lib/mcptoken -deny /sys/lib/mcp/deny -dir /usr/glenda >[2]/tmp/mcp.log
+} </dev/null >/dev/null >[2]/dev/null &
+EOF2
+fi
 
 echo "pxe: the root in $P/ufsroot"
 bash "$ROOT/scripts/guest/gen-ufs-root.sh" "$P/ufsroot" "$X" > /dev/null
