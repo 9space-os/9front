@@ -94,6 +94,8 @@ struct Wnode
 	ushort	qseq[Ntid];	/* nfront: the QoS data's sequence numbers, per TID */
 	ushort	txba;		/* nfront: the TIDs whose block ack agreement we made */
 	uchar	batoken;	/* the last ADDBA request's dialog token */
+	int	rssi;		/* nfront: its beacons' signal, dBm, smoothed (hasrssi) */
+	uchar	hasrssi;
 };
 
 struct Wifi
@@ -141,6 +143,15 @@ struct Wifi
 	int	ba;
 	int	baproc;
 	ulong	replays;	/* frames CCMP's (TKIP's) replay check dropped */
+
+	/*
+	 * nfront: the driver gives the signal (Bsignal): the scan goes once
+	 * over its channels (scanpass) before choosing, then the strongest
+	 * node of those that match
+	 */
+	int	sigs;
+	int	scanpass;
+	int	candpass;	/* the pass the first that matches was heard in (-1: none yet) */
 	Lock	balock;
 	Wba	rxba[Ntid];
 
@@ -163,6 +174,7 @@ struct Wifipkt
 
 enum {
 	Btimestamp = 1<<15,
+	Bsignal = 1<<14,	/* nfront: the signal, dBm (signed), the byte before the timestamp's 8 */
 };
 
 /* nfront: scan lists for wifi->scan */

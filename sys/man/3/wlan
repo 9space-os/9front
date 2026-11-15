@@ -87,6 +87,16 @@ and whether the data is QoS
 The radio sets the access point's station up from the association
 response it passes on (its HT capabilities, its WMM parameters).
 .PP
+The receive header's signal (dBm; 0: the radio has none) chooses the
+node: where the radio gives it, wifi.c joins only after its scan went
+once over the channels since it heard the first node that matches, and
+then the strongest of those it heard in the last 5 s (a mesh's access
+point rather than a far repeater); the interface's
+.B ifstats
+says the joined node's signal
+.RB ( signal: ).
+There is no roaming yet: associated, the radio hears only its channel.
+.PP
 The radio answers aggregates (A-MPDU) with block acks: wifi.c agrees to
 the access point's block ack agreements (buffer size at most 64, no
 A-MSDU in them), holds the frames of such a TID until they are in order

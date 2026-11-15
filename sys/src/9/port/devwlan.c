@@ -191,13 +191,19 @@ radiowrite(Chan *c, void *a, long n, vlong)
 			return n;	/* the interface is not up: nobody listens */
 		p = a;
 		b = allocb(n);
-		b->rp += 8;	/* room for the timestamp before the frame */
+		b->rp += 9;	/* room for the signal and the timestamp before the frame */
 		b->wp = b->rp;
 		memmove(b->wp, p + Hdrrx, n - Hdrrx);
 		b->wp += n - Hdrrx;
 		if(p[3] & Ftsf){
 			memmove(b->rp - 8, p + 4, 8);
 			b->flag |= Btimestamp;
+		}
+		/* the signal in dBm (0: the radio has none) */
+		if(p[2] != 0){
+			b->rp[-9] = p[2];
+			b->flag |= Bsignal;
+			ctlr->wifi->sigs = 1;
 		}
 		ctlr->nrx++;
 		wifiiq(ctlr->wifi, b);

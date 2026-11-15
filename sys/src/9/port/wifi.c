@@ -1143,6 +1143,41 @@ goodbss(Wifi *wifi, Wnode *wn)
 	return 1;
 }
 
+/*
+ * nfront: the node to join, where the driver gives the signal: none
+ * before the scan went once over its channels since the first that
+ * matches was heard (candpass), then the strongest that matches, seen in
+ * the last 5 s, as OpenBSD's ieee80211_end_scan picks
+ * the best candidate (a mesh's access point rather than its far
+ * repeater); without the signal wn, the first that matches, as before
+ */
+static Wnode*
+bestbss(Wifi *wifi, Wnode *wn)
+{
+	Wnode *n, *best;
+	ulong now;
+
+	if(!wifi->sigs)
+		return wn;
+	if(wifi->candpass < 0)
+		wifi->candpass = wifi->scanpass;
+	if(wifi->scanpass <= wifi->candpass)
+		return nil;
+	now = MACHP(0)->PMach.ticks;
+	best = nil;
+	for(n = wifi->node; n != &wifi->node[nelem(wifi->node)]; n++){
+		if(!n->hasrssi || TK2MS(now - n->lastseen) > 5000 || !goodbss(wifi, n))
+			continue;
+		if(TK2MS(now - n->lastsend) <= 1000)
+			continue;	/* tried just now */
+		if(best == nil || n->rssi > best->rssi)
+			best = n;
+	}
+	if(best != nil && wifi->debug)
+		print("#l%d: the strongest: %E %d dBm\n", wifi->ether->ctlrno, best->bssid, best->rssi);
+	return best;
+}
+
 static void
 wifiproc(void *arg)
 {
@@ -1194,12 +1229,21 @@ wifiproc(void *arg)
 			wn->lastseen = MACHP(0)->PMach.ticks;
 			if(b->flag & Btimestamp)
 				wn->rs = getts(b->rp - 8);
+			if(b->flag & Bsignal){
+				/* nfront: the signal, smoothed (3/4 the old) */
+				if(wn->hasrssi)
+					wn->rssi = (3*wn->rssi + (schar)b->rp[-9]) / 4;
+				else
+					wn->rssi = (schar)b->rp[-9];
+				wn->hasrssi = 1;
+			}
 			b->rp += wifihdrlen(w);
 			recvbeacon(wifi, wn, b->rp, BLEN(b));
 
 			if(wifi->bss == nil
 			&& TK2MS(MACHP(0)->PMach.ticks - wn->lastsend) > 1000
-			&& goodbss(wifi, wn)){
+			&& goodbss(wifi, wn)
+			&& (wn = bestbss(wifi, wn)) != nil){
 				setstatus(wifi, wn, Sconn);
 				sendauth(wifi, wn);
 				wifi->lastauth = wn->lastsend;
@@ -1345,6 +1389,8 @@ wifsproc(void *arg)
 	while(waserror())
 		;
 Scan:
+	wifi->candpass = -1;	/* nfront: a new choice after a full pass (bestbss) */
+	scan = nil;
 	/*
 	 * scan for access point
 	 * nfront: the channels of wifi->scan; on channels with radar
@@ -1355,6 +1401,8 @@ Scan:
 		ethersetlink(ether, 0);
 		list = wifi->scan != nil ? wifi->scan : wifiscan2g;
 		if(list != scan || list[i] == 0){
+			if(list == scan)
+				wifi->scanpass++;	/* nfront: once over the channels (bestbss) */
 			scan = list;	/* the driver may set it after wifiattach */
 			i = 0;
 		}
@@ -1673,6 +1721,8 @@ wifistat(Wifi *wifi, char *p, char *e)
 		p = seprint(p, e, "offers:%s%s%s%s\n", wn->wmm ? " wmm" : "", wn->ht ? " ht" : "",
 			wn->vht ? " vht" : "", wn->he ? " he" : "");
 		p = seprint(p, e, "qos: %s\n", wn->qos ? "wmm" : "none");
+		if(wn->hasrssi)
+			p = seprint(p, e, "signal: %d dBm\n", wn->rssi);
 		/* nfront: the block ack agreements, the frames CCMP dropped as replays */
 		for(i = 0; i < Ntid; i++){
 			Wba *ba = &wifi->rxba[i];
