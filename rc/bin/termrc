@@ -102,10 +102,10 @@ if(test -e '#P/acpiev' && ! test -e /srv/acpi){
 # etherN=type=wlan; rtw89(8)); in the background: its firmware takes
 # seconds
 if(ls '#ω' >[2]/dev/null | grep -s wlan && grep -s '^id 10ec/c852' '#G'/*/ctl >[2]/dev/null){
+	rtwlog=/fd/2
 	if(test -w /sys/log)
-		aux/rtw89 >>[2]/sys/log/rtw89 &
-	if not
-		aux/rtw89 &
+		rtwlog=/sys/log/rtw89
+	aux/rtw89 >>[2]$rtwlog &
 }
 
 # setup mouse and graphics
