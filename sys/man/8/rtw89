@@ -1,0 +1,111 @@
+.TH RTW89 8
+.SH NAME
+rtw89 \- Realtek RTL8852CE WLAN driver
+.SH SYNOPSIS
+.B aux/rtw89
+[
+.B -l
+.I loglevel
+] [
+.B -p
+.IB name = value
+]... [
+.B -g
+.BI #G/ n
+] [
+.B -w
+.BI #ω/wlan N
+]
+.SH DESCRIPTION
+.I Rtw89
+drives Realtek's RTL8852CE (PCI 10ec:c852, Wi-Fi 6E) as the radio of
+a
+.IR wlan (3)
+interface: Realtek's
+.I rtw89
+driver, as FreeBSD carries it (under its BSD-3-Clause choice), on
+nfront's LinuxKPI, with a small 802.11 layer of its own under it in
+place of Linux's mac80211.
+The kernel's 802.11 code behind the interface scans, authenticates,
+associates and ciphers;
+.IR wpa (8)
+does WPA.
+.PP
+The card is a device of
+.IR gpu (3)
+(plan9.ini's
+.BR *userpci=10ec/c852 ),
+the interface an
+.B ether
+of type
+.B wlan
+(plan9.ini's
+.BR ether1=type=wlan ).
+.I Rtw89
+takes the first Realtek device of
+.B #G
+(or
+.BR -g )
+and the first interface of
+.B #ω
+(or
+.BR -w );
+it reads the card's address from its efuse and writes it to the
+interface's
+.BR ctl ,
+loads the firmware
+.B /lib/firmware/rtw89/rtw8852c_fw-2.bin
+(or
+.BR -1 ,
+or without a number), starts the card and passes the frames between
+the interface's
+.B data
+file and the card: the channel the kernel asks for (2.4 GHz channels
+1 to 14, 5 GHz above), and when the kernel has associated with an
+access point, the association, so that the card's firmware chooses the
+rates for it.
+.PP
+.B -l
+sets the level of the driver's messages (as Linux's printk, default 6),
+.B -p
+one of rtw89's module parameters, such as
+.B debug_mask=0x...
+(its debug messages)
+or
+.BR disable_aspm_l1=1 .
+.SH EXAMPLE
+.IP
+.EX
+aux/rtw89
+aux/wpa -s mynet -p /net/ether1
+ip/ipconfig ether /net/ether1
+.EE
+.SH FILES
+.TF /lib/firmware/rtw89
+.TP
+.B /lib/firmware/rtw89
+the firmware, from linux-firmware
+.SH SOURCE
+.B /sys/src/cmd/aux/rtw89
+.br
+.B /sys/src/linux/kpi/linux/mac80211.c
+.br
+.B /sys/src/linux/kpi/linux/wlan.c
+.br
+.B /sys/src/linux/freebsd/freebsd/sys/contrib/dev/rtw89
+.SH SEE ALSO
+.IR wlan (3),
+.IR gpu (3),
+.IR wpa (8),
+.IR plan9.ini (8)
+.SH BUGS
+Written for nfront.
+The kernel's 802.11 code knows 802.11a/b/g only: the access point is
+the card's legacy station (no HT, VHT or HE rates, no aggregation, no
+power save).
+6 GHz channels are not used:
+.IR wlan (3)'s
+channel numbers do not tell
+them from 2.4 GHz ones.
+No ciphers in the card: frames go and come as the kernel ciphers them.
+Not yet run on the hardware.

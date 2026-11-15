@@ -82,8 +82,9 @@ def main():
 			{'Name': 'klibs', 'Projects': klibs},
 			{'Name': 'cmds', 'Projects': cmds},
 		] + ([
-			# Linux's DRM drivers on the LinuxKPI (scripts/linux/genbuild.py)
-			{'Name': 'linux', 'Projects': ['/sys/src/linux/build.json', '/sys/src/cmd/aux/gpu/i915/build.json', '/sys/src/cmd/aux/gpu/amdgpu/build.json']},
+			# Linux's DRM drivers and rtw89 on the LinuxKPI (scripts/linux/genbuild.py)
+			{'Name': 'linux', 'Projects': ['/sys/src/linux/build.json', '/sys/src/cmd/aux/gpu/i915/build.json', '/sys/src/cmd/aux/gpu/amdgpu/build.json',
+				'/sys/src/cmd/aux/rtw89/build.json']},
 		] if objtype == 'amd64' else []) + ([
 			# APE's parts by the cross compiler (scripts/gen/apeprogs.py): before
 			# the Rust crates, wsys links Mesa's libvulkan.a

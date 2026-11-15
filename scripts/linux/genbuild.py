@@ -8,8 +8,9 @@
 	liblinux.a (what BUILD names, from vendor/ or our replace/) and
 	libamdgpu.a (of it drivers/gpu/drm/amd), one
 	build object per directory (its own include path and KBUILD_MODNAME,
-	as Kbuild has them); sys/src/cmd/aux/gpu/i915/build.json and
-	sys/src/cmd/aux/gpu/amdgpu/build.json.
+	as Kbuild has them); sys/src/cmd/aux/gpu/i915/build.json,
+	sys/src/cmd/aux/gpu/amdgpu/build.json and sys/src/cmd/aux/rtw89/build.json
+	(rtw89 from FreeBSD's copy, RTW89FILES).
 	-n: only compare, exit 1 if a manifest differs (tests/static).
 
 The files and flags are census.py's (kconfig, BUILD, OMIT), compiled
@@ -181,6 +182,43 @@ def amdgpu():
 		'SourceFiles': sorted(os.path.basename(f) for f in glob.glob(os.path.join(base, '*.c'))),
 	}]
 
+# rtw89 for the RTL8852CE (FreeBSD's copy, its BSD-3-Clause choice): what
+# Linux's Makefile builds for CONFIG_RTW89_8852CE (rtw89_core with wow,
+# debug; rtw89_pci; rtw89_8852c; rtw89_8852ce).  The Makefile itself is GPL,
+# not imported: the list is written here.
+RTW89 = 'freebsd/freebsd/sys/contrib/dev/rtw89'
+RTW89FILES = ['core.c', 'mac80211.c', 'mac.c', 'mac_be.c', 'phy.c', 'phy_be.c', 'fw.c', 'cam.c',
+	'efuse.c', 'efuse_be.c', 'regd.c', 'sar.c', 'coex.c', 'ps.c', 'chan.c', 'ser.c', 'acpi.c',
+	'util.c', 'wow.c', 'debug.c', 'pci.c', 'pci_be.c',
+	'rtw8852c.c', 'rtw8852c_table.c', 'rtw8852c_rfk.c', 'rtw8852c_rfk_table.c', 'rtw8852ce.c']
+
+def rtw89():
+	"""aux/rtw89: rtw89 and our Linux side in librtw89.a, the program"""
+	base = os.path.join(TREE, 'sys/src/cmd/aux/rtw89')
+	src = os.path.join(D, RTW89)
+	flags = linuxflags('drivers/net/wireless/realtek/rtw89/x.c', base, 'rtw89')
+	# its debug messages (rtw89_debug, by the module parameter debug_mask); no debugfs
+	flags += ['-DCONFIG_RTW89_DEBUG=1', '-DCONFIG_RTW89_DEBUGMSG=1', '-I' + rel(src, base)]
+	return [{
+		'Name': 'aux-rtw89-linux',
+		'Noinc': True,
+		'Cflags': flags,
+		'Install': '/$ARCH/lib.gcc/',
+		'Library': 'librtw89.a',
+		'SourceFiles': [rel(os.path.join(src, f), base) for f in RTW89FILES] +
+			sorted('linux/' + os.path.basename(f) for f in glob.glob(os.path.join(base, 'linux', '*.c'))),
+	}, {
+		'Name': 'aux-rtw89',
+		'Include': ['/$ARCH/cflags.json'],
+		'Cflags': ['-I', rel(os.path.join(D, 'kpi/include'), base)],
+		'Install': '/$ARCH/bin/aux/',
+		'Oflags': ['--entry=_main'],
+		'Libs': ['--start-group'] + ['/$ARCH/lib.gcc/' + l for l in
+			['librtw89.a', 'libkpi.a', 'libkpi9.a'] + P9LIBS + ['libgcc.a']] + ['--end-group'],
+		'Program': 'rtw89',
+		'SourceFiles': sorted(os.path.basename(f) for f in glob.glob(os.path.join(base, '*.c'))),
+	}]
+
 def dump(o):
 	return json.dumps(o, indent='\t') + '\n'
 
@@ -189,7 +227,8 @@ def main():
 	bad = 0
 	for path, o in ((os.path.join(D, 'build.json'), libs()),
 			(os.path.join(TREE, 'sys/src/cmd/aux/gpu/i915/build.json'), i915()),
-			(os.path.join(TREE, 'sys/src/cmd/aux/gpu/amdgpu/build.json'), amdgpu())):
+			(os.path.join(TREE, 'sys/src/cmd/aux/gpu/amdgpu/build.json'), amdgpu()),
+			(os.path.join(TREE, 'sys/src/cmd/aux/rtw89/build.json'), rtw89())):
 		s = dump(o)
 		old = open(path).read() if os.path.exists(path) else None
 		if check:
