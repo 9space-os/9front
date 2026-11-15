@@ -4,12 +4,13 @@
  * ACPI events, _AEI: a laptop's power button) and the drivers of devices
  * whose interrupt is a pin (an I2C touchpad's GpioInt).
  *
- *	#γ/gpio/ctl	read: "pin N int|out|in mode level" per pin in use
+ *	#γ/gpio/ctl	read: "pin N int|out mode polarity level register" per pin in use
  *			write: N int level|edge high|low|both	(its interrupt, masked
  *						until a reader of event acks it)
  *			       N out 0|1	(drive it)
  *			       N off		(no interrupt, not driven)
- *	#γ/gpio/event	write: watch N...	(the pins this open file hears of)
+ *	#γ/gpio/event	write: watch N...	(the pins this open file hears of,
+ *						their interrupts unmasked)
  *			       ack N		(N's interrupt again)
  *			read: "N\n" per pin whose interrupt came; it is masked
  *			until acked (a level stays until its cause is handled)
@@ -96,7 +97,7 @@ static struct {
 
 static Dirtab gpiodir[] = {
 	"ctl",		{Qctl},		0,	0660,
-	"event",	{Qevent},	0,	0440,
+	"event",	{Qevent},	0,	0660,
 };
 
 static u32int
@@ -327,11 +328,11 @@ gpioread(Chan *c, void *a, long n, vlong off)
 			if(gpio.use[pin] == Unused)
 				continue;
 			v = rd(pin);
-			s = seprint(s, e, "pin %d %s %s %s %d\n", pin,
+			s = seprint(s, e, "pin %d %s %s %s %d %#.8ux\n", pin,
 				gpio.use[pin] == Uint ? "int" : "out",
 				v & ConfLevel ? "level" : "edge",
 				(v & ConfPolmask) == ConfActboth ? "both" : v & ConfActlo ? "low" : "high",
-				(v & ConfRxstate) != 0);
+				(v & ConfRxstate) != 0, v);
 		}
 		seprint(s, e, "interrupts %lud\n", gpio.nintr);
 		n = readstr(off, a, n, buf);
@@ -426,6 +427,8 @@ gpiowrite(Chan *c, void *a, long n, vlong)
 					error(Ebadarg);
 				ilock(&gpio);
 				w->want[pin/8] |= 1<<pin%8;
+				if(gpio.use[pin] == Uint)
+					pinmask(pin, 1);	/* heard of now: unmasked */
 				iunlock(&gpio);
 			}
 		} else if(strcmp(cb->f[0], "ack") == 0){

@@ -48,7 +48,7 @@ neither.
 .PP
 Read, it gives a line
 .IP
-.BI pin " n use mode polarity level"
+.BI pin " n use mode polarity level register"
 .PP
 per pin in use
 .RI ( use :
@@ -56,7 +56,9 @@ per pin in use
 or
 .BR out ;
 .IR level :
-the pin's input, 0 or 1)
+the pin's input, 0 or 1;
+.IR register :
+the pin's register as it is, in hex)
 and the number of interrupts in a last line,
 .BI interrupts " n" \fR.
 .PP
@@ -65,7 +67,7 @@ Each open of
 hears of its own pins.
 Written,
 .BI watch " n ..."
-adds pins to them,
+adds pins to them and unmasks their interrupts,
 .BI ack " n"
 unmasks pin
 .IR n 's
