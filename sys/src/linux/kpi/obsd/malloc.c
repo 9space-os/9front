@@ -18,10 +18,28 @@ kpi_malloc(size_t size, int type, int flags)
 {
 	void *p;
 
-	if (flags & M_ZERO)
-		p = p9_mallocz(size ? size : 1);
+	size_t align;
+
+	/*
+	 * 9front: aligned as Linux's kmalloc gives a block, to its size
+	 * rounded up to a power of two, here at most ARCH_KMALLOC_MINALIGN
+	 * (64): a type declared __aligned(64) has a size that is a multiple
+	 * of it, and gcc's code relies on the alignment (16-byte aligned
+	 * stores: struct sk_buff's trapped in rtw89).  Plan 9's malloc
+	 * aligns to 8 only.
+	 */
+	if (size == 0)
+		size = 1;
+	for (align = 8; align < size && align < 64; align <<= 1)
+		;
+	if (align > 8) {
+		p = p9_mallocalign(size, align);
+		if (p != NULL && (flags & M_ZERO))
+			memset(p, 0, size);
+	} else if (flags & M_ZERO)
+		p = p9_mallocz(size);
 	else
-		p = p9_malloc(size ? size : 1);
+		p = p9_malloc(size);
 	if (p == NULL && !(flags & (M_NOWAIT | M_CANFAIL)))
 		panic("malloc: out of memory (%zu bytes)", size);
 	/*
