@@ -24,7 +24,7 @@ wlanboot(){
 		"bind -a '#ω' /dev; ls /dev/wlan1; echo ea 020000000002 >/dev/wlan1/ctl" \
 		"bind -a '#l1' /net; echo essid nfront >/net/ether1/clone; cat /net/ether1/addr; echo" \
 		"/tests/wlansim -d /dev/wlan1 >[2]/tmp/sim.log &" \
-		"pfx=wlan; ch=06; $waitassoc" \
+		"pfx=wlan; ch=11; $waitassoc" \
 		"ip/ipconfig -g 10.0.9.1 ether /net/ether1 10.0.9.2 255.255.255.0 >[2=1] | sed 's/^/wlanping: /'; ip/ping -n 3 10.0.9.1 >[2=1] | sed 's/^/wlanping: /'" \
 		"echo essid nfront5 >/net/ether1/clone; pfx=wlan5; ch=36; $waitassoc" \
 		"ip/ping -n 3 10.0.9.1 >[2=1] | sed 's/^/wlan5ping: /'; grep 'rxba|replays' /net/ether1/ifstats | sed 's/^/wlan5ba: /'" \
@@ -44,6 +44,7 @@ check "the radio's device: #ω/wlan1" grep -q 'wlan1/data\|/dev/wlan1' "$C"
 check "the station's address by the radio's ctl: 020000000002" grep -q '^020000000002' "$C"
 check "wifi.c found the access point and associated" grep -q '^wlanstat: status: associated' "$C"
 check "the access point saw authentication and association" grep -q 'wlansim: wlansim: nfront: associated 020000000002' "$C"
+check "the stronger of nfront's two nodes chosen (channel 11, -30 dBm, not 6 at -60)" bash -c "grep -q 'wlansim: wlansim: nfront: associated 020000000002 on channel 11' '$C' && grep -q '^wlanstat: bssid: 0200000000dd' '$C' && grep -q '^wlanstat: signal: -30 dBm' '$C'"
 check "ping 10.0.9.1 through it: echoes answered" bash -c "grep '^wlanping: ' '$C' | grep -q 'rtt\|time'"
 # 5 GHz: nfront5 on 36 (no DS parameter set: the HT operation's channel)
 check "5 GHz: the scan found nfront5, associated on channel 36" bash -c "grep -q '^wlan5stat: status: associated' '$C' && grep -q '^wlan5stat: channel: 36' '$C' && grep -q 'wlansim: wlansim: nfront5: associated 020000000002 on channel 36' '$C'"

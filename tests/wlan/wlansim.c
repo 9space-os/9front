@@ -2,7 +2,10 @@
  * tests/wlan: wlansim, the radio of an etherwlan interface (#ω/wlanN,
  * etherwlan.c) and three access points on it:
  *
- *	nfront		02:00:00:00:00:aa	channel 6 (2.4 GHz), open
+ *	nfront		02:00:00:00:00:aa	channel 6 (2.4 GHz), open, -60 dBm
+ *	nfront		02:00:00:00:00:dd	channel 11, open, -30 dBm: the
+ *					same network's stronger node, the one
+ *					the station is to choose
  *	nfront5		02:00:00:00:00:bb	channel 36 (5 GHz), open; its
  *					beacons have no DS parameter set,
  *					the HT operation element says the
@@ -80,6 +83,7 @@ struct Ap {
 	int	ht;	/* HT operation element, no DS parameter set */
 	int	wpa;
 	int	wmm;	/* WMM and HT capabilities in the beacon */
+	int	rssi;	/* the signal the radio says its frames come with, dBm */
 	uchar	*rates;
 	int	nrates;
 
@@ -106,9 +110,10 @@ static uchar rates24[] = { 0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24, 0x30,
 static uchar rates5[] = { 0x8c, 0x12, 0x98, 0x24, 0xb0, 0x48, 0x60, 0x6c };
 
 static Ap aps[] = {
-	{ "nfront",	{ 0x02, 0, 0, 0, 0, 0xaa },	6,	0,	0,	0,	rates24,	sizeof rates24 },
-	{ "nfront5",	{ 0x02, 0, 0, 0, 0, 0xbb },	36,	1,	0,	1,	rates5,	sizeof rates5 },
-	{ "nfrontwpa",	{ 0x02, 0, 0, 0, 0, 0xcc },	100,	0,	1,	1,	rates5,	sizeof rates5 },
+	{ "nfront",	{ 0x02, 0, 0, 0, 0, 0xaa },	6,	0,	0,	0,	-60,	rates24,	sizeof rates24 },
+	{ "nfront",	{ 0x02, 0, 0, 0, 0, 0xdd },	11,	0,	0,	0,	-30,	rates24,	sizeof rates24 },
+	{ "nfront5",	{ 0x02, 0, 0, 0, 0, 0xbb },	36,	1,	0,	1,	-40,	rates5,	sizeof rates5 },
+	{ "nfrontwpa",	{ 0x02, 0, 0, 0, 0, 0xcc },	100,	0,	1,	1,	-40,	rates5,	sizeof rates5 },
 };
 static char passphrase[] = "nfront-secret";
 /* HT capabilities: 20 MHz, MCS 0-7 (the access point's and the radio's) */
@@ -203,7 +208,7 @@ send(Ap *ap, uchar *f, int n)
 		return;
 	memset(b, 0, Hdrrx);
 	put16(b, ap->channel);
-	b[2] = (uchar)-40;	/* rssi */
+	b[2] = (uchar)ap->rssi;
 	memmove(b+Hdrrx, f, n);
 	if(write(fd, b, Hdrrx+n) != Hdrrx+n)
 		fprint(2, "wlansim: write: %r\n");
