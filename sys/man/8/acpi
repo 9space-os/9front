@@ -160,6 +160,16 @@ enables every general-purpose event (GPE) that has a method
 and the embedded controller's, runs the method when the event comes
 (for the embedded controller, its query's
 .BR _Q\fIxx\fP ),
+the same for the GPIO-signaled events of a GPIO controller's
+.B _AEI
+through
+.IR gpio (3)
+(a pin's
+.BR _L\fIxx\fP ,
+.BR _E\fIxx\fP ,
+else
+.BR _EVT ;
+a laptop's power button),
 and reports what those methods notify, and the fixed power and sleep
 buttons, as lines of
 .BR acpievents :

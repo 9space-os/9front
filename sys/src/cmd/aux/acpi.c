@@ -1492,6 +1492,107 @@ enumdos(void *dot, void *)
 }
 
 /*
+ * nfront: GPIO-signaled events (ACPI 5.6.5): the pins a GPIO
+ * controller's _AEI lists (GpioInt descriptors) get their interrupt in
+ * #γ (devgpio.c); when one comes, its method: _Exx or _Lxx below the
+ * controller for a pin up to 255, else _EVT(pin).  A ThinkBook's power
+ * button is one (\_SB.GPIO._EVT(0) notifies \_SB.PWRB).
+ */
+static void *gpiodev;
+static int gpioctl = -1, gpioev = -1;
+
+static int
+enumgpiodev(void *dot, void *)
+{
+	char *id;
+
+	id = amleisaid(amlval(amlwalk(dot, "^_HID")));
+	if(gpiodev == nil && id != nil && (strcmp(id, "AMDI0030") == 0 || strcmp(id, "AMD0030") == 0)){
+		gpiodev = amlwalk(dot, "^");
+		amltake(gpiodev);
+	}
+	return 1;
+}
+
+/* the pins of _AEI's GpioInt descriptors in #γ, interrupts watched */
+static void
+gpioaei(void)
+{
+	uchar *b, *p, *e;
+	void *x;
+	int n, f, pin, t, pins, names;
+
+	if(gpiodev == nil || (x = amlbelow(gpiodev, "_AEI")) == nil || amleval(x, "", &b) < 0 || amltag(b) != 'b')
+		return;
+	if((gpioctl = open("#γ/gpio/ctl", OWRITE)) < 0 || (gpioev = open("#γ/gpio/event", ORDWR)) < 0){
+		close(gpioctl);
+		gpioctl = -1;
+		return;
+	}
+	for(p = b, e = p + amllen(b); p < e; p += n){
+		if(p[0] & 0x80){
+			if(p + 3 > e)
+				break;
+			n = 3 + (p[1] | p[2]<<8);
+		} else {
+			n = 1 + (p[0] & 7);
+			if((p[0]>>3 & 0xF) == 0x0F)	/* end tag */
+				break;
+		}
+		if(p + n > e)
+			break;
+		if(p[0] != 0x8C || n < 23 || p[4] != 0)	/* GpioInt only */
+			continue;
+		f = p[7] | p[8]<<8;
+		pins = p[14] | p[15]<<8;
+		names = p[17] | p[18]<<8;
+		for(t = pins; t + 2 <= names && t + 2 <= n; t += 2){
+			pin = p[t] | p[t+1]<<8;
+			if(fprint(gpioctl, "%d int %s %s", pin, f & 1 ? "edge" : "level",
+			    (f>>1 & 3) == 2 ? "both" : (f>>1 & 3) == 1 ? "low" : "high") < 0
+			|| fprint(gpioev, "watch %d", pin) < 0 || fprint(gpioev, "ack %d", pin) < 0)
+				fprint(2, "aux/acpi: gpio pin %d: %r\n", pin);
+		}
+	}
+}
+
+static void
+gpioproc(void *)
+{
+	char buf[512], name[8], *f[64];
+	int i, n, nf, pin;
+	void *m;
+
+	threadsetname("acpigpio");
+	for(;;){
+		if((n = read(gpioev, buf, sizeof buf - 1)) <= 0){
+			fprint(2, "aux/acpi: #γ/gpio/event: %r\n");
+			return;
+		}
+		buf[n] = 0;
+		nf = getfields(buf, f, nelem(f), 1, "\n");
+		for(i = 0; i < nf; i++){
+			pin = atoi(f[i]);
+			qlock(&amllk);
+			m = nil;
+			if(pin <= 255){
+				snprint(name, sizeof name, "_E%.2X", pin);
+				if((m = amlbelow(gpiodev, name)) == nil){
+					snprint(name, sizeof name, "_L%.2X", pin);
+					m = amlbelow(gpiodev, name);
+				}
+			}
+			if(m != nil)
+				amleval(m, "", nil);
+			else if((m = amlbelow(gpiodev, "_EVT")) != nil)
+				amleval(m, "i", pin, nil);
+			amldone();
+			fprint(gpioev, "ack %d", pin);
+		}
+	}
+}
+
+/*
  * the events this machine has: each GPE with a method, the EC's, PM1's
  * fixed buttons (where FADT's flags do not say they are devices), a
  * ThinkPad's hotkeys
@@ -1526,6 +1627,10 @@ evstart(void)
 	amlnotify = amlnote;
 	amlenum(amlroot, "_DOS", enumdos, nil);
 	proccreate(evproc, nil, 64*1024);
+	amlenum(amlroot, "_HID", enumgpiodev, nil);
+	gpioaei();
+	if(gpioev >= 0)
+		proccreate(gpioproc, nil, 64*1024);
 }
 
 static void
