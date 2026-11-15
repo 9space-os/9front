@@ -3823,6 +3823,19 @@ impl Wsys {
         match g.kind {
             DragKind::Move => {
                 if dx != 0 || dy != 0 {
+                    // not under a bar: the frame's top below the one at the top, the
+                    // title bar above one at the bottom (it stays to be grabbed)
+                    let mut dy = dy;
+                    if let Some(w) = self.wins.get(&g.win).filter(|w| !w.bar) {
+                        let (area, f) = (self.workarea(), w.frame());
+                        let top = g.orig.y0 - (w.r.y0 - f.y0) + dy; // the frame's top after the move
+                        let grip = w.title.max(w.border).max(1);
+                        if top < area.y0 {
+                            dy += area.y0 - top;
+                        } else if top + grip > area.y1 {
+                            dy -= top + grip - area.y1;
+                        }
+                    }
                     let _ = self.setrect(g.win, g.orig.add(dx, dy));
                     self.wins.get_mut(&g.win).unwrap().unmax = None;
                 }
