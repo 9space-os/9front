@@ -234,8 +234,24 @@ linuxkpi_set_ieee80211_dev(struct ieee80211_hw *hw)
 int
 linuxkpi_ieee80211_ifattach(struct ieee80211_hw *hw)
 {
+	struct wiphy *wiphy = hw->wiphy;
+	struct regulatory_request req;
+
 	hw_to_lhw(hw)->registered = true;
-	pr_info("mac80211: %pM registered, %d queues\n", hw->wiphy->perm_addr, hw->queues);
+	pr_info("mac80211: %pM registered, %d queues\n", wiphy->perm_addr, hw->queues);
+	/*
+	 * the regulatory domain, as cfg80211's wiphy_register tells a new
+	 * wiphy the last request: the core's world domain ("00") here, there
+	 * being no user or country to ask (rtw89 sets its domain from it;
+	 * FreeBSD, whose LinuxKPI does not call it, sets it in rtw89 itself)
+	 */
+	if (wiphy->reg_notifier != NULL && !(wiphy->regulatory_flags & REGULATORY_WIPHY_SELF_MANAGED)) {
+		memset(&req, 0, sizeof(req));
+		req.alpha2[0] = '0';
+		req.alpha2[1] = '0';
+		req.initiator = NL80211_REGDOM_SET_BY_CORE;
+		wiphy->reg_notifier(wiphy, &req);
+	}
 	return 0;
 }
 
