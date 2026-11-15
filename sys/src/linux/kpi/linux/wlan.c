@@ -203,6 +203,7 @@ kpi_wlan_rx(struct lhw *l, struct sk_buff *skb)
 		goto drop;
 	ch = linuxkpi_ieee80211_frequency_to_channel(rs->freq, 0);
 	apcaps(l, skb->data, len);
+	kpi80211_ba(l, skb->data, len, false);
 	if (skb_headroom(skb) < Hdrrx) {
 		/* the driver's buffers have room before them; else a copy */
 		struct sk_buff *n = dev_alloc_skb(Hdrrx + len);

@@ -182,6 +182,7 @@ lkpi_get_linuxkpi_ieee80211_regdomain(size_t nrules)
 /* the hardware */
 
 static void	restart_work(struct work_struct *w);
+static void	ba_work(struct work_struct *w);
 static void	chanctxdown(struct lhw *l);
 
 /*
@@ -212,6 +213,9 @@ linuxkpi_ieee80211_alloc_hw(size_t priv_len, const struct ieee80211_ops *ops)
 	INIT_LIST_HEAD(&l->wwk_list);
 	INIT_WORK(&l->wwk_work, wwk_run);
 	INIT_WORK(&l->restart_work, restart_work);
+	INIT_WORK(&l->ba_work, ba_work);
+	spin_lock_init(&l->ba_lock);
+	INIT_LIST_HEAD(&l->ba_list);
 	l->wq = alloc_ordered_workqueue("mac80211", 0);
 	l->wwk_wq = alloc_ordered_workqueue("wiphy", 0);
 	if (l->wq == NULL || l->wwk_wq == NULL) {
@@ -1107,6 +1111,7 @@ kpi80211_disassoc(struct lhw *l)
 	stastate(l, IEEE80211_STA_AUTH, IEEE80211_STA_NONE);
 	stastate(l, IEEE80211_STA_NONE, IEEE80211_STA_NOTEXIST);
 	freesta(l);
+	l->txagg = 0;
 	eth_zero_addr(l->bssid);	/* bss->bssid's */
 	eth_zero_addr(vif->cfg.ap_addr);
 	if (l->ops->link_info_changed)
@@ -1116,6 +1121,125 @@ kpi80211_disassoc(struct lhw *l)
 	filter(l);
 	scan(l, true);
 	pr_info("mac80211: disassociated\n");
+}
+
+/*
+ * the block ack agreements: wifi.c (the kernel's 802.11) makes them, the
+ * driver is told from the action frames passing by (802.11-2020 9.6.4),
+ * as mac80211 tells it after its own: our ADDBA response agreeing (the
+ * access point aggregates: RX_START, its request's starting number), the
+ * access point's response to ours (we aggregate: TX_START, then
+ * TX_OPERATIONAL), a DELBA either way (the STOP).  In a work, under the
+ * wiphy's lock: rtw89's ampdu_action sends H2C commands and sleeps.
+ */
+struct baop {
+	struct list_head	node;
+	enum ieee80211_ampdu_mlme_action	action;
+	u8	tid;
+	u16	ssn;
+	u16	size;
+};
+
+static void
+baqueue(struct lhw *l, enum ieee80211_ampdu_mlme_action a, int tid, int ssn, int size)
+{
+	struct baop *op;
+	unsigned long flags;
+
+	if ((op = kzalloc(sizeof(*op), GFP_ATOMIC)) == NULL)
+		return;
+	op->action = a;
+	op->tid = tid;
+	op->ssn = ssn;
+	op->size = size;
+	spin_lock_irqsave(&l->ba_lock, flags);
+	list_add_tail(&op->node, &l->ba_list);
+	spin_unlock_irqrestore(&l->ba_lock, flags);
+	queue_work(l->wq, &l->ba_work);
+}
+
+static void
+ba_work(struct work_struct *w)
+{
+	struct lhw *l = container_of(w, struct lhw, ba_work);
+	struct ieee80211_ampdu_params p;
+	struct baop *op;
+	unsigned long flags;
+	int r;
+
+	for (;;) {
+		spin_lock_irqsave(&l->ba_lock, flags);
+		op = list_first_entry_or_null(&l->ba_list, struct baop, node);
+		if (op)
+			list_del(&op->node);
+		spin_unlock_irqrestore(&l->ba_lock, flags);
+		if (op == NULL)
+			return;
+		wiphy_lock(l->hw.wiphy);
+		if (l->sta != NULL && l->ops->ampdu_action != NULL) {
+			memset(&p, 0, sizeof(p));
+			p.sta = l->sta;
+			p.action = op->action;
+			p.tid = op->tid;
+			p.ssn = op->ssn;
+			p.buf_size = op->size;
+			p.amsdu = false;
+			r = l->ops->ampdu_action(&l->hw, l->vif, &p);
+			if (op->action == IEEE80211_AMPDU_TX_START && r == IEEE80211_AMPDU_TX_START_IMMEDIATE) {
+				p.action = IEEE80211_AMPDU_TX_OPERATIONAL;
+				r = l->ops->ampdu_action(&l->hw, l->vif, &p);
+				if (r == 0)
+					l->txagg |= 1U << op->tid;
+			} else if (op->action == IEEE80211_AMPDU_TX_STOP_CONT || op->action == IEEE80211_AMPDU_TX_STOP_FLUSH)
+				l->txagg &= ~(1U << op->tid);
+			pr_info("mac80211: block ack tid %d: %s%s\n", op->tid,
+			    op->action == IEEE80211_AMPDU_RX_START ? "receiving" :
+			    op->action == IEEE80211_AMPDU_RX_STOP ? "not receiving" :
+			    op->action == IEEE80211_AMPDU_TX_START ? "sending" : "not sending",
+			    r < 0 ? " (refused)" : "");
+		}
+		wiphy_unlock(l->hw.wiphy);
+		kfree(op);
+	}
+}
+
+void
+kpi80211_ba(struct lhw *l, const u8 *f, int len, bool tx)
+{
+	const u8 *d = f + 24;
+	int n = len - 24, param, tid, size;
+
+	if (len < 24 || f[0] != 0xd0 || n < 2 || d[0] != 3)
+		return;
+	switch (d[1]) {
+	case 0:	/* ADDBA request: the access point's, its starting number */
+		if (tx || n < 9)
+			return;
+		param = get_unaligned_le16(d + 3);
+		l->bassn[param >> 2 & 15] = get_unaligned_le16(d + 7) >> 4;
+		break;
+	case 1:	/* ADDBA response */
+		if (n < 9 || get_unaligned_le16(d + 3) != 0)
+			return;
+		param = get_unaligned_le16(d + 5);
+		tid = param >> 2 & 15;
+		size = param >> 6;
+		if (tx)
+			baqueue(l, IEEE80211_AMPDU_RX_START, tid, l->bassn[tid], size);
+		else
+			baqueue(l, IEEE80211_AMPDU_TX_START, tid, 0, size);
+		break;
+	case 2:	/* DELBA: bit 11 says whose the agreement is */
+		if (n < 6)
+			return;
+		param = get_unaligned_le16(d + 2);
+		tid = param >> 12 & 15;
+		if (((param & (1 << 11)) != 0) == tx)
+			baqueue(l, IEEE80211_AMPDU_TX_STOP_CONT, tid, 0, 0);
+		else
+			baqueue(l, IEEE80211_AMPDU_RX_STOP, tid, 0, 0);
+		break;
+	}
 }
 
 /* a frame of wifi.c's (sequence numbers its own, ciphered as it chose) to the driver */
@@ -1141,6 +1265,9 @@ kpi80211_tx(struct lhw *l, struct sk_buff *skb)
 	if (ieee80211_is_data_qos(h->frame_control)) {
 		skb->priority = *ieee80211_get_qos_ctl(h) & IEEE80211_QOS_CTL_TID_MASK;
 		ac = ac_from_tid(skb->priority);
+		/* in an aggregate where we have the agreement */
+		if (l->txagg & (1U << skb->priority))
+			info->flags |= IEEE80211_TX_CTL_AMPDU;
 	} else if (!ieee80211_is_data(h->frame_control))
 		ac = IEEE80211_AC_VO;	/* management frames go first, as on Linux */
 	skb_set_queue_mapping(skb, ac);
@@ -1148,6 +1275,7 @@ kpi80211_tx(struct lhw *l, struct sk_buff *skb)
 	/* the access point's station for data and its management frames */
 	if (l->sta != NULL && ether_addr_equal(h->addr1, l->sta->addr))
 		control.sta = l->sta;
+	kpi80211_ba(l, skb->data, skb->len, true);
 	l->ntx++;
 	rcu_read_lock();
 	l->ops->tx(hw, &control, skb);

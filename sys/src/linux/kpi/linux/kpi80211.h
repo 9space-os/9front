@@ -40,6 +40,16 @@ struct lhw {
 	bool	apht;
 	bool	apwmm;
 	struct ieee80211_ht_cap	apcap;
+	/*
+	 * the block ack agreements wifi.c makes (the ADDBA/DELBA frames
+	 * passing by): the access point's ADDBA requests' starting numbers,
+	 * the TIDs we aggregate on
+	 */
+	u16	bassn[16];
+	u16	txagg;
+	struct work_struct	ba_work;
+	spinlock_t	ba_lock;
+	struct list_head	ba_list;
 
 	/* the driver's, aligned */
 	uint8_t	priv[0] __aligned(CACHE_LINE_SIZE);
@@ -61,5 +71,8 @@ struct lhw	*kpi80211_hw(void);	/* the one ieee80211_alloc_hw made */
 
 /* wlan.c: a frame received, to the radio's file */
 void	kpi_wlan_rx(struct lhw *l, struct sk_buff *skb);
+
+/* mac80211.c: a block ack action frame passing (tx: ours), its ampdu_action */
+void	kpi80211_ba(struct lhw *l, const u8 *f, int len, bool tx);
 
 #endif
