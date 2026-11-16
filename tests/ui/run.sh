@@ -213,5 +213,5 @@ rcpuboot(){
 }
 check "boot for rcpu (terminal and cpu server in one)" rcpuboot
 cp "$TMPD/logrcpu" "$HERE/rcpu.log" 2>/dev/null
-check "rcpu: wsys on the terminal's screen through /mnt/term, compressed, follows its 800x600: all passed" bash -c "grep -q '^rcpu: all passed' '$TMPD/logrcpu' || { grep -E '^(ok|FAIL) ' '$TMPD/logrcpu' | tail -8; false; }"
+check "rcpu: wsys on the terminal's screen through /mnt/term, compressed, follows its 800x600, again with -k: all passed" bash -c "grep -q '^rcpu: all passed' '$TMPD/logrcpu' || { grep -E '^(ok|FAIL) ' '$TMPD/logrcpu' | tail -8; false; }"
 done_tests

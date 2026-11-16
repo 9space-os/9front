@@ -3014,8 +3014,9 @@ impl Wsys {
             return;
         }
         // the kernel's devdraw: the windows are layers on the window's image, made
-        // again on a screen on the new one, where they were in the window
-        match self.d.reattach() {
+        // again on a screen on the new one, where they were in the window (a whole
+        // screen: on onlayer's window over it again)
+        match self.d.reattach().and_then(|again| self.d.onlayer().map(|_| again)) {
             Ok(true) => {}
             Ok(false) => return,
             Err(e) => {
@@ -4838,6 +4839,17 @@ fn kbdreader(tx: mpsc::Sender<Ev>) {
 
 /// one of WSYSDEBUG's words (blanks or commas between them): whole words,
 /// so that compress is not comp
+/// the kernel's devdraw (-k): on a whole screen (drawterm's, noborder.screen)
+/// the windows go on a window over it (Display::onlayer), as they would in a
+/// rio window: drawterm's devdraw does not show what is drawn on the screen
+/// under its name
+fn kernlayer(mut d: Display) -> Display {
+    if let Err(e) = d.onlayer() {
+        eprintln!("wsys: the screen's window: {e}");
+    }
+    d
+}
+
 fn wsysdebug(word: &str) -> bool {
     std::env::var("WSYSDEBUG").is_ok_and(|v| v.split(|c: char| c == ',' || c.is_whitespace()).any(|w| w == word))
 }
@@ -5041,11 +5053,11 @@ fn main() {
             }
             Err(e) => {
                 eprintln!("wsys: the kernel's devdraw: {e}");
-                (d, None, None)
+                (kernlayer(d), None, None)
             }
         }
     } else {
-        (d, None, None)
+        (kernlayer(d), None, None)
     };
 
     // the scale (../9front-ui PLAN stage 8): -S, the theme's, else found: in a
