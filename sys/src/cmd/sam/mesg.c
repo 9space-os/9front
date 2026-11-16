@@ -112,7 +112,7 @@ journalv(int out, vlong v)
 {
 	char buf[32];
 
-	sprint(buf, sizeof(buf), "%lld", v);
+	snprint(buf, sizeof(buf), "%lld", v);
 	journal(out, buf);
 }
 #else

@@ -13,6 +13,7 @@
 #include <stdio.h>
 
 #include "gen.h"			/* general purpose definitions */
+#include "ext.h"			/* common's functions, the C library's */
 #include "request.h"			/* a few special definitions */
 #include "path.h"			/* for the default request file */
 
