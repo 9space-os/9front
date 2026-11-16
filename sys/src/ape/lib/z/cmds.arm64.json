@@ -8,7 +8,8 @@
 		"Install": "/$ARCH/lib.gcc/ape/",
 		"Cflags": [
 			"-D_POSIX_SOURCE",
-			"-D_C99_SNPRINTF_EXTENSION"
+			"-D_C99_SNPRINTF_EXTENSION",
+			"-DHAVE_UNISTD_H"
 		],
 		"Ape": true,
 		"Library": "libz.a",
@@ -17,7 +18,10 @@
 			"../../../cmd/gs/zlib/compress.c",
 			"../../../cmd/gs/zlib/crc32.c",
 			"../../../cmd/gs/zlib/deflate.c",
-			"../../../cmd/gs/zlib/gzio.c",
+			"../../../cmd/gs/zlib/gzclose.c",
+			"../../../cmd/gs/zlib/gzlib.c",
+			"../../../cmd/gs/zlib/gzread.c",
+			"../../../cmd/gs/zlib/gzwrite.c",
 			"../../../cmd/gs/zlib/infback.c",
 			"../../../cmd/gs/zlib/inffast.c",
 			"../../../cmd/gs/zlib/inflate.c",
