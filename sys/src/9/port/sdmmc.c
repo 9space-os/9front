@@ -521,7 +521,7 @@ static void
 retryproc(void *arg)
 {
 	Card *card = arg;
-	int i = 0;
+	volatile int i = 0;	/* GCC port: changed between waserror and error: kept in memory (kencc does), else gcc's register comes back 0 and this never ends */
 
 	qlock(&card->QLock);
 	while(waserror())

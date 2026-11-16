@@ -557,14 +557,16 @@ static long
 mountfix(Chan *c, uchar *op, long n, long maxn)
 {
 	char *name;
-	int nbuf, nname;
+	int nname;
+	volatile int nbuf;	/* GCC port: changed after waserror() and read after the jump back to it: in memory, as kencc keeps it */
 	Chan *nc;
 	Mhead *mh;
 	Mount *m;
 	uchar *p;
 	int dirlen, rest;
 	long l;
-	uchar *buf, *e;
+	uchar *volatile buf;	/* GCC port: changed after waserror() and read after the jump back to it: in memory, as kencc keeps it */
+	uchar *e;
 	Dir d;
 
 	p = op;

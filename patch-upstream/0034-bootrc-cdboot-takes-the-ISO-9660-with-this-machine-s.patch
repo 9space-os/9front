@@ -1,0 +1,75 @@
+From f28570ee6513592fd30118ba9ef242049a73335f Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sat, 14 Nov 2026 22:47:52 +0100
+Subject: [PATCH 34/34] bootrc: cdboot takes the ISO 9660 with this machine's
+ init
+
+With cdboot, local.rc took the first 9660 file system it found as the
+root.  With another system's ISO before ours (a second stick), that
+one was taken and the boot failed.  cdsystem mounts each candidate and
+takes the first with /$cputype/init; without one, the first as before.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/boot/local.rc | 28 ++++++++++++++++++++++++++--
+ 1 file changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/sys/src/9/boot/local.rc b/sys/src/9/boot/local.rc
+index e9d2493b7..6d7539928 100755
+--- a/sys/src/9/boot/local.rc
++++ b/sys/src/9/boot/local.rc
+@@ -1,11 +1,31 @@
+ #!/bin/rc
+ 
++# cdboot: an ISO 9660 file system with this machine's init, not
++# another system's ISO beside it (a second stick)
++fn cdsystem {
++	rm -f /srv/cdtest
++	{9660srv -s -f $1 <[0=1] &} | echo 0 >/srv/cdtest
++	if(mount -n /srv/cdtest /n/cdtest >[2]/dev/null){
++		test -x /n/cdtest/$cputype/init
++		cdst=$status
++		unmount /n/cdtest
++	}
++	if not
++		cdst=nomount
++	rm -f /srv/cdtest
++	status=$cdst
++}
++
+ fn showlocaldev {
+ 	echo $1'	' $2
+ 	if(~ $#bootargs 0){
+ 		if(! ~ $#cdboot 0){
+-			if(~ $2 9660)
+-				bootargs=local!$1
++			if(~ $2 9660){
++				if(~ $#cdfirst 0)
++					cdfirst=$1
++				if(cdsystem $1)
++					bootargs=local!$1
++			}
+ 		}
+ 		if not {
+ 			if(! ~ $2 '' dos)
+@@ -15,6 +35,7 @@ fn showlocaldev {
+ }
+ 
+ fn showlocaldevs{
++	cdfirst=()
+ 	for(d in /dev/sd*) if(test -r $d/ctl){
+ 		q=`{sed 's,(inquiry|geometry),\
+ \1,g' $d/ctl | grep inquiry}
+@@ -38,6 +59,9 @@ fn showlocaldevs{
+ 			~ $#t 0 || showlocaldev $p $t
+ 		}
+ 	}
++	# no ISO with an init: the first, as before
++	if(~ $#bootargs 0 && ! ~ $#cdfirst 0)
++		bootargs=local!$cdfirst
+ }
+ 
+ fn configlocal{
+-- 
+2.56.0
+
