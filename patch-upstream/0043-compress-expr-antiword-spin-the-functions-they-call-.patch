@@ -1,0 +1,151 @@
+From 371858969caa98d4c23fa1bfd042a6831e523f32 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Mon, 16 Nov 2026 19:01:03 +0100
+Subject: [PATCH 43/43] compress, expr, antiword, spin: the functions they call
+ declared
+
+compress: unistd.h and utime.h (with _POSIX_SOURCE), foreground's
+prototype, utime given a struct utimbuf (was time_t[2]); expr: stdlib.h,
+string.h, unistd.h (write) with _POSIX_SOURCE, its own and regexp.h's
+functions declared, the old char *malloc() gone; antiword: strcasecmp
+and getopt declared (APE has them in no header of POSIX's); spin:
+stdlib.h for exit.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/ape/cmd/expr/expr.y         | 13 ++++++++++++-
+ sys/src/cmd/aux/antiword/antiword.h |  3 +++
+ sys/src/cmd/aux/antiword/options.c  |  3 +++
+ sys/src/cmd/compress/compress.c     | 12 ++++++++----
+ sys/src/cmd/spin/tl.h               |  1 +
+ 5 files changed, 27 insertions(+), 5 deletions(-)
+
+diff --git a/sys/src/ape/cmd/expr/expr.y b/sys/src/ape/cmd/expr/expr.y
+index 8e347cf92..640a46d09 100644
+--- a/sys/src/ape/cmd/expr/expr.y
++++ b/sys/src/ape/cmd/expr/expr.y
+@@ -54,7 +54,11 @@ expr:	'(' expr ')' = { $$ = $2; }
+ 	;
+ %%
+ /*	expression command */
++#define _POSIX_SOURCE
+ #include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
+ /* get rid of yacc debug printf's */
+ #define printf
+ #define ESIZE	512
+@@ -67,9 +71,16 @@ int	Ac;
+ int	Argi;
+ 
+ char Mstring[1][128];
+-char *malloc();
+ extern int nbra;
+ int yyparse(void);
++int ematch(char*, char*);
++int errxx(int);
++int yyerror(char*);
++int prt(int, char*);
++/* regexp.h's, included below */
++int advance(char*, char*);
++int getrnge(char*);
++int ecmp(char*, char*, int);
+ 
+ void
+ main(int argc, char **argv)
+diff --git a/sys/src/cmd/aux/antiword/antiword.h b/sys/src/cmd/aux/antiword/antiword.h
+index 3f4aad5b1..bb9fb7079 100644
+--- a/sys/src/cmd/aux/antiword/antiword.h
++++ b/sys/src/cmd/aux/antiword/antiword.h
+@@ -144,6 +144,9 @@
+ #if defined(__dos) || defined(__EMX__)
+ #define STRCEQ(x,y)	(stricmp(x,y) == 0)
+ #else
++#if defined(__Plan9__)
++extern int strcasecmp(const char *, const char *);	/* APE declares it in no header of POSIX's */
++#endif
+ #define STRCEQ(x,y)	(strcasecmp(x,y) == 0)
+ #endif /* __dos or __EMX__ */
+ #define elementsof(a)	(sizeof(a) / sizeof(a[0]))
+diff --git a/sys/src/cmd/aux/antiword/options.c b/sys/src/cmd/aux/antiword/options.c
+index 8379fef92..76e540c3b 100644
+--- a/sys/src/cmd/aux/antiword/options.c
++++ b/sys/src/cmd/aux/antiword/options.c
+@@ -18,6 +18,9 @@
+ extern int getopt(int, char **, const char *);
+ #else
+ #include <unistd.h>
++#if defined(__Plan9__)
++extern int getopt(int, char **, const char *);	/* APE's unistd.h has none */
++#endif
+ #endif /* __dos */
+ #endif /* __riscos */
+ #include "antiword.h"
+diff --git a/sys/src/cmd/compress/compress.c b/sys/src/cmd/compress/compress.c
+index 34d727196..0d4e08e06 100644
+--- a/sys/src/cmd/compress/compress.c
++++ b/sys/src/cmd/compress/compress.c
+@@ -37,6 +37,7 @@
+  *		Joe Orost		(decvax!vax135!petsd!joe)
+  */
+ #define _PLAN9_SOURCE
++#define _POSIX_SOURCE
+ 
+ #include <u.h>
+ #include <stdio.h>
+@@ -46,6 +47,8 @@
+ #include <signal.h>
+ #include <sys/types.h>
+ #include <sys/stat.h>
++#include <unistd.h>
++#include <utime.h>
+ 
+ #define	min(a,b)	((a>b) ? b : a)
+ 
+@@ -158,6 +161,7 @@ void cl_block(void);
+ void cl_hash(long);
+ void prratio(FILE*, long, long);
+ void version(void);
++int foreground(void);
+ 
+ void
+ main(int argc, char **argv)
+@@ -973,7 +977,7 @@ void
+ copystat(char *ifname, char *ofname)
+ {
+ 	int mode;
+-	time_t timep[2];
++	struct utimbuf times;
+ 	struct stat statbuf;
+ 
+ 	fclose(stdout);
+@@ -997,10 +1001,10 @@ copystat(char *ifname, char *ofname)
+ 			perror(ofname);
+ 		/* Copy ownership */
+ 		chown(ofname, statbuf.st_uid, statbuf.st_gid);
+-		timep[0] = statbuf.st_atime;
+-		timep[1] = statbuf.st_mtime;
++		times.actime = statbuf.st_atime;
++		times.modtime = statbuf.st_mtime;
+ 		/* Update last accessed and modified times */
+-		utime(ofname, timep);
++		utime(ofname, &times);
+ //		if (unlink(ifname))	/* Remove input file */
+ //			perror(ifname);
+ 		return;			/* success */
+diff --git a/sys/src/cmd/spin/tl.h b/sys/src/cmd/spin/tl.h
+index b6a5f814f..c2a1d09f5 100644
+--- a/sys/src/cmd/spin/tl.h
++++ b/sys/src/cmd/spin/tl.h
+@@ -11,6 +11,7 @@
+ 
+ #include <stdio.h>
+ #include <string.h>
++#include <stdlib.h>
+ 
+ typedef struct Symbol {
+ 	char		*name;
+-- 
+2.56.0
+

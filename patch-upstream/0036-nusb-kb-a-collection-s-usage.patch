@@ -1,7 +1,7 @@
 From cea5ebfe7c96ba567bf3ce4ddde699cbb247d979 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sun, 15 Nov 2026 08:59:13 +0100
-Subject: [PATCH 36/40] nusb/kb: a collection's usage
+Subject: [PATCH 36/43] nusb/kb: a collection's usage
 
 repparse1 cleared the local items, then read the collection's usage
 from l[Nu], past the usages (l[Nl] is the first): every collection's

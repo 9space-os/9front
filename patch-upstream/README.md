@@ -30,7 +30,7 @@ On 9front: `git/import` takes the files as they are.
 All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 `82ddeb288`, 2026-11-10, at `00d3043a2`, 2026-11-12, and at `eb49f1f87`,
 2026-11-12); 0032 to 0034 on them at `eb49f1f87` (2026-11-14); all 38 at
-`6ae667969` (2026-11-15), 0039 and 0040 on them there (2026-11-16). Each
+`6ae667969` (2026-11-15), 0039 to 0043 on them there (2026-11-16). Each
 applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
@@ -106,6 +106,9 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0038 | nusb(4): cam's file is formats | documentation |
 | 0039 | sam: journalv with snprint, not sprint | bug fix (a crash, only with -DDEBUG) |
 | 0040 | sam: a file that does not exist yet is new when first read; a command on it under samterm was lost | bug fix |
+| 0041 | ape/lib/9: exits and _exits with their argument in parentheses | bug fix |
+| 0042 | postscript: the functions declared (atof, malloc, error's arguments wrong on a 64-bit machine) | bug fix |
+| 0043 | compress, expr, antiword, spin: the functions they call declared (compress's utime) | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -593,6 +596,50 @@ open` cancelling it. Shown by: the same steps then writing the 15
 characters, under samterm in wsys and with `sam -d`. sam's `.c` files
 of the `upstream` branch compile with `6c -FTVw` and `8c -FTVw` in a
 9front guest; no warnings.
+
+### 0041 ape/lib/9: exits and _exits with their argument in parentheses
+
+APE's Plan 9 compatibility header (`/sys/src/ape/lib/9/libc.h`) defined
+`exits(s)` as `exit(s && *(char*)s ? 1 : 0)`: an argument with an
+operator of lower precedence than `&&` came apart, so
+`exits(nfail ? "fail" : nil)` gave `exit` the string `"fail"` (a pointer
+as its status) instead of 1. Found by: gcc, once int-conversion was an
+error again (the main branch's `tests/guest/ape9test.c`). Not done:
+compiled with 9front's own compilers (a macro; nothing in the tree used
+it with such an argument).
+
+### 0042 postscript: the functions declared
+
+The postscript programs on APE are compiled with `pcc -B` and called the
+C library's and `common`'s functions undeclared, as returning `int`. On
+a 64-bit machine that is wrong where they do not: `postreverse`'s `atof`
+gave the file's `%%Version` as garbage, `download`'s `malloc` and
+`realloc` lost the high half of their pointers, and `common/misc.c`'s
+`error` took its arguments as `unsigned int` while its callers pass
+strings for its `%s`. `common/ext.h` now includes `stdlib.h`, `string.h`
+and `unistd.h` for the programs on APE (`tr2post`, a native program, is
+left alone) and declares `common`'s functions; `error` is variadic
+(`vfprintf`), `lineno` and `position` (longs) are printed with `%ld`;
+each program declares its own functions before their use; `tcpostio` is
+compiled with `_POSIX_SOURCE` (it calls `read`, `fork`, `select`) and
+takes its child's status from `wait` in an `int` (an `unsigned long` got
+4 of its 8 bytes on amd64). Found by: gcc's implicit-function-declaration
+(an error since GCC 14). Shown by: the programs compiled by gcc with no
+implicit declaration left; with 9front's own `mk` in a 9front guest
+(amd64 `pcc`/`6c`, 386 `pcc`/`8c`) they compile as on `front` (6c's
+"argument prototype mismatch" found `tcpostio`'s `wait`). Not done: the
+programs run on PostScript input.
+
+### 0043 compress, expr, antiword, spin: the functions they call declared
+
+`compress`: `unistd.h` and `utime.h` (with `_POSIX_SOURCE`), a prototype
+for `foreground`, and `utime` given a `struct utimbuf` (it was a
+`time_t[2]`, which 6c rejected once `utime` was declared); `expr`:
+`stdlib.h`, `string.h`, `unistd.h` (it calls `write`) with
+`_POSIX_SOURCE`, its own and `regexp.h`'s functions declared, its old
+`char *malloc();` gone; `antiword`: `strcasecmp` and `getopt` declared
+(9front's APE has them in no POSIX header); `spin`: `stdlib.h` for
+`exit`. Found and shown as 0042.
 
 ## Not included
 

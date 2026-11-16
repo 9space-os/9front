@@ -1,0 +1,33 @@
+From 464b38332de0d0c579824f98e797762c8ca50dca Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Mon, 16 Nov 2026 19:01:03 +0100
+Subject: [PATCH 41/43] ape/lib/9: exits and _exits with their argument in
+ parentheses
+
+exits(nfail ? "fail" : nil) expanded to exit(nfail ? "fail" : nil &&
+*(char*)nfail ? "fail" : nil ? 1 : 0): the && bound first, and exit got
+the string "fail" (a pointer as its status) instead of 1.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/ape/lib/9/libc.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/sys/src/ape/lib/9/libc.h b/sys/src/ape/lib/9/libc.h
+index c52da49d5..6f6642e5f 100644
+--- a/sys/src/ape/lib/9/libc.h
++++ b/sys/src/ape/lib/9/libc.h
+@@ -136,8 +136,8 @@ extern	vlong	_NSEC(void);
+ #define AEXEC 1
+ #define AEXIST 0
+ 
+-#define _exits(s) _exit(s && *(char*)s ? 1 : 0)
+-#define exits(s) exit(s && *(char*)s ? 1 : 0)
++#define _exits(s) _exit((s) && *(char*)(s) ? 1 : 0)
++#define exits(s) exit((s) && *(char*)(s) ? 1 : 0)
+ 
+ #define create(file, omode, perm) open(file, (omode) |O_CREAT | O_TRUNC, perm)
+ #define seek(fd, off, dir) lseek(fd, off, dir)
+-- 
+2.56.0
+
