@@ -34,10 +34,16 @@ bash "$ROOT/scripts/guest/stage-dist.sh" "$CLI_DIR/src9"
 echo "make the CD in the guest"
 DSK=$CLI_DIR/mkiso.raw
 rm -f "$DSK"
-truncate -s 2G "$DSK"
+# the guest writes the CD here (sparse: only what it writes takes room);
+# 4 GB: with Rust and Go (DEV) it is past 2 GB
+truncate -s 4G "$DSK"
 mkdir -p "$TMP/extra/rc/bin"
 cp "$ROOT/scripts/guest/boot/mkiso.rc" "$TMP/extra/rc/bin/mkiso"
-SRC9=$CLI_DIR/src9 DISK=$DSK UFS_EXTRA=$TMP/extra MEM=${MEM:-2048} \
+# MEM: the guest holds the whole image in its ramfs (mkiso.rc) besides the system: with
+# Rust and Go the amd64 CD is past 2 GB (2048 MB: "Bwrite: no memory"); the 386 CD is
+# smaller, and 9pc uses at most 4 GB
+[ "$objtype" = 386 ] && mem=3072 || mem=6144
+SRC9=$CLI_DIR/src9 DISK=$DSK UFS_EXTRA=$TMP/extra MEM=${MEM:-$mem} \
 WAITFOR='mkiso: (done|failed)' WAITMAX=${WAITMAX:-7200} CMDWAIT=5 \
 	bash "$ROOT/scripts/guest/boot-cli.sh" "mkiso $objtype" > "$CLI_DIR/mkiso.log" 2>&1 || true
 size=$(tr -d '\r' < "$CLI_DIR/mkiso.log" | sed -n 's/^mkiso: done \([0-9][0-9]*\)$/\1/p')
