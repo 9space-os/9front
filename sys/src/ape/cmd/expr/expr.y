@@ -252,7 +252,7 @@ match(char *s, char *p)
 #define GETC()		(*sp++)
 #define PEEKC()		(*sp)
 #define UNGETC(c)	(--sp)
-#define RETURN(c)	return
+#define RETURN(c)	return (c)
 #define ERROR(c)	errxx(c)
 
 int

@@ -74,8 +74,8 @@ int	download(void);
 int	init_signals(void);
 int	lookup(char *font);
 int	options(void);
-int	readmap(void);
-int	readresident(void);
+void	readmap(void);
+void	readresident(void);
 
 char	*temp_dir = TEMPDIR;		/* temp directory - for copying stdin */
 char	*hostfontdir = HOSTDIR;		/* host resident directory */
@@ -220,6 +220,7 @@ options(void)
 
 /*****************************************************************************/
 
+void
 readmap(void)
 
 {
@@ -283,6 +284,7 @@ readmap(void)
 
 /*****************************************************************************/
 
+void
 readresident(void)
 
 {
