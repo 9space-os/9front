@@ -977,7 +977,7 @@ void
 copystat(char *ifname, char *ofname)
 {
 	int mode;
-	time_t timep[2];
+	struct utimbuf times;
 	struct stat statbuf;
 
 	fclose(stdout);
@@ -1001,10 +1001,10 @@ copystat(char *ifname, char *ofname)
 			perror(ofname);
 		/* Copy ownership */
 		chown(ofname, statbuf.st_uid, statbuf.st_gid);
-		timep[0] = statbuf.st_atime;
-		timep[1] = statbuf.st_mtime;
+		times.actime = statbuf.st_atime;
+		times.modtime = statbuf.st_mtime;
 		/* Update last accessed and modified times */
-		utime(ofname, timep);
+		utime(ofname, &times);
 //		if (unlink(ifname))	/* Remove input file */
 //			perror(ifname);
 		return;			/* success */

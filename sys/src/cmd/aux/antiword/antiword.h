@@ -144,7 +144,9 @@
 #if defined(__dos) || defined(__EMX__)
 #define STRCEQ(x,y)	(stricmp(x,y) == 0)
 #else
-#include <strings.h>	/* strcasecmp */
+#if defined(__Plan9__)
+extern int strcasecmp(const char *, const char *);	/* APE declares it in no header of POSIX's */
+#endif
 #define STRCEQ(x,y)	(strcasecmp(x,y) == 0)
 #endif /* __dos or __EMX__ */
 #define elementsof(a)	(sizeof(a) / sizeof(a[0]))
