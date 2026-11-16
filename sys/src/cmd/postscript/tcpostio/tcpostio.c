@@ -12,6 +12,11 @@
 #include <sys/time.h>
 
 #include <sys/socket.h>
+#include <sys/select.h>
+#include <sys/wait.h>
+#include <ctype.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 extern	int dial_debug;
 extern	int	dial(char*, char*, char*, int*);

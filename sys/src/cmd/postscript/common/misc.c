@@ -5,6 +5,7 @@
  */
 
 #include <stdio.h>
+#include <stdarg.h>
 #include <ctype.h>
 #include <sys/types.h>
 #include <fcntl.h>
@@ -157,8 +158,9 @@ str_convert(char **str, int err)
 
 /*****************************************************************************/
 
-error(int kind, char *mesg, unsigned int a1, unsigned int a2, unsigned int a3)
+error(int kind, char *mesg, ...)
 {
+    va_list	ap;
 
 /*
  *
@@ -168,11 +170,13 @@ error(int kind, char *mesg, unsigned int a1, unsigned int a2, unsigned int a3)
 
     if ( mesg != NULL && *mesg != '\0' ) {
 	fprintf(stderr, "%s: ", prog_name);
-	fprintf(stderr, mesg, a1, a2, a3);
+	va_start(ap, mesg);
+	vfprintf(stderr, mesg, ap);
+	va_end(ap);
 	if ( lineno > 0 )
-	    fprintf(stderr, " (line %d)", lineno);
+	    fprintf(stderr, " (line %ld)", lineno);
 	if ( position > 0 )
-	    fprintf(stderr, " (near byte %d)", position);
+	    fprintf(stderr, " (near byte %ld)", position);
 	putc('\n', stderr);
     }	/* End if */
 
