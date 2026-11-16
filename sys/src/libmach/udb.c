@@ -113,6 +113,8 @@ sparc64excep(Map *map, Rgetter rget)
 
 	/* Sparc disassembler and related functions */
 
+struct instr;	/* GCC port: declared here, else its use in f's parameters below is a type of its own (ISO C) */
+
 struct opcode {
 	char	*mnemonic;
 	void	(*f)(struct instr*, char*);
