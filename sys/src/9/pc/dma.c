@@ -195,8 +195,9 @@ dmasetup(int chan, void *va, long len, int flags)
 	 *  if this isn't kernel memory or crossing 64k boundary or above 16 meg
 	 *  use the bounce buffer.
 	 */
+	pa = (uintptr)va < KZERO ? 0 : PADDR(va);
 	if((uintptr)va < KZERO 
-	|| ((pa=PADDR(va))&0xFFFF0000) != ((pa+len)&0xFFFF0000)
+	|| (pa&0xFFFF0000) != ((pa+len)&0xFFFF0000)
 	|| pa >= 16*MB){
 		if(xp->bva == nil)
 			return -1;
