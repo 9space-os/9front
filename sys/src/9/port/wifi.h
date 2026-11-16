@@ -96,6 +96,7 @@ struct Wnode
 	uchar	batoken;	/* the last ADDBA request's dialog token */
 	int	rssi;		/* 9space: its beacons' signal, dBm, smoothed (hasrssi) */
 	uchar	hasrssi;
+	ulong	seenstep;	/* 9space: wifi->scanstep when its beacon was last heard */
 };
 
 struct Wifi

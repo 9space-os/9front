@@ -49,7 +49,9 @@ check "wifi.c found the access point and associated" grep -q '^wlanstat: status:
 check "the access point saw authentication and association" grep -q 'wlansim: wlansim: 9space: associated 020000000002' "$C"
 check "the stronger of 9space's two nodes chosen (channel 11, -30 dBm, not 6 at -60)" bash -c "grep -q 'wlansim: wlansim: 9space: associated 020000000002 on channel 11' '$C' && grep -q '^wlanstat: bssid: 0200000000dd' '$C' && grep -q '^wlanstat: signal: -30 dBm' '$C'"
 check "ifstats: each node's signal (9space on 11: -30 dBm)" grep -q '^wlanstat: node: 0200000000dd [0-9a-f]* *[0-9]* *11  -30 9space$' "$C"
-check "5 GHz preferred (OpenBSD): 9space's node on 40 at -65 dBm, not 11 at -30" bash -c "grep -q 'wlansim3: wlansim: 9space: associated 020000000002 on channel 40' '$C' && grep -q '^wlan5gstat: bssid: 0200000000ee' '$C' && grep -q '^wlan5gstat: signal: -65 dBm' '$C'"
+# (the signal is smoothed, 3/4 the old: the first wlansim's -75 dBm for
+# this node climbs to -65 over a few beacons; at least -70 chose it)
+check "5 GHz preferred (OpenBSD): 9space's node on 40 at -65 dBm, not 11 at -30" bash -c "grep -q 'wlansim3: wlansim: 9space: associated 020000000002 on channel 40' '$C' && grep -q '^wlan5gstat: bssid: 0200000000ee' '$C' && grep -q '^wlan5gstat: signal: -\\(6[5-9]\\|70\\) dBm' '$C'"
 check "5 GHz under -70 dBm (-75): the stronger on 2.4 GHz still chosen" bash -c "! grep -q 'wlansim: wlansim: 9space: associated 020000000002 on channel 40' '$C'"
 check "ping 10.0.9.1 through it: echoes answered" bash -c "grep '^wlanping: ' '$C' | grep -q 'rtt\|time'"
 # 5 GHz: 9space5 on 36 (no DS parameter set: the HT operation's channel)

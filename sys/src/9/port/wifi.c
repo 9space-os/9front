@@ -1146,13 +1146,16 @@ goodbss(Wifi *wifi, Wnode *wn)
 /*
  * 9space: the node to join, where the driver gives the signal: none
  * before the scan went once over all its channels since the first that
- * matches was heard (candstep), then the strongest that matches, seen in
- * the last 5 s (a mesh's access point rather than its far repeater), as
+ * matches was heard (candstep), then the strongest that matches, heard
+ * in that pass (a mesh's access point rather than its far repeater; by
+ * steps, not time: a pass over 2.4 and 5 GHz takes some 7 s), as
  * OpenBSD's ieee80211_node_choose_bss picks it: the strongest on 5 GHz
  * where its signal reaches IEEE80211_RSSI_THRES_5GHZ (-70 dBm), even if
  * one on 2.4 GHz is stronger (the 5 GHz band is less crowded, its
  * channels wider), else the strongest on either; without the signal wn,
- * the first that matches, as before
+ * the first that matches, as before.  None while the one chosen may
+ * still answer (a second chosen meanwhile, a beacon of the node passed
+ * over, would race it: the first authentication answered wins)
  */
 enum {
 	Rssithres5 = -70,	/* dBm, OpenBSD's IEEE80211_RSSI_THRES_5GHZ */
@@ -1173,9 +1176,12 @@ bestbss(Wifi *wifi, Wnode *wn)
 	if(wifi->scanstep - wifi->candstep < wifi->scanlen)
 		return nil;	/* not yet on every channel since */
 	now = MACHP(0)->PMach.ticks;
+	if(TK2MS(now - wifi->lastauth) <= 1000)
+		return nil;	/* the chosen one's answer to come: no second (its auth would win if first) */
 	best = best5 = nil;
 	for(n = wifi->node; n != &wifi->node[nelem(wifi->node)]; n++){
-		if(!n->hasrssi || TK2MS(now - n->lastseen) > 5000 || !goodbss(wifi, n))
+		if(!n->hasrssi || n->seenstep - wifi->candstep > wifi->scanstep - wifi->candstep
+		|| !goodbss(wifi, n))
 			continue;
 		if(TK2MS(now - n->lastsend) <= 1000)
 			continue;	/* tried just now */
@@ -1249,6 +1255,7 @@ wifiproc(void *arg)
 				else
 					wn->rssi = (schar)b->rp[-9];
 				wn->hasrssi = 1;
+				wn->seenstep = wifi->scanstep;
 			}
 			b->rp += wifihdrlen(w);
 			recvbeacon(wifi, wn, b->rp, BLEN(b));
