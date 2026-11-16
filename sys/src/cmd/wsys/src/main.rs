@@ -4777,8 +4777,18 @@ fn reader(fd: i32, size: usize, tx: mpsc::Sender<Ev>) {
 fn mousereader(fd: i32, tx: mpsc::Sender<Ev>) {
     let f = std::mem::ManuallyDrop::new(Fd(fd));
     let mut b = [0u8; 49];
-    while let Ok(n) = f.read(&mut b) {
-        if n >= 1 && b[0] == b'r' {
+    loop {
+        // the display gone (drawterm closed: its mount errs): wsys ends, as rio
+        // does; before, this thread ended alone and wsys stayed, serving nobody
+        let n = match f.read(&mut b) {
+            Ok(n) if n > 0 => n,
+            Err(e) if e.to_string().contains("interrupted") => continue,
+            _ => {
+                let _ = tx.send(Ev::Hangup);
+                return;
+            }
+        };
+        if b[0] == b'r' {
             // the window wsys is in (or the screen) was made anew: moved, resized
             if tx.send(Ev::Resized).is_err() {
                 return;

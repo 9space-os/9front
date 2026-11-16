@@ -204,14 +204,16 @@ cp "$HERE/rcpu.rc" "$HERE/root/tests/rcputest"
 cp "$HERE/rcpuwin.rc" "$HERE/root/tests/rcpuwin"
 chmod +x "$HERE/root/tests/rcputest" "$HERE/root/tests/rcpuwin"
 rcpuboot(){
+	# (the test takes longer than a line's CMDWAIT: until its end mark)
 	UFS_EXTRA="$HERE/root" MEM=1024 KARGS="vgasize=1024x768x32 monitor=vesa mouseport=ps2" CMDWAIT=10 \
+		WAITFOR='^rcputest: done' WAITMAX=300 \
 		"$ROOT/scripts/guest/boot-cli.sh" \
 		'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' "bind -a '#i' /dev" "bind -a '#m' /dev" \
-		"/tests/rcputest >/tmp/rcputest.log >[2=1]; cat /tmp/rcputest.log" \
+		"/tests/rcputest >/tmp/rcputest.log >[2=1]; cat /tmp/rcputest.log; echo rcputest: done" \
 		> "$TMPD/consolercpu" 2>&1
 	tr -d '\r' < "$TMPD/consolercpu" > "$TMPD/logrcpu"
 }
 check "boot for rcpu (terminal and cpu server in one)" rcpuboot
 cp "$TMPD/logrcpu" "$HERE/rcpu.log" 2>/dev/null
-check "rcpu: wsys -d on the terminal's screen through /mnt/term, compressed, follows its 800x600; again with -k, the default there: all passed" bash -c "grep -q '^rcpu: all passed' '$TMPD/logrcpu' || { grep -E '^(ok|FAIL) ' '$TMPD/logrcpu' | tail -8; false; }"
+check "rcpu: wsys -d on the terminal's screen through /mnt/term, compressed, follows its 800x600; again with -k, the default there; ends with the terminal: all passed" bash -c "grep -q '^rcpu: all passed' '$TMPD/logrcpu' || { grep -E '^(ok|FAIL) ' '$TMPD/logrcpu' | tail -8; false; }"
 done_tests

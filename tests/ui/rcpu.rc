@@ -88,4 +88,22 @@ grep -s '^rcpuwin: all passed' /tmp/rcpuk.out || fail -k, the other side: no all
 # -k sends no pixels: nothing compressed
 if(grep -s '^wsys: compressed' /tmp/rcpuk.out) fail -k by default: wsys still compressed pixels
 if not ok -k by default: no pixels compressed
+
+# the terminal gone (drawterm closed: rcpu killed): wsys ends, its mount of
+# the terminal errs (before, its mouse reader ended alone and wsys stayed)
+fn nwsys { ps | awk '$NF=="wsys"' | wc -l }
+@{rfork s; exec rcpu -h 'tcp!'$ip'!17033' -u glenda -c '/tests/wsys'} >/tmp/rcpug.out >[2=1] &
+r=$apid
+n=0
+while(~ `{nwsys} 0 && test $n -lt 300){ sleep 0.1; n=`{echo $n+1 | hoc} }
+sleep 2
+if(~ `{nwsys} 0) fail wsys through rcpu did not start
+echo kill >/proc/$r/notepg
+n=0
+while(! ~ `{nwsys} 0 && test $n -lt 100){ sleep 0.1; n=`{echo $n+1 | hoc} }
+if(~ `{nwsys} 0) ok the terminal gone: wsys ended
+if not {
+	fail the terminal gone: wsys still there
+	ps | grep wsys
+}
 if(~ $nfail 0) echo rcpu: all passed
