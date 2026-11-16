@@ -229,8 +229,13 @@ syscall(Ureg *ureg)
 	if(dosyscall(scallnr, (Sargs*)(ureg->sp+BY2WD), &ureg->r0))
 		returnto(noteret);
 
-	if(up->procctl || up->nnote)
-		donotify(ureg);
+	/*
+	 * nfront: a note's handler entered through noteret, all registers
+	 * loaded (forkret loads only x0: the handler's x1, the message,
+	 * AAPCS's arg 2, would be lost), as pc64's syscall
+	 */
+	if((up->procctl || up->nnote) && donotify(ureg))
+		returnto(noteret);
 
 	if(up->delaysched)
 		sched();
