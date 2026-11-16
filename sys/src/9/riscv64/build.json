@@ -35,8 +35,7 @@
 			"-Wno-parentheses",
 			"-Wno-unknown-pragmas",
 			"-Wno-switch",
-			"-Wno-sign-compare",
-			"-Wno-sequence-point"
+			"-Werror=sequence-point"
 		],
 		"Oflags": [
 			"-T",
@@ -243,8 +242,7 @@
 			"-Wno-parentheses",
 			"-Wno-unknown-pragmas",
 			"-Wno-switch",
-			"-Wno-sign-compare",
-			"-Wno-sequence-point"
+			"-Werror=sequence-point"
 		],
 		"Oflags": [
 			"-T",
@@ -446,8 +444,7 @@
 			"-Wno-parentheses",
 			"-Wno-unknown-pragmas",
 			"-Wno-switch",
-			"-Wno-sign-compare",
-			"-Wno-sequence-point"
+			"-Werror=sequence-point"
 		],
 		"Oflags": [
 			"-T",
@@ -645,8 +642,7 @@
 			"-Wno-parentheses",
 			"-Wno-unknown-pragmas",
 			"-Wno-switch",
-			"-Wno-sign-compare",
-			"-Wno-sequence-point",
+			"-Werror=sequence-point",
 			"-DPHYSDRAM=0x40000000"
 		],
 		"Oflags": [
