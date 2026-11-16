@@ -28,7 +28,13 @@
 # binaries carry DWARF (8l writes none) and are stripped. The guest's install script
 # (scripts/guest/boot/mkdisk.rc) reads the result as /n/src9.
 #
-# usage: [objtype=386|riscv64] scripts/guest/stage-dist.sh dir
+# DEV (a list of gcc, rust, go, e.g. DEV=gcc,rust, or all; DEV= none) says which
+# languages come along: gcc as /$objtype/gnu, Rust from RUST_OUT (default its
+# out/$objtype), Go from GO_OUT (likewise); Rust links with gcc, so rust takes gcc
+# along. Without DEV, as before: gcc if it is built, Rust and Go if RUST_OUT, GO_OUT
+# are set. /$objtype/lib.gcc (the system's archives) is always there.
+#
+# usage: [objtype=386|riscv64] [DEV=list] scripts/guest/stage-dist.sh dir
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 . "$ROOT/scripts/lib/paths.sh"	# GCC_DIR, RUST_DIR, GO_DIR, MCP_DIR, DISTFILES (the distribution's paths.env)
@@ -80,6 +86,18 @@ amd64)	K=9pc64 STRIP=strip ;;
 riscv64)	K=9virt STRIP=riscv64-linux-gnu-strip ;;
 *)	echo "stage-dist: objtype=$A unknown" >&2; exit 1 ;;
 esac
+# the languages: DEV given, exactly those; else as before
+if [ -n "${DEV+set}" ]; then
+	dev=" $(echo "$DEV" | tr , ' ') "
+	for l in $dev; do case $l in gcc|rust|go) ;; all) dev=" gcc rust go " ;; *) echo "stage-dist: DEV: no language $l (gcc, rust, go)" >&2; exit 1 ;; esac; done
+	case $dev in *" rust "*) case $dev in *" gcc "*) ;; *) dev="$dev gcc "; echo "stage-dist: rust links with gcc, gcc comes along" >&2 ;; esac ;; esac
+	case $dev in *" rust "*) RUST_OUT=${RUST_OUT:-$RUST_DIR/out/$A} ;; *) RUST_OUT= ;; esac
+	case $dev in *" go "*) GO_OUT=${GO_OUT:-$GO_DIR/out/$A} ;; *) GO_OUT= ;; esac
+fi
+lang(){ [ -z "${DEV+set}" ] || case $dev in *" $1 "*) return 0;; *) return 1;; esac; }
+langs="as built"
+[ -z "${DEV+set}" ] || { langs=$(echo $dev); langs=${langs:-none}; }
+echo "stage-dist: languages: $langs" >&2
 [ -s "$ROOT/$A/$K" ] || { echo "stage-dist: no $A/$K, run CC=gcc ARCH=$A sys/src/cmd/build/build.exe" >&2; exit 1; }
 mkdir -p "$VIEW/.$A"
 for f in "$ROOT"/$A/*; do ln -s "$f" "$VIEW/.$A/$(basename "$f")"; done
@@ -87,9 +105,13 @@ rm "$VIEW/$A"; mv "$VIEW/.$A" "$VIEW/$A"
 # the native toolchain (../9front-gcc: build.sh native) as /$objtype/gnu
 GCC_OUT=${GCC_OUT:-$GCC_DIR/out/$A}
 PROTOS=("$ROOT/scripts/guest/boot/gccproto")
-if [ -d "$GCC_OUT/$A/gnu" ]; then
+if ! lang gcc; then
+	:
+elif [ -d "$GCC_OUT/$A/gnu" ]; then
 	ln -s "$GCC_OUT/$A/gnu" "$VIEW/$A/gnu"
 	PROTOS+=("$ROOT/scripts/guest/boot/gnuproto")
+elif [ -n "${DEV+set}" ]; then
+	echo "stage-dist: no $GCC_OUT/$A/gnu (DEV has gcc): build it, toolchain/gcc build.sh native" >&2; exit 1
 else
 	echo "stage-dist: no $GCC_OUT/$A/gnu, the distribution has no gcc" >&2
 fi
@@ -118,6 +140,20 @@ python3 "$ROOT/scripts/guest/proto.py" -s "$VIEW" -d "$OUT" \
 	"$ROOT/sys/lib/sysconfig/proto/distproto" "$ROOT/sys/lib/sysconfig/proto/9bootproto" \
 	"${PROTOS[@]}" \
 	2> "$OUT.warnings" || { cat "$OUT.warnings"; exit 1; }
+# the CA roots, with Rust or Go: /sys/lib/tls/ca.pem, where Go's crypto/x509 and our
+# crates (rustls-native-certs, curl-sys) look; cargo and go reach crates.io and the
+# module proxy over https with them. Mozilla's list as curl extracts it (MPL-2.0):
+# like firmware a file of its own, not in the tree (DISTFILES, dist/distfiles.list)
+if [ -n "$RUST_OUT" ] || [ -n "$GO_OUT" ]; then
+	ca=$(ls "$DISTFILES"/cacert-*.pem 2>/dev/null | sort | tail -1)
+	if [ -n "$ca" ]; then
+		mkdir -p "$OUT/sys/lib/tls"
+		install -m 644 "$ca" "$OUT/sys/lib/tls/ca.pem"
+		echo "stage-dist: CA roots $(basename "$ca") as /sys/lib/tls/ca.pem" >&2
+	else
+		echo "stage-dist: no CA roots ($DISTFILES/cacert-*.pem, dist/bin/fetch): cargo and go cannot reach https" >&2
+	fi
+fi
 # for the guest's disk/mkfs (scripts/guest/boot/mkdisk.rc); no proto lists it,
 # so it stays off the disk
 cat "${PROTOS[@]}" > "$OUT/gccproto"
