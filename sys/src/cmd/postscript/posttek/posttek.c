@@ -115,7 +115,7 @@
 
 /* its functions, declared before their use */
 int	account(void);
-int	alpha(void);
+void	alpha(void);
 int	arguments(void);
 int	control(int c);
 int	done(void);
@@ -123,10 +123,10 @@ int	draw(void);
 int	esc(void);
 int	formfeed(void);
 int	gin(void);
-int	graph(void);
+void	graph(void);
 int	header(void);
 int	home(void);
-int	incremental(void);
+void	incremental(void);
 int	init_signals(void);
 int	move(int x, int y);
 int	nextchar(void);
@@ -137,7 +137,7 @@ int	reset(void);
 int	setfont(int newfont);
 int	setmode(int mode);
 int	setup(void);
-int	statemachine(FILE *fp);
+void	statemachine(FILE *fp);
 int	text(void);
 
 char	*optnames = "a:c:f:m:n:o:p:w:x:y:A:C:E:J:L:P:R:DI";
@@ -511,6 +511,7 @@ account(void)
 
 /*****************************************************************************/
 
+void
 statemachine(FILE *fp)
 {
 
@@ -580,6 +581,7 @@ reset(void)
 
 /*****************************************************************************/
 
+void
 alpha(void)
 
 {
@@ -665,6 +667,7 @@ alpha(void)
 
 /*****************************************************************************/
 
+void
 graph(void)
 
 {
@@ -768,6 +771,7 @@ point(void)
 
 /*****************************************************************************/
 
+void
 incremental(void)
 
 {
