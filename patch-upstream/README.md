@@ -30,7 +30,7 @@ On 9front: `git/import` takes the files as they are.
 All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 `82ddeb288`, 2026-11-10, at `00d3043a2`, 2026-11-12, and at `eb49f1f87`,
 2026-11-12); 0032 to 0034 on them at `eb49f1f87` (2026-11-14); all 38 at
-`6ae667969` (2026-11-15), 0039 on them there (2026-11-16). Each
+`6ae667969` (2026-11-15), 0039 and 0040 on them there (2026-11-16). Each
 applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
@@ -105,6 +105,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0037 | pci: the BARs of a device of class 0xFF | bug fix |
 | 0038 | nusb(4): cam's file is formats | documentation |
 | 0039 | sam: journalv with snprint, not sprint | bug fix (a crash, only with -DDEBUG) |
+| 0040 | sam: a file that does not exist yet is new when first read; a command on it under samterm was lost | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -572,6 +573,26 @@ Shown by: the journal then complete (`Tstartcmdfile`, its pointer, the
 `H` messages after it), with a sam built by gcc. `mesg.c` of the
 `upstream` branch compiles with `6c -FTVw` and `8c -FTVw`, with and
 without `-DDEBUG` (6c), in a 9front guest; no warnings.
+
+### 0040 sam: a file that does not exist yet is new, not an error, when first read
+
+Under samterm, sam reads a file only when a command first needs it
+(`cmdexec` → `load` → `edit(f, 'I')`). For a file that does not exist
+yet, `edit` ended in `error_r(Eopen, ...)`, which cancels the command
+that caused the read: `sam newfile`, then `a/text/` typed in the
+command window appended nothing (samterm showed only `?can't open`), and
+`w` wrote an empty file. With `sam -d` the same read happens at the
+start, outside any command, so nothing was lost there. Now the first
+read of a file that does not exist (`access(..., AEXIST)` fails) warns,
+`no such file`, and leaves it new and empty; the command goes on. Any
+other failure to open it (no permission, ...) is still an error, so that
+`w` cannot write an empty buffer over a file that is there. Found by:
+the main branch's reference workflow test (`tests/workflow`): `w` wrote
+`#0`; sam's journal (0039) showed the `a` command arriving and `can't
+open` cancelling it. Shown by: the same steps then writing the 15
+characters, under samterm in wsys and with `sam -d`. sam's `.c` files
+of the `upstream` branch compile with `6c -FTVw` and `8c -FTVw` in a
+9front guest; no warnings.
 
 ## Not included
 

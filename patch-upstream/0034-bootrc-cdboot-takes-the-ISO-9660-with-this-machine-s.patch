@@ -1,7 +1,7 @@
 From 1147682c3042c34c6d9fff52d7f0c67ab74382b0 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sat, 14 Nov 2026 22:47:52 +0100
-Subject: [PATCH 34/39] bootrc: cdboot takes the ISO 9660 with this machine's
+Subject: [PATCH 34/40] bootrc: cdboot takes the ISO 9660 with this machine's
  init
 
 With cdboot, local.rc took the first 9660 file system it found as the

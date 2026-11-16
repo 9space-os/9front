@@ -1,7 +1,7 @@
 From e9e255e6990d1db28c2ad9d30c8d98c0f3f38e45 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Thu, 12 Nov 2026 09:40:11 +0100
-Subject: [PATCH 26/39] truetypefs: antialiased subfonts (size "Na")
+Subject: [PATCH 26/40] truetypefs: antialiased subfonts (size "Na")
 
 A font named with an a after its size (/n/ttf/unifont.ttf.16a/font)
 has its subfonts in grey, k8, the glyphs' coverage: each glyph
