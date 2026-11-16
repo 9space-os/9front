@@ -13,9 +13,16 @@ pub const XRGB32: u32 = 0x6808_1828; // CHAN4(CIgnore,8, CRed,8, CGreen,8, CBlue
 pub const ARGB32: u32 = 0x4808_1828; // CHAN4(CAlpha,8, CRed,8, CGreen,8, CBlue,8)
 const GREY1: u32 = 0x31;
 const BORDERWIDTH: i32 = 4; // rio's, around the window image a rio client draws in
-// devdraw takes messages of any size, libdraw sends at most its buffer (8000
-// bytes without an iounit); the same here
+// devdraw takes messages of any size, libdraw sends at most its buffer: the
+// data file's iounit, 8000 bytes without one; the same here (a devdraw over the
+// network, drawterm's: each write waits for its answer, larger ones are fewer)
 const MAXMSG: usize = 8000;
+
+/// the iounit of fd (as libc's iounit: from #d/Nctl), 0 if none
+fn iounit(fd: &Fd) -> usize {
+    let s = std::fs::read_to_string(format!("#d/{}ctl", fd.0)).unwrap_or_default();
+    s.rsplit_once(')').and_then(|(_, t)| t.split_whitespace().next()?.parse().ok()).unwrap_or(0)
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {
@@ -142,6 +149,7 @@ pub struct Display {
     layer: Option<(u32, u32)>, // onlayer: the screen drawn under its name and the screen of the window over it
     pub raw: u64,  // bytes of pixels cload_at was given
     pub sent: u64, // and the bytes of its messages
+    maxmsg: usize, // the largest message: the data file's iounit (MAXMSG)
 }
 
 /// image(6)'s compression of one message's rows (cload_at)
@@ -253,7 +261,13 @@ impl Display {
         let n = ctl.read(&mut b)?;
         let f = info(&b[..n])?;
         let data = Fd::open(&format!("/dev/draw/{}/data", f[0]), ORDWR)?;
-        Self::with(Conn::Files { ctl, data }, &f, true)
+        let io = iounit(&data);
+        let mut d = Self::with(Conn::Files { ctl, data }, &f, true)?;
+        if io > 0 {
+            d.maxmsg = io.min(1 << 20);
+            d.buf.reserve(d.maxmsg);
+        }
+        Ok(d)
     }
 
     /// wsys' own devdraw (drawcore), its screen
@@ -280,6 +294,7 @@ impl Display {
             layer: None,
             raw: 0,
             sent: 0,
+            maxmsg: MAXMSG,
         };
         let w = if winname { std::fs::read_to_string("/dev/winname").ok() } else { None };
         if let Some(w) = w {
@@ -341,10 +356,10 @@ impl Display {
 
     /// append a message, writing out what is buffered when it would not fit
     fn cmd(&mut self, m: &[u8]) -> io::Result<()> {
-        if self.buf.len() + m.len() > MAXMSG {
+        if self.buf.len() + m.len() > self.maxmsg {
             self.flushbuf()?;
         }
-        if m.len() > MAXMSG {
+        if m.len() > self.maxmsg {
             return self.conn.write1(m);
         }
         self.buf.extend_from_slice(m);
@@ -545,7 +560,7 @@ impl Display {
     /// 'y': rows of image id in its own format, bpl bytes a row (image(6)), in
     /// bands that fit a message (a font's subfont, rows short enough)
     pub fn loadraw(&mut self, id: u32, r: &Rect, data: &[u8], bpl: usize) -> io::Result<()> {
-        let room = MAXMSG - 1 - 4 - 16;
+        let room = self.maxmsg - 1 - 4 - 16;
         if bpl == 0 || bpl > room {
             return Err(io::Error::other("rows too long to load"));
         }
@@ -583,7 +598,7 @@ impl Display {
         self.flushbuf()?;
         let bpl = ((r.x1 * depth + 7) / 8 - (r.x0 * depth) / 8) as usize;
         let mut out = Vec::with_capacity(bpl * r.dy().max(0) as usize);
-        let rows = ((MAXMSG / bpl.max(1)) as i32).max(1);
+        let rows = ((self.maxmsg / bpl.max(1)) as i32).max(1);
         let mut y = r.y0;
         while y < r.y1 {
             let y1 = (y + rows).min(r.y1);
@@ -623,7 +638,7 @@ impl Display {
             let x1 = (x0 + COLS).min(r.x1);
             let bpl = (x1 - x0) as usize * 4;
             let worst = bpl + bpl.div_ceil(128);
-            let room = MAXMSG - HEAD;
+            let room = self.maxmsg - HEAD;
             let mut y = r.y0;
             let mut enc = Lz::new();
             let mut band = y;
@@ -649,7 +664,7 @@ impl Display {
 
     fn cmsg(&mut self, id: u32, r: &Rect, data: &[u8]) -> io::Result<()> {
         let n = 1 + 4 + 16 + data.len();
-        if self.buf.len() + n > MAXMSG {
+        if self.buf.len() + n > self.maxmsg {
             self.flushbuf()?;
         }
         self.buf.push(b'Y');
@@ -666,7 +681,7 @@ impl Display {
     /// some hundred of them)
     pub fn load_at(&mut self, id: u32, r: &Rect, px: &[u8], stride: usize, sx: i32, sy: i32) -> io::Result<()> {
         let (dx, dy) = (sx - r.x0, sy - r.y0); // from r's coordinates to px's
-        let room = MAXMSG - 1 - 4 - 16;
+        let room = self.maxmsg - 1 - 4 - 16;
         let bpl = r.dx() as usize * 4;
         let mut y = r.y0;
         while y < r.y1 {
@@ -681,7 +696,7 @@ impl Display {
             while x < band.x1 {
                 let x1 = if bpl <= room { band.x1 } else { (x + (room / 4) as i32).min(band.x1) };
                 let n = (x1 - x) as usize * 4;
-                if self.buf.len() + 1 + 4 + 16 + n * rows as usize > MAXMSG {
+                if self.buf.len() + 1 + 4 + 16 + n * rows as usize > self.maxmsg {
                     self.flushbuf()?;
                 }
                 self.buf.push(b'y');
