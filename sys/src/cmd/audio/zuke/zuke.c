@@ -679,8 +679,9 @@ gain(double g, char *buf, long n)
 
 	if(g != 1.0)
 		for(f = (s16int*)buf; n >= 4; n -= 4){
-			*f++ = clip16(*f * g);
-			*f++ = clip16(*f * g);
+			f[0] = clip16(f[0] * g);
+			f[1] = clip16(f[1] * g);
+			f += 2;
 		}
 }
 

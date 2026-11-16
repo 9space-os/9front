@@ -7,7 +7,10 @@ OFILES=\
 	compress.$O\
 	crc32.$O\
 	deflate.$O\
-	gzio.$O\
+	gzclose.$O\
+	gzlib.$O\
+	gzread.$O\
+	gzwrite.$O\
 	infback.$O\
 	inffast.$O\
 	inflate.$O\
@@ -29,7 +32,7 @@ CLEANFILES=$TOOLS
 
 </sys/src/cmd/mksyslib
 
-CFLAGS=-c -D_POSIX_SOURCE -D_C99_SNPRINTF_EXTENSION
+CFLAGS=-c -D_POSIX_SOURCE -D_C99_SNPRINTF_EXTENSION -DHAVE_UNISTD_H
 
 %.$O: /sys/src/cmd/gs/zlib/%.c
 	$CC $CFLAGS /sys/src/cmd/gs/zlib/$stem.c

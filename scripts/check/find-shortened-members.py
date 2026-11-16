@@ -22,7 +22,7 @@ def code(s):
 def main():
 	paths = sys.argv[1:] or ['sys/src']
 	diff = subprocess.run(['git', 'diff', '-U0', 'front', '--'] + paths,
-		cwd=ROOT, capture_output=True, text=True).stdout
+		cwd=ROOT, capture_output=True, text=True, errors='replace').stdout	# a file not in UTF-8 (zlib's Latin-1)
 	f, minus, plus = None, [], []
 	bad = 0
 	def flush():

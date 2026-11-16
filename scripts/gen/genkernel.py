@@ -42,7 +42,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 K = os.path.join(ROOT, 'sys', 'src', '9')
 
 WARN = ['-Wno-error=implicit-int', '-Wall', '-Wno-missing-braces', '-Wno-parentheses', '-Wno-unknown-pragmas',
-	'-Wno-switch', '-Wno-sign-compare', '-Wno-sequence-point']
+	'-Wno-switch', '-Werror=sequence-point']	# unsequenced changes are undefined: an error (pc/dma.c had one); -Wall has no sign-compare in C
 
 ARCHS = {
 	'386': {
