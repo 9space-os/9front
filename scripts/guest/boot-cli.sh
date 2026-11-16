@@ -49,7 +49,9 @@
 #                     on arm64 its u-boot image (default arm64/9qemu.u)
 #         UFS_EXTRA   directory whose contents are added to the root
 #                     (tests/guest puts its test programs in /tests)
-#         BOOTWAIT    seconds at most for the boot: until rc prompts (300);
+#         BOOTWAIT    seconds at most for the boot: until rc prompts (300;
+#                     with SERVICE=cpu no prompt by then is a failure: exit 1,
+#                     the logs kept in $CLI_DIR/noprompt.TIME);
 #                     each line waits for rc's prompt (PROMPTWAIT, 300 s); meanwhile
 #                     factotum's nvram prompts get AUTHID (glenda),
 #                     AUTHDOM (9front), PASSWORD (gccport9), empty
@@ -344,6 +346,18 @@ while [ $SECONDS -lt $end ] && ! prompted; do
 	fi
 	sleep 0.5
 done
+# service=cpu and no rc prompt: the boot failed (a terminal's rc is in a
+# rio window, the serial line shows no prompt). The lines are not typed;
+# the logs are kept (the caller's copy is often in a temporary directory),
+# the screen dump and HOLD still happen, and the script ends with 1.
+noprompt=
+if [ "$SERVICE" = cpu ] && ! prompted; then
+	noprompt=$CLI_DIR/noprompt.$(date +%Y%m%d-%H%M%S)
+	mkdir -p "$noprompt"
+	cp "$CLI_DIR/console.log" "$CLI_DIR/qemu.log" "$noprompt/" 2>/dev/null || true
+	echo "boot-cli: no rc prompt after ${BOOTWAIT:-300} s, logs in $noprompt" >&2
+	cmds=() WAITFOR=
+fi
 ready=0	# rc prompted after the last line (replied)
 prompt=
 for c in "${cmds[@]}"; do
@@ -436,3 +450,4 @@ fi
 cleanup
 pids=()
 tr -d '\r' < "$CLI_DIR/console.log"
+[ -z "$noprompt" ] || exit 1
