@@ -274,7 +274,7 @@ acmetimer(Article *m, Window *w)
 
 	assert(m==nil && w==root);
 
-	if((d = dirstat(dir))==nil | hi==d->qid.vers){
+	if((d = dirstat(dir))==nil || hi==d->qid.vers){
 		free(d);
 		return;
 	}
