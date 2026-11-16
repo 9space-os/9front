@@ -1,7 +1,7 @@
 From 2f1b79d2ef8faadb1cc9a1e1f0071d5ebd406d81 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sun, 15 Nov 2026 10:54:00 +0100
-Subject: [PATCH 37/43] pci: the BARs of a device of class 0xFF
+Subject: [PATCH 37/44] pci: the BARs of a device of class 0xFF
 
 pciscan read and sized the base address registers only for the classes
 it lists; a device that fits no class (0xFF: Realtek's PCI Express card

@@ -30,7 +30,7 @@ On 9front: `git/import` takes the files as they are.
 All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 `82ddeb288`, 2026-11-10, at `00d3043a2`, 2026-11-12, and at `eb49f1f87`,
 2026-11-12); 0032 to 0034 on them at `eb49f1f87` (2026-11-14); all 38 at
-`6ae667969` (2026-11-15), 0039 to 0043 on them there (2026-11-16). Each
+`6ae667969` (2026-11-15), 0039 to 0044 on them there (2026-11-16). Each
 applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
@@ -109,6 +109,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0041 | ape/lib/9: exits and _exits with their argument in parentheses | bug fix |
 | 0042 | postscript: the functions declared (atof, malloc, error's arguments wrong on a 64-bit machine) | bug fix |
 | 0043 | compress, expr, antiword, spin: the functions they call declared (compress's utime) | bug fix |
+| 0044 | news, zuke, pool, dma, doom, eqn, troff: no variable both changed and read without a sequence point | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -641,6 +642,21 @@ for `foreground`, and `utime` given a `struct utimbuf` (it was a
 `char *malloc();` gone; `antiword`: `strcasecmp` and `getopt` declared
 (9front's APE has them in no POSIX header); `spin`: `stdlib.h` for
 `exit`. Found and shown as 0042.
+
+### 0044 news, zuke, pool, dma, doom, eqn, troff: no variable both changed and read without a sequence point
+
+gcc's `-Wsequence-point` found seven expressions whose result C leaves
+undefined, as every compiler may order them: `news`
+(`if((d = dirstat(dir))==nil | hi==d->qid.vers)`: `|` for `||`, so a
+nil `d` was read), `zuke` (`*f++ = clip16(*f * g)`: the sample scaled
+could be the next one), libc's `pool` (`*lp++ = sig ^ (lp - v)`: the
+fill pattern's offset with `lp` before or after its `++`), `pc/dma`
+(`pa` assigned on one side of `!=`, read on the other), `doom`
+(`eventtail = (++eventtail)&...`), `eqn` (`n = n%2 ? n : ++n`) and
+`troff` (`numtabp[ST].val` assigned twice in one expression). Each made
+explicit. Found by: a build with `-Wsequence-point` (the gcc branch now
+builds with `-Werror=sequence-point`). Not done: compiled with 9front's
+own compilers.
 
 ## Not included
 
