@@ -1,7 +1,7 @@
 From f5404ef781bf5277f99026304279171c96f98bd4 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sat, 14 Nov 2026 22:47:52 +0100
-Subject: [PATCH 32/38] libaml: a store into the field Index gives
+Subject: [PATCH 32/39] libaml: a store into the field Index gives
 
 store() took as its target only references (R, L, A) and names; the
 buffer field that Index returns ('u') fell into the default case and

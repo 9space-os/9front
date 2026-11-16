@@ -1,0 +1,30 @@
+From a5973b54b41599e82f514bff3b8d52353669695a Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Mon, 16 Nov 2026 16:21:41 +0100
+Subject: [PATCH 39/39] sam: journalv with snprint, not sprint
+
+With DEBUG, journalv gave sprint the buffer's size as its format, and
+the journal (/tmp/sam.out) crashed at the first vlong it wrote (the
+Tstartcmdfile from samterm).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/cmd/sam/mesg.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sys/src/cmd/sam/mesg.c b/sys/src/cmd/sam/mesg.c
+index 9eb1aa9dc..dad6bf9fc 100644
+--- a/sys/src/cmd/sam/mesg.c
++++ b/sys/src/cmd/sam/mesg.c
+@@ -112,7 +112,7 @@ journalv(int out, vlong v)
+ {
+ 	char buf[32];
+ 
+-	sprint(buf, sizeof(buf), "%lld", v);
++	snprint(buf, sizeof(buf), "%lld", v);
+ 	journal(out, buf);
+ }
+ #else
+-- 
+2.56.0
+

@@ -1,7 +1,7 @@
 From d45e8f9d0a05d2cd19404b3ebcabe22018924d89 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Thu, 12 Nov 2026 09:40:11 +0100
-Subject: [PATCH 27/38] vga: cursorsize, the software cursor scaled for a
+Subject: [PATCH 27/39] vga: cursorsize, the software cursor scaled for a
  monitor with many pixels to the inch
 
 vgactl's cursorsize n draws the software cursor n pixels big (16 to

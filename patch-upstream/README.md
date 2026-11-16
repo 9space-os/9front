@@ -30,7 +30,7 @@ On 9front: `git/import` takes the files as they are.
 All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 `82ddeb288`, 2026-11-10, at `00d3043a2`, 2026-11-12, and at `eb49f1f87`,
 2026-11-12); 0032 to 0034 on them at `eb49f1f87` (2026-11-14); all 38 at
-`6ae667969` (2026-11-15). Each
+`6ae667969` (2026-11-15), 0039 on them there (2026-11-16). Each
 applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
@@ -104,6 +104,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0036 | nusb/kb: a collection's usage | bug fix |
 | 0037 | pci: the BARs of a device of class 0xFF | bug fix |
 | 0038 | nusb(4): cam's file is formats | documentation |
+| 0039 | sam: journalv with snprint, not sprint | bug fix (a crash, only with -DDEBUG) |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -559,6 +560,18 @@ own compilers.
 The page named the file of a camera's resolutions and frame rates
 `format`; nusb/cam serves `formats`. Found by: reading it on a laptop's
 camera.
+
+### 0039 sam: journalv with snprint, not sprint
+
+sam built with `-DDEBUG` writes its protocol with samterm to
+`/tmp/sam.out`; `journalv` called `sprint(buf, sizeof(buf), "%lld", v)`,
+the buffer's size as the format, and sam crashed at the first vlong
+(samterm's `Tstartcmdfile`). Found by: the main branch's reference
+workflow test (`tests/workflow`), reading sam's journal under samterm.
+Shown by: the journal then complete (`Tstartcmdfile`, its pointer, the
+`H` messages after it), with a sam built by gcc. `mesg.c` of the
+`upstream` branch compiles with `6c -FTVw` and `8c -FTVw`, with and
+without `-DDEBUG` (6c), in a 9front guest; no warnings.
 
 ## Not included
 
