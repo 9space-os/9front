@@ -1,11 +1,15 @@
 /*
  * tests/wlan: wlansim, the radio of an etherwlan interface (#ω/wlanN,
- * etherwlan.c) and three access points on it:
+ * etherwlan.c) and the access points on it:
  *
  *	nfront		02:00:00:00:00:aa	channel 6 (2.4 GHz), open, -60 dBm
  *	nfront		02:00:00:00:00:dd	channel 11, open, -30 dBm: the
  *					same network's stronger node, the one
  *					the station is to choose
+ *	nfront		02:00:00:00:00:ee	channel 40 (5 GHz), open, -75 dBm
+ *					(-r sets it): under OpenBSD's threshold
+ *					for 5 GHz (-70) the stronger 2.4 GHz
+ *					node is chosen, above it this one
  *	nfront5		02:00:00:00:00:bb	channel 36 (5 GHz), open; its
  *					beacons have no DS parameter set,
  *					the HT operation element says the
@@ -38,7 +42,7 @@
  * from 9front's /sys/src/9/port/wifi.c, the PRF from factotum's
  * wpapsk.c (/sys/src/cmd/auth/factotum).
  *
- * usage: wlansim [-d] [#ω/wlan1]
+ * usage: wlansim [-d] [-r dBm] [#ω/wlan1]
  */
 #include <u.h>
 #include <libc.h>
@@ -113,6 +117,7 @@ static uchar rates5[] = { 0x8c, 0x12, 0x98, 0x24, 0xb0, 0x48, 0x60, 0x6c };
 static Ap aps[] = {
 	{ "nfront",	{ 0x02, 0, 0, 0, 0, 0xaa },	6,	0,	0,	0,	-60,	rates24,	sizeof rates24 },
 	{ "nfront",	{ 0x02, 0, 0, 0, 0, 0xdd },	11,	0,	0,	0,	-30,	rates24,	sizeof rates24 },
+	{ "nfront",	{ 0x02, 0, 0, 0, 0, 0xee },	40,	0,	0,	0,	-75,	rates5,	sizeof rates5 },
 	{ "nfront5",	{ 0x02, 0, 0, 0, 0, 0xbb },	36,	1,	0,	1,	-40,	rates5,	sizeof rates5 },
 	{ "nfrontwpa",	{ 0x02, 0, 0, 0, 0, 0xcc },	100,	0,	1,	1,	-40,	rates5,	sizeof rates5 },
 };
@@ -1099,10 +1104,18 @@ beaconproc(void)
 	}
 }
 
+static Ap*
+ap5(void)
+{
+	static uchar ee[6] = { 0x02, 0, 0, 0, 0, 0xee };
+
+	return apbybssid(ee);
+}
+
 static void
 usage(void)
 {
-	fprint(2, "usage: wlansim [-d] [#ω/wlanN]\n");
+	fprint(2, "usage: wlansim [-d] [-r dBm] [#ω/wlanN]\n");
 	exits("usage");
 }
 
@@ -1116,6 +1129,9 @@ main(int argc, char *argv[])
 	ARGBEGIN{
 	case 'd':
 		debug++;
+		break;
+	case 'r':	/* the signal of nfront's 5 GHz node (02:00:00:00:00:ee) */
+		ap5()->rssi = atoi(EARGF(usage()));
 		break;
 	default:
 		usage();

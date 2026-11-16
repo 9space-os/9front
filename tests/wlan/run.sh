@@ -33,7 +33,10 @@ wlanboot(){
 		"for(p in \`{ps | awk '\$NF==\"wlansim\" {print \$2}'}) echo kill >/proc/\$p/ctl; sleep 1; grep 'status' /net/ether1/ifstats | sed 's/^/wlangone: /'; echo wlangone: done" \
 		"/tests/wlansim -d /dev/wlan1 >[2]/tmp/sim2.log &" \
 		"pfx=wlanre; ch=100; $waitassoc; ip/ping -n 2 10.0.9.1 >[2=1] | sed 's/^/wlanreping: /'" \
-		"sed 's/^/wlansim: /' /tmp/sim.log; sed 's/^/wlansim2: /' /tmp/sim2.log; cat /dev/wlan1/ctl | sed 's/^/wlanctl: /'; echo wlantest: done" > "$TMPD/boot" 2>&1
+		"for(p in \`{ps | awk '\$NF==\"wlansim\" || \$NF==\"wpa\" {print \$2}'}) echo kill >/proc/\$p/ctl; sleep 1" \
+		"/tests/wlansim -d -r -65 /dev/wlan1 >[2]/tmp/sim3.log &" \
+		"echo essid nfront >/net/ether1/clone; pfx=wlan5g; ch=40; $waitassoc" \
+		"sed 's/^/wlansim: /' /tmp/sim.log; sed 's/^/wlansim2: /' /tmp/sim2.log; sed 's/^/wlansim3: /' /tmp/sim3.log; cat /dev/wlan1/ctl | sed 's/^/wlanctl: /'; echo wlantest: done" > "$TMPD/boot" 2>&1
 	tr -d '\r' < "$CLI_DIR/console.log" > "$TMPD/console"
 	grep -q '^wlantest: done' "$TMPD/console" || { tail -20 "$TMPD/console"; false; }
 }
@@ -45,6 +48,9 @@ check "the station's address by the radio's ctl: 020000000002" grep -q '^0200000
 check "wifi.c found the access point and associated" grep -q '^wlanstat: status: associated' "$C"
 check "the access point saw authentication and association" grep -q 'wlansim: wlansim: nfront: associated 020000000002' "$C"
 check "the stronger of nfront's two nodes chosen (channel 11, -30 dBm, not 6 at -60)" bash -c "grep -q 'wlansim: wlansim: nfront: associated 020000000002 on channel 11' '$C' && grep -q '^wlanstat: bssid: 0200000000dd' '$C' && grep -q '^wlanstat: signal: -30 dBm' '$C'"
+check "ifstats: each node's signal (nfront on 11: -30 dBm)" grep -q '^wlanstat: node: 0200000000dd [0-9a-f]* *[0-9]* *11  -30 nfront$' "$C"
+check "5 GHz preferred (OpenBSD): nfront's node on 40 at -65 dBm, not 11 at -30" bash -c "grep -q 'wlansim3: wlansim: nfront: associated 020000000002 on channel 40' '$C' && grep -q '^wlan5gstat: bssid: 0200000000ee' '$C' && grep -q '^wlan5gstat: signal: -65 dBm' '$C'"
+check "5 GHz under -70 dBm (-75): the stronger on 2.4 GHz still chosen" bash -c "! grep -q 'wlansim: wlansim: nfront: associated 020000000002 on channel 40' '$C'"
 check "ping 10.0.9.1 through it: echoes answered" bash -c "grep '^wlanping: ' '$C' | grep -q 'rtt\|time'"
 # 5 GHz: nfront5 on 36 (no DS parameter set: the HT operation's channel)
 check "5 GHz: the scan found nfront5, associated on channel 36" bash -c "grep -q '^wlan5stat: status: associated' '$C' && grep -q '^wlan5stat: channel: 36' '$C' && grep -q 'wlansim: wlansim: nfront5: associated 020000000002 on channel 36' '$C'"
