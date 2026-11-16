@@ -21,6 +21,7 @@
 			"-fno-stack-protector",
 			"-fplan9-extensions",
 			"-fcommon",
+			"-Werror=sequence-point",
 			"-Wno-error=implicit-int",
 			"-Wno-error=incompatible-pointer-types",
 			"-g",
