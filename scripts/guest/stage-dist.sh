@@ -28,7 +28,13 @@
 # binaries carry DWARF (8l writes none) and are stripped. The guest's install script
 # (scripts/guest/boot/mkdisk.rc) reads the result as /n/src9.
 #
-# usage: [objtype=386] scripts/guest/stage-dist.sh dir
+# DEV (a list of gcc, rust, go, e.g. DEV=gcc,rust, or all; DEV= none) says which
+# languages come along: gcc as /$objtype/gnu, Rust from RUST_OUT (default its
+# out/$objtype), Go from GO_OUT (likewise); Rust links with gcc, so rust takes gcc
+# along. Without DEV, as before: gcc if it is built, Rust and Go if RUST_OUT, GO_OUT
+# are set. /$objtype/lib.gcc (the system's archives) is always there.
+#
+# usage: [objtype=386] [DEV=list] scripts/guest/stage-dist.sh dir
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 . "$ROOT/scripts/lib/paths.sh"	# GCC_DIR, RUST_DIR, GO_DIR, MCP_DIR, DISTFILES (the distribution's paths.env)
@@ -74,6 +80,18 @@ done
 # the build's install step makes (scripts/build/elf2aout.py)
 A=${objtype:-amd64}
 case $A in amd64) K=9pc64 ;; 386) K=9pc ;; *) echo "stage-dist: objtype=$A unknown" >&2; exit 1 ;; esac
+# the languages: DEV given, exactly those; else as before
+if [ -n "${DEV+set}" ]; then
+	dev=" $(echo "$DEV" | tr , ' ') "
+	for l in $dev; do case $l in gcc|rust|go) ;; all) dev=" gcc rust go " ;; *) echo "stage-dist: DEV: no language $l (gcc, rust, go)" >&2; exit 1 ;; esac; done
+	case $dev in *" rust "*) case $dev in *" gcc "*) ;; *) dev="$dev gcc "; echo "stage-dist: rust links with gcc, gcc comes along" >&2 ;; esac ;; esac
+	case $dev in *" rust "*) RUST_OUT=${RUST_OUT:-$RUST_DIR/out/$A} ;; *) RUST_OUT= ;; esac
+	case $dev in *" go "*) GO_OUT=${GO_OUT:-$GO_DIR/out/$A} ;; *) GO_OUT= ;; esac
+fi
+lang(){ [ -z "${DEV+set}" ] || case $dev in *" $1 "*) return 0;; *) return 1;; esac; }
+langs="as built"
+[ -z "${DEV+set}" ] || { langs=$(echo $dev); langs=${langs:-none}; }
+echo "stage-dist: languages: $langs" >&2
 [ -s "$ROOT/$A/$K" ] || { echo "stage-dist: no $A/$K, run CC=gcc ARCH=$A sys/src/cmd/build/build.exe" >&2; exit 1; }
 mkdir -p "$VIEW/.$A"
 for f in "$ROOT"/$A/*; do ln -s "$f" "$VIEW/.$A/$(basename "$f")"; done
@@ -81,9 +99,13 @@ rm "$VIEW/$A"; mv "$VIEW/.$A" "$VIEW/$A"
 # the native toolchain (../9front-gcc: build.sh native) as /$objtype/gnu
 GCC_OUT=${GCC_OUT:-$GCC_DIR/out/$A}
 PROTOS=("$ROOT/scripts/guest/boot/gccproto")
-if [ -d "$GCC_OUT/$A/gnu" ]; then
+if ! lang gcc; then
+	:
+elif [ -d "$GCC_OUT/$A/gnu" ]; then
 	ln -s "$GCC_OUT/$A/gnu" "$VIEW/$A/gnu"
 	PROTOS+=("$ROOT/scripts/guest/boot/gnuproto")
+elif [ -n "${DEV+set}" ]; then
+	echo "stage-dist: no $GCC_OUT/$A/gnu (DEV has gcc): build it, toolchain/gcc build.sh native" >&2; exit 1
 else
 	echo "stage-dist: no $GCC_OUT/$A/gnu, the distribution has no gcc" >&2
 fi
