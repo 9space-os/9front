@@ -39,7 +39,7 @@ sleep 1
 ok auth and rcpu listening on $ip
 
 # wsys on the other side; its lines come back on the connection
-rcpu -h 'tcp!'$ip'!17033' -u glenda -c 'WSYSDEBUG=compress /tests/wsys -x -i /tests/rcpuwin' >/tmp/rcpu.out >[2=1] &
+rcpu -h 'tcp!'$ip'!17033' -u glenda -c 'WSYSDEBUG=compress /tests/wsys -d -x -i /tests/rcpuwin' >/tmp/rcpu.out >[2=1] &
 r=$apid
 if(waitfile /usr/glenda/rcpu.ready 60) ok wsys through rcpu up
 if not {
@@ -62,13 +62,14 @@ if(~ $#c 0) fail no compression: wsys did not take the screen as far away
 if not if(test $c(3) -gt `{echo 4'*'$c(8) | hoc}) ok compressed $c(3) into $c(8) bytes
 if not fail compressed $c(3) into $c(8) bytes only
 
-# again with -k: wsys' windows layers of the terminal's devdraw (as rio's), on
+# again without -d: on a screen far away -k, the default: wsys' windows layers
+# of the terminal's devdraw (as rio's), on
 # a window over its screen (onlayer: drawterm shows nothing drawn on the
 # screen under its name); the screen 1024x768 again first
 r=()
 for(f in ready resized done) rm -f /usr/glenda/rcpu.$f
 aux/vga -m vesa -l 1024x768x32 >[2=1]
-rcpu -h 'tcp!'$ip'!17033' -u glenda -c '/tests/wsys -k -x -i /tests/rcpuwin' >/tmp/rcpuk.out >[2=1] &
+rcpu -h 'tcp!'$ip'!17033' -u glenda -c 'WSYSDEBUG=compress /tests/wsys -x -i /tests/rcpuwin' >/tmp/rcpuk.out >[2=1] &
 r=$apid
 if(waitfile /usr/glenda/rcpu.ready 60) ok wsys -k through rcpu up
 if not {
@@ -84,4 +85,7 @@ while(test -e /proc/$r/status && test $n -lt 100){ sleep 0.1; n=`{echo $n+1 | ho
 sed 's/^/-k: /' /tmp/rcpuk.out
 grep -s '^FAIL' /tmp/rcpuk.out && nfail=`{echo $nfail+1 | hoc}
 grep -s '^rcpuwin: all passed' /tmp/rcpuk.out || fail -k, the other side: no all passed
+# -k sends no pixels: nothing compressed
+if(grep -s '^wsys: compressed' /tmp/rcpuk.out) fail -k by default: wsys still compressed pixels
+if not ok -k by default: no pixels compressed
 if(~ $nfail 0) echo rcpu: all passed

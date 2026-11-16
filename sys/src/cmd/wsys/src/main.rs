@@ -4987,6 +4987,12 @@ fn main() {
             _ => usage(),
         }
     }
+    // a screen far away (drawterm's): the kernel's devdraw there, as rio's windows
+    // (-k): its programs draw on it, a window moves by a message; wsys' own would
+    // send pixels over the network (-d asks for it)
+    if remote && coredraw.is_none() {
+        coredraw = Some(false);
+    }
     // the theme: classic, what the file says over it
     let mut theme = theme::Theme::classic();
     if let Some(f) = &themefile {

@@ -143,7 +143,12 @@ the kernel's: its windows are then windows of the kernel's devdraw, as
 .IR rio 's;
 where its own cannot start, the kernel's;
 .B -d
-makes that an error): the kernel's devdraw, libmemdraw and libmemlayer in its process
+makes that an error; on a screen far away, the terminal's of a cpu
+session as above, the terminal's unless
+.BR -d :
+its programs draw there and a window moves by a message, where
+.IR wsys 's
+own would send the screen's pixels over the network): the kernel's devdraw, libmemdraw and libmemlayer in its process
 .RB ( drawfs (4)'s,
 built for APE), on a screen as big as the kernel's in a segment of
 .IR segment (3)
