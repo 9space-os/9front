@@ -91,10 +91,17 @@ The receive header's signal (dBm; 0: the radio has none) chooses the
 node: where the radio gives it, wifi.c joins only after its scan went
 once over the channels since it heard the first node that matches, and
 then the strongest of those it heard in the last 5 s (a mesh's access
-point rather than a far repeater); the interface's
+point rather than a far repeater), as OpenBSD chooses: the strongest on
+5 GHz if its signal is at least \-70 dBm, even where one on 2.4 GHz is
+stronger, else the strongest on either band.
+The interface's
 .B ifstats
 says the joined node's signal
-.RB ( signal: ).
+.RB ( signal: )
+and each node's in its
+.B node:
+line, after the channel (dBm, 0: none); 9front's line has no such
+column.
 There is no roaming yet: associated, the radio hears only its channel.
 .PP
 The radio answers aggregates (A-MPDU) with block acks: wifi.c agrees to

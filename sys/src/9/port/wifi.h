@@ -146,12 +146,14 @@ struct Wifi
 
 	/*
 	 * nfront: the driver gives the signal (Bsignal): the scan goes once
-	 * over its channels (scanpass) before choosing, then the strongest
-	 * node of those that match
+	 * over all its channels (scanlen steps) after the first node that
+	 * matches was heard, then chooses the strongest of those that match
 	 */
 	int	sigs;
-	int	scanpass;
-	int	candpass;	/* the pass the first that matches was heard in (-1: none yet) */
+	ulong	scanstep;	/* channels tuned to, counted */
+	int	scanlen;	/* channels in the scan's list */
+	ulong	candstep;	/* scanstep when the first that matches was heard */
+	int	hascand;	/* candstep is set (0: a new choice) */
 	Lock	balock;
 	Wba	rxba[Ntid];
 

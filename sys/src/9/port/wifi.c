@@ -1145,26 +1145,35 @@ goodbss(Wifi *wifi, Wnode *wn)
 
 /*
  * nfront: the node to join, where the driver gives the signal: none
- * before the scan went once over its channels since the first that
- * matches was heard (candpass), then the strongest that matches, seen in
- * the last 5 s, as OpenBSD's ieee80211_end_scan picks
- * the best candidate (a mesh's access point rather than its far
- * repeater); without the signal wn, the first that matches, as before
+ * before the scan went once over all its channels since the first that
+ * matches was heard (candstep), then the strongest that matches, seen in
+ * the last 5 s (a mesh's access point rather than its far repeater), as
+ * OpenBSD's ieee80211_node_choose_bss picks it: the strongest on 5 GHz
+ * where its signal reaches IEEE80211_RSSI_THRES_5GHZ (-70 dBm), even if
+ * one on 2.4 GHz is stronger (the 5 GHz band is less crowded, its
+ * channels wider), else the strongest on either; without the signal wn,
+ * the first that matches, as before
  */
+enum {
+	Rssithres5 = -70,	/* dBm, OpenBSD's IEEE80211_RSSI_THRES_5GHZ */
+};
+
 static Wnode*
 bestbss(Wifi *wifi, Wnode *wn)
 {
-	Wnode *n, *best;
+	Wnode *n, *best, *best5;
 	ulong now;
 
 	if(!wifi->sigs)
 		return wn;
-	if(wifi->candpass < 0)
-		wifi->candpass = wifi->scanpass;
-	if(wifi->scanpass <= wifi->candpass)
-		return nil;
+	if(!wifi->hascand){
+		wifi->candstep = wifi->scanstep;
+		wifi->hascand = 1;
+	}
+	if(wifi->scanstep - wifi->candstep < wifi->scanlen)
+		return nil;	/* not yet on every channel since */
 	now = MACHP(0)->PMach.ticks;
-	best = nil;
+	best = best5 = nil;
 	for(n = wifi->node; n != &wifi->node[nelem(wifi->node)]; n++){
 		if(!n->hasrssi || TK2MS(now - n->lastseen) > 5000 || !goodbss(wifi, n))
 			continue;
@@ -1172,7 +1181,11 @@ bestbss(Wifi *wifi, Wnode *wn)
 			continue;	/* tried just now */
 		if(best == nil || n->rssi > best->rssi)
 			best = n;
+		if(n->channel > 14 && (best5 == nil || n->rssi > best5->rssi))
+			best5 = n;
 	}
+	if(best5 != nil && (best5->rssi >= Rssithres5 || best5->rssi >= best->rssi))
+		best = best5;
 	if(best != nil && wifi->debug)
 		print("#l%d: the strongest: %E %d dBm\n", wifi->ether->ctlrno, best->bssid, best->rssi);
 	return best;
@@ -1389,7 +1402,7 @@ wifsproc(void *arg)
 	while(waserror())
 		;
 Scan:
-	wifi->candpass = -1;	/* nfront: a new choice after a full pass (bestbss) */
+	wifi->hascand = 0;	/* nfront: a new choice after a full pass (bestbss) */
 	scan = nil;
 	/*
 	 * scan for access point
@@ -1401,11 +1414,12 @@ Scan:
 		ethersetlink(ether, 0);
 		list = wifi->scan != nil ? wifi->scan : wifiscan2g;
 		if(list != scan || list[i] == 0){
-			if(list == scan)
-				wifi->scanpass++;	/* nfront: once over the channels (bestbss) */
 			scan = list;	/* the driver may set it after wifiattach */
 			i = 0;
+			for(wifi->scanlen = 0; scan[wifi->scanlen] != 0; wifi->scanlen++)
+				;
 		}
+		wifi->scanstep++;	/* nfront: the channels tuned to (bestbss) */
 		wnscan.channel = scan[i++];
 		wnscan.validrates = chanrates(wifi, wnscan.channel);
 		dwell = 200;
@@ -1650,6 +1664,15 @@ wifictl(Wifi *wifi, void *buf, long n)
 		wifi->bss = nil;
 		if(wifi->essid[0] == 0 && memcmp(wifi->bssid, wifi->ether->Netif.bcast, Eaddrlen) == 0)
 			break;
+		if(wifi->sigs){
+			/*
+			 * nfront: the radio gives the signal: the beacons choose
+			 * (bestbss) after a full pass, not the first of the nodes
+			 * known from before to answer
+			 */
+			wifi->hascand = 0;
+			break;
+		}
 		for(wn = wifi->node; wn != &wifi->node[nelem(wifi->node)]; wn++)
 			if(goodbss(wifi, wn)){
 				setstatus(wifi, wn, Sconn);
@@ -1765,8 +1788,10 @@ wifistat(Wifi *wifi, char *p, char *e)
 			continue;
 		strncpy(essid, wn->ssid, Essidlen);
 		essid[Essidlen] = 0;
-		p = seprint(p, e, "node: %E %.4x %-11ld %.2d %s\n",
-			wn->bssid, wn->cap, TK2MS(now - wn->lastseen), wn->channel, essid);
+		/* nfront: the signal (dBm, 0: none), before the essid */
+		p = seprint(p, e, "node: %E %.4x %-11ld %.2d %4d %s\n",
+			wn->bssid, wn->cap, TK2MS(now - wn->lastseen), wn->channel,
+			wn->hasrssi ? wn->rssi : 0, essid);
 	}
 	return p;
 }
