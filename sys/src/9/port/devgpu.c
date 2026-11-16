@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: MIT
  *
- * #G: minimal kernel stub for user-space GPU drivers (nfront: and for
+ * #G: minimal kernel stub for user-space GPU drivers (9space: and for
  * other PCI devices plan9.ini's *userpci= names, e.g. a WLAN card's).
  *
  *	#G/N/ctl	r: pci, id, bars, segments, framebuffer
@@ -41,7 +41,7 @@
 #include	"../port/pci.h"
 #include	"../port/error.h"
 
-extern QLock	drawlock;	/* devdraw's (nfront: dirty reads between its batches) */
+extern QLock	drawlock;	/* devdraw's (9space: dirty reads between its batches) */
 
 enum {
 	Qtopdir,
@@ -158,7 +158,7 @@ gpusegs(Gpu *g)
 	g->segs = 1;
 	p = g->pci;
 	/*
-	 * nfront: as 9front's drivers do: the device in D0 and the bridges
+	 * 9space: as 9front's drivers do: the device in D0 and the bridges
 	 * above it on, with bus mastering, or its DMA gets no further than
 	 * the first bridge left off (a master abort: the ThinkBook's WLAN
 	 * card behind 00:02.2, which the firmware leaves without it)
@@ -185,7 +185,7 @@ gpusegs(Gpu *g)
 }
 
 /*
- * nfront: plan9.ini's *userpci=vid/did ...: other PCI devices a user-level
+ * 9space: plan9.ini's *userpci=vid/did ...: other PCI devices a user-level
  * driver drives through the same files (aux/rtw89: a WLAN card)
  */
 static int
@@ -452,7 +452,7 @@ gpuread(Chan *c, void *a, long n, vlong off)
 		d = c->aux;
 		sleep(&d->rend, isdirty, d);
 		/*
-		 * nfront: not in the middle of devdraw's batch (it holds drawlock
+		 * 9space: not in the middle of devdraw's batch (it holds drawlock
 		 * for a write's messages, and flushes on the way when its changes
 		 * are far apart): the reader copies what is drawn whole, not a
 		 * window filled and its text not yet drawn again

@@ -347,7 +347,7 @@ main(int argc, char **argv)
 		usage();
 	}ARGEND
 
-	/* nfront: the data file keeps the configuration of its open (i2c(3)) */
+	/* 9space: the data file keeps the configuration of its open (i2c(3)) */
 	if((ctl = open("#J/i2c3/i2c.1a.ctl", OWRITE)) < 0)
 		sysfatal("i2c ctl: %r");
 	fprint(ctl, "subaddress 1\n");

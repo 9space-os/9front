@@ -40,7 +40,7 @@ struct Xalloc
 static Xalloc	xlists;
 
 /*
- * nfront: user pages below 4 GB (plan9.ini *dma32=MB, default 64, 0
+ * 9space: user pages below 4 GB (plan9.ini *dma32=MB, default 64, 0
  * none) when there is memory above: the kernel takes the lowest of
  * each bank, so it had all of them, and a device that addresses no
  * more than 32 bits got no user memory (segment(3)'s dma32, the
@@ -90,7 +90,7 @@ xinit(void)
 		n = cm->npage;
 		if(n > kpages)
 			n = kpages;
-		/* nfront: the bank's top below 4 GB to the user (dma32pages) */
+		/* 9space: the bank's top below 4 GB to the user (dma32pages) */
 		if(dma32 > 0 && (uvlong)cm->base < 1ULL<<32){
 			low = cm->npage;
 			if((uvlong)cm->base + (uvlong)low*BY2PG > 1ULL<<32)

@@ -1,5 +1,5 @@
 /*
- * nfront: #ω, the radio's side of etherwlan's interfaces (etherwlan.c):
+ * 9space: #ω, the radio's side of etherwlan's interfaces (etherwlan.c):
  * wlanN/data, the frames, wlanN/ctl.  Only the host owner opens them.
  */
 #include "u.h"

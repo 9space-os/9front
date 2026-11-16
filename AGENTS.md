@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## What this is
-The **9front** OS source tree (Plan 9 fork). Branch `front` = mirror of github.com/9front/9front. Branch `gcc` = port that builds 9front with **gcc** on Linux instead of 9front's own compilers (8c/6c/7c + mk). Branch `main` = nfront, the distribution on top of it (GPU stack, wsys, ui); the paths of its other parts come from `../dist/paths.env` via `scripts/lib/paths.sh`. Docs: man pages `sys/man`, papers `sys/doc`. Status and open items of the port: `MEMORY.md` (German).
+The **9front** OS source tree (Plan 9 fork). Branch `front` = mirror of github.com/9front/9front. Branch `gcc` = port that builds 9front with **gcc** on Linux instead of 9front's own compilers (8c/6c/7c + mk). Branch `main` = 9space, the distribution on top of it (GPU stack, wsys, ui); the paths of its other parts come from `../dist/paths.env` via `scripts/lib/paths.sh`. Docs: man pages `sys/man`, papers `sys/doc`. Status and open items of the port: `MEMORY.md` (German).
 
 ## Layout
 - `386/ amd64/ arm64/`: per arch `include/u.h`, `include/ureg.h`; built files land in `<arch>/bin`, `<arch>/lib.gcc`.

@@ -1112,7 +1112,7 @@ syssegattach(uchar *list)
 	attr = ARG(list, int);
 	name = ARG(list, char*);
 	va = ARG(list, uintptr);
-	/* nfront: the length is a usize (libc.h), 4 GB and more on amd64 (an APU's video memory) */
+	/* 9space: the length is a usize (libc.h), 4 GB and more on amd64 (an APU's video memory) */
 	len = ARG(list, uintptr);
 	validaddr((uintptr)name, 1, 0);
 	name = validnamedup(name, 1);

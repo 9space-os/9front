@@ -15,7 +15,7 @@ URL = os.environ.get("MCPURL", "http://127.0.0.1:%s/mcp" % os.environ.get("PORT"
 TOKEN = os.environ.get("MCPTOKEN", "mcpguest")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import paths
-CLI_DIR = paths.get("CLI_DIR")	# dist/paths.env: nfront/cache/cli
+CLI_DIR = paths.get("CLI_DIR")	# dist/paths.env: 9space/cache/cli
 SID = os.path.join(CLI_DIR, "mcp.sid")
 
 

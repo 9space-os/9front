@@ -39,7 +39,7 @@ file system of the guest: in `PATH` or `~/go/bin/ufs`).
 | `boot` | boot to the console rc (cpu service), run commands | a build, QEMU | ~1 min |
 | `pmc` | performance counters (`#ε`, pmc(3), pmc(2)): `tests/pmc/pmctest.c` wired to cpu1 on 4 CPUs (counts over a loop, user/os filters, RDPMC or `PMEVCNTR0_EL0` in user mode, another core's counter, two readers at once, `#ε/core`); x86 boots with `PMU=1` (KVM's virtual counters), then without (no counters); arm64 (TCG) has PMUv3 (`cycles` only) | a build, QEMU | ~2 min |
 | `acpi` | ACPI's events: the kernel's `#P/acpiev` (the SCI, GPE and PM1 blocks) and aux/acpi's `acpievents` in QEMU (i440fx): the power button (QMP `system_powerdown`, PM1), a PCI device hot-plugged (QMP `device_add`: GPE 1, `\_GPE._E01`, its `Notify`), an SSDT of our own (`tests/acpi/ssdt.py`, `-acpitable`): a display output's `Notify` 0x86 as `key brightnessup`, a lid's as `lid open`, aux/acpi's `backlight` through `_BCL`, `_BCM`, `_BQC`, and aux/acpikeys moving it on the key (no GPU driver) | a build, QEMU | ~1 min |
-| `wlan` | etherwlan (`ether1=type=wlan`: wifi.c over a radio that is a program, #ω, wlan(3)) with `wlansim.c` as radio and access points (nfront on channel 6, nfront5 on 36, nfrontwpa on 100 with WPA2-PSK): scan of 2.4 and 5 GHz (passive on DFS channels), authentication, association, the station's address by the radio's ctl, ARP, ping on each; aux/wpa's 4-way handshake and CCMP; gpu(3)'s `*userpci=` | QEMU, the build | a minute |
+| `wlan` | etherwlan (`ether1=type=wlan`: wifi.c over a radio that is a program, #ω, wlan(3)) with `wlansim.c` as radio and access points (9space on channel 6, 9space5 on 36, 9spacewpa on 100 with WPA2-PSK): scan of 2.4 and 5 GHz (passive on DFS channels), authentication, association, the station's address by the radio's ctl, ARP, ping on each; aux/wpa's 4-way handshake and CCMP; gpu(3)'s `*userpci=` | QEMU, the build | a minute |
 | `hw` | the hardware test stick (`tests/hw/README.md`) in QEMU: boots from a USB stick on xHCI, runs its configurations with resets, logs `HANG` after a power-off, logs read back from its 9fat | a build, boot loaders, QEMU | minutes |
 | `gpu` | user-space GPU driver PoC on QEMU's virtio-gpu (`-vga none`): `#G`, vga type `gpu`, `aux/virtiogpu`, `/dev/gpu/0`, mode switch, drawing checked in the screen dump; with a render node also venus (Vulkan, GL through zink, a buffer between two processes: vkshare) and vktri in a window of wsys through GPU buffers (amd64 only) | a build, QEMU | ~1 min, ~15 with venus |
 | `gui` | terminal boot: VESA via aux/realemu, rio, typing into a window | a build, QEMU | ~1 min |
@@ -61,7 +61,7 @@ file system of the guest: in `PATH` or `~/go/bin/ufs`).
 
 Options (environment):
 
-- `ISO=file.iso` — `iso` tests this CD instead of building one; `rio` and `usb` use it, else the last CD `scripts/guest/mkiso.sh` made (`~/Devel/nfront/cache/cli/9front.$objtype.iso`). `objtype=386 ISO=~/Devel/nfront/cache/cli/9front.386.iso bash tests/run.sh iso`
+- `ISO=file.iso` — `iso` tests this CD instead of building one; `rio` and `usb` use it, else the last CD `scripts/guest/mkiso.sh` made (`~/Devel/9space/cache/cli/9front.$objtype.iso`). `objtype=386 ISO=~/Devel/9space/cache/cli/9front.386.iso bash tests/run.sh iso`
 - `USB_CTLRS="xhci ehci"` — `usb` tests only these controllers.
 - `CPU`, `SMP`, `MEM` — QEMU's `-cpu`, `-smp`, `-m` for `rio` and `usb` (e.g. `CPU=n270 SMP=2` for an Atom netbook).
 - `DISKIMG=file.img` — `disk` boots this image instead of building one.

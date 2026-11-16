@@ -39,17 +39,17 @@ pull, replica/httpfs \- update the system from its update server
 .I url
 .SH DESCRIPTION
 .I Pull
-brings the installed system up to date from nfront's update server:
+brings the installed system up to date from 9space's update server:
 it runs
 .I replica/pull
 (see
 .IR replica (1))
 with the replica the install CD put in
-.BR /dist/replica/nfront ,
+.BR /dist/replica/9space ,
 or with
 .IR replica .
 The CD's replica names the server's URL, its public key
-.RB ( /dist/replica/nfront.pub )
+.RB ( /dist/replica/9space.pub )
 and the client's db and log
 .RB ( /dist/replica/client ),
 as of the CD: the installed system starts up to date.
@@ -143,18 +143,18 @@ posts the server as
 .B -D
 traces 9P.
 .SH FILES
-.TF /dist/replica/client/nfront.db
+.TF /dist/replica/client/9space.db
 .TP
-.B /dist/replica/nfront
+.B /dist/replica/9space
 the replica: URL, key, client db and log
 .TP
-.B /dist/replica/nfront.pub
+.B /dist/replica/9space.pub
 the update server's public key
 .TP
-.B /dist/replica/client/nfront.db
+.B /dist/replica/client/9space.db
 what the system has of the replica
 .TP
-.B /dist/replica/client/nfront.log
+.B /dist/replica/client/9space.log
 the server's log as far as the system has it
 .SH SOURCE
 .B /rc/bin/pull
@@ -163,7 +163,7 @@ the server's log as far as the system has it
 .br
 the server side, on the build host:
 .B scripts/replica/publish.py
-of nfront's tree
+of 9space's tree
 .SH SEE ALSO
 .IR replica (1),
 .IR replica (8),

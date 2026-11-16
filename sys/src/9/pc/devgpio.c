@@ -1,5 +1,5 @@
 /*
- * nfront: #γ, a GPIO controller's pins and their interrupts, for the
+ * 9space: #γ, a GPIO controller's pins and their interrupts, for the
  * programs that drive what is wired to them: aux/acpi (GPIO-signaled
  * ACPI events, _AEI: a laptop's power button) and the drivers of devices
  * whose interrupt is a pin (an I2C touchpad's GpioInt).

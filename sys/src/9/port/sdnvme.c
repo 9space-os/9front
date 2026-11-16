@@ -696,7 +696,7 @@ nvmepnpctlrs(void)
 	int i;
 
 	h = t = nil;
-	/* nfront: *nonvme= leaves every NVMe controller untouched (a machine's own disk off limits) */
+	/* 9space: *nonvme= leaves every NVMe controller untouched (a machine's own disk off limits) */
 	if(getconf("*nonvme") != nil)
 		return nil;
 	for(p = nil; p = pcimatch(p, 0, 0);){

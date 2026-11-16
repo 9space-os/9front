@@ -4,7 +4,7 @@
  * buffer object as one), each found by its address (seg's binary search:
  * write and read every one), /proc/n/segment lists them, a fork's child
  * has them all, detaching every other one and attaching again reuses the
- * free slots, an exec keeps them (segattach(2)).  nfront: a sticky
+ * free slots, an exec keeps them (segattach(2)).  9space: a sticky
  * segment with dma32 (segment(3)) has its pages below 4 GB, contiguous.
  * Prints "ok ..." / "FAIL ..." lines and a summary.
  *
@@ -61,7 +61,7 @@ nsegs(int pid)
 }
 
 /*
- * nfront: "va VA LEN sticky [contig] dma32": its pages (#g/name/pa)
+ * 9space: "va VA LEN sticky [contig] dma32": its pages (#g/name/pa)
  * below 4 GB and contiguous; aligned to the size with contig
  */
 static void

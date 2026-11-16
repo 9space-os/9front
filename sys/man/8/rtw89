@@ -27,7 +27,7 @@ a
 interface: Realtek's
 .I rtw89
 driver, as FreeBSD carries it (under its BSD-3-Clause choice), on
-nfront's LinuxKPI, with a small 802.11 layer of its own under it in
+9space's LinuxKPI, with a small 802.11 layer of its own under it in
 place of Linux's mac80211.
 The kernel's 802.11 code behind the interface scans, authenticates,
 associates and ciphers;
@@ -112,7 +112,7 @@ the firmware, from linux-firmware
 .IR wpa (8),
 .IR plan9.ini (8)
 .SH BUGS
-Written for nfront.
+Written for 9space.
 The kernel's 802.11 code knows 802.11a/b/g only: the access point is
 the card's legacy station (no HT, VHT or HE rates, no aggregation, no
 power save).

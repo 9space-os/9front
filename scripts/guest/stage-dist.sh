@@ -34,12 +34,12 @@
 # /$objtype/lib.gcc, Rust from RUST_OUT (default its out/$objtype), Go from GO_OUT
 # (likewise); Rust links with gcc, so rust takes gcc along. Without DEV, as before:
 # gcc if it is built, Rust and Go if RUST_OUT, GO_OUT are set. MCP=1: the MCP server
-# (MCP_DIR, tools/mcp) as /$objtype/bin/9front-mcp, built with nfront's Go.
+# (MCP_DIR, tools/mcp) as /$objtype/bin/9front-mcp, built with 9space's Go.
 #
 # REPLICA_DIR (with REPLICA_KEY, REPLICA_URL): the stage is published there for
 # pull(1), updates over HTTP (scripts/replica/publish.py; REPLICA_DIR is what a web
 # server serves as REPLICA_URL, REPLICA_KEY the private key that signs its index,
-# kept outside nfront), and the CD gets the client: /dist/replica (the URL, the
+# kept outside 9space), and the CD gets the client: /dist/replica (the URL, the
 # public key, the replica's db and log as of this CD). dir.list: each path's
 # mode and owners as the CD has them (scripts/guest/proto.py -l).
 #
@@ -193,7 +193,7 @@ done
 mkdir -p "$OUT/sys/lib/dist"
 cp "$OUT.omitted" "$OUT/sys/lib/dist/omitted"
 # the MCP server (MCP=1; MCP_DIR, tools/mcp): an agent on another machine works on the
-# installed system over HTTP (tools/mcp/README.md). Built here with nfront's Go (GO_DIR)
+# installed system over HTTP (tools/mcp/README.md). Built here with 9space's Go (GO_DIR)
 # for objtype, with its example deny list as /sys/lib/mcp/deny (its README's -deny)
 if [ "$MCP" = 1 ]; then
 	go=${GO:-$GO_DIR/go/bin/go}

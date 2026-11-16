@@ -1,7 +1,7 @@
 #!/bin/rc
 # pull [-nSv] [-c path]... [-s path]... [replica]: bring the system up to
-# date from nfront's update server: replica/pull with the replica the CD
-# installed (/dist/replica/nfront: HTTP, replica/httpfs with the signed
+# date from 9space's update server: replica/pull with the replica the CD
+# installed (/dist/replica/9space: HTTP, replica/httpfs with the signed
 # index). On gefs, a snapshot of main first, the way back
 # (pull.YYYYMMDD.hhmmss; 9fs dump: /n/dump/pull.*); -S without it.
 # -n, -v, -c, -s as replica/pull's (replica(1)).
@@ -35,7 +35,7 @@ while(~ $1 -*){
 }
 switch($#*){
 case 0
-	replica=/dist/replica/nfront
+	replica=/dist/replica/9space
 case 1
 	replica=$1
 case *

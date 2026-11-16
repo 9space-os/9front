@@ -256,7 +256,7 @@ testnotifynil(void)
 }
 
 /*
- * nfront: notify(2)'s handler is the process's own: one that shares the
+ * 9space: notify(2)'s handler is the process's own: one that shares the
  * memory (RFMEM: libthread's, rio's) and calls notify(nil) does not take
  * it away (the gcc port's trampoline kept one handler for them all: the
  * other died at pc 0); and it is entered as a System V function: the

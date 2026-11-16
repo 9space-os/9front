@@ -49,8 +49,8 @@ fn installed {
 	client $1
 	disk/mkfs -U -s /tests/replica/stage1 -d $testroot /tests/replica/proto1
 	rm -rf $testroot/dist
-	cp /tests/replica/stage1/dist/replica/client/nfront.db $testdb
-	cp /tests/replica/stage1/dist/replica/client/nfront.log $testlog
+	cp /tests/replica/stage1/dist/replica/client/9space.db $testdb
+	cp /tests/replica/stage1/dist/replica/client/9space.log $testlog
 }
 
 # A: a new client (empty db) takes version 1, then 2

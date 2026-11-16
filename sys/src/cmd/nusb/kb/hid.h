@@ -129,7 +129,7 @@ struct Hidreport
 };
 
 /*
- * nfront: a HID device's reports to keys and mouse(3) events, as nusb/kb
+ * 9space: a HID device's reports to keys and mouse(3) events, as nusb/kb
  * had them; shared with aux/i2chid (I²C-HID).  hidinput takes one
  * input report and calls keys with the scan codes released and pressed
  * (kbdfs(8)'s, see hidscan), mouse with an event (abs: x, y absolute,

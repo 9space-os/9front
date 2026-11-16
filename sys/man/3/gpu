@@ -21,7 +21,7 @@ in
 .IR gpu (4).
 It knows nothing about mode setting, memory management, command
 submission or firmware.
-Other PCI devices a user-level driver drives the same way (nfront:
+Other PCI devices a user-level driver drives the same way (9space:
 a WLAN card for
 .IR aux/rtw89 )
 are named in

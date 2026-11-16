@@ -556,7 +556,7 @@ pnpread(Chan *c, void *va, long n, vlong offset)
 		p = pcimatchtbdf(tbdf);
 		if(p == nil)
 			error(Egreg);
-		/* nfront: PCI Express's 4096 (pcipc.c: ECAM; ~0 without) */
+		/* 9space: PCI Express's 4096 (pcipc.c: ECAM; ~0 without) */
 		if(offset >= 4096)
 			return 0;
 		if(n+offset > 4096)
@@ -637,7 +637,7 @@ pnpwrite(Chan *c, void *va, long n, vlong offset)
 		p = pcimatchtbdf(tbdf);
 		if(p == nil)
 			error(Egreg);
-		/* nfront: PCI Express's 4096 (pcipc.c: ECAM; ~0 without) */
+		/* 9space: PCI Express's 4096 (pcipc.c: ECAM; ~0 without) */
 		if(offset >= 4096)
 			return 0;
 		if(n+offset > 4096)

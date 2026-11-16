@@ -1,5 +1,5 @@
 /*
- * nfront: an 802.11 interface whose radio is a program (etherwlan.c, the
+ * 9space: an 802.11 interface whose radio is a program (etherwlan.c, the
  * interface; devwlan.c, #ω, the radio's side)
  */
 enum {

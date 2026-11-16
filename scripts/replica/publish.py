@@ -30,8 +30,8 @@ and is owned by sys. Paths the installed system configures are not
 replicated (EXCLUDE).
 
 With -c, the stage also gets the client's side, which the CD installs:
-/dist/replica/nfront (the replica/pull configuration: URL, the key),
-/dist/replica/nfront.pub (the public key) and /dist/replica/client/
+/dist/replica/9space (the replica/pull configuration: URL, the key),
+/dist/replica/9space.pub (the public key) and /dist/replica/client/
 (db and log as of this publication: the installed system is up to date).
 
 usage: scripts/replica/publish.py -k key.pem [-c url] [-t time] stage listing pubdir
@@ -307,31 +307,31 @@ def main():
 		# the client: the CD installs it with the system
 		rd = os.path.join(stage, 'dist', 'replica')
 		os.makedirs(os.path.join(rd, 'client'), exist_ok=True)
-		with open(os.path.join(rd, 'nfront.pub'), 'w') as f:
+		with open(os.path.join(rd, '9space.pub'), 'w') as f:
 			f.write(pubkey(key))
-		with open(os.path.join(rd, 'nfront'), 'w') as f:
+		with open(os.path.join(rd, '9space'), 'w') as f:
 			f.write(CONFIG % {'url': url})
-		os.chmod(os.path.join(rd, 'nfront'), 0o755)
-		shutil.copyfile(os.path.join(pub, 'db'), os.path.join(rd, 'client', 'nfront.db'))
-		shutil.copyfile(logf, os.path.join(rd, 'client', 'nfront.log'))
+		os.chmod(os.path.join(rd, '9space'), 0o755)
+		shutil.copyfile(os.path.join(pub, 'db'), os.path.join(rd, 'client', '9space.db'))
+		shutil.copyfile(logf, os.path.join(rd, 'client', '9space.log'))
 
 
 CONFIG = '''#!/bin/rc
-# nfront's updates: the replica pull(1) brings in (replica(1)), served over
+# 9space's updates: the replica pull(1) brings in (replica(1)), served over
 # HTTP by %(url)s; replica/httpfs checks its index's signature with
-# /dist/replica/nfront.pub and each file against the index
+# /dist/replica/9space.pub and each file against the index
 url=%(url)s
-s=/n/replica.nfront
+s=/n/replica.9space
 serverroot=$s/root
 serverlog=$s/log
 fn servermount {
 	if(! test -e /mnt/web/clone)
 		webfs
-	replica/httpfs -k /dist/replica/nfront.pub -m $s $url
+	replica/httpfs -k /dist/replica/9space.pub -m $s $url
 }
 clientroot=/
-clientdb=/dist/replica/client/nfront.db
-clientlog=/dist/replica/client/nfront.log
+clientdb=/dist/replica/client/9space.db
+clientlog=/dist/replica/client/9space.log
 '''
 
 if __name__ == '__main__':

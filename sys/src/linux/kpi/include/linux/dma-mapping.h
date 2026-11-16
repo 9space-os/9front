@@ -41,7 +41,7 @@ int	dma_map_sgtable(struct device *d, struct sg_table *t, enum dma_data_directio
 #define dma_sync_sgtable_for_device(d, t, r)	do { } while (0)
 #define dma_sync_single_for_cpu(d, a, s, r)	do { } while (0)
 #define dma_sync_single_for_device(d, a, s, r)	do { } while (0)
-/* nfront: the device's mask bounds the page pool (page.c) */
+/* 9space: the device's mask bounds the page pool (page.c) */
 extern u64 kpi_dma_limit;
 int	kpi_dma_set_mask(struct device *d, u64 mask);
 #define dma_set_mask(d, m)			kpi_dma_set_mask(d, m)

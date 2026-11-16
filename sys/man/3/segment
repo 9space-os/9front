@@ -91,7 +91,7 @@ or
 the pages are below 4 GB, for a device that addresses no more,
 and contiguous too (aligned only with
 .BR contig );
-an nfront addition.
+an 9space addition.
 Only the hostowner is allowed to create
 .B fixed
 or

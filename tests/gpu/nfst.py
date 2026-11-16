@@ -18,7 +18,7 @@ body = (b'\x08NFSB' + b'\x11\x07\x0a\x04' + bytes(4) +	# Name (NFSB, Buffer (4) 
 	b'\x70\x0a\x5a' + b'\x88NFSB\x01\x00' +		# Store (0x5A, Index (NFSB, One))
 	b'\xa4NFSB')					# Return (NFSB)
 n = 36 + len(body)
-hdr = struct.pack('<4sIBB6s8sI4sI', b'SSDT', n, 2, 0, b'NFRONT', b'NFSTORE ', 1, b'NFRT', 1)
+hdr = struct.pack('<4sIBB6s8sI4sI', b'SSDT', n, 2, 0, b'9SPACE', b'NFSTORE ', 1, b'NFRT', 1)
 t = bytearray(hdr + body)
 t[9] = (-sum(t)) & 0xff
 open(sys.argv[1], 'wb').write(t)

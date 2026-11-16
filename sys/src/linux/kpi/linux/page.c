@@ -9,7 +9,7 @@
  * A run of 2^order pages must be contiguous both ways; pages are found
  * again by address (virt_to_page) and by frame number (pfn_to_page).
  *
- * nfront: the device's DMA mask (dma_set_mask, dma.c), once the driver
+ * 9space: the device's DMA mask (dma_set_mask, dma.c), once the driver
  * sets one, and GFP_DMA32 bound the pool: pages are given only from
  * chunks the device reaches, made below 4 GB (segment(3)'s dma32) for
  * 32 bits.  Linux bounces or remaps (swiotlb, an IOMMU) where we have
@@ -41,10 +41,10 @@ struct chunk {
 	struct page	*pages;
 	unsigned long	used[BITS_TO_LONGS(CHUNKPAGES)];
 	unsigned long	nfree;
-	u64	maxpa;		/* nfront: its highest byte's physical address */
+	u64	maxpa;		/* 9space: its highest byte's physical address */
 };
 
-u64 kpi_dma_limit = DMA_BIT_MASK(64);	/* nfront: the device's DMA mask (dma.c) */
+u64 kpi_dma_limit = DMA_BIT_MASK(64);	/* 9space: the device's DMA mask (dma.c) */
 
 static u64 plock[4];		/* QLock */
 static struct chunk *chunks;
@@ -77,7 +77,7 @@ newchunk(u64 limit)
 	 * Linux's buddy allocator gives them), else scattered pages
 	 */
 	/*
-	 * nfront: below 4 GB if the device addresses no more; a chunk
+	 * 9space: below 4 GB if the device addresses no more; a chunk
 	 * above a wider mask (more memory than the device reaches) again
 	 * so
 	 */

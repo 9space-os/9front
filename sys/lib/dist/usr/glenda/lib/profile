@@ -13,7 +13,7 @@ case terminal
 	echo -n 'res 3' > '#m/mousectl'
 	prompt=('term% ' '	')
 	fn term%{ $* }
-	# nfront: desktop=wsys (plan9.ini; the default where wsys is installed)
+	# 9space: desktop=wsys (plan9.ini; the default where wsys is installed)
 	# starts wsys(4), the window system of the ui framework, instead of
 	# rio (desktop=rio), with the options in
 	# wsysflags (-p: the processor composes, not the GPU); riostart serves both

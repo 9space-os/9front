@@ -39,7 +39,7 @@ pageinit(void)
 	palloc.head = nil;
 
 	/*
-	 * nfront: the pages below 4 GB last on the free list when there
+	 * 9space: the pages below 4 GB last on the free list when there
 	 * are others (xalloc.c's dma32pages): kept for the devices that
 	 * need them as long as memory lasts
 	 */

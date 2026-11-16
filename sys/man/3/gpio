@@ -82,7 +82,7 @@ per such pin.
 .IR acpi (8),
 .IR i2chid (8)
 .SH HISTORY
-Written for nfront.
+Written for 9space.
 The Raspberry Pi's
 .B #G
 (9front's

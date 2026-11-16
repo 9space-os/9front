@@ -29,7 +29,7 @@ static int pcicfgrw16raw(int, int, int, int);
 static int pcicfgrw32raw(int, int, int, int);
 
 /*
- * nfront: PCI Express's extended configuration space (registers 256 to
+ * 9space: PCI Express's extended configuration space (registers 256 to
  * 4095) by its memory mapping (ECAM), whose address ACPI's MCFG table
  * gives (archacpi.c), as OpenBSD's pci_mcfg_init and pci_conf_read do:
  * the registers below 256 the old way, the others there, each bus's

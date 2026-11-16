@@ -114,7 +114,7 @@ out:
 }
 
 /*
- * nfront: the query (QR_EC) of a pending SCI event, for aux/acpi's _Qxx
+ * 9space: the query (QR_EC) of a pending SCI event, for aux/acpi's _Qxx
  * methods (#P/ecquery: "0xNN\n", 0 when none is pending), as OpenBSD's
  * acpiec_sci_event (sys/dev/acpi/acpiec.c,v 1.67) does it:
  *
@@ -226,7 +226,7 @@ ecinit(int cmdport, int dataport)
 	unlock(&ec.Lock);
 
 	addarchfile("ec", 0660, ecarchread, ecarchwrite);
-	addarchfile("ecquery", 0440, ecqueryread, nil);	/* nfront */
+	addarchfile("ecquery", 0440, ecqueryread, nil);	/* 9space */
 
 	return 0;
 }

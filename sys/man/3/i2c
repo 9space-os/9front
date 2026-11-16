@@ -45,7 +45,7 @@ on a bus, which is done when accessing the
 directory.
 .PP
 On a PC, the busses of ACPI's I²C controllers (AMD's DesignWare,
-nfront) are not enumerated: they hold the devices ACPI names
+9space) are not enumerated: they hold the devices ACPI names
 (their I2cSerialBus).
 .PP
 Platform specific code can also register individual devices,
@@ -75,11 +75,11 @@ the requested read or write size.
 The requested size might be truncated by the driver if
 the request exceeds the logical file-size.
 A transfer is at most 64K bytes, in one transaction
-(nfront; 9front's driver truncates a transfer to its buffer of 138 bytes,
+(9space; 9front's driver truncates a transfer to its buffer of 138 bytes,
 too small for an I²C-HID device's report descriptor).
 .PP
 An open data file keeps the configuration the device had when it was opened
-(nfront; in 9front a write to the control-file changes the configuration of
+(9space; in 9front a write to the control-file changes the configuration of
 every open data file):
 a program that needs transfers with and without
 .I sub-address

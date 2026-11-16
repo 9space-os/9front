@@ -9,7 +9,7 @@ set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 . "$ROOT/scripts/mesa/common.sh"
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: nfront/cache/cli)
+. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
 mkdir -p "$HERE/root/tests"
 "$CROSS/$TRIPLE-gcc" -std=gnu11 -O2 -Wall -o "$HERE/root/tests/glfwtest" "$HERE/glfwtest.c" -lglfw3 -ldraw -l9 -lfmt -lutf -lm
 "$CROSS/$TRIPLE-gcc" -std=gnu11 -O2 -Wall -o "$HERE/root/tests/glfwagain" "$HERE/glfwagain.c" -lglfw3 -ldraw -l9 -lfmt -lutf -lm

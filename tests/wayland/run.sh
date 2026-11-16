@@ -19,7 +19,7 @@ set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 . "$ROOT/scripts/mesa/common.sh"
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: nfront/cache/cli)
+. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
 [ -x "$ROOT/amd64/bin/wsys" ] || { echo "wayland: no amd64/bin/wsys (scripts/build/cargo.sh)"; exit 1; }
 mkdir -p "$HERE/root/tests"
 bash "$ROOT/scripts/wayland/build.sh" "$HERE/root/tests"

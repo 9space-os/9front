@@ -76,7 +76,7 @@ The information comes from the battery's
 .B Idle
 and
 .B _BIX
-are nfront additions.
+are 9space additions.
 .TP
 .B ac
 Contains one line for each AC adapter (ACPI0003):
@@ -85,7 +85,7 @@ or
 .BR offline ,
 from its
 .BR _PSR .
-An nfront addition.
+An 9space addition.
 .TP
 .B cputemp
 Each line provides a current temperature reading of a specific CPU.

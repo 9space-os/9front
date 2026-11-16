@@ -164,7 +164,7 @@ returns
 .B (void*)-1
 on error.
 .PP
-In nfront the lengths are a
+In 9space the lengths are a
 .BR usize ,
 the width of an address; 9front's are a
 .BR ulong ,

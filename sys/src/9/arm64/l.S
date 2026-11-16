@@ -523,7 +523,7 @@ vsys0:
 	cmp	w17, #0x15	// SVC trap?
 	b.ne	_itsatrap	// nope.
 
-	// nfront: all of the caller's registers in the Ureg, as for a trap:
+	// 9space: all of the caller's registers in the Ureg, as for a trap:
 	// a note that comes in the system call returns through noteret,
 	// which loads them all (gcc's code keeps x19-x28 across the call,
 	// AAPCS); before, x1-x25 were what the Ureg's stack held

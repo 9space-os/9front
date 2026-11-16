@@ -23,7 +23,7 @@ struct Wkey
 };
 
 /*
- * nfront: a block ack agreement the access point made (A-MPDU, received):
+ * 9space: a block ack agreement the access point made (A-MPDU, received):
  * its window of sequence numbers from head, the frames held until those
  * before them are there (or the wait is over: since)
  */
@@ -82,7 +82,7 @@ struct Wnode
 	uchar	brsne[258];
 
 	/*
-	 * nfront: what the access point's beacon offers (WMM, HT, VHT,
+	 * 9space: what the access point's beacon offers (WMM, HT, VHT,
 	 * HE) and whether we associated with WMM: our data frames are
 	 * then QoS data
 	 */
@@ -91,10 +91,10 @@ struct Wnode
 	uchar	vht;
 	uchar	he;
 	uchar	qos;
-	ushort	qseq[Ntid];	/* nfront: the QoS data's sequence numbers, per TID */
-	ushort	txba;		/* nfront: the TIDs whose block ack agreement we made */
+	ushort	qseq[Ntid];	/* 9space: the QoS data's sequence numbers, per TID */
+	ushort	txba;		/* 9space: the TIDs whose block ack agreement we made */
 	uchar	batoken;	/* the last ADDBA request's dialog token */
-	int	rssi;		/* nfront: its beacons' signal, dBm, smoothed (hasrssi) */
+	int	rssi;		/* 9space: its beacons' signal, dBm, smoothed (hasrssi) */
 	uchar	hasrssi;
 };
 
@@ -119,7 +119,7 @@ struct Wifi
 	uchar	*rates;
 
 	/*
-	 * nfront: the channels to scan, in order (0 ends; nil: wifiscan2g,
+	 * 9space: the channels to scan, in order (0 ends; nil: wifiscan2g,
 	 * 2.4 GHz only) and the channel the radio was last tuned to (for
 	 * beacons that do not tell theirs)
 	 */
@@ -127,7 +127,7 @@ struct Wifi
 	int	channel;
 
 	/*
-	 * nfront: the radio's capability elements (HT 45, VHT 191, HE
+	 * 9space: the radio's capability elements (HT 45, VHT 191, HE
 	 * 255/35, ...: id, length, contents, one after another), sent in
 	 * the association request where the access point offers the same
 	 */
@@ -135,7 +135,7 @@ struct Wifi
 	int	ncaps;
 
 	/*
-	 * nfront: the driver's radio answers aggregates with block acks
+	 * 9space: the driver's radio answers aggregates with block acks
 	 * (ba): wifi.c then agrees to the access point's ADDBA requests
 	 * and holds the frames until they are in order (rxba, per TID),
 	 * and asks for one itself (TID 0); else it declines them
@@ -145,7 +145,7 @@ struct Wifi
 	ulong	replays;	/* frames CCMP's (TKIP's) replay check dropped */
 
 	/*
-	 * nfront: the driver gives the signal (Bsignal): the scan goes once
+	 * 9space: the driver gives the signal (Bsignal): the scan goes once
 	 * over all its channels (scanlen steps) after the first node that
 	 * matches was heard, then chooses the strongest of those that match
 	 */
@@ -176,16 +176,16 @@ struct Wifipkt
 
 enum {
 	Btimestamp = 1<<15,
-	Bsignal = 1<<14,	/* nfront: the signal, dBm (signed), the byte before the timestamp's 8 */
+	Bsignal = 1<<14,	/* 9space: the signal, dBm (signed), the byte before the timestamp's 8 */
 };
 
-/* nfront: scan lists for wifi->scan */
+/* 9space: scan lists for wifi->scan */
 extern uchar wifiscan2g[];	/* 2.4 GHz, channels 1-13 (the default) */
 extern uchar wifiscan5g[];	/* 2.4 GHz and 5 GHz, 36-64, 100-144, 149-165 */
 
 Wifi *wifiattach(Ether *ether, void (*transmit)(Wifi*, Wnode*, Block*));
 void wifiiq(Wifi*, Block*);
-void wifiradiogone(Wifi*);	/* nfront */
+void wifiradiogone(Wifi*);	/* 9space */
 int wifihdrlen(Wifipkt*);
 void wifitxfail(Wifi*, Block*);
 

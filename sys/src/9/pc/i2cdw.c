@@ -1,5 +1,5 @@
 /*
- * nfront: Synopsys DesignWare I2C controllers, as an x86 SoC has them
+ * 9space: Synopsys DesignWare I2C controllers, as an x86 SoC has them
  * (AMD's AMDI0010; Intel's are PCI devices, not here yet), busses of
  * i2c(3): found in ACPI at boot (archacpi.c: enumi2c calls i2cdwinit),
  * named as the ACPI device (\_SB.I2CB: i2cb).  Not scanned: the bus

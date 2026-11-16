@@ -1,12 +1,12 @@
-# nfront: the 9front tree
+# 9space: the 9front tree
 
-This is the 9front tree of **nfront**, a distribution built on
+This is the 9front tree of **9space**, a distribution built on
 [9front](https://9front.org) (upstream: https://github.com/9front/9front,
 mirrored here as the branch `front`). The branch `gcc` builds 9front with
 **gcc** instead of 9front's own compilers; `main` adds the GPU stack (gpu(4),
 the LinuxKPI with Linux's DRM drivers, Mesa), the window system wsys and the
 ui framework. Branches, toolchains and how to build everything:
-https://github.com/nfront-os/nfront (and its wiki).
+https://github.com/9space-os/9space (and its wiki).
 
 9front's own licence applies to its code (MIT); see the notices in the tree.
 
@@ -57,7 +57,7 @@ scripts/guest/mkiso.sh
 This stages the distribution tree, boots it in a QEMU guest and makes
 the CD there (hybrid ISO: BIOS/El Torito + UEFI, also boots from disk or
 USB). The result is written to
-`~/Devel/nfront/cache/cli/9front.amd64.iso` (override the output as the first
+`~/Devel/9space/cache/cli/9front.amd64.iso` (override the output as the first
 argument). For the 386 image: `objtype=386 scripts/guest/mkiso.sh`.
 
 That's it — burn or `dd` the ISO and boot it.

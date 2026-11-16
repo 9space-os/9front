@@ -134,4 +134,4 @@ secondary channel), VHT at up to 80 MHz on 5 GHz (where its VHT
 operation says 80), no HE and no 160 MHz yet: the radio's firmware
 (rtw89) chooses the rates.
 .br
-Written for nfront.
+Written for 9space.

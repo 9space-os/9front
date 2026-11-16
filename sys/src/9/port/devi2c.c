@@ -170,7 +170,7 @@ putaddr(I2Cdev *dev, int isread, uchar *pkt, vlong addr)
 }
 
 /*
- * nfront: a transfer longer than the buffer on the stack in one that
+ * 9space: a transfer longer than the buffer on the stack in one that
  * is allocated (an I²C-HID device's report descriptor is hundreds of
  * bytes, read in one transfer after its register), up to Maxxfer
  */
@@ -486,7 +486,7 @@ i2copen(Chan *c, int mode)
 		if(c->aux == nil)
 			error(Enonexist);
 		/*
-		 * nfront: a data file keeps the configuration of its open
+		 * 9space: a data file keeps the configuration of its open
 		 * (sub-address, size): one open per kind of transfer, no
 		 * ctl write between them that another program's would undo
 		 */

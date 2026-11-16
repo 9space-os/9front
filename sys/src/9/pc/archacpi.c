@@ -587,7 +587,7 @@ enumec(void *dot, void *)
 }
 
 /*
- * nfront: AMD's GPIO controller (AMDI0030, AMD0030, _UID 0) for #γ
+ * 9space: AMD's GPIO controller (AMDI0030, AMD0030, _UID 0) for #γ
  * (devgpio.c): its registers (Memory32Fixed) and interrupt (Extended
  * IRQ) by _CRS, while the AML interpreter is there.  Its _STA wants an
  * _INI the kernel does not run (the OS's type): not asked.
@@ -628,7 +628,7 @@ enumgpio(void *dot, void *)
 }
 
 /*
- * nfront: AMD's DesignWare I2C controllers (AMDI0010) for i2c(3)
+ * 9space: AMD's DesignWare I2C controllers (AMDI0010) for i2c(3)
  * (i2cdw.c), as the GPIO controller above: by _CRS (one the firmware
  * left off is left out by i2cdwinit), and the devices on each, the
  * controller's children whose _CRS has an I2cSerialBus to it (their
@@ -750,7 +750,7 @@ writemem(Chan*, void *v, long n, vlong o)
 }
 
 /*
- * nfront: #P/acpiev, ACPI's events for aux/acpi: the SCI (the FADT's
+ * 9space: #P/acpiev, ACPI's events for aux/acpi: the SCI (the FADT's
  * SCI_INT) masks in the general-purpose event (GPE) blocks and in PM1
  * what is both set and enabled and hands it to the reader, which runs
  * the event's methods (_Lxx, _Exx, the embedded controller's _Qxx) and
@@ -1186,7 +1186,7 @@ acpiinit(void)
 	/* find embedded controller */
 	amlenum(amlroot, "_HID", enumec, nil);
 
-	/* nfront: AMD's GPIO controller (#γ), its I2C controllers (i2c(3)) */
+	/* 9space: AMD's GPIO controller (#γ), its I2C controllers (i2c(3)) */
 	amlenum(amlroot, "_HID", enumgpio, nil);
 	amlenum(amlroot, "_HID", enumi2c, nil);
 
@@ -1310,8 +1310,8 @@ identify(void)
 	maptables();
 	addarchfile("acpitbls", 0444, readtbls, nil);
 	addarchfile("acpimem", 0600, readmem, writemem);
-	acpievinit();	/* nfront: #P/acpiev */
-	mcfginit();	/* nfront: PCI Express's extended configuration space */
+	acpievinit();	/* 9space: #P/acpiev */
+	mcfginit();	/* 9space: PCI Express's extended configuration space */
 	if(v == 0 || findtable("APIC") == nil)
 		return 1;
 	if((cp = getconf("*nomp")) != nil && strcmp(cp, "0") != 0)
@@ -1330,7 +1330,7 @@ identify(void)
 }
 
 /*
- * nfront: ACPI's MCFG table: the memory mapped configuration space
+ * 9space: ACPI's MCFG table: the memory mapped configuration space
  * (ECAM) of PCI segment 0 (pcipc.c), as OpenBSD's acpimcfg.c reads it:
  * after 8 reserved bytes entries of 16: base[8] segment[2] start bus[1]
  * end bus[1] reserved[4].  *nomcfg= leaves it.

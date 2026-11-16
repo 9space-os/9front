@@ -148,10 +148,10 @@ interface=$IFACE
 bind-interfaces
 user=$(id -un)
 dhcp-range=$HOSTIP,proxy
-dhcp-host=$MAC,set:nfront
+dhcp-host=$MAC,set:9space
 dhcp-match=set:efi64,option:client-arch,7
 dhcp-match=set:efi64,option:client-arch,9
-pxe-service=tag:nfront,tag:efi64,X86-64_EFI,"nfront",bootx64.efi
+pxe-service=tag:9space,tag:efi64,X86-64_EFI,"9space",bootx64.efi
 enable-tftp
 tftp-root=$T
 log-dhcp

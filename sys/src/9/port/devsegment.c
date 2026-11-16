@@ -1049,7 +1049,7 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 				 * to its size (up to 2 MB), as a buddy allocator's
 				 * blocks are: a GPU driver's pool of pages, whose
 				 * higher orders must be so (Linux's alloc_pages).
-				 * nfront: dma32: below 4 GB, for a device that
+				 * 9space: dma32: below 4 GB, for a device that
 				 * addresses no more (aux/rtw89's card); contiguous
 				 * then too (a run of pages, aligned only with contig)
 				 */
@@ -1286,7 +1286,7 @@ Found:
 /*
  * allocate a fixed segment with sequential run of of adjacent
  * user memory pages.  9front-ng: or a sticky one (type), the run's
- * physical start aligned to align.  nfront: the run's end at most limit
+ * physical start aligned to align.  9space: the run's end at most limit
  * (0: anywhere)
  */
 static Segment*
@@ -1305,7 +1305,7 @@ fixedseg(uintptr va, ulong len, int type, uintptr align, uvlong limit)
 	}
 
 	/*
-	 * nfront: without a limit the pages above 4 GB first, then any:
+	 * 9space: without a limit the pages above 4 GB first, then any:
 	 * the ones below are kept for dma32 (plan9.ini(8)'s *dma32)
 	 */
 	floor = limit == 0 ? 1ULL<<32 : 0;

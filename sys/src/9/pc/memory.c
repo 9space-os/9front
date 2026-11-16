@@ -396,7 +396,7 @@ e820scan(void)
 }
 
 /*
- * nfront: does [pa, pa+size) overlap memory the kernel has (RAM,
+ * 9space: does [pa, pa+size) overlap memory the kernel has (RAM,
  * upper memory blocks, the ACPI tables)?  devgpu.c: an APU's video
  * memory is RAM the firmware kept from the kernel, never the kernel's
  */

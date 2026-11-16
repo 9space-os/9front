@@ -43,7 +43,7 @@ publish(){
 	$PUB -k "$W/key.pem" "$@" "$W/stage$n" "$W/list$n" "$W/pub$n"
 }
 versions(){
-	$PUB -g "$W/key.pem" > "$X/nfront.pub" 2>/dev/null &&
+	$PUB -g "$W/key.pem" > "$X/9space.pub" 2>/dev/null &&
 	mkdir -p "$src/bin" "$src/lib/sub" &&
 	printf 'a1\n' > "$src/bin/a" && printf 'b1\n' > "$src/bin/b" &&
 	printf 'x1\n' > "$src/lib/x" && : > "$src/lib/empty" &&

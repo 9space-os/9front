@@ -80,9 +80,9 @@ enum {
 	Battery,
 	Pmctl,
 	Aml,
-	Events,		/* nfront: acpievents */
-	Backlight,	/* nfront: the panel's brightness through _BCM */
-	Ac,		/* nfront: the AC adapters' _PSR */
+	Events,		/* 9space: acpievents */
+	Backlight,	/* 9space: the panel's brightness through _BCM */
+	Ac,		/* 9space: the AC adapters' _PSR */
 
 	SLP_EN = 0x2000,
 	SLP_TM = 0x1c00,
@@ -92,15 +92,15 @@ static int ec, mem, iofd[5], nbats, ntherms;
 static char *uid = "pm", *units[] = {"mW", "mA"};
 static Therm therms[16];
 static Bat bats[4];
-static void *acs[4];	/* nfront: the AC adapters (ACPI0003) */
+static void *acs[4];	/* 9space: the AC adapters (ACPI0003) */
 static int nacs;
 static void *bccs, *bcss;
 static FACP facp;
 static char *amlrequest(char*, int, char**);	/* 9front-ng: the aml file */
 static void *amlbelow(void*, char*);
-static void *ecdev, *hkey;	/* nfront: the EC, a ThinkPad's hotkeys (events) */
+static void *ecdev, *hkey;	/* 9space: the EC, a ThinkPad's hotkeys (events) */
 static int ecgpe = -1;
-static QLock amllk;	/* nfront: one evaluation at a time, the files' and the events' */
+static QLock amllk;	/* 9space: one evaluation at a time, the files' and the events' */
 static void amldone(void);
 static void fsevread(Req*);
 static void backlightread(char*, char*);
@@ -119,7 +119,7 @@ enumec(void *dot, void *)
 	p = amlwalk(dot, "^_REG");
 	if(p != nil)
 		amleval(p, "ii", 0x3, 1, nil);
-	/* nfront: its events (an EC's _GPE is a GPE number; a package, a block's: not here) */
+	/* 9space: its events (an EC's _GPE is a GPE number; a package, a block's: not here) */
 	if(ecdev == nil && (ecdev = amlwalk(dot, "^")) != nil){
 		amltake(ecdev);
 		if((p = amlwalk(dot, "^_GPE")) != nil && amleval(p, "", &p) >= 0 && amltag(p) == 'i')
@@ -129,7 +129,7 @@ enumec(void *dot, void *)
 }
 
 /*
- * nfront: the devices' _INI, as the ACPI spec (6.5.1) and OpenBSD's
+ * 9space: the devices' _INI, as the ACPI spec (6.5.1) and OpenBSD's
  * acpi_inidev (sys/dev/acpi/acpi.c,v 1.458; its notice below, with the
  * events) run them: where the device is present by its _STA (none: it
  * is), and nothing below a device neither present, enabled nor
@@ -167,7 +167,7 @@ enumini(void *dot, void *)
 
 /*
  * a battery: the device with _BST (dot), its static information from
- * _BIX (ACPI 4.0) or else _BIF, as OpenBSD's acpibat reads them.  nfront:
+ * _BIX (ACPI 4.0) or else _BIF, as OpenBSD's acpibat reads them.  9space:
  * _BIX is that of _BIF after a revision: everything one place on, the
  * technology after the voltage; firmware with only _BIX had no battery.
  */
@@ -218,7 +218,7 @@ enumbat(void *dot, void *)
 	return 1;
 }
 
-/* nfront: an AC adapter (ACPI0003), its _PSR: OpenBSD's acpiac */
+/* 9space: an AC adapter (ACPI0003), its _PSR: OpenBSD's acpiac */
 static int
 enumac(void *dot, void *)
 {
@@ -319,7 +319,7 @@ enumtp(void *dot, void *)
 	}
 
 	/*
-	 * nfront: the hotkeys, as acpithinkpad's thinkpad_enable_events:
+	 * 9space: the hotkeys, as acpithinkpad's thinkpad_enable_events:
 	 * MHKA's mask and the brightness keys (bits 15, 16) through MHKM,
 	 * then MHKC(1); they come as Notify(HKEY, 0x80), read by MHKP
 	 */
@@ -395,7 +395,7 @@ batteryread(char *s, char *e)
 		ss = x = 0;
 
 		if(batstat(b, &st) == 0){
-			state = "idle";	/* nfront: neither charging nor discharging (OpenBSD's "battery idle") */
+			state = "idle";	/* 9space: neither charging nor discharging (OpenBSD's "battery idle") */
 			if(st.state & 4)
 				state = "critical";
 			else if(st.state & 1)
@@ -693,7 +693,7 @@ fswrite(Req *r)
 		char *err;
 		int rv;
 
-		/* nfront: one evaluation at a time with the events' */
+		/* 9space: one evaluation at a time with the events' */
 		err = nil;
 		qlock(&amllk);
 		if(nf == 2 && strcmp(f[0], "power") == 0 && strcmp(f[1], "off") == 0)
@@ -1205,7 +1205,7 @@ amlrequest(char *buf, int n, char **reply)
 }
 
 /*
- * nfront: ACPI's events.  A proc reads the kernel's #P/acpiev (the SCI's
+ * 9space: ACPI's events.  A proc reads the kernel's #P/acpiev (the SCI's
  * general-purpose events and PM1's fixed ones, masked until written
  * back), runs each GPE's method (\_GPE._Lxx, _Exx; the embedded
  * controller's: its queries' _Qxx), and the Notify those methods make
@@ -1539,7 +1539,7 @@ enumdos(void *dot, void *)
 }
 
 /*
- * nfront: GPIO-signaled events (ACPI 5.6.5): the pins a GPIO
+ * 9space: GPIO-signaled events (ACPI 5.6.5): the pins a GPIO
  * controller's _AEI lists (GpioInt descriptors) get their interrupt in
  * #γ (devgpio.c); when one comes, its method: _Exx or _Lxx below the
  * controller for a pin up to 255, else _EVT(pin).  A ThinkBook's power
@@ -1735,7 +1735,7 @@ evreaderfree(Evreader *e)
 }
 
 /*
- * nfront: the panel's brightness through the firmware (the ACPI video
+ * 9space: the panel's brightness through the firmware (the ACPI video
  * extension: _BCL's levels, _BCM sets one, _BQC reads it back), for a
  * panel no GPU driver serves (VESA): aux/acpikeys takes it when gpu(4)
  * has no backlight.  As gpu(4)'s: reading gives "level 100", writing n or
@@ -1949,7 +1949,7 @@ threadmain(int argc, char **argv)
 		}else if(memcmp("FACP", t->sig, 4) == 0){
 			facp.ok = 1;
 			if(l >= 116 - Tblsz)
-				facpflags = get32(((uchar*)t) + 112);	/* nfront: the buttons' kind */
+				facpflags = get32(((uchar*)t) + 112);	/* 9space: the buttons' kind */
 			if(t->rev >= 3) {
 				/* try the ACPI 2.0 method */
 				facp.pm1aspace = *(((uchar*)t) + 172);
@@ -2011,24 +2011,24 @@ threadmain(int argc, char **argv)
 		sysfatal("%r");
 
 	amlenum(amlroot, "_HID", enumec, nil);
-	amlenum(amlroot, "_INI", enumini, nil);	/* nfront: after the EC's _REG */
-	amlenum(amlroot, "_BST", enumbat, nil);	/* nfront: with _BIX or _BIF */
-	amlenum(amlroot, "_HID", enumac, nil);	/* nfront */
+	amlenum(amlroot, "_INI", enumini, nil);	/* 9space: after the EC's _REG */
+	amlenum(amlroot, "_BST", enumbat, nil);	/* 9space: with _BIX or _BIF */
+	amlenum(amlroot, "_HID", enumac, nil);	/* 9space */
 	amlenum(amlroot, "_PSL", enumtmp, nil);
 	amlenum(amlroot, "_HID", enumtp, nil);
-	amlenum(amlroot, "_BCM", enumbcm, nil);	/* nfront */
+	amlenum(amlroot, "_BCM", enumbcm, nil);	/* 9space */
 
 	fs.tree = alloctree(uid, uid, DMDIR|0555, nil);
 	if(nbats > 0)
 		createfile(fs.tree->root, "battery", uid, 0444, (void*)Battery);
 	if(nacs > 0)
-		createfile(fs.tree->root, "ac", uid, 0444, (void*)Ac);	/* nfront */
+		createfile(fs.tree->root, "ac", uid, 0444, (void*)Ac);	/* 9space */
 	if(ntherms > 0)
 		createfile(fs.tree->root, "cputemp", uid, 0444, (void*)Temp);
 	createfile(fs.tree->root, "pmctl", uid, 0666, (void*)Pmctl);
 	createfile(fs.tree->root, "aml", getuser(), 0600, (void*)Aml);
 
-	/* nfront: the events, where the kernel has them (#P/acpiev) */
+	/* 9space: the events, where the kernel has them (#P/acpiev) */
 	evstart();
 	if(evfd >= 0)
 		createfile(fs.tree->root, "acpievents", uid, 0444, (void*)Events);

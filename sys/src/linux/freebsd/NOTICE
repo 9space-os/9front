@@ -2765,7 +2765,7 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 
 ==== freebsd/sys/compat/linuxkpi/common/include/linux/overflow.h
 /* SPDX-License-Identifier: GPL-2.0 OR MIT */
-(nfront: taken under MIT, its permissive choice)
+(9space: taken under MIT, its permissive choice)
 
 ==== freebsd/sys/compat/linuxkpi/common/include/linux/pci.h
 /*-
@@ -4299,13 +4299,13 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright(c) 2021-2023  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/acpi.h
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /* Copyright(c) 2021-2023  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/cam.c
 ==== freebsd/sys/contrib/dev/rtw89/coex.c
@@ -4330,7 +4330,7 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright(c) 2019-2020  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/cam.h
 ==== freebsd/sys/contrib/dev/rtw89/coex.h
@@ -4352,7 +4352,7 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /* Copyright(c) 2019-2020  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/chan.c
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852be.c
@@ -4360,13 +4360,13 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright(c) 2020-2022  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/chan.h
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
  * Copyright(c) 2020-2022  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/efuse_be.c
 ==== freebsd/sys/contrib/dev/rtw89/pci_be.c
@@ -4377,20 +4377,20 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright(c) 2023  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/pci.c
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright(c) 2020  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/pci.h
 ==== freebsd/sys/contrib/dev/rtw89/txrx.h
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /* Copyright(c) 2020  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/rtw8851b.c
 ==== freebsd/sys/contrib/dev/rtw89/rtw8851b_rfk.c
@@ -4400,7 +4400,7 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright(c) 2022-2023  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/rtw8851b.h
 ==== freebsd/sys/contrib/dev/rtw89/rtw8851b_rfk.h
@@ -4409,7 +4409,7 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /* Copyright(c) 2022-2023  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/rtw8851bu.c
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852au.c
@@ -4419,13 +4419,13 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright(c) 2025  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852ae.c
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright(c) 2020-2021  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852b.c
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852b_rfk.c
@@ -4437,7 +4437,7 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright(c) 2019-2022  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852b.h
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852b_rfk.h
@@ -4449,7 +4449,7 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /* Copyright(c) 2019-2022  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852b_common.c
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852bte.c
@@ -4457,13 +4457,13 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright(c) 2024  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852b_common.h
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /* Copyright(c) 2024  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852bt.c
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852bt_rfk.c
@@ -4471,7 +4471,7 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright(c) 2024 Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852bt.h
 ==== freebsd/sys/contrib/dev/rtw89/rtw8852bt_rfk.h
@@ -4479,27 +4479,27 @@ Our LinuxKPI (sys/src/linux/kpi) is derived from them and from OpenBSD's
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /* Copyright(c) 2024 Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/rtw8922a.h
 ==== freebsd/sys/contrib/dev/rtw89/rtw8922a_rfk.h
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /* Copyright(c) 2023  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/ser.h
 ==== freebsd/sys/contrib/dev/rtw89/util.h
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
  * Copyright(c) 2019-2020  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/contrib/dev/rtw89/usb.h
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /* Copyright(c) 2025  Realtek Corporation
  */
-(nfront: taken under BSD-3-Clause, its permissive choice)
+(9space: taken under BSD-3-Clause, its permissive choice)
 
 ==== freebsd/sys/net80211/ieee80211.h
 /*-

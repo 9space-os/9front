@@ -28,14 +28,14 @@
 #		Method (_STA) { Return (0x1f) }
 #		Name (_BIX, Package () { 0, 0, 50000, 40000, 1, 11550, 2000,
 #			1000, 10, 100000, 0, 0, 0, 0, 100, 100, "NF", "1",
-#			"LION", "NFRONT" })
+#			"LION", "9SPACE" })
 #		Name (_BST, Package () { 1, 10000, 30000, 11800 })
 #	}
 #	Device (\_SB.NFB2) {			a battery with _BIF only (mA),
 #		Name (_HID, EisaId ("PNP0C0A"))	idle: 50 %
 #		Method (_STA) { Return (0x1f) }
 #		Name (_BIF, Package () { 1, 5000, 4000, 1, 12000, 400, 200, 10,
-#			10, "NF2", "2", "LION", "NFRONT" })
+#			10, "NF2", "2", "LION", "9SPACE" })
 #		Name (_BST, Package () { 0, 0, 2000, 12100 })
 #	}
 #	Device (\_SB.NFAC) {			an AC adapter, online
@@ -133,18 +133,18 @@ sta = b'\x14' + pkg(name('_STA') + b'\x00' + b'\xa4\x0a\x1f')
 bat1 = (b'\x5b\x82' + pkg(path('_SB', 'NFBT') +
 	b'\x08' + name('_HID') + b'\x0c' + eisaid('PNP0C0A') + sta +
 	b'\x08' + name('_BIX') + package(0, 0, 50000, 40000, 1, 11550, 2000, 1000, 10, 100000,
-		0, 0, 0, 0, 100, 100, 'NF', '1', 'LION', 'NFRONT') +
+		0, 0, 0, 0, 100, 100, 'NF', '1', 'LION', '9SPACE') +
 	b'\x08' + name('_BST') + package(1, 10000, 30000, 11800)))
 bat2 = (b'\x5b\x82' + pkg(path('_SB', 'NFB2') +
 	b'\x08' + name('_HID') + b'\x0c' + eisaid('PNP0C0A') + sta +
-	b'\x08' + name('_BIF') + package(1, 5000, 4000, 1, 12000, 400, 200, 10, 10, 'NF2', '2', 'LION', 'NFRONT') +
+	b'\x08' + name('_BIF') + package(1, 5000, 4000, 1, 12000, 400, 200, 10, 10, 'NF2', '2', 'LION', '9SPACE') +
 	b'\x08' + name('_BST') + package(0, 0, 2000, 12100)))
 ac = (b'\x5b\x82' + pkg(path('_SB', 'NFAC') +
 	b'\x08' + name('_HID') + b'\x0d' + b'ACPI0003\0' +
 	b'\x14' + pkg(name('_PSR') + b'\x00' + b'\xa4\x01')))
 body = lcd + lid + nfbu + nfli + tp + bat1 + bat2 + ac
 n = 36 + len(body)
-hdr = struct.pack('<4sIBB6s8sI4sI', b'SSDT', n, 2, 0, b'NFRONT', b'NFEVENTS', 1, b'NFRT', 1)
+hdr = struct.pack('<4sIBB6s8sI4sI', b'SSDT', n, 2, 0, b'9SPACE', b'NFEVENTS', 1, b'NFRT', 1)
 t = bytearray(hdr + body)
 t[9] = (-sum(t)) & 0xff
 open(sys.argv[1], 'wb').write(t)

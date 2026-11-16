@@ -2,22 +2,22 @@
  * tests/wlan: wlansim, the radio of an etherwlan interface (#ω/wlanN,
  * etherwlan.c) and the access points on it:
  *
- *	nfront		02:00:00:00:00:aa	channel 6 (2.4 GHz), open, -60 dBm
- *	nfront		02:00:00:00:00:dd	channel 11, open, -30 dBm: the
+ *	9space		02:00:00:00:00:aa	channel 6 (2.4 GHz), open, -60 dBm
+ *	9space		02:00:00:00:00:dd	channel 11, open, -30 dBm: the
  *					same network's stronger node, the one
  *					the station is to choose
- *	nfront		02:00:00:00:00:ee	channel 40 (5 GHz), open, -75 dBm
+ *	9space		02:00:00:00:00:ee	channel 40 (5 GHz), open, -75 dBm
  *					(-r sets it): under OpenBSD's threshold
  *					for 5 GHz (-70) the stronger 2.4 GHz
  *					node is chosen, above it this one
- *	nfront5		02:00:00:00:00:bb	channel 36 (5 GHz), open; its
+ *	9space5		02:00:00:00:00:bb	channel 36 (5 GHz), open; its
  *					beacons have no DS parameter set,
  *					the HT operation element says the
  *					channel; WMM and HT
- *	nfrontwpa	02:00:00:00:00:cc	channel 100 (5 GHz, radar
+ *	9spacewpa	02:00:00:00:00:cc	channel 100 (5 GHz, radar
  *					detection: the station only listens),
  *					WPA2-PSK (CCMP), passphrase
- *					nfront-secret; its beacons tell no
+ *					9space-secret; its beacons tell no
  *					channel at all; WMM and HT
  *
  * Each sends beacons while the interface is tuned to its channel and
@@ -28,7 +28,7 @@
  * Behind them is a host, 10.0.9.1 (ethernet 02:00:00:00:00:01): ARP and
  * ICMP echo.  Prints what happens on stderr, and what is wrong: probe
  * requests on a channel with radar detection, 802.11b rates on 5 GHz.
- * As the radio it offers HT and VHT (ctl caps; nfront5 offers VHT, 80 MHz
+ * As the radio it offers HT and VHT (ctl caps; 9space5 offers VHT, 80 MHz
  * around channel 42); an access point with WMM sees
  * whether the association request has WMM's element and the HT
  * capabilities, and then exchanges QoS data (CCMP with the TID).  Then it
@@ -115,13 +115,13 @@ static uchar rates24[] = { 0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24, 0x30,
 static uchar rates5[] = { 0x8c, 0x12, 0x98, 0x24, 0xb0, 0x48, 0x60, 0x6c };
 
 static Ap aps[] = {
-	{ "nfront",	{ 0x02, 0, 0, 0, 0, 0xaa },	6,	0,	0,	0,	-60,	rates24,	sizeof rates24 },
-	{ "nfront",	{ 0x02, 0, 0, 0, 0, 0xdd },	11,	0,	0,	0,	-30,	rates24,	sizeof rates24 },
-	{ "nfront",	{ 0x02, 0, 0, 0, 0, 0xee },	40,	0,	0,	0,	-75,	rates5,	sizeof rates5 },
-	{ "nfront5",	{ 0x02, 0, 0, 0, 0, 0xbb },	36,	1,	0,	1,	-40,	rates5,	sizeof rates5 },
-	{ "nfrontwpa",	{ 0x02, 0, 0, 0, 0, 0xcc },	100,	0,	1,	1,	-40,	rates5,	sizeof rates5 },
+	{ "9space",	{ 0x02, 0, 0, 0, 0, 0xaa },	6,	0,	0,	0,	-60,	rates24,	sizeof rates24 },
+	{ "9space",	{ 0x02, 0, 0, 0, 0, 0xdd },	11,	0,	0,	0,	-30,	rates24,	sizeof rates24 },
+	{ "9space",	{ 0x02, 0, 0, 0, 0, 0xee },	40,	0,	0,	0,	-75,	rates5,	sizeof rates5 },
+	{ "9space5",	{ 0x02, 0, 0, 0, 0, 0xbb },	36,	1,	0,	1,	-40,	rates5,	sizeof rates5 },
+	{ "9spacewpa",	{ 0x02, 0, 0, 0, 0, 0xcc },	100,	0,	1,	1,	-40,	rates5,	sizeof rates5 },
 };
-static char passphrase[] = "nfront-secret";
+static char passphrase[] = "9space-secret";
 /* HT capabilities: 20 MHz, MCS 0-7 (the access point's and the radio's) */
 static uchar htcap[] = {
 	45, 26,
@@ -424,7 +424,7 @@ aesCCMdecrypt(int L, int M, uchar *N, uchar *a, int la, uchar *m, int lm, AESsta
 
 /*
  * f: the header of a data frame (no a4), with QoS control (26 bytes) if
- * QoS data: then its TID in the nonce and the AAD, as wifi.c (nfront)
+ * QoS data: then its TID in the nonce and the AAD, as wifi.c (9space)
  * and OpenBSD's ieee80211_ccmp_phase1 do
  */
 static int
@@ -1130,7 +1130,7 @@ main(int argc, char *argv[])
 	case 'd':
 		debug++;
 		break;
-	case 'r':	/* the signal of nfront's 5 GHz node (02:00:00:00:00:ee) */
+	case 'r':	/* the signal of 9space's 5 GHz node (02:00:00:00:00:ee) */
 		ap5()->rssi = atoi(EARGF(usage()));
 		break;
 	default:

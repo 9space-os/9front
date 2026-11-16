@@ -71,7 +71,7 @@
 #define	DSKB_TRACE	0x10
 #define	DSKB_TRACEX	0x20
 extern int linuxkpi_debug_skb;
-extern int kpi_skb_memlimit;	/* nfront: FreeBSD's skb.mem_limit (skbuff.c) */
+extern int kpi_skb_memlimit;	/* 9space: FreeBSD's skb.mem_limit (skbuff.c) */
 
 #define	SKB_TODO()							\
     if (linuxkpi_debug_skb & DSKB_TODO)					\

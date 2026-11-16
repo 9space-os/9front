@@ -2,7 +2,7 @@
 /*
  * LinuxKPI for 9front: DMA mapping without an IOMMU: the device reaches
  * memory at its physical address; coherent memory is a run of pages
- * from the page pool.  nfront: within the device's DMA mask: the pool
+ * from the page pool.  9space: within the device's DMA mask: the pool
  * gives only pages below it (page.c); one device per process, so the
  * mask is the process's.
  */
@@ -21,7 +21,7 @@ kpi_dma_set_mask(struct device *d, u64 mask)
 	return 0;
 }
 
-/* nfront: memory the device reaches (a page of the pool before the mask was narrowed may not) */
+/* 9space: memory the device reaches (a page of the pool before the mask was narrowed may not) */
 static int
 reachable(phys_addr_t pa, size_t size)
 {

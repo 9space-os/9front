@@ -85,7 +85,7 @@ if(! ~ $terminal *vx32*){
 			aux/timesync $TIMESYNCARGS
 }
 
-# nfront: ACPI's events (#P/acpiev; *noacpiev= in plan9.ini leaves
+# 9space: ACPI's events (#P/acpiev; *noacpiev= in plan9.ini leaves
 # them out): aux/acpi runs the firmware's event methods (lid, buttons,
 # keys: its acpievents), aux/acpikeys the brightness keys on the panels'
 # backlight.  Before screenrc: a GPU driver uses this interpreter.
@@ -97,7 +97,7 @@ if(test -e '#P/acpiev' && ! test -e /srv/acpi){
 	aux/i2chid &
 }
 
-# nfront: aux/rtw89, the radio of a wlan(3) interface on a Realtek
+# 9space: aux/rtw89, the radio of a wlan(3) interface on a Realtek
 # RTL8852CE that plan9.ini hands to user level (*userpci=10ec/c852,
 # etherN=type=wlan; rtw89(8)); in the background: its firmware takes
 # seconds

@@ -96,7 +96,7 @@ yuy2convert(Format *, VSUncompressedFrame *g, uchar *in, VFrame *out)
 }
 
 /*
- * nfront: 8 bits of grey a pixel (an infrared camera's: Windows Hello's
+ * 9space: 8 bits of grey a pixel (an infrared camera's: Windows Hello's
  * D3DFMT_L8), each value as red, green and blue
  */
 void
@@ -120,7 +120,7 @@ struct Converter {
 	void (*fn)(Format *, VSUncompressedFrame *, uchar *, VFrame *);
 } converters[] = {
 	{{0x59,0x55,0x59,0x32, 0x00,0x00,0x10,0x00, 0x80,0x00,0x00,0xAA, 0x00,0x38,0x9B,0x71}, yuy2convert},
-	/* nfront: the grey ones: D3DFMT_L8, Y800, Y8 */
+	/* 9space: the grey ones: D3DFMT_L8, Y800, Y8 */
 	{{0x32,0x00,0x00,0x00, 0x02,0x00,0x10,0x00, 0x80,0x00,0x00,0xAA, 0x00,0x38,0x9B,0x71}, greyconvert},
 	{{0x59,0x38,0x30,0x30, 0x00,0x00,0x10,0x00, 0x80,0x00,0x00,0xAA, 0x00,0x38,0x9B,0x71}, greyconvert},
 	{{0x59,0x38,0x20,0x20, 0x00,0x00,0x10,0x00, 0x80,0x00,0x00,0xAA, 0x00,0x38,0x9B,0x71}, greyconvert},
@@ -314,7 +314,7 @@ err:
 	c->active = 1;
 	c->framemode = fr;
 	/*
-	 * nfront: frame's picture after a second of them: a sensor just
+	 * 9space: frame's picture after a second of them: a sensor just
 	 * started gives black ones while its exposure settles (a laptop's,
 	 * 30c9:00c2: all black at first, its pictures after some)
 	 */

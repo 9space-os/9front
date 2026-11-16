@@ -1516,7 +1516,7 @@ evalnop(void)
 	return nil;
 }
 
-/* nfront: Notify (object, value) to amlnotify (aml.h), else nothing */
+/* 9space: Notify (object, value) to amlnotify (aml.h), else nothing */
 static void*
 evalnotify(void)
 {
@@ -2409,7 +2409,7 @@ amlnew(char tag, int len)
 }
 
 /*
- * nfront: the Windows versions firmware asks for, up to the current ones:
+ * 9space: the Windows versions firmware asks for, up to the current ones:
  * from Windows 8 (2012) on, firmware reports the brightness keys as the
  * ACPI video extension's notifications (0x86, 0x87) instead of handling
  * them itself, and takes the paths it is tested with today.  The list is

@@ -1,5 +1,5 @@
 /*
- * nfront: Realtek's PCI Express card readers (RTS5209, 5227, 5229,
+ * 9space: Realtek's PCI Express card readers (RTS5209, 5227, 5229,
  * 522A, 5249, 525A; RTL8402, 8411, 8411B), an SD host for sdmmc
  * (port/sdmmc.c: the cards' protocol, #S/sdM0).  The chip runs a queue
  * of register reads and writes from memory (the command buffer: a

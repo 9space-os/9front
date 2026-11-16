@@ -8,7 +8,7 @@
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: nfront/cache/cli)
+. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
 [ -x "$ROOT/amd64/bin/drawfs" ] || { echo "draw: no amd64/bin/drawfs"; exit 1; }
 (cd "$HERE" && CC=gcc ARCH=amd64 "$ROOT/sys/src/cmd/build/build.exe" build.json >/dev/null 2>&1) || { echo "FAIL draw: building drawcmp"; exit 1; }
 M="timeout 300 python3 $ROOT/scripts/guest/mcp.py"

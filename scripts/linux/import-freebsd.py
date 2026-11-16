@@ -23,7 +23,7 @@ COMMITS = [l.split()[0] for l in open(os.path.join(D, 'FREEBSD')) if l.strip()]
 NAMES = ['freebsd', 'drm-kmod']
 WANT = [
 	['sys/compat/linuxkpi/common/include/', 'sys/compat/linuxkpi/common/src/',
-	 # nfront: Realtek's rtw89 WLAN driver as FreeBSD carries it (GPL-2.0 OR
+	 # 9space: Realtek's rtw89 WLAN driver as FreeBSD carries it (GPL-2.0 OR
 	 # BSD-3-Clause: the BSD choice), for aux/rtw89
 	 'sys/contrib/dev/rtw89/',
 	 # net80211's protocol and radiotap definitions (BSD), the numbers FreeBSD's
@@ -69,7 +69,7 @@ def main():
 			if not t.strip() or (not n and not GPL.search(t)):
 				n = ''	# empty stubs, files without notice are FreeBSD's (BSD-2 tree)
 			elif DUAL.search(n):
-				n = n + '\n(nfront: taken under ' + DUAL.search(n).group(1) + ', its permissive choice)'
+				n = n + '\n(9space: taken under ' + DUAL.search(n).group(1) + ', its permissive choice)'
 			elif not OK.search(n) or GPL.search(n):
 				rejected.append(name + '/' + f)
 				continue

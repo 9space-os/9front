@@ -24,7 +24,7 @@ mkdir -p $lib
 if(! test -s $nvram){
 	touch $nvram
 	chmod 600 $nvram
-	echo 'termcpu: the machine''s key: authid '$user', an authdom (nfront), no secstore key, a password'
+	echo 'termcpu: the machine''s key: authid '$user', an authdom (9space), no secstore key, a password'
 	auth/wrkey || exit wrkey
 }
 auth/factotum -S -n || exit factotum

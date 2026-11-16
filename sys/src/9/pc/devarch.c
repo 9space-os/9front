@@ -430,7 +430,7 @@ static X86type x86amd[] =
 	{ 22,	0,	11,	"AMD Jaguar", },
 	{ 22,	3,	11,	"AMD Puma", },
 	{ 23,	1,	13,	"AMD Ryzen" },
-	/* nfront: by family alone (9front's model adds the extended model unshifted) */
+	/* 9space: by family alone (9front's model adds the extended model unshifted) */
 	{ 23,	-1,	13,	"AMD Zen" },	/* Zen, Zen 2 */
 	{ 25,	-1,	13,	"AMD Zen 3" },	/* Zen 3, 3+, 4 (Ryzen 7 7735HS) */
 	{ 26,	-1,	13,	"AMD Zen 5" },

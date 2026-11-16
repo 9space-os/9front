@@ -1,6 +1,6 @@
 /*
  * HID report descriptors and input reports: keys and mouse(3) events
- * (nfront: out of nusb/kb's kb.c, for nusb/kb and aux/i2chid).
+ * (9space: out of nusb/kb's kb.c, for nusb/kb and aux/i2chid).
  */
 
 #include <u.h>
@@ -164,7 +164,7 @@ repparse1(uchar *d, uchar *e, int g[], int l[], int c,
 			switch(t){
 			case Collection:
 				/*
-				 * nfront: the collection's usage before the locals are
+				 * 9space: the collection's usage before the locals are
 				 * cleared (9front read l[Nu] after: always 0, only
 				 * the page; a touchscreen's finger 0x0D0022 was never
 				 * recognized)

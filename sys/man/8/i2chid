@@ -88,7 +88,7 @@ scrolls as on a phone: the fingers move the page.
 .IR i2c (3),
 .IR nusb (4)
 .SH HISTORY
-Written for nfront; the protocol's steps as OpenBSD's
+Written for 9space; the protocol's steps as OpenBSD's
 .IR ihidev (4),
 the touchpad's mode and reports as its
 .IR imt (4).

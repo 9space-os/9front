@@ -1,7 +1,7 @@
 dist	d775
 	replica	d775
-		nfront	775
-		nfront.pub	664
+		9space	775
+		9space.pub	664
 		client	d775
-			nfront.db	664
-			nfront.log	664
+			9space.db	664
+			9space.log	664
