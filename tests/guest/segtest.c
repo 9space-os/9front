@@ -233,8 +233,13 @@ main(int argc, char **argv)
 		free(w);
 	}
 
-	dma32("segtest.dma32", 0x5000000000ULL, 8*1024*1024, 0);
-	dma32("segtest.dma32c", 0x5001000000ULL, 8*1024*1024, 1);
+	/*
+	 * at 4 GB: below USTKTOP's half (the shared region) on amd64 and on
+	 * arm64 too (36-bit addresses: USTKTOP is 32 GB, 0x5000000000 was
+	 * out of it: "bad arg")
+	 */
+	dma32("segtest.dma32", 0x100000000ULL, 8*1024*1024, 0);
+	dma32("segtest.dma32c", 0x101000000ULL, 8*1024*1024, 1);
 
 	print(nfail ? "segtest: %d failed\n" : "segtest: all passed\n", nfail);
 	exits(nfail ? "failed" : nil);
