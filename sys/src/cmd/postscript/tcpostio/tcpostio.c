@@ -472,6 +472,7 @@ void main(int argc, char *argv[]) {
 	int pipefd[2];
 	char *dialstr;
 	unsigned long rprv, sprv;
+	int status;
 
 	dialstr = 0;
 
@@ -533,7 +534,7 @@ void main(int argc, char *argv[]) {
 		close(pipefd[0]);
 		rprv = readprinter(printerfd, pipefd[1]);	/* parent - from printer */
 		if (debug) fprintf(stderr, "from remote - exiting\n");
-		while(wait(&sprv) != cpid);
-		exit(rprv|sprv);
+		while(wait(&status) != cpid);
+		exit(rprv|status);
 	}
 }
