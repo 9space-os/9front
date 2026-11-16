@@ -65,6 +65,18 @@
 #include "ext.h"			/* external variable declarations */
 #include "download.h"			/* a few special definitions */
 
+/* its functions, declared before their use */
+int	arguments(void);
+int	copyfonts(char *list);
+int	copyinput(void);
+int	done(void);
+int	download(void);
+int	init_signals(void);
+int	lookup(char *font);
+int	options(void);
+int	readmap(void);
+int	readresident(void);
+
 char	*temp_dir = TEMPDIR;		/* temp directory - for copying stdin */
 char	*hostfontdir = HOSTDIR;		/* host resident directory */
 char	*mapname = "map";		/* map table - usually in *hostfontdir */

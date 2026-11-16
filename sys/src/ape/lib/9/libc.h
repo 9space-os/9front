@@ -140,8 +140,8 @@ extern	vlong	_NSEC(void);
 #define AEXEC 1
 #define AEXIST 0
 
-#define _exits(s) _exit(s && *(char*)s ? 1 : 0)
-#define exits(s) exit(s && *(char*)s ? 1 : 0)
+#define _exits(s) _exit((s) && *(char*)(s) ? 1 : 0)
+#define exits(s) exit((s) && *(char*)(s) ? 1 : 0)
 
 #define create(file, omode, perm) open(file, (omode) |O_CREAT | O_TRUNC, perm)
 #define seek(fd, off, dir) lseek(fd, off, dir)
