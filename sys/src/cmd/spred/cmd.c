@@ -167,7 +167,7 @@ static struct cmd {
 	{"w", 0, dowrite},
 	{"q", 1, doquit},
 	{"zoom", 2, dozoom},
-	{nil, nil}
+	{nil, 0}	/* GCC port: argc is an int; nil is a pointer */
 };
 
 void

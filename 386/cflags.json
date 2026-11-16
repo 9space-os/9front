@@ -23,7 +23,6 @@
 			"-fcommon",
 			"-Wno-error=implicit-int",
 			"-Wno-error=incompatible-pointer-types",
-			"-Wno-error=int-conversion",
 			"-g",
 			"-gdwarf-2",
 			"-ggdb",
