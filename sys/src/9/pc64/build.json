@@ -149,8 +149,7 @@
             "-Wno-parentheses",
             "-Wno-unknown-pragmas",
             "-Wno-switch",
-            "-Wno-sign-compare",
-            "-Wno-sequence-point",
+            "-Werror=sequence-point",
             "-fno-reorder-functions"
         ],
         "Oflags": [
