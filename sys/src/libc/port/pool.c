@@ -1477,8 +1477,10 @@ memmark(void *v, int sig, ulong size)
 	ulong *lp, *elp;
 	lp = v;
 	elp = lp+size/4;
-	while(lp < elp)
-		*lp++ = (sig<<24) ^ ((uintptr)lp-(uintptr)v);
+	while(lp < elp){
+		*lp = (sig<<24) ^ ((uintptr)lp-(uintptr)v);
+		lp++;
+	}
 	p = (uchar*)lp;
 	ep = (uchar*)v+size;
 	while(p<ep)
