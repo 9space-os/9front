@@ -33,12 +33,6 @@ using
 The
 .B DMDIR
 bit must be set in the permissions.
-The new segment's permissions are the low nine bits of those given
-to
-.B create
-(9front gives every new segment 0660 and leaves a different mode to a
-later
-.IR wstat (2)).
 .IR Remove (2)'ing
 the directory makes the segment no longer
 available for

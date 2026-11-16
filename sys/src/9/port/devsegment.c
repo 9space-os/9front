@@ -268,7 +268,7 @@ segmentcreate(Chan *c, char *name, int omode, ulong perm)
 
 	g = smalloc(sizeof(Globalseg));
 	g->Ref.ref = 1;
-	g->perm = perm & 0777;	/* not about gcc: create's permissions, as other file servers (front: 0660, a wstat after); APE's shm_open and the GPU drivers make theirs 0600, 0700; segment(3) */
+	g->perm = 0660;
 	kstrdup(&g->name, name);
 	kstrdup(&g->uid, up->user);
 
