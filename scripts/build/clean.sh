@@ -15,10 +15,10 @@
 #
 # usage: scripts/build/clean.sh [-i]
 #   env:  CLI_DIR   where the log goes
-#                   (default: CLI_DIR of dist/paths.env, nfront/cache/cli)
+#                   (default: CLI_DIR of dist/paths.env, 9space/cache/cli)
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: nfront/cache/cli)
+. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
 die(){ echo "clean: $*" >&2; exit 1; }
 installed=
 case $* in
