@@ -33,7 +33,8 @@
 #            sector 0 (same CD; USB_CTLRS="xhci ehci" for fewer)
 #   workflow the reference workflow on a CD with wsys (dist/bin/mkcd ui, or ISO=):
 #            term, sam, paint, uitodo, foot typed into by the host; the files
-#            over 9P from the host; nothing Broken (boots once)
+#            over 9P from the host; files (the file manager); nothing Broken
+#            (boots once)
 #   gcc      the native gcc on the CD (/$objtype/gnu, ../9front-gcc): a POSIX
 #            and a native Plan 9 program compiled, linked and run (same CD)
 #   go       Go on the CD (/$objtype/go, ../9front-go, GO_OUT for mkiso.sh): go

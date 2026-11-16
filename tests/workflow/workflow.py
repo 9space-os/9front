@@ -7,8 +7,9 @@ through QMP, the programs of the profile ui (wsys, term, foot) and of
 
 	term	typed into: a file written, its output on term's screen
 		(TERMDEBUG=screen)
-	sam	the editor: the file's window swept when samterm asks,
-		text typed into it, written from the command window (w)
+	sam	the editor: a/.../ on a new file from its command window,
+		the file's window swept when samterm asks, a line typed
+		into it, written (w)
 	paint	a draw(3) program: a stroke drawn with button 1, the canvas
 		written from its prompt (w file)
 	uitodo	a client of ui(4): its text box found by nodes/id/rect,
@@ -16,7 +17,8 @@ through QMP, the programs of the profile ui (wsys, term, foot) and of
 	foot	a Wayland program in wlsys(4): typed into, its rc writes a file
 	9P	the session's files read from the host over TCP (exportfs
 		behind aux/listen1, plan9port's 9p), one written into it
-	file manager	none yet: a skip
+	files	the file manager (ui(4)): a file selected, renamed, plumbed;
+		a directory made and gone into; a file made from outside shows
 
 and at the end every one of them still running, no process Broken,
 wsys up.  The guest's own view (window rectangles, files) comes
@@ -95,6 +97,11 @@ def window(rect, cmd):
 	sh("window -r %s %s" % (rect, cmd))
 	return newwin(old)
 
+def key(name):
+	"""one key by its QMP name (end, home, ...)"""
+	vm.cmd({'execute': 'send-key', 'arguments': {'keys': [{'type': 'qcode', 'data': name}]}})
+	time.sleep(0.2)
+
 def typed(text):
 	vm.type(text)
 	time.sleep(0.5)
@@ -131,28 +138,32 @@ try:
 		scr = sh('cat /tmp/term.*.screen')
 		result(scr.count('plan: notes, sketch, todo') >= 2, "term: the command and its output on term's screen")
 
-	# sam as a user works it: b makes the file current; it has no window
-	# yet, so samterm asks for one to be swept (button 3); the text typed
-	# into that window; back in the command window (the top fifth), w
+	# sam: a/.../ in the command window on the new file (under samterm
+	# its first read came within that command and cancelled it: patch-upstream
+	# 0040); the file has no window, so samterm asks for one to be swept
+	# (button 3); a click below the text, a second line typed into it;
+	# back in the command window (the top fifth), w
 	w, r = window('200 190 720 530', 'sam /tmp/wf/notes')
 	if result(w is not None, 'sam: its window'):
 		time.sleep(2)	# samterm's first frame
 		cmdat = ((r[0]+r[2])//2, r[1] + (r[3]-r[1])//10)
 		vm.click(*cmdat)
-		typed('b /tmp/wf/notes\n')
+		typed('a/notes from sam\\n/\n')
 		time.sleep(1)
 		vm.goto(r[0] + 20, r[1] + (r[3]-r[1])//4)
 		vm.button('right', True)
 		vm.move(r[2]-r[0]-40, (r[3]-r[1])*3//4 - 20, step=3, pause=0.003)
 		vm.button('right', False)
 		time.sleep(1)
-		typed('notes from sam\n')
+		vm.click((r[0]+r[2])//2, r[3] - 40)	# below the text: its end
+		typed('typed in sam\n')
 		vm.shot('sam1')
 		vm.click(*cmdat)
 		typed('w\n')
 		time.sleep(1)
 		vm.shot('sam2')
-		result(until("grep -s '^notes from sam$' /tmp/wf/notes"), 'sam: a window swept for the file, text typed into it, written (w)')
+		result(until("~ `{cat /tmp/wf/notes | wc -l} 2 && grep -s '^notes from sam$' /tmp/wf/notes && grep -s '^typed in sam$' /tmp/wf/notes"),
+			'sam: a/.../ on the new file, its window swept, a line typed into it, written (w)')
 
 	# paint: a stroke, the canvas written from its prompt
 	w, r = window('220 210 740 580', 'paint')
@@ -204,7 +215,7 @@ try:
 	rc, ls = ninep('ls')
 	result(rc == 0 and b'notes' in ls.split(), '9P: the host lists /tmp/wf (exportfs, aux/listen1)')
 	rc, notes = ninep('read', 'notes')
-	result(rc == 0 and notes == b'notes from sam\n', "9P: the host reads sam's file")
+	result(rc == 0 and notes == b'notes from sam\ntyped in sam\n', "9P: the host reads sam's file")
 	rc, todo = ninep('read', 'todo')
 	result(rc == 0 and b'0 milk' in todo, "9P: the host reads uitodo's list")
 	rc, k8 = ninep('read', 'sketch.k8')
@@ -215,11 +226,84 @@ try:
 		rc, _ = ninep('write', 'fromhost', data=b'written by the host\n')
 	result(rc == 0 and until("grep -s '^written by the host$' /tmp/wf/fromhost"), '9P: a file written by the host')
 
-	print('skip a file manager (none yet)', flush=True)
+	# files, the file manager (ui(4)): a click selects notes, a name typed
+	# at the end of its rename box renames it, a second click plumbs it (a
+	# reader on the edit port takes the message), a directory made, gone
+	# into by two clicks; a file made there from outside shows
+	old = wins()
+	sh('files /tmp/wf >/tmp/wf/files.log >[2=1] </dev/null &; filespid=$apid')
+	fw, _ = newwin(old)
+	if fw:	# bigger, as a user makes it: /tmp/wf has more entries than its first size shows
+		sh('echo resize -r 120 60 760 740 >/mnt/wsys/%s/wctl' % fw)
+		time.sleep(1)
+	srv = '/srv/ui.%s.$filespid.0' % user
+	ok = until('test -e ' + srv) and 'yes' in sh('mount %s /n/uif && echo yes' % srv)
+	if result(ok, 'files: its window of ui(4) mounted'):
+		def node(text, kind='button', key='text'):
+			# the node of that kind whose key (text, placeholder) is text
+			q = text.replace("'", "''")
+			return sh("for(n in `{grep '^set [^ ]* %s %s$' /n/uif/tree | awk '{print $2}'}) "
+				"if(grep -s '^new '$n' %s ' /n/uif/tree) echo $n" % (key, q, kind)).split('\n')[0].strip()
+		def where(n, end=False):
+			# the middle of node n (or its right end, inside), on the screen;
+			# None when that is not in the window's contents (ctl: x y width height)
+			v = sh("o=`{cat /n/uif/ctl}; r=`{cat /n/uif/nodes/%s/rect}; echo $o $r" % n).split()
+			try:
+				o, r = [float(x) for x in v[:4]], [float(x) for x in v[4:8]]
+			except ValueError:
+				return None
+			if len(r) < 4:
+				return None
+			x = o[0] + (r[2] - 6 if end else (r[0] + r[2]) / 2)
+			y = o[1] + (r[1] + r[3]) / 2
+			if not (o[0] <= x < o[0] + o[2] and o[1] <= y < o[1] + o[3]):
+				note('files: node %s at %d,%d, outside the window %s' % (n, x, y, o))
+				return None
+			return int(x), int(y)
+		until("grep -s 'text notes$' /n/uif/tree")
+		b = node('notes')
+		p = where(b) if b else None
+		if result(p is not None, 'files: notes listed, a button (%s)' % b):
+			vm.click(*p)	# the first may only make the window current
+			# (only ASCII in what goes to the serial rc: a » there does not
+			# arrive as typed; the selection's mark is any word before the name)
+			if not until("grep -s 'text [^ ]+ notes$' /n/uif/tree", 3):
+				vm.click(*p)
+			result(until("grep -s 'text [^ ]+ notes$' /n/uif/tree"), 'files: a click selects notes')
+			tb = node('notes', 'textbox')
+			q = where(tb, end=True) if tb else None
+			if q:
+				vm.click(*q)
+				key('end')	# the click leaves the cursor at the start
+				typed('.txt\n')
+			result(until('test -f /tmp/wf/notes.txt && ! test -e /tmp/wf/notes'), 'files: renamed to notes.txt (its rename box, enter)')
+			sh('cat /mnt/plumb/edit >/tmp/wf/plumbed &')
+			time.sleep(0.5)
+			b = sh("grep '^set [^ ]* text [^ ]+ notes.txt$' /n/uif/tree | sed 1q | awk '{print $2}'")
+			if b:
+				vm.click(*where(b))
+			result(until("grep -s notes.txt /tmp/wf/plumbed && grep -s '^/tmp/wf$' /tmp/wf/plumbed"),
+				'files: a second click plumbs it (edit port: notes.txt from /tmp/wf)')
+		mk = node('new directory', 'textbox', 'placeholder')
+		q = where(mk) if mk else None
+		if q:
+			vm.click(*q)
+			typed('archive\n')
+		result(until('test -d /tmp/wf/archive') and until("grep -s 'text archive/$' /n/uif/tree"), 'files: a directory made, listed')
+		b = node('archive/')
+		if b:
+			vm.click(*where(b))
+			time.sleep(0.5)
+			b = sh("grep '^set [^ ]* text [^ ]+ archive/$' /n/uif/tree | sed 1q | awk '{print $2}'")
+			if b:
+				vm.click(*where(b))
+		result(until("grep -s 'text /tmp/wf/archive$' /n/uif/tree"), 'files: two clicks go into archive (its path in the box)')
+		sh('touch /tmp/wf/archive/later')
+		result(until("grep -s 'text later$' /n/uif/tree", 8), 'files: a file made from outside shows (read every 2 s)')
 
 	# the session's programs still there, nothing Broken
 	ps = sh('ps')
-	for p in ('wsys', 'term', 'sam', 'paint', 'uitodo', 'foot', 'wlsys'):
+	for p in ('wsys', 'term', 'sam', 'paint', 'uitodo', 'foot', 'wlsys', 'files'):
 		result(re.search(r' %s$' % p, ps, re.M) is not None, '%s still running' % p)
 	broken = [l for l in ps.splitlines() if ' Broken ' in l]
 	result(not broken, 'no process Broken' + (': ' + '; '.join(broken) if broken else ''))

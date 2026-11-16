@@ -48,6 +48,7 @@ gpu	sys/src/vktools
 # Without it the desktop is rio. wsys of amd64 has Mesa linked in: it runs
 # without the gpu group (on the processor)
 ui	$objtype/bin/drawfs
+ui	$objtype/bin/files
 ui	$objtype/bin/foot
 ui	$objtype/bin/term
 ui	$objtype/bin/ui
