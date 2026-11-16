@@ -81,6 +81,18 @@
 #include "ext.h"			/* external variable declarations */
 #include "postreverse.h"		/* a few special definitions */
 
+/* its functions, declared before their use */
+int	arguments(void);
+int	copypage(long start, long stop);
+int	done(void);
+int	init_signals(void);
+int	moreprolog(char *str);
+int	options(void);
+int	readpages(void);
+int	reverse(void);
+int	trailer(void);
+int	writepages(void);
+
 int	page = 1;			/* current page number */
 int	forms = 1;			/* forms per page in the input file */
 

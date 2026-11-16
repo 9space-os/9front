@@ -113,6 +113,33 @@
 #include "ext.h"			/* external variable definitions */
 #include "posttek.h"			/* control codes and other definitions */
 
+/* its functions, declared before their use */
+int	account(void);
+int	alpha(void);
+int	arguments(void);
+int	control(int c);
+int	done(void);
+int	draw(void);
+int	esc(void);
+int	formfeed(void);
+int	gin(void);
+int	graph(void);
+int	header(void);
+int	home(void);
+int	incremental(void);
+int	init_signals(void);
+int	move(int x, int y);
+int	nextchar(void);
+int	options(void);
+int	point(void);
+int	redirect(int pg);
+int	reset(void);
+int	setfont(int newfont);
+int	setmode(int mode);
+int	setup(void);
+int	statemachine(FILE *fp);
+int	text(void);
+
 char	*optnames = "a:c:f:m:n:o:p:w:x:y:A:C:E:J:L:P:R:DI";
 
 char	*prologue = POSTTEK;		/* default PostScript prologue */

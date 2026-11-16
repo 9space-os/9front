@@ -24,7 +24,6 @@ int	copies = 1;                     /* and this many copies of each sheet */
 int     page = 0;                       /* last page we worked on */
 int     printed = 0;                    /* and the number of pages printed */
 
-extern char *malloc();
 extern void free();
 extern double atof(), pow();
 
