@@ -1,7 +1,7 @@
-From 79e9f2d394de20dcc3631ffab692c74cdc4c069f Mon Sep 17 00:00:00 2001
+From 19a1f9d622818fcf8e00d2ed9c6c875c1b9694e6 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Tue, 3 Nov 2026 20:26:17 +0100
-Subject: [PATCH 21/27] ext4srv: reading on in a directory that shrank or was
+Subject: [PATCH 21/38] ext4srv: reading on in a directory that shrank or was
  removed ends instead of crashing
 
 ext4_dir_entry_next seeks to the offset where the last read stopped;

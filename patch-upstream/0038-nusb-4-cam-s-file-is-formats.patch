@@ -1,7 +1,7 @@
-From 82aa291105aefca5c6336f5e05409511aa0785a6 Mon Sep 17 00:00:00 2001
+From 7b6593201d669ffd8685523c3277d929662c533b Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sun, 15 Nov 2026 11:35:27 +0100
-Subject: [PATCH] nusb(4): cam's file is formats
+Subject: [PATCH 38/38] nusb(4): cam's file is formats
 
 The page named it format; nusb/cam serves formats (the resolutions and
 frame rates).

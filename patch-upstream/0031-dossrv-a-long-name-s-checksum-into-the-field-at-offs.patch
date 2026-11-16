@@ -1,7 +1,7 @@
-From e8b0537e9a167987780b9fb1a2922a2a3b3b2de5 Mon Sep 17 00:00:00 2001
+From 3ed4534321c7bb0422a5639a2eff5ce6f59c3c6a Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Fri, 13 Nov 2026 18:37:44 +0100
-Subject: [PATCH 31/31] dossrv: a long name's checksum into the field at offset
+Subject: [PATCH 31/38] dossrv: a long name's checksum into the field at offset
  13
 
 putnamesect wrote the checksum of a VFAT long name's slot as

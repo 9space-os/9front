@@ -1,7 +1,7 @@
-From 7bc54455d0d76c57f5417cbad52fd90d002d90c1 Mon Sep 17 00:00:00 2001
+From 8b88c9948a6506dd4fc06330a082cebf4b0a5b69 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Fri, 13 Nov 2026 18:29:41 +0100
-Subject: [PATCH] aux/vga/mga4xx: attribute[] holds registers 0x00-0x14
+Subject: [PATCH 28/38] aux/vga/mga4xx: attribute[] holds registers 0x00-0x14
 
 init and load run i from 0 to 0x14 (i < 0x15) over the attribute
 controller's registers, writing and reading mga->attribute[i]; the

@@ -11,16 +11,16 @@ in `git format-patch` form, one change per patch, without the port's
 They stay on the `gcc` branch as well (marked there) until 9front has
 taken or declined them.
 
-- Base: `origin/front` at `f5df6bc0a` (2026-11-03, "zuke(1): add missing
-  readtags for indexing").
+- Base: `origin/front` at `6ae667969` (2026-11-15, "mlkem(2): correct
+  encapsulation description").
 - Source: branch `upstream` of this repository (worktree
-  `../9front-upstream`), one commit per patch on top of `origin/front`.
+  `../tree-upstream`, see `dist/docs/upstream.md`), one commit per patch on top of `origin/front`.
 - Regenerate after a change or a rebase of `upstream` onto a newer
   `origin/front`:
 
-	git -C ../9front-upstream rebase origin/front
+	git -C ../tree-upstream rebase front
 	rm patch-upstream/0*.patch
-	git -C ../9front-upstream format-patch -o $PWD/patch-upstream origin/front..upstream
+	git format-patch -o patch-upstream front..upstream
 
 ## Applying
 
@@ -29,7 +29,8 @@ On 9front: `git/import` takes the files as they are.
 
 All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 `82ddeb288`, 2026-11-10, at `00d3043a2`, 2026-11-12, and at `eb49f1f87`,
-2026-11-12); 0032 to 0034 on them at `eb49f1f87` (2026-11-14). Each
+2026-11-12); 0032 to 0034 on them at `eb49f1f87` (2026-11-14); all 38 at
+`6ae667969` (2026-11-15). Each
 applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
