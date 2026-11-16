@@ -103,12 +103,12 @@ typedef enum
 	SoutD	= 2,
 	DoutS	= 1,
 
-	S		= SinD|SoutD,
+	S	= SinD|SoutD,
 	SoverD	= SinD|SoutD|DoutS,
 	SatopD	= SinD|DoutS,
 	SxorD	= SoutD|DoutS,
 
-	D		= DinS|DoutS,
+	D	= DinS|DoutS,
 	DoverS	= DinS|DoutS|SoutD,
 	DatopS	= DinS|SoutD,
 	DxorS	= DoutS|SoutD,	/* == SxorD */
@@ -131,8 +131,8 @@ enum {
 };
 
 #define __DC(type, nbits)	((((type)&15)<<4)|((nbits)&15))
-#define CHAN1(a,b)	__DC(a,b)
-#define CHAN2(a,b,c,d)	(CHAN1((a),(b))<<8|__DC((c),(d)))
+#define CHAN1(a,b)		__DC(a,b)
+#define CHAN2(a,b,c,d)		(CHAN1((a),(b))<<8|__DC((c),(d)))
 #define CHAN3(a,b,c,d,e,f)	(CHAN2((a),(b),(c),(d))<<8|__DC((e),(f)))
 #define CHAN4(a,b,c,d,e,f,g,h)	(CHAN3((a),(b),(c),(d),(e),(f))<<8|__DC((g),(h)))
 
@@ -151,7 +151,7 @@ enum {
 	RGBA32	= CHAN4(CRed, 8, CGreen, 8, CBlue, 8, CAlpha, 8),
 	ARGB32	= CHAN4(CAlpha, 8, CRed, 8, CGreen, 8, CBlue, 8),	/* stupid VGAs */
 	XRGB32	= CHAN4(CIgnore, 8, CRed, 8, CGreen, 8, CBlue, 8),
-	BGR15	= CHAN4(CIgnore, 1, CBlue, 5, CGreen, 5, CRed, 5),	/* beloved GBA (as draw.h: APE's lacked it) */
+	BGR15	= CHAN4(CIgnore, 1, CBlue, 5, CGreen, 5, CRed, 5),	/* beloved GBA */
 	BGR24	= CHAN3(CBlue, 8, CGreen, 8, CRed, 8),
 	ABGR32	= CHAN4(CAlpha, 8, CBlue, 8, CGreen, 8, CRed, 8),
 	XBGR32	= CHAN4(CIgnore, 8, CBlue, 8, CGreen, 8, CRed, 8),
@@ -163,11 +163,12 @@ enum {
  */
 enum {
 	WFintupscale	= 1,	/* integer upscaling */
+	WFidentity	= 2,	/* identity mapping */
 };
 
 extern	char*	chantostr(char*, ulong);
 extern	ulong	strtochan(char*);
-extern	int		chantodepth(ulong);
+extern	int	chantodepth(ulong);
 
 struct	Point
 {
