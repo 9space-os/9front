@@ -1,6 +1,7 @@
 #define	g2byte(x)	(((x)[1]<<8) + (x)[0])		/* little-endian */
 #define	g3byte(x)	(((x)[2]<<16) + ((x)[1]<<8) + (x)[0])
-#define	g4byte(x)	(((x)[3]<<24) + ((x)[2]<<16) + ((x)[1]<<8) + (x)[0])
+/* GCC port: through u32int: uchar promotes to int in gcc (unsigned in kencc), so a byte from 0x80 on <<24 was negative and sign-extended into 64 bits */
+#define	g4byte(x)	((u32int)(((x)[3]<<24) + ((x)[2]<<16) + ((x)[1]<<8) + (x)[0]))
 
 /* big endian */
 #define	b4byte(x)	(((x)[0]<<24) + ((x)[1]<<16) + ((x)[2]<<8) + (x)[3])

@@ -8,7 +8,7 @@ int	optopt;
 char    *optarg;
 
 int
-getopt (int argc, char **argv, char *opts)
+getopt (int argc, char *const *argv, const char *opts)	/* GCC port: POSIX's, as unistd.h and bsd.h declare it */
 {
 	static int sp = 1;
 	register c;

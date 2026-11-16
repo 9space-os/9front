@@ -36,7 +36,7 @@ writeback(void)
 void
 timerload(uchar *buf)
 {
-	timer.ns = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24 | (uvlong)buf[4] << 32 | (uvlong)buf[5] << 40 | (uvlong)buf[6] << 48LL | (uvlong)buf[7] << 56LL;
+	timer.ns = buf[0] | buf[1] << 8 | buf[2] << 16 | (u32int)buf[3] << 24 | (uvlong)buf[4] << 32 | (uvlong)buf[5] << 40 | (uvlong)buf[6] << 48LL | (uvlong)buf[7] << 56LL;	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 	timer.sec = buf[8];
 	timer.min = buf[9];
 	timer.hr = buf[10];

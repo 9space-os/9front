@@ -239,7 +239,7 @@ decode(uvlong pc, Instr *i)
 	if(i->op == 15)
 		i->imm64 <<= 16;
 	else if(i->op == 25 || i->op == 27 || i->op == 29)
-		i->imm64 = (uvlong)(i->uimm<<16);
+		i->imm64 = (uvlong)(u32int)(i->uimm<<16);	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 	i->w[0] = w;
 	i->target = -1;
 	i->addr = pc;

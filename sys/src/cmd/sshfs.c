@@ -483,7 +483,7 @@ qidcalc(char *c)
 	uchar dig[SHA1dlen];
 
 	sha1((uchar *) c, strlen(c), dig, nil);
-	return dig[0] | dig[1] << 8 | dig[2] << 16 | dig[3] << 24 | (uvlong)dig[4] << 32 | (uvlong)dig[5] << 40 | (uvlong)dig[6] << 48 | (uvlong)dig[7] << 56;
+	return dig[0] | dig[1] << 8 | dig[2] << 16 | (u32int)dig[3] << 24 | (uvlong)dig[4] << 32 | (uvlong)dig[5] << 40 | (uvlong)dig[6] << 48 | (uvlong)dig[7] << 56;	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 }
 
 void

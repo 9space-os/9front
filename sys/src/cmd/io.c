@@ -58,8 +58,8 @@ main(int argc, char** argv) {
 		memset(datab, 0, 8);
 		if(pread(fd, datab, size, port) != size)
 			sysfatal("pread: %r");
-		data = datab[0] | (datab[1] << 8) | (datab[2] << 16) |
-			(datab[3] << 24) | ((uvlong)datab[4] << 32) |
+		data = (u32int)(datab[0] | (datab[1] << 8) | (datab[2] << 16) |
+			(datab[3] << 24)) | ((uvlong)datab[4] << 32) |	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 			((uvlong)datab[5] << 40) | ((uvlong)datab[6] << 48) | 
 			((uvlong)datab[7] << 56);
 		data &= mask;

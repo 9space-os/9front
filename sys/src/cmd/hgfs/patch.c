@@ -84,9 +84,9 @@ fpatch(int ofd, int bfd, int pfd)
 			continue;
 		}
 
-		start = buf[0]<<24 | buf[1]<<16 | buf[2]<<8 | buf[3];
-		end = buf[4]<<24 | buf[5]<<16 | buf[6]<<8 | buf[7];
-		len = buf[8]<<24 | buf[9]<<16 | buf[10]<<8 | buf[11];
+		start = (u32int)(buf[0]<<24 | buf[1]<<16 | buf[2]<<8 | buf[3]);	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
+		end = (u32int)(buf[4]<<24 | buf[5]<<16 | buf[6]<<8 | buf[7]);
+		len = (u32int)(buf[8]<<24 | buf[9]<<16 | buf[10]<<8 | buf[11]);
 
 		if(start > end){
 			werrstr("bad patch: start > end");

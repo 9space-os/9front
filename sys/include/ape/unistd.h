@@ -173,6 +173,12 @@ extern int tcsetpgrp(int, pid_t);
 extern char *getlogin_r(char *, int);
 #endif
 
+/* command-line options: POSIX's getopt (libbsd's; GCC port: declared for all, it was
+ * for gcc's programs only, the others called it undeclared; bsd.h has the same) */
+extern int	getopt(int, char *const *, const char *);
+extern char	*optarg;
+extern int	optind, opterr, optopt;
+
 /* berkeley specific functions */
 #ifdef _BSD_EXTENSION
 #include <bsd.h>
@@ -241,9 +247,6 @@ extern int	pipe2(int *, int);	/* POSIX.1-2024's (ap/gnu/gnuext.c): O_CLOEXEC, O_
 #define _CS_PATH	0
 extern size_t	confstr(int, char *, size_t);
 #ifndef _BSD_EXTENSION
-extern int	getopt(int, char *const *, const char *);
-extern char	*optarg;
-extern int	optind, opterr, optopt;
 extern char	*mktemp(char *);
 #endif
 #ifdef __cplusplus

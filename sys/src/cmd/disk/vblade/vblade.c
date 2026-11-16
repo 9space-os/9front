@@ -352,7 +352,7 @@ getlba(uchar *p)
 	v = p[0];
 	v |= p[1]<<8;
 	v |= p[2]<<16;
-	v |= p[3]<<24;
+	v |= (u32int)p[3]<<24;	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 	v |= (uvlong)p[4]<<32;
 	v |= (uvlong)p[5]<<40;
 	return v;

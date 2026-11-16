@@ -40,8 +40,8 @@ revlogupdate(Revlog *r)
 			m->hoff &= 0xFFFF;
 		m->rev = rev;
 		m->flags = buf[6]<<8 | buf[7];
-		m->hlen = buf[8]<<24 | buf[9]<<16 | buf[10]<<8 | buf[11];
-		m->flen = buf[12]<<24 | buf[13]<<16 | buf[14]<<8 | buf[15];
+		m->hlen = (u32int)(buf[8]<<24 | buf[9]<<16 | buf[10]<<8 | buf[11]);	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
+		m->flen = (u32int)(buf[12]<<24 | buf[13]<<16 | buf[14]<<8 | buf[15]);
 		m->baserev = buf[16]<<24 | buf[17]<<16 | buf[18]<<8 | buf[19];
 		m->linkrev = buf[20]<<24 | buf[21]<<16 | buf[22]<<8 | buf[23];
 		m->p1rev = buf[24]<<24 | buf[25]<<16 | buf[26]<<8 | buf[27];

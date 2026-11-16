@@ -336,7 +336,7 @@ idwwn(Sfis*, ushort *id)
 	if(id[108]>>12 == 5){
 		u |= (uvlong)gbit16(id + 108) << 48;
 		u |= (uvlong)gbit16(id + 109) << 32;
-		u |= gbit16(id + 110) << 16;
+		u |= (u32int)gbit16(id + 110) << 16;	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 		u |= gbit16(id + 111) << 0;
 	}
 	return u;
@@ -452,7 +452,7 @@ fisrw(Sfis *, uchar *c, int *n)
 	lba = c[Flba0];
 	lba |= c[Flba8] << 8;
 	lba |= c[Flba16] << 16;
-	lba |= c[Flba24] << 24;
+	lba |= (u32int)c[Flba24] << 24;	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 	lba |= (uvlong)(c[Flba32] | c[Flba40]<<8) << 32;
 
 	*n = c[Fsc];
