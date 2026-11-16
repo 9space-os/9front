@@ -20,10 +20,14 @@ KEYS = {' ': 'spc', '-': 'minus', '/': 'slash', '.': 'dot', '\n': 'ret', "'": 'a
 	'<': ('shift', 'comma'), '&': ('shift', '7'), '[': 'bracket_left', ']': 'bracket_right',
 	'|': ('shift', 'backslash'), '*': ('shift', '8'), '{': ('shift', 'bracket_left'),
 	'}': ('shift', 'bracket_right'), '!': ('shift', '1'), '$': ('shift', '4'), '_': ('shift', 'minus'),
-	'(': ('shift', '9'), ')': ('shift', '0')}
+	'(': ('shift', '9'), ')': ('shift', '0'), '\\': 'backslash', '^': ('shift', '6'),
+	'"': ('shift', 'apostrophe'), ':': ('shift', 'semicolon'), '+': ('shift', 'equal'),
+	'~': ('shift', 'grave_accent'), '`': 'grave_accent', '?': ('shift', 'slash'), '%': ('shift', '5'),
+	'@': ('shift', '2'), '\t': 'tab'}
 
 class VM:
-	def __init__(self, iso, work, objtype='amd64', extra=()):
+	def __init__(self, iso, work, objtype='amd64', extra=(), net='user,id=n0'):
+		"""net: QEMU's -netdev (e.g. with hostfwd=tcp:127.0.0.1:PORT-:PORT)"""
 		self.work = work
 		os.makedirs(work, exist_ok=True)
 		# unix socket paths are limited to 108 bytes
@@ -35,7 +39,7 @@ class VM:
 			'-display', 'none', '-no-reboot',
 			'-qmp', 'unix:%s,server,nowait' % qsock,
 			'-chardev', 'socket,id=ser,path=%s,server=on,wait=off' % ssock, '-serial', 'chardev:ser',
-			'-netdev', 'user,id=n0', '-device', 'e1000,netdev=n0',
+			'-netdev', net, '-device', 'e1000,netdev=n0',
 			'-drive', 'file=%s,format=raw,if=ide,index=2,media=cdrom,readonly=on' % iso]
 		if os.environ.get('KVM', '1') != '0':	# KVM always (KVM=0: emulation)
 			if not os.access('/dev/kvm', os.W_OK):
@@ -93,6 +97,17 @@ class VM:
 			dx -= sx
 			dy -= sy
 			time.sleep(pause)
+
+	def goto(self, x, y):
+		"""the mouse to x, y on the screen: into the top left corner
+		(overshoot is clamped), then there in unaccelerated steps"""
+		self.move(-3000, -3000, step=100)
+		self.move(x, y)
+
+	def click(self, x, y, b='left'):
+		self.goto(x, y)
+		self.button(b, True)
+		self.button(b, False)
 
 	def button(self, b, down):
 		"""b: left, middle, right"""

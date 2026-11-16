@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""
+The reference workflow (dist/docs/roadmap.md, phase 1): a working session
+on the CD's desktop as a user has it, keys and mouse from the host
+through QMP, the programs of the profile ui (wsys, term, foot) and of
+9front together on one boot, the work in /tmp/wf:
+
+	term	typed into: a file written, its output on term's screen
+		(TERMDEBUG=screen)
+	sam	the editor: the file's window swept when samterm asks,
+		text typed into it, written from the command window (w)
+	paint	a draw(3) program: a stroke drawn with button 1, the canvas
+		written from its prompt (w file)
+	uitodo	a client of ui(4): its text box found by nodes/id/rect,
+		clicked, an item typed with enter, the list in its file
+	foot	a Wayland program in wlsys(4): typed into, its rc writes a file
+	9P	the session's files read from the host over TCP (exportfs
+		behind aux/listen1, plan9port's 9p), one written into it
+	file manager	none yet: a skip
+
+and at the end every one of them still running, no process Broken,
+wsys up.  The guest's own view (window rectangles, files) comes
+through an rc on the serial line; everything the user does goes
+through QMP as keys and mouse.
+
+usage: tests/workflow/workflow.py iso workdir objtype 9p
+   prints one line per check: ok|fail|skip <name>, # a note
+"""
+import os, re, socket, subprocess, sys, time
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+from vm import VM
+
+iso, work, objtype, p9p = sys.argv[1:5]
+
+def freeport():
+	s = socket.socket()
+	s.bind(('127.0.0.1', 0))
+	p = s.getsockname()[1]
+	s.close()
+	return p
+
+GPORT = 5640	# the guest's 9P port (aux/listen1)
+hport = freeport()
+vm = VM(iso, work, objtype, net='user,id=n0,hostfwd=tcp:127.0.0.1:%d-:%d' % (hport, GPORT))
+
+def result(ok, name):
+	print('%s %s' % ('ok' if ok else 'fail', name), flush=True)
+	return ok
+
+def note(s):
+	print('# ' + s, flush=True)
+
+nseq = 0
+def sh(cmd, secs=10):
+	"""cmd in the serial rc; what it printed, up to its end marker"""
+	global nseq
+	nseq += 1
+	end = '@@end%d' % nseq
+	vm.read(0.1)
+	vm.ser.send(('%s; echo %s\n' % (cmd, end)).encode())
+	out = ''
+	t = time.time() + secs
+	while time.time() < t and end not in out:
+		out += vm.read(0.3)
+	return out.split(end)[0].strip()
+
+def until(test, secs=15):
+	"""until the rc test (a command) succeeds in the guest"""
+	t = time.time() + secs
+	while time.time() < t:
+		if 'yes' in sh('if(%s) echo yes' % test, 5):
+			return True
+		time.sleep(0.5)
+	return False
+
+def wins():
+	return set(sh("ls -p /mnt/wsys | grep '^[0-9]+$'").split())
+
+def newwin(old, secs=20):
+	"""the window that was not in old, once it shows; its contents' rectangle"""
+	t = time.time() + secs
+	while time.time() < t:
+		n = wins() - old
+		if n:
+			w = max(n, key=int)
+			r = sh('c=`{cat /mnt/wsys/%s/ctl}; echo $c(2-5)' % w).split()
+			if len(r) == 4 and all(x.lstrip('-').isdigit() for x in r):
+				return w, [int(x) for x in r]
+		time.sleep(0.5)
+	return None, None
+
+def window(rect, cmd):
+	"""a window made by window(1), as riostart does; its number and contents"""
+	old = wins()
+	sh("window -r %s %s" % (rect, cmd))
+	return newwin(old)
+
+def typed(text):
+	vm.type(text)
+	time.sleep(0.5)
+
+def ninep(*args, data=None):
+	"""plan9port's 9p against the guest's exportfs"""
+	env = dict(os.environ, PLAN9=os.path.dirname(os.path.dirname(p9p)))
+	r = subprocess.run([p9p, '-n', '-a', 'tcp!127.0.0.1!%d' % hport] + list(args),
+		input=data, capture_output=True, timeout=30, env=env)
+	return r.returncode, r.stdout
+
+try:
+	if not result(vm.boot(), 'boot to the desktop, serial rc'):
+		sys.exit(0)
+	if 'desk-wsys' not in sh("if(ps | grep -s ' wsys$') echo desk-^wsys"):
+		print('skip the reference workflow (the desktop is rio: a CD of the profile ui or full)', flush=True)
+		sys.exit(0)
+	# the serial rc: a name space and environment of its own (the first
+	# window's stay as they were), wsys' tree at /mnt/wsys
+	sh("rfork en; if(! test -e /mnt/wsys/clone && ! ~ $#wsys 0) mount -c $wsys /mnt/wsys")
+	result('yes' in sh('test -e /mnt/wsys/clone && echo yes'), "wsys' tree at /mnt/wsys")
+	sh('mkdir -p /tmp/wf')
+	user = sh('echo $user') or 'glenda'
+
+	# term: typed into, as in a terminal
+	# (TERMDEBUG=screen: term writes its screen to /tmp/term.pid.screen)
+	sh("echo '#!/bin/rc' >/tmp/wf/term.rc; echo 'TERMDEBUG=screen exec term' >>/tmp/wf/term.rc; chmod +x /tmp/wf/term.rc")
+	w, r = window('180 170 700 430', '/tmp/wf/term.rc')
+	if result(w is not None, 'term: its window'):
+		vm.click((r[0]+r[2])//2, (r[1]+r[3])//2)
+		typed("cd /tmp/wf; echo plan: notes, sketch, todo >plan; cat plan\n")
+		ok = until("grep -s '^plan: notes, sketch, todo$' /tmp/wf/plan")
+		result(ok, 'term: a file written from what was typed')
+		scr = sh('cat /tmp/term.*.screen')
+		result(scr.count('plan: notes, sketch, todo') >= 2, "term: the command and its output on term's screen")
+
+	# sam as a user works it: b makes the file current; it has no window
+	# yet, so samterm asks for one to be swept (button 3); the text typed
+	# into that window; back in the command window (the top fifth), w
+	w, r = window('200 190 720 530', 'sam /tmp/wf/notes')
+	if result(w is not None, 'sam: its window'):
+		time.sleep(2)	# samterm's first frame
+		cmdat = ((r[0]+r[2])//2, r[1] + (r[3]-r[1])//10)
+		vm.click(*cmdat)
+		typed('b /tmp/wf/notes\n')
+		time.sleep(1)
+		vm.goto(r[0] + 20, r[1] + (r[3]-r[1])//4)
+		vm.button('right', True)
+		vm.move(r[2]-r[0]-40, (r[3]-r[1])*3//4 - 20, step=3, pause=0.003)
+		vm.button('right', False)
+		time.sleep(1)
+		typed('notes from sam\n')
+		vm.shot('sam1')
+		vm.click(*cmdat)
+		typed('w\n')
+		time.sleep(1)
+		vm.shot('sam2')
+		result(until("grep -s '^notes from sam$' /tmp/wf/notes"), 'sam: a window swept for the file, text typed into it, written (w)')
+
+	# paint: a stroke, the canvas written from its prompt
+	w, r = window('220 210 740 580', 'paint')
+	if result(w is not None, 'paint: its window'):
+		time.sleep(1)
+		vm.goto(r[0] + 60, r[1] + 60)
+		vm.button('left', True)
+		vm.move(240, 140, step=2, pause=0.01)
+		vm.button('left', False)
+		typed('w /tmp/wf/sketch\n')
+		ok = until('test -s /tmp/wf/sketch')
+		result(ok, 'paint: the canvas written (w file)')
+		if ok:
+			sh('iconv -u -c k8 </tmp/wf/sketch >/tmp/wf/sketch.k8')
+
+	# uitodo: a client of ui(4); its text box found in its tree
+	sh('uitodo -f /tmp/wf/todo >/tmp/wf/uitodo.log >[2=1] </dev/null &; todopid=$apid')
+	srv = '/srv/ui.%s.$todopid.0' % user
+	ok = until('test -e ' + srv) and 'yes' in sh('mount %s /n/uit && echo yes' % srv)
+	if result(ok, 'uitodo: its window of ui(4) mounted'):
+		until('grep -s textbox /n/uit/tree')
+		tb = sh("grep '^new [^ ]* textbox' /n/uit/tree | sed 1q | awk '{print $2}'")
+		at = sh("o=`{cat /n/uit/ctl}; r=`{cat /n/uit/nodes/%s/rect}; "
+			"echo `{echo 'int('$o(1)'+('$r(1)+$r(3)')/2)' | hoc} `{echo 'int('$o(2)'+('$r(2)+$r(4)')/2)' | hoc}" % tb).split()
+		if result(len(at) == 2, 'uitodo: where its text box is (nodes/%s/rect)' % tb):
+			x, y = int(at[0]), int(at[1])
+			vm.click(x, y)	# the first may only make the window current
+			vm.click(x, y)
+			typed('milk\n')
+			result(until("grep -s '^0 milk$' /tmp/wf/todo"), 'uitodo: an item typed, enter: in its list')
+
+	# foot: a Wayland program in wlsys, rc in it
+	old = wins()
+	sh('wlsys foot /bin/rc -i >/tmp/wf/wlsys.log >[2=1] </dev/null &')
+	w, r = newwin(old, 30)
+	if result(w is not None, 'foot: its window (wlsys)'):
+		time.sleep(2)
+		vm.click((r[0]+r[2])//2, (r[1]+r[3])//2)
+		typed('echo wayland-ok >/tmp/wf/foot\n')
+		result(until("grep -s '^wayland-ok$' /tmp/wf/foot"), 'foot: typed into, its rc wrote a file')
+	else:
+		note('wlsys: ' + sh('cat /tmp/wf/wlsys.log'))
+
+	# 9P over the network: the session's files from the host
+	if not 'yes' in sh('test -e /net/ipifc/0/local && echo yes'):
+		sh('ip/ipconfig', 20)
+	sh("aux/listen1 -t 'tcp!*!%d' /bin/exportfs -r /tmp/wf >[2]/dev/null &" % GPORT)
+	time.sleep(1)
+	rc, ls = ninep('ls')
+	result(rc == 0 and b'notes' in ls.split(), '9P: the host lists /tmp/wf (exportfs, aux/listen1)')
+	rc, notes = ninep('read', 'notes')
+	result(rc == 0 and notes == b'notes from sam\n', "9P: the host reads sam's file")
+	rc, todo = ninep('read', 'todo')
+	result(rc == 0 and b'0 milk' in todo, "9P: the host reads uitodo's list")
+	rc, k8 = ninep('read', 'sketch.k8')
+	dark = sum(1 for b in k8[60:] if b < 0x80) if rc == 0 and k8[:12].strip() == b'k8' else 0
+	result(dark > 100, "9P: paint's image read by the host, the stroke in it (%d dark pixels)" % dark)
+	rc, _ = ninep('create', 'fromhost')
+	if rc == 0:
+		rc, _ = ninep('write', 'fromhost', data=b'written by the host\n')
+	result(rc == 0 and until("grep -s '^written by the host$' /tmp/wf/fromhost"), '9P: a file written by the host')
+
+	print('skip a file manager (none yet)', flush=True)
+
+	# the session's programs still there, nothing Broken
+	ps = sh('ps')
+	for p in ('wsys', 'term', 'sam', 'paint', 'uitodo', 'foot', 'wlsys'):
+		result(re.search(r' %s$' % p, ps, re.M) is not None, '%s still running' % p)
+	broken = [l for l in ps.splitlines() if ' Broken ' in l]
+	result(not broken, 'no process Broken' + (': ' + '; '.join(broken) if broken else ''))
+	vm.shot('final')
+finally:
+	vm.close()

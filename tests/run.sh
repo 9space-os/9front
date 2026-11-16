@@ -31,6 +31,9 @@
 #            (ISO=image, else the last CD made by scripts/guest/mkiso.sh)
 #   usb      USB stick on xHCI, EHCI, UHCI: root hub, /dev/sdU*,
 #            sector 0 (same CD; USB_CTLRS="xhci ehci" for fewer)
+#   workflow the reference workflow on a CD with wsys (dist/bin/mkcd ui, or ISO=):
+#            term, sam, paint, uitodo, foot typed into by the host; the files
+#            over 9P from the host; nothing Broken (boots once)
 #   gcc      the native gcc on the CD (/$objtype/gnu, ../9front-gcc): a POSIX
 #            and a native Plan 9 program compiled, linked and run (same CD)
 #   go       Go on the CD (/$objtype/go, ../9front-go, GO_OUT for mkiso.sh): go
@@ -46,7 +49,7 @@
 #
 # usage: tests/run.sh [category...]     (default: all, in the order above)
 cd "$(dirname "$0")"
-cats=${*:-static asm hid syscall build guest boot replica pmc acpi wlan gpu gui ui draw disk iso rio usb gcc go rust mcp hw}
+cats=${*:-static asm hid syscall build guest boot replica pmc acpi wlan gpu gui ui draw disk iso rio usb workflow gcc go rust mcp hw}
 failed=()
 for c in $cats; do
 	[ -x "$c/run.sh" ] || { echo "unknown category $c"; exit 2; }
