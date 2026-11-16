@@ -18,7 +18,7 @@
 #	sys/src/9, default conf; needs the programs of the build)
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: nfront/cache/cli)
+. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
 . "$ROOT/scripts/lib/paths.sh"	# PLAN9PORT (the distribution's paths.env)
 P9P=$PLAN9PORT
 CONF=${1:-pc64}

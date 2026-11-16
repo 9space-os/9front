@@ -1,4 +1,4 @@
-"""scripts/lib/paths.py: where nfront's other parts are, as
+"""scripts/lib/paths.py: where 9space's other parts are, as
 scripts/lib/paths.sh finds them (paths.env of the distribution, the
 environment first, the old ../9front-* defaults last).
 
@@ -12,7 +12,7 @@ DEFAULTS = {'GCC_DIR': '9front-gcc', 'RUST_DIR': '9front-rust', 'GO_DIR': '9fron
 
 def _load():
 	vals = {}
-	for f in (os.environ.get('NFRONT_PATHS'), os.path.join(ROOT, '../dist/paths.env'),
+	for f in (os.environ.get('NINESPACE_PATHS'), os.path.join(ROOT, '../dist/paths.env'),
 	    os.path.join(ROOT, '../9front-distribution/paths.env')):
 		if f and os.path.isfile(f):
 			top = os.path.dirname(os.path.dirname(os.path.realpath(f)))	# physical: through a symlink too
@@ -26,7 +26,7 @@ def _load():
 	for k, v in DEFAULTS.items():
 		vals.setdefault(k, os.path.join(top, v))
 	cache = os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache')
-	vals.setdefault('CACHE', os.path.join(cache, 'nfront'))
+	vals.setdefault('CACHE', os.path.join(cache, '9space'))
 	vals.setdefault('CLI_DIR', os.path.join(os.environ.get('CACHE') or vals['CACHE'], 'cli'))
 	return vals
 

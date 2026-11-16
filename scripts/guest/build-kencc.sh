@@ -22,7 +22,7 @@
 #        SMP      CPUs of the guest (4; mk builds in parallel, NPROC)
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: nfront/cache/cli)
+. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
 die(){ echo "build-kencc: $*" >&2; exit 1; }
 
 S=$CLI_DIR/kencc

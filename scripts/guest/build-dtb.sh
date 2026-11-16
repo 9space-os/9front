@@ -9,7 +9,7 @@
 #   needs: curl, cpp, dtc
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: nfront/cache/cli)
+. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
 LINUX=${LINUX:-v6.12}
 die(){ echo "build-dtb: $*" >&2; exit 1; }
 case $1 in
