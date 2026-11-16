@@ -15,11 +15,14 @@
  *	assoc		the scan ends; the access point's BSS and station
  *			(none, auth, assoc, authorized), vif_cfg assoc
  *	disassoc	back, and scanning again
- *	tx		a frame wifi.c made, given to the driver's tx
+ *	tx		a frame wifi.c made: its data to the access point in
+ *			the station's txq of its TID (the driver takes them
+ *			while it has room: wake_tx_queue, tx_dequeue, as
+ *			FreeBSD's linuxkpi), the rest to the driver's tx
  *	rx		the driver's frames to wlan.c (kpi_wlan_rx)
  *
  * No keys reach the driver (set_key is never called: wifi.c ciphers),
- * no aggregation, no power save, no hardware scan; the driver's rate
+ * no power save, no hardware scan; the driver's rate
  * control chooses the rates.  Transmit status is dropped.
  */
 #include <linux/kernel.h>
@@ -195,6 +198,7 @@ linuxkpi_ieee80211_alloc_hw(size_t priv_len, const struct ieee80211_ops *ops)
 {
 	struct wiphy *wiphy;
 	struct lhw *l;
+	int i;
 
 	wiphy = kzalloc(sizeof(*wiphy) + sizeof(*l) + priv_len, GFP_KERNEL);
 	if (wiphy == NULL)
@@ -218,6 +222,9 @@ linuxkpi_ieee80211_alloc_hw(size_t priv_len, const struct ieee80211_ops *ops)
 	INIT_WORK(&l->bw_work, bw_work);
 	spin_lock_init(&l->ba_lock);
 	INIT_LIST_HEAD(&l->ba_list);
+	spin_lock_init(&l->txqlock);
+	for (i = 0; i < IEEE80211_NUM_ACS; i++)
+		INIT_LIST_HEAD(&l->txqsched[i]);
 	l->wq = alloc_ordered_workqueue("mac80211", 0);
 	l->wwk_wq = alloc_ordered_workqueue("wiphy", 0);
 	if (l->wq == NULL || l->wwk_wq == NULL) {
@@ -283,7 +290,20 @@ linuxkpi_ieee80211_unregister_hw(struct ieee80211_hw *hw)
 static void
 freetxq(struct ieee80211_txq *q)
 {
-	kfree(q);
+	struct ltxq *lq;
+	struct lhw *l;
+
+	if (q == NULL)
+		return;
+	lq = container_of(q, struct ltxq, txq);
+	if ((l = thehw) != NULL) {
+		spin_lock_bh(&l->txqlock);
+		if (!list_empty(&lq->sched))
+			list_del_init(&lq->sched);
+		spin_unlock_bh(&l->txqlock);
+	}
+	skb_queue_purge(&lq->q);
+	kfree(lq);
 }
 
 void
@@ -425,37 +445,98 @@ linuxkpi_ieee80211_start_tx_ba_session(struct ieee80211_sta *sta, uint8_t tid, i
 }
 
 /* -------------------------------------------------------------------------- */
-/* the queues: frames go to the driver's tx, none wait in txqs */
+/*
+ * the queues: the data for the access point waits in the station's txqs
+ * until the driver takes it, as much as its ring has room for (on
+ * Linux mac80211's, here as FreeBSD's linuxkpi_ieee80211_tx_dequeue,
+ * _next_txq, _schedule_txq do it); a full ring then holds a frame back
+ * instead of dropping it (rtw89's tx: "no available TXBD")
+ */
+enum {
+	Txqmax = 1024,	/* frames waiting in one txq; more are dropped */
+};
+
+static struct ltxq *
+tolq(struct ieee80211_txq *q)
+{
+	return container_of(q, struct ltxq, txq);
+}
 
 struct sk_buff *
 linuxkpi_ieee80211_tx_dequeue(struct ieee80211_hw *hw, struct ieee80211_txq *txq)
 {
-	return NULL;
+	if (READ_ONCE(hw_to_lhw(hw)->stopped))
+		return NULL;
+	return skb_dequeue(&tolq(txq)->q);
 }
 
 void
 linuxkpi_ieee80211_txq_get_depth(struct ieee80211_txq *txq, unsigned long *frames, unsigned long *bytes)
 {
+	struct ltxq *lq = tolq(txq);
+	struct sk_buff *skb;
+	unsigned long n, b;
+	unsigned long flags;
+
+	n = b = 0;
+	spin_lock_irqsave(&lq->q.lock, flags);
+	skb_queue_walk(&lq->q, skb) {
+		n++;
+		b += skb->len;
+	}
+	spin_unlock_irqrestore(&lq->q.lock, flags);
 	if (frames)
-		*frames = 0;
+		*frames = n;
 	if (bytes)
-		*bytes = 0;
+		*bytes = b;
 }
 
+/* a new round over the scheduled txqs of ac: next_txq gives each once */
 void
 linuxkpi_ieee80211_txq_schedule_start(struct ieee80211_hw *hw, uint8_t ac)
 {
+	struct lhw *l = hw_to_lhw(hw);
+
+	if (ac >= IEEE80211_NUM_ACS)
+		return;
+	spin_lock_bh(&l->txqlock);
+	if (++l->txqgen[ac] == 0)
+		l->txqgen[ac]++;
+	spin_unlock_bh(&l->txqlock);
 }
 
 struct ieee80211_txq *
 linuxkpi_ieee80211_next_txq(struct ieee80211_hw *hw, uint8_t ac)
 {
-	return NULL;
+	struct lhw *l = hw_to_lhw(hw);
+	struct ltxq *lq;
+
+	if (ac >= IEEE80211_NUM_ACS)
+		return NULL;
+	spin_lock_bh(&l->txqlock);
+	lq = list_first_entry_or_null(&l->txqsched[ac], struct ltxq, sched);
+	if (lq != NULL && lq->gen != l->txqgen[ac]) {
+		list_del_init(&lq->sched);
+		lq->gen = l->txqgen[ac];
+	} else
+		lq = NULL;
+	spin_unlock_bh(&l->txqlock);
+	return lq != NULL ? &lq->txq : NULL;
 }
 
+/* (ieee80211_schedule_txq, _return_txq) txq on its list again, once */
 void
 linuxkpi_ieee80211_schedule_txq(struct ieee80211_hw *hw, struct ieee80211_txq *txq, bool withoutpkts)
 {
+	struct lhw *l = hw_to_lhw(hw);
+	struct ltxq *lq = tolq(txq);
+
+	if (!withoutpkts && skb_queue_empty(&lq->q))
+		return;
+	spin_lock_bh(&l->txqlock);
+	if (list_empty(&lq->sched))
+		list_add_tail(&lq->sched, &l->txqsched[txq->ac]);
+	spin_unlock_bh(&l->txqlock);
 }
 
 void
@@ -464,10 +545,23 @@ linuxkpi_ieee80211_stop_queues(struct ieee80211_hw *hw)
 	WRITE_ONCE(hw_to_lhw(hw)->stopped, true);
 }
 
+/* (as Linux's ieee80211_wake_txqs) the driver told of the txqs with frames again */
 void
 linuxkpi_ieee80211_wake_queues(struct ieee80211_hw *hw)
 {
-	WRITE_ONCE(hw_to_lhw(hw)->stopped, false);
+	struct lhw *l = hw_to_lhw(hw);
+	struct ieee80211_sta *sta;
+	int i;
+
+	WRITE_ONCE(l->stopped, false);
+	if (l->ops->wake_tx_queue == NULL)
+		return;
+	rcu_read_lock();
+	if ((sta = l->sta) != NULL)
+		for (i = 0; i < nitems(sta->txq); i++)
+			if (sta->txq[i] != NULL && !skb_queue_empty(&tolq(sta->txq[i])->q))
+				l->ops->wake_tx_queue(hw, sta->txq[i]);
+	rcu_read_unlock();
 }
 
 void
@@ -716,10 +810,14 @@ static struct ieee80211_txq *
 newtxq(struct lhw *l, struct ieee80211_vif *vif, struct ieee80211_sta *sta, int tid)
 {
 	struct ieee80211_txq *q;
+	struct ltxq *lq;
 
-	q = kzalloc(sizeof(*q) + l->hw.txq_data_size, GFP_KERNEL);
-	if (q == NULL)
+	lq = kzalloc(sizeof(*lq) + l->hw.txq_data_size, GFP_KERNEL);
+	if (lq == NULL)
 		return NULL;
+	INIT_LIST_HEAD(&lq->sched);
+	skb_queue_head_init(&lq->q);
+	q = &lq->txq;
 	q->vif = vif;
 	q->sta = sta;
 	q->tid = tid;
@@ -1491,6 +1589,21 @@ kpi80211_tx(struct lhw *l, struct sk_buff *skb)
 		control.sta = l->sta;
 	kpi80211_ba(l, skb->data, skb->len, true);
 	l->ntx++;
+	/* data for the access point: its station's txq of the TID */
+	if (control.sta != NULL && l->ops->wake_tx_queue != NULL &&
+	    ieee80211_is_data(h->frame_control)) {
+		struct ieee80211_txq *q = control.sta->txq[skb->priority];
+		struct ltxq *lq = tolq(q);
+
+		if (skb_queue_len(&lq->q) >= Txqmax) {
+			l->ndrop++;
+			dev_kfree_skb_any(skb);
+			return;
+		}
+		skb_queue_tail(&lq->q, skb);
+		l->ops->wake_tx_queue(hw, q);
+		return;
+	}
 	rcu_read_lock();
 	l->ops->tx(hw, &control, skb);
 	rcu_read_unlock();

@@ -9,6 +9,17 @@
 
 #include <net/mac80211.h>
 
+/*
+ * a txq and its frames, waiting for the driver to take them
+ * (ieee80211_tx_dequeue), as FreeBSD's linuxkpi has its lkpi_txq
+ */
+struct ltxq {
+	struct list_head	sched;		/* on lhw's txqsched, while scheduled */
+	unsigned int	gen;		/* the scheduling round it was taken in */
+	struct sk_buff_head	q;
+	struct ieee80211_txq	txq;	/* last: the driver's part follows */
+};
+
 struct lhw {
 	struct ieee80211_hw	hw;
 	const struct ieee80211_ops	*ops;
@@ -31,6 +42,10 @@ struct lhw {
 	u8	bssid[ETH_ALEN];
 	u16	aid;
 	bool	stopped;			/* stop_queues */
+	/* the txqs the driver was told have frames (wake_tx_queue), by access category */
+	spinlock_t	txqlock;
+	struct list_head	txqsched[IEEE80211_NUM_ACS];
+	unsigned int	txqgen[IEEE80211_NUM_ACS];
 	struct work_struct	restart_work;
 
 	/* the radio (wlan.c) */
