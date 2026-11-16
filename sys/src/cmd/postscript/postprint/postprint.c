@@ -93,6 +93,24 @@
 #include "ext.h"			/* external variable declarations */
 #include "postprint.h"			/* a few special definitions */
 
+/* its functions, declared before their use */
+int	account(void);
+int	arguments(void);
+int	done();
+int	endline(void);
+int	endstring(void);
+int	formfeed(void);
+int	header(void);
+int	init_signals(void);
+int	newline(void);
+int	options(void);
+int	oput(int ch);
+int	redirect(int pg);
+int	setup(void);
+int	spaces(int ch);
+int	startline(void);
+int	text();
+
 char	*optnames = "a:c:ef:l:m:n:o:p:r:s:t:x:y:A:C:E:J:L:P:R:DI";
 
 char	*prologue = POSTPRINT;		/* default PostScript prologue */
