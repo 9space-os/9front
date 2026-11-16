@@ -16,6 +16,7 @@ use std::time::Instant;
 
 // libvulkan.a's loader: its vkGetInstanceProcAddr (a weak alias of vkl_GetInstanceProcAddr)
 #[link(name = "vulkan")]
+#[link(name = "z")]	// APE's libz: libvulkan.a's zlib is the tree's, not Mesa's own
 unsafe extern "system" {
     fn vkGetInstanceProcAddr(instance: vk::Instance, name: *const c_char) -> vk::PFN_vkVoidFunction;
 }

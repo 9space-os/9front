@@ -10,7 +10,7 @@ and with OpenGL or Vulkan (Mesa's static libvulkan.a has EGL, GL and the Vulkan
 loader; GLFW refers to them weakly, `-u` pulls them in; g++ for Mesa's C++):
 
     x86_64-pc-plan9-g++ -o prog prog.o -Wl,-u,eglGetDisplay -Wl,-u,vkGetInstanceProcAddr \
-        -lglfw3 -lvulkan -ldraw -l9 -lfmt -lutf -lm
+        -lglfw3 -lvulkan -lz -ldraw -l9 -lfmt -lutf -lm
 
 - `plan9`: the platform `plan9` (`GLFW_PLATFORM_PLAN9`): the process's window of wsys
   or rio (the screen without either) through draw(3) (`plan9_draw.c`, APE's libdraw);

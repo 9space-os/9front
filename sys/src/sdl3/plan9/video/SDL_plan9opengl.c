@@ -59,7 +59,7 @@ bool PLAN9_GL_LoadLibrary(SDL_VideoDevice *_this, const char *path)
 
     (void)path;
     if (!eglGetDisplay || !eglGetProcAddress) {
-        return SDL_SetError("plan9: no EGL in the program (link -lvulkan)");
+        return SDL_SetError("plan9: no EGL in the program (link -lvulkan -lz)");
     }
     if (dpy == EGL_NO_DISPLAY) {
         dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);

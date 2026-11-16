@@ -16,12 +16,12 @@ the headers in `/sys/include/ape/SDL3`. Programs are APE programs:
   cursors drawn there), the pointer warped by `m x y` to `/dev/mouse`. One window
   a process. Vulkan:
   `VK_PLAN9_surface`, the static libvulkan.a by a weak reference (a program with
-  SDL's Vulkan links `-Wl,-u,vkGetInstanceProcAddr -lSDL3 -lvulkan`); then SDL's
+  SDL's Vulkan links `-Wl,-u,vkGetInstanceProcAddr -lSDL3 -lvulkan -lz`); then SDL's
   Vulkan renderer is there too (`tests/sdl/sdlvk.c`, on the card `tests/gpu/amdsdl.rc`).
   OpenGL and OpenGL ES (`SDL_GL_*`, SDL's GL and GLES2 renderers): EGL's plan9
   platform (zink), the native window `""` the process's window, by weak references
   in `SDL_plan9opengl.c` (SDL's `SDL_egl.c` loads libEGL by name: not used); a program
-  links `-Wl,-u,eglGetDisplay -lSDL3 -lvulkan` (`tests/sdl/sdlgl.c`).
+  links `-Wl,-u,eglGetDisplay -lSDL3 -lvulkan -lz` (`tests/sdl/sdlgl.c`).
 - `plan9/audio`: the audio driver `plan9` (`SDL_AUDIO_DRIVER_PRIVATE`): `/dev/audio`,
   16-bit stereo at 44100 Hz.
 - `plan9/include/build_config/SDL_build_config.h`: what SDL's CMake found for APE

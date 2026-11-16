@@ -638,9 +638,11 @@ impl super::Instance {
         #[cfg(target_os = "plan9")]
         let entry = unsafe {
             // after wgpu-hal on the link line: a static library, and what
-            // it needs after it: APE's libdraw (the plan9 WSI) with lib9,
-            // libfmt, libutf, and libstdc++ (Mesa's C++)
+            // it needs after it: APE's libz (Mesa's zlib is the tree's),
+            // APE's libdraw (the plan9 WSI) with lib9, libfmt, libutf, and
+            // libstdc++ (Mesa's C++)
             #[link(name = "vulkan")]
+            #[link(name = "z")]
             #[link(name = "draw")]
             #[link(name = "9")]
             #[link(name = "fmt")]

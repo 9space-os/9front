@@ -39,7 +39,7 @@ bool PLAN9_Vulkan_LoadLibrary(SDL_VideoDevice *_this, const char *path)
         return SDL_SetError("Vulkan already loaded");
     }
     if (!vkGetInstanceProcAddr) {
-        return SDL_SetError("plan9: no Vulkan in the program (link -lvulkan)");
+        return SDL_SetError("plan9: no Vulkan in the program (link -lvulkan -lz)");
     }
     _this->vulkan_config.vkGetInstanceProcAddr = (SDL_FunctionPointer)vkGetInstanceProcAddr;
     _this->vulkan_config.vkEnumerateInstanceExtensionProperties =

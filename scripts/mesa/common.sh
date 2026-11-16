@@ -13,6 +13,9 @@ MESA_KEY=$(field key)
 WORK=${MESA_WORK:-$CACHE/mesa}
 SRC=$WORK/src/mesa-$MESA_VERSION
 VENV=$WORK/venv
+# a meson build directory set up elsewhere (WORK moved: its build.ninja calls the
+# old venv's meson by its absolute path, and ninja's regenerate step fails)
+moved(){ [ -f "$1/build.ninja" ] && ! grep -q -F "$VENV/bin/meson" "$1/build.ninja"; }
 objtype=${objtype:-amd64}
 case $objtype in
 amd64)	TRIPLE=x86_64-pc-plan9 CPU=x86_64 ;;

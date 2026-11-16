@@ -145,11 +145,11 @@ elif [ "${NOVK:-0}" = 0 ]; then
 		>"$CLI_DIR/wayland-libvulkan.log" 2>&1 || { tail -20 "$CLI_DIR/wayland-libvulkan.log"; exit 1; }
 	"$CROSS/$TRIPLE-gcc" -std=gnu11 -O2 -Wall -Wno-unused-parameter -c -o "$CLI_DIR/wlvk.o" "$HERE/wlvk.c"
 	"$CROSS/$TRIPLE-g++" -o "$HERE/root/tests/wlvk" "$CLI_DIR/wlvk.o" -Wl,--gc-sections \
-		-lvulkan -ldraw -l9 -lfmt -lutf -lwayland-client -lffi
+		-lvulkan -lz -ldraw -l9 -lfmt -lutf -lwayland-client -lffi
 	# wlgl: GLES on EGL's Wayland platform (zink, kopper)
 	"$CROSS/$TRIPLE-gcc" -std=gnu11 -O2 -Wall -Wno-unused-parameter -c -o "$CLI_DIR/wlgl.o" "$HERE/wlgl.c"
 	"$CROSS/$TRIPLE-g++" -o "$HERE/root/tests/wlgl" "$CLI_DIR/wlgl.o" -Wl,--gc-sections \
-		-lvulkan -ldraw -l9 -lfmt -lutf -lwayland-egl -lwayland-client -lffi
+		-lvulkan -lz -ldraw -l9 -lfmt -lutf -lwayland-egl -lwayland-client -lffi
 	# vkcube (scripts/mesa/vktools.sh: Wayland too)
 	. "$ROOT/scripts/mesa/common.sh"
 	bash "$ROOT/scripts/mesa/vktools.sh" build >/dev/null

@@ -65,9 +65,9 @@ build(){
 		-c -o "$O/vulkaninfo.o" "$VT_SRC/vulkaninfo/vulkaninfo.cpp"
 	# g++: Mesa has C++ in it
 	"$CROSS/$TRIPLE-g++" -o "$O/vkcube" "$O/cube.o" -Wl,--gc-sections \
-		-lvulkan -ldraw -l9 -lfmt -lutf -lwayland-client -lffi
+		-lvulkan -lz -ldraw -l9 -lfmt -lutf -lwayland-client -lffi
 	"$CROSS/$TRIPLE-g++" -o "$O/vulkaninfo" "$O/vulkaninfo.o" -Wl,--gc-sections \
-		-lvulkan -ldraw -l9 -lfmt -lutf
+		-lvulkan -lz -ldraw -l9 -lfmt -lutf
 	echo "vktools: $O/vkcube $O/vulkaninfo"
 }
 

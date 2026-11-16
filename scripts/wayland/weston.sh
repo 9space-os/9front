@@ -84,7 +84,7 @@ EOC
 	done
 	"$CROSS/$TRIPLE-g++" -o "$O/weston-simple-egl" "$G/simple-egl.o" "$G/matrix.o" \
 		$(for n in xdg-shell ivi-application viewporter fractional-scale-v1 tearing-control-v1; do echo "$G/$n-protocol.o"; done) \
-		-Wl,--gc-sections -lvulkan -ldraw -l9 -lfmt -lutf -lwayland-egl -lwayland-cursor -lwayland-client -lffi -lm
+		-Wl,--gc-sections -lvulkan -lz -ldraw -l9 -lfmt -lutf -lwayland-egl -lwayland-cursor -lwayland-client -lffi -lm
 	echo "weston: $O/weston-simple-shm $O/weston-simple-egl"
 }
 

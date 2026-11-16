@@ -11,6 +11,7 @@ set -e
 [ -d "$SRC/.git" ] || "$(dirname "$0")/prepare.sh"
 export PATH=$VENV/bin:$PATH
 N=$WORK/build-native-clc
+moved "$N" && rm -rf "$N"	# set up elsewhere: again
 if [ ! -f "$N/build.ninja" ]; then
 	meson setup "$N" "$SRC" -Dbuildtype=release -Dmesa-clc=enabled -Dinstall-mesa-clc=true \
 		-Dllvm=enabled -Dplatforms= -Dvulkan-drivers= -Dgallium-drivers= -Dopengl=false \

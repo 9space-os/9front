@@ -3,7 +3,8 @@
 # Mesa as the tree has it: build.exe makes /$objtype/lib.gcc/ape/libvulkan.a
 # from sys/src/mesa/build.json (the vendored drivers: venus, hasvk, RADV; the static loader,
 # libmesaplan9; scripts/mesa/vendor.sh), the headers are in /sys/include/ape.
-# Programs link -lvulkan, and APE's libdraw and lib9 for the plan9 WSI.
+# Programs link -lvulkan, APE's libz (Mesa's zlib is the tree's), and APE's
+# libdraw and lib9 for the plan9 WSI.
 # vktest and vkdraw call the driver's vk_icdGetInstanceProcAddr, the others
 # are ordinary Vulkan programs; vktri's shaders are compiled with glslc.
 # The OpenGL tests (gltest, gldesk, glwin: zink, EGL) link the same library.
@@ -18,7 +19,7 @@ mkdir -p "$HERE/root/tests" "$BUILD/tests"
 O=$BUILD/tests
 CC=$CROSS/$TRIPLE-gcc ARCH=$objtype "$ROOT/sys/src/cmd/build/build.exe" -D "$ROOT/sys/src/mesa/build.json" \
 	> "$O/libvulkan.log" 2>&1 || { tail -20 "$O/libvulkan.log"; exit 1; }
-libs="-Wl,--gc-sections -lvulkan -ldraw -l9 -lfmt -lutf"
+libs="-Wl,--gc-sections -lvulkan -lz -ldraw -l9 -lfmt -lutf"
 put(){ bash "$HERE/putstripped.sh" "$CROSS/$TRIPLE-strip" "$1" "$HERE/root/tests/${2:-${1##*/}}"; }
 "$CROSS/$TRIPLE-gcc" -std=c11 -O2 -Wall -c -o "$O/btassert.o" "$HERE/btassert.c"
 "$CROSS/$TRIPLE-gcc" -std=c11 -O2 -Wall -D_PLAN9_SOURCE -I"$ROOT/sys/src/ape/lib/9" \

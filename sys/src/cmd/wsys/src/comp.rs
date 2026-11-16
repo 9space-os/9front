@@ -44,6 +44,7 @@ use std::time::Duration;
 // libutf, and libstdc++ (Mesa's C++); Mesa's dma-buf fds of gpu(4) tokens
 // (plan9/lib/dmabuf.c)
 #[link(name = "vulkan")]
+#[link(name = "z")]	// APE's libz: libvulkan.a's zlib is the tree's, not Mesa's own
 #[link(name = "draw")]
 #[link(name = "9")]
 #[link(name = "fmt")]

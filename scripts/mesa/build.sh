@@ -14,7 +14,7 @@
 # on 9front, the rest of Mesa is there once).
 # The SDK in $BUILD/sdk is what Vulkan programs build with: the headers
 # and libvulkan.a, the static loader (sys/src/mesa/plan9/loader) with
-# the drivers and libmesaplan9 in it; programs link -lvulkan -ldraw -l9
+# the drivers and libmesaplan9 in it; programs link -lvulkan -lz -ldraw -l9
 # -lfmt -lutf.
 # Extra arguments go to ninja.
 set -e
@@ -72,17 +72,22 @@ EOC
 # (sys/src/wayland/VERSION), checked
 WL=$ROOT/sys/src/wayland
 wlv(){ awk -v k="$1" '$1 == k { print $2 }' "$WL/VERSION"; }
+[ $objtype != amd64 ] ||	# (Mesa's Wayland platform: amd64's only, below)
 for l in libffi.a libwayland-client.a libwayland-server.a libwayland-egl.a; do
 	[ -f "$ROOT/$objtype/lib.gcc/ape/$l" ] || bash "$ROOT/scripts/wayland/build.sh" "$BUILD/wayland"
 done
 WP=$BUILD/wayland-protocols-$(wlv protocols)
 if [ ! -d "$WP" ]; then
-	t=$ROOT/$(wlv protocols-tar)
+	t=$(wlv protocols-tar)	# $DISTFILES/x (the distribution's archives), else a path in the tree
+	case $t in
+	'$DISTFILES/'*)	t=$DISTFILES/${t#\$DISTFILES/} ;;
+	*)	t=$ROOT/$t ;;
+	esac
 	echo "$(wlv protocols-sha256)  $t" | sha256sum -c --quiet
 	tar xJf "$t" -C "$BUILD"
 fi
 pc(){ # name version libs [requires]
-	printf 'Name: %s\nDescription: %s as 9front builds it (sys/src/wayland, sys/src/libffi)\nVersion: %s\nRequires: %s\nCflags:\nLibs: %s\n' \
+	printf 'Name: %s\nDescription: %s as the tree builds it (in /$objtype/lib.gcc/ape, headers in /sys/include/ape)\nVersion: %s\nRequires: %s\nCflags:\nLibs: %s\n' \
 		"$1" "$1" "$2" "$4" "$3" > "$BUILD/plan9/pkgconfig/$1.pc"
 }
 pc libffi "$(awk '$1 == "version" { print $2 }' "$ROOT/sys/src/libffi/VERSION")" -lffi
@@ -90,6 +95,10 @@ pc wayland-client "$(wlv version)" -lwayland-client libffi
 pc wayland-server "$(wlv version)" -lwayland-server libffi
 pc wayland-egl "18.1.0" -lwayland-egl wayland-client
 pc wayland-egl-backend 3 ""
+# zlib as the tree has it (sys/src/cmd/gs/zlib, APE's libz.a): Mesa's dependency
+# on it found here, not its subproject's copy, which libvulkan.a carried (a
+# program that linked libz.a too had two zlibs); libvulkan.a's users link -lz
+pc zlib "$(awk '$1 == "version" { print $2 }' "$ROOT/sys/src/cmd/gs/zlib/VERSION")" -lz
 cat > "$BUILD/plan9/pkgconfig/wayland-protocols.pc" <<EOC
 pkgdatadir=$WP
 Name: wayland-protocols
@@ -131,11 +140,18 @@ cpp_link_args = [${links%, }]
 EOC
 
 DRIVERS=virtio,intel_hasvk,amd
-PLATFORMS=plan9,wayland
+# Wayland only where the tree has libwayland and libffi (scripts/wayland/build.sh:
+# amd64); 386's Mesa is plan9's alone, as before Wayland came (2026-11)
+case $objtype in
+amd64)	PLATFORMS=plan9,wayland ;;
+*)	PLATFORMS=plan9 ;;
+esac
 GL="-Dgallium-drivers=zink -Dopengl=true -Degl=enabled -Dgles2=enabled"
 # meson reads the cross file when it sets up the build: another one (other
-# flags; the compilers of $CROSS, this tree as sysroot) wants a new setup
-if [ -f "$BUILD/mesa/build.ninja" ] && ! cmp -s "$BUILD/cross.ini" "$BUILD/mesa/cross.ini.setup"; then
+# flags; the compilers of $CROSS, this tree as sysroot) wants a new setup; so
+# does a build that took zlib's subproject (before zlib.pc, 2026-11), and one
+# set up elsewhere (common.sh's moved)
+if [ -f "$BUILD/mesa/build.ninja" ] && { ! cmp -s "$BUILD/cross.ini" "$BUILD/mesa/cross.ini.setup" || ls -d "$BUILD"/mesa/subprojects/zlib-* >/dev/null 2>&1 || moved "$BUILD/mesa"; }; then
 	meson setup --wipe "$BUILD/mesa" "$SRC" --cross-file "$BUILD/cross.ini"
 	cp "$BUILD/cross.ini" "$BUILD/mesa/cross.ini.setup"
 fi
