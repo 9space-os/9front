@@ -1565,7 +1565,8 @@ sysr0(uchar *)
 int
 dosyscall(ulong scallnr, Sargs *args, uintptr *retp)
 {
-	vlong startns, stopns;
+	vlong stopns;
+	volatile vlong startns;	/* GCC port: changed after waserror() and read after the jump back to it: in memory, as kencc keeps it */
 	uintptr ret;
 	int s;
 	

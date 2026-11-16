@@ -1,0 +1,478 @@
+From 16e4f6ad8b2cf15964ded456d897ed14fa22119a Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sat, 14 Nov 2026 22:47:52 +0100
+Subject: [PATCH 33/34] 9boot: efi: the boot device first, PXE through the
+ firmware's MTFTP
+
+- Look for plan9.ini and the kernel first on the device the loader was
+  read from (LoadedImage's DeviceHandle; a partition counts as its
+  disk by the device path), then on the others: with another system's
+  ISO or disk before the stick, 9boot took that one's (no plan9.ini:
+  the boot prompt, "no bootfile").
+- PXE: files are read with the firmware's Mtftp (size, then the whole
+  file into pages above 64 MB); the loader's own UDP TFTP is only the
+  fallback, and it checks the server's port (RFC 1350 TID).  A
+  Lenovo firmware's UdpRead returned a new packet's port with the
+  previous packet's data, so blocks came back twice and the kernel was
+  garbage.  The server is taken from the PXE reply, else the proxy
+  offer, else the DHCP ack (a proxy DHCP server beside the router).
+- ISO: sectors are read through a 4096-aligned buffer, block sizes up
+  to 4096 (no 64-bit division: bootia32 links no library); a read
+  error is printed.
+- "bad magic" says which.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/boot/efi/efi.c |  68 ++++++++++++++++++++++-
+ sys/src/boot/efi/fns.h |   7 +--
+ sys/src/boot/efi/fs.c  |  10 +++-
+ sys/src/boot/efi/iso.c |  55 +++++++++++++++++--
+ sys/src/boot/efi/pxe.c | 119 ++++++++++++++++++++++++++++++++++++++---
+ sys/src/boot/efi/sub.c |   5 ++
+ 6 files changed, 246 insertions(+), 18 deletions(-)
+
+diff --git a/sys/src/boot/efi/efi.c b/sys/src/boot/efi/efi.c
+index 42d28ffea..6b333a117 100644
+--- a/sys/src/boot/efi/efi.c
++++ b/sys/src/boot/efi/efi.c
+@@ -5,6 +5,19 @@
+ UINTN MK;
+ EFI_HANDLE IH;
+ EFI_SYSTEM_TABLE *ST;
++EFI_HANDLE BD;	/* the device this loader was read from */
++
++static EFI_GUID EFI_LOADED_IMAGE_PROTOCOL_GUID = {
++	0x5b1b31a1, 0x9562, 0x11d2,
++	0x8e, 0x3f, 0x00, 0xa0,
++	0xc9, 0x69, 0x72, 0x3b,
++};
++
++static EFI_GUID EFI_DEVICE_PATH_PROTOCOL_GUID = {
++	0x09576e91, 0x6d3f, 0x11d2,
++	0x8e, 0x39, 0x00, 0xa0,
++	0xc9, 0x69, 0x72, 0x3b,
++};
+ 
+ void* (*open)(char *name);
+ int (*read)(void *f, void *data, int len);
+@@ -296,17 +309,70 @@ eficonfig(char **cfg)
+ 	screenconf(cfg);
+ }
+ 
++/* the bytes of a device path before its end node */
++static int
++dplen(uchar *p)
++{
++	uchar *s;
++	int n;
++
++	for(s = p; p[0] != 0x7F || p[1] != 0xFF; p += n){
++		n = p[2] | p[3]<<8;
++		if(n < 4)
++			break;
++	}
++	return p - s;
++}
++
++/*
++ * is h the device this loader was read from, or one
++ * that device is part of (the disk of its partition)?
++ */
++int
++onbootdev(void *h)
++{
++	uchar *p, *b;
++	int n;
++
++	if(BD == nil)
++		return 0;
++	if(h == BD)
++		return 1;
++	p = b = nil;
++	if(eficall(ST->BootServices->HandleProtocol, h,
++		&EFI_DEVICE_PATH_PROTOCOL_GUID, &p)
++	|| eficall(ST->BootServices->HandleProtocol, BD,
++		&EFI_DEVICE_PATH_PROTOCOL_GUID, &b))
++		return 0;
++	n = dplen(p);
++	return n > 0 && n < dplen(b) && memcmp(p, b, n) == 0;
++}
++
+ EFI_STATUS
+ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
+ {
++	EFI_LOADED_IMAGE_PROTOCOL *image;
+ 	char path[MAXPATH], *kern;
+ 	void *f;
+ 
+ 	IH = ih;
+ 	ST = st;
+ 
++	BD = nil;
++	image = nil;
++	if(eficall(ST->BootServices->HandleProtocol, IH,
++		&EFI_LOADED_IMAGE_PROTOCOL_GUID, &image) == 0)
++		BD = image->DeviceHandle;
++
++	/*
++	 * the device this loader came from first: other machines'
++	 * ISOs (a second stick) or a network the firmware tried
++	 * before have no plan9.ini for us. then the old search,
++	 * where one with a plan9.ini comes first.
++	 */
+ 	f = nil;
+-	if(pxeinit(&f) && isoinit(&f) && fsinit(&f))
++	if(pxeinit(&f, 1) && isoinit(&f, 0) && fsinit(&f, 1)
++	&& isoinit(&f, 1) && pxeinit(&f, 0) && isoinit(&f, 2) && fsinit(&f, 0))
+ 		print("no boot devices\n");
+ 
+ 	open = rebase(open);
+diff --git a/sys/src/boot/efi/fns.h b/sys/src/boot/efi/fns.h
+index 727934a0b..02d07fa4c 100644
+--- a/sys/src/boot/efi/fns.h
++++ b/sys/src/boot/efi/fns.h
+@@ -7,9 +7,10 @@ extern char hex[];
+ void usleep(int t);
+ void jump(void *pc, void *arg);
+ 
+-int pxeinit(void **pf);
+-int isoinit(void **pf);
+-int fsinit(void **pf);
++int pxeinit(void **pf, int boot);
++int isoinit(void **pf, int how);
++int fsinit(void **pf, int boot);
++int onbootdev(void *h);
+ 
+ void* (*open)(char *name);
+ int (*read)(void *f, void *data, int len);
+diff --git a/sys/src/boot/efi/fs.c b/sys/src/boot/efi/fs.c
+index a6caf1b51..a4b0e2fac 100644
+--- a/sys/src/boot/efi/fs.c
++++ b/sys/src/boot/efi/fs.c
+@@ -89,8 +89,12 @@ fsclose(void *f)
+ 	eficall(((EFI_FILE_PROTOCOL*)f)->Close, f);
+ }
+ 
++/*
++ * boot: only the file system this loader was read from, if
++ * it has a plan9.ini; else the others, the ESP the last
++ */
+ int
+-fsinit(void **pf)
++fsinit(void **pf, int boot)
+ {
+ 	EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fs;
+ 	EFI_LOADED_IMAGE_PROTOCOL *image;
+@@ -106,7 +110,7 @@ fsinit(void **pf)
+ 	 * from the device the loader was read from.
+ 	 * if that fails, fall back to old method.
+ 	 */
+-	if(eficall(ST->BootServices->HandleProtocol, IH,
++	if(boot && eficall(ST->BootServices->HandleProtocol, IH,
+ 		&EFI_LOADED_IMAGE_PROTOCOL_GUID, &image) == 0 &&
+ 		eficall(ST->BootServices->HandleProtocol, image->DeviceHandle,
+ 		&EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID, &fs) == 0 &&
+@@ -123,6 +127,8 @@ fsinit(void **pf)
+ 			goto gotit;
+ 		}
+ 	}
++	if(boot)
++		return -1;
+ 
+ 	Count = 0;
+ 	Handles = nil;
+diff --git a/sys/src/boot/efi/iso.c b/sys/src/boot/efi/iso.c
+index 3c1652176..f276cceca 100644
+--- a/sys/src/boot/efi/iso.c
++++ b/sys/src/boot/efi/iso.c
+@@ -72,11 +72,52 @@ EFI_BLOCK_IO_PROTOCOL_GUID = {
+ 
+ static EFI_BLOCK_IO_PROTOCOL *bio;
+ 
++enum {
++	Maxblk = 4096,	/* largest block, and alignment, read here */
++};
++static uchar blkmem[2*Maxblk];
++
++/*
++ * through a buffer aligned as any device wants it (IoAlign:
++ * real firmware's USB and NVMe drivers refuse others) and
++ * whole blocks, which may be bigger than a sector (4K disks)
++ */
+ static int
+ readsect(ulong lba, void *buf)
+ {
+-	lba *= Sectsz/bio->Media->BlockSize;
+-	return eficall(bio->ReadBlocks, bio, (UINTN)bio->Media->MediaId, (UINT64)lba, (UINTN)Sectsz, buf);
++	EFI_BLOCK_IO_MEDIA *m;
++	ulong off, per;
++	UINT64 blk;
++	UINTN n;
++	uchar *p;
++	uintptr r;
++	char e[20];
++
++	m = bio->Media;
++	if(m->BlockSize == 0 || m->BlockSize > Maxblk || m->IoAlign > Maxblk)
++		return -1;
++	p = (uchar*)(((uintptr)blkmem + Maxblk-1) & ~(uintptr)(Maxblk-1));
++	/* no 64-bit division: ia32 links no library */
++	if(m->BlockSize <= Sectsz){
++		blk = (UINT64)lba * (Sectsz/m->BlockSize);
++		off = 0;
++		n = Sectsz;
++	} else {
++		per = m->BlockSize/Sectsz;
++		blk = lba/per;
++		off = (lba%per)*Sectsz;
++		n = m->BlockSize;
++	}
++	r = eficall(bio->ReadBlocks, bio, (UINTN)m->MediaId, blk, n, p);
++	if(r){
++		*hexfmt(e, 0, r) = 0;
++		print("iso: read error ");
++		print(e);
++		print("\n");
++		return -1;
++	}
++	memmove(buf, p + off, Sectsz);
++	return 0;
+ }
+ 
+ static int
+@@ -201,8 +242,12 @@ isoopen(char *path)
+ 	return ex;
+ }
+ 
++/*
++ * how: 0 the disk this loader was read from,
++ * 1 any disk with a /cfg/plan9.ini, 2 any disk
++ */
+ int
+-isoinit(void **fp)
++isoinit(void **fp, int how)
+ {
+ 	EFI_BLOCK_IO_MEDIA *media;
+ 	EFI_HANDLE *Handles;
+@@ -227,7 +272,9 @@ isoinit(void **fp)
+ 		&& media->MediaPresent
+ 		&& media->LogicalPartition == 0
+ 		&& media->BlockSize != 0
+-		&& isoopen("") != nil)
++		&& (how != 0 || onbootdev(Handles[i]))
++		&& isoopen("") != nil
++		&& (how != 1 || isoopen("/cfg/plan9.ini") != nil))
+ 			goto Found;
+ 	}
+ 	return -1;
+diff --git a/sys/src/boot/efi/pxe.c b/sys/src/boot/efi/pxe.c
+index ad25a58d9..dcc7bc099 100644
+--- a/sys/src/boot/efi/pxe.c
++++ b/sys/src/boot/efi/pxe.c
+@@ -139,6 +139,13 @@ struct Tftp
+ 	
+ 	char pkt[2+2+Segsize];
+ 	char nul;
++
++	/* the whole file by the firmware's TFTP (mtftpopen), else nil */
++	uchar *mem;
++	UINT64 addr;
++	ulong pages;
++	ulong mlen;
++	ulong moff;
+ };
+ 
+ static void
+@@ -218,16 +225,39 @@ udpwrite(EFI_IP_ADDRESS *dip,
+ static int
+ pxeread(void *f, void *data, int len)
+ {
++	EFI_PXE_BASE_CODE_UDP_PORT from;
+ 	Tftp *t = f;
+ 	int seq, n;
+ 
++	if(t->mem != nil){
++		n = t->mlen - t->moff;
++		if(len > n)
++			len = n;
++		memmove(data, t->mem + t->moff, len);
++		t->moff += len;
++		return len;
++	}
++
+ 	while(!t->eof && t->rp >= t->ep){
+ 		for(;;){
+ 			n = sizeof(t->pkt);
+-			if(udpread(&t->dip, &t->sip, &t->dport, t->sport, &n, t->pkt))
++			from = 0;
++			if(udpread(&t->dip, &t->sip, &from, t->sport, &n, t->pkt))
+ 				continue;
+-			if(n >= 4)
+-				break;
++			if(n < 4)
++				continue;
++			/*
++			 * rfc1350: the server's port (TID) is that of the
++			 * first packet; one from another port is not of
++			 * this transfer
++			 */
++			if(t->dport == 0)
++				t->dport = from;
++			else if(from != t->dport){
++				putc('%');
++				continue;
++			}
++			break;
+ 		}
+ 		switch(nhgets(t->pkt)){
+ 		case Tftp_DATA:
+@@ -271,6 +301,64 @@ pxeclose(void *f)
+ {
+ 	Tftp *t = f;
+ 	t->eof = 1;
++	if(t->mem != nil){
++		eficall(ST->BootServices->FreePages, t->addr, (UINTN)t->pages);
++		t->mem = nil;
++	}
++}
++
++enum {
++	TftpGetFileSize	= 1,	/* EFI_PXE_BASE_CODE_TFTP_GET_FILE_SIZE */
++	TftpReadFile	= 2,	/* EFI_PXE_BASE_CODE_TFTP_READ_FILE */
++	AllocateAnyPages	= 0,
++	Lowmem		= 64*1024*1024,	/* where the kernel is loaded, below */
++};
++
++/*
++ * the whole file by the firmware's own TFTP client: Lenovo's
++ * firmware gives UdpRead a whole block (516 bytes) with the data
++ * and size of the packet before (plan9.ini's for the kernel's
++ * first), its Mtftp loads bootx64.efi fine
++ */
++static int
++mtftpopen(Tftp *t, char *name)
++{
++	UINT64 size, addr;
++	ulong pages;
++	uintptr r;
++
++	size = 0;
++	r = eficall(pxe->Mtftp, pxe, (UINTN)TftpGetFileSize, nil, (UINTN)0,
++		&size, nil, serverip, name, nil, (UINTN)0);
++	if(r)
++		return -1;
++	if(size >= Lowmem)
++		return -1;
++	pages = ((ulong)size + 4095) >> 12;
++	if(pages == 0)
++		pages = 1;
++	addr = 0;
++	if(eficall(ST->BootServices->AllocatePages, (UINTN)AllocateAnyPages,
++		(UINTN)EfiLoaderData, (UINTN)pages, &addr))
++		return -1;
++	/* not where the kernel goes, nor out of reach (ia32) */
++	if(addr < Lowmem || sizeof(uintptr) == 4 && (addr + ((UINT64)pages<<12))>>32 != 0){
++		eficall(ST->BootServices->FreePages, addr, (UINTN)pages);
++		return -1;
++	}
++	r = eficall(pxe->Mtftp, pxe, (UINTN)TftpReadFile, (void*)(uintptr)addr, (UINTN)0,
++		&size, nil, serverip, name, nil, (UINTN)0);
++	if(r){
++		eficall(ST->BootServices->FreePages, addr, (UINTN)pages);
++		return -1;
++	}
++	t->addr = addr;
++	t->pages = pages;
++	t->mem = (uchar*)(uintptr)addr;
++	t->mlen = size;
++	t->moff = 0;
++	t->eof = 1;
++	return 0;
+ }
+ 
+ static void
+@@ -321,9 +409,12 @@ pxeopen(char *name)
+ 	static uchar buf[sizeof(Tftp)+8];
+ 	Tftp *t = (Tftp*)((uintptr)(buf+7)&~7);
+ 
++	pxeclose(t);
+ 	memset(t, 0, sizeof(Tftp));
+ 	memmove(&t->sip, myip, sizeof(myip));
+ 	memmove(&t->dip, serverip, sizeof(serverip));
++	if(mtftpopen(t, name) == 0)
++		return t;
+ 	if(tftpopen(t, name))
+ 		return nil;
+ 	return t;
+@@ -439,7 +530,7 @@ parsedhcp(EFI_PXE_BASE_CODE_DHCPV4_PACKET *dhcp)
+ }
+ 
+ int
+-pxeinit(void **pf)
++pxeinit(void **pf, int boot)
+ {
+ 	EFI_PXE_BASE_CODE_DHCPV4_PACKET	*dhcp;
+ 	EFI_PXE_BASE_CODE_MODE *mode;
+@@ -456,20 +547,32 @@ pxeinit(void **pf)
+ 
+ 	for(i=0; i<Count; i++){
+ 		pxe = nil;
++		if(boot && !onbootdev(Handles[i]))
++			continue;
+ 		if(eficall(ST->BootServices->HandleProtocol,
+ 			Handles[i], &EFI_PXE_BASE_CODE_PROTOCOL_GUID, &pxe))
+ 			continue;
+ 		mode = pxe->Mode;
+ 		if(mode == nil || mode->Started == 0)
+ 			continue;
+-		if(mode->DhcpAckReceived){
+-			dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET*)mode->DhcpAck;
+-			goto Found;
+-		}
++		/*
++		 * the boot server: with a proxy DHCP server (one that
++		 * answers PXE clients only, a router gives the address)
++		 * the DHCP ack is the router's, the boot server's
++		 * address is in the proxy offer or the PXE reply
++		 */
+ 		if(mode->PxeReplyReceived){
+ 			dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET*)mode->PxeReply;
+ 			goto Found;
+ 		}
++		if(mode->ProxyOfferReceived){
++			dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET*)mode->ProxyOffer;
++			goto Found;
++		}
++		if(mode->DhcpAckReceived){
++			dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET*)mode->DhcpAck;
++			goto Found;
++		}
+ 	}
+ 	return -1;
+ 
+diff --git a/sys/src/boot/efi/sub.c b/sys/src/boot/efi/sub.c
+index e441ca491..9f3d511f3 100644
+--- a/sys/src/boot/efi/sub.c
++++ b/sys/src/boot/efi/sub.c
+@@ -343,6 +343,7 @@ bootkern(void *f)
+ 	uchar *e, *d, *t;
+ 	ulong n;
+ 	Exec ex;
++	char m[20];
+ 
+ 	if(readn(f, &ex, sizeof(ex)) != sizeof(ex))
+ 		return "bad header";
+@@ -359,6 +360,10 @@ bootkern(void *f)
+ 	case I_MAGIC:
+ 		break;
+ 	default:
++		*hexfmt(m, 8, beswal(ex.magic)) = 0;
++		print("magic ");
++		print(m);
++		print(": ");
+ 		return "bad magic";
+ 	}
+ 
+-- 
+2.56.0
+
