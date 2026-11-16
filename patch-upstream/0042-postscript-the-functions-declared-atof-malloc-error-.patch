@@ -1,4 +1,4 @@
-From e5d6a320641d546c64acc45f2648b682aa39f82a Mon Sep 17 00:00:00 2001
+From 3bcd72e67501c2e845def7d38bd6bd808419beb2 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Mon, 16 Nov 2026 19:01:03 +0100
 Subject: [PATCH 42/43] postscript: the functions declared (atof, malloc,
@@ -14,7 +14,9 @@ the programs on APE and declares common's functions; error is variadic
 (vfprintf), lineno and position printed with %ld; each program declares
 its own functions before their use; tcpostio is compiled with
 _POSIX_SOURCE (it uses read, fork, select) and waits for its child's
-status in an int (an unsigned long got 4 of its 8 bytes on amd64).
+status in an int (an unsigned long got 4 of its 8 bytes on amd64);
+its getline is fdgetline (POSIX 2008 has a getline with other
+arguments).
 tr2post, a native program, is not changed (libc.h declares it all).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -31,8 +33,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  sys/src/cmd/postscript/posttek/posttek.c      | 27 +++++++++++++++++
  sys/src/cmd/postscript/tcpostio/dial.c        |  2 ++
  sys/src/cmd/postscript/tcpostio/mkfile        |  2 +-
- sys/src/cmd/postscript/tcpostio/tcpostio.c    | 10 +++++--
- 13 files changed, 121 insertions(+), 8 deletions(-)
+ sys/src/cmd/postscript/tcpostio/tcpostio.c    | 14 ++++++---
+ 13 files changed, 123 insertions(+), 10 deletions(-)
 
 diff --git a/sys/src/cmd/postscript/common/ext.h b/sys/src/cmd/postscript/common/ext.h
 index a811cca67..662b88a62 100644
@@ -301,7 +303,7 @@ index 539f5907d..07e1ecdb4 100644
  syms:V:
  	vc $CFLAGS -a tcpostio.c > syms
 diff --git a/sys/src/cmd/postscript/tcpostio/tcpostio.c b/sys/src/cmd/postscript/tcpostio/tcpostio.c
-index 4f0fdc007..bb2dba2b8 100644
+index 4f0fdc007..d31b2ccda 100644
 --- a/sys/src/cmd/postscript/tcpostio/tcpostio.c
 +++ b/sys/src/cmd/postscript/tcpostio/tcpostio.c
 @@ -12,6 +12,11 @@
@@ -316,6 +318,24 @@ index 4f0fdc007..bb2dba2b8 100644
  
  extern	int dial_debug;
  extern	int	dial(char*, char*, char*, int*);
+@@ -33,7 +38,7 @@ rdtmout(void) {
+ }
+ 
+ int
+-getline(int fd, char *buf, int len) {
++fdgetline(int fd, char *buf, int len) {
+ 	char *bp, c;
+ 	int i = 0, n;
+ 
+@@ -249,7 +254,7 @@ reselect:
+ 		if (n > 0 && FD_ISSET(printerfd, &readfds)) {
+ 			/* printer wants to be read */
+ 			if (debug&0x1) fprintf(stderr, "printer wants to be read\n");
+-			if ((c=getline(printerfd, buf, MESGSIZE)) < 0) {
++			if ((c=fdgetline(printerfd, buf, MESGSIZE)) < 0) {
+ 				fprintf(stderr, "read printer failed\n");
+ 				progstate = FATAL_ERROR;
+ 				continue;
 @@ -467,6 +472,7 @@ void main(int argc, char *argv[]) {
  	int pipefd[2];
  	char *dialstr;

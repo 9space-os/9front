@@ -623,7 +623,8 @@ left alone) and declares `common`'s functions; `error` is variadic
 each program declares its own functions before their use; `tcpostio` is
 compiled with `_POSIX_SOURCE` (it calls `read`, `fork`, `select`) and
 takes its child's status from `wait` in an `int` (an `unsigned long` got
-4 of its 8 bytes on amd64). Found by: gcc's implicit-function-declaration
+4 of its 8 bytes on amd64); its own `getline` is `fdgetline` (POSIX 2008
+has a `getline` with other arguments, which an APE with it declares). Found by: gcc's implicit-function-declaration
 (an error since GCC 14). Shown by: the programs compiled by gcc with no
 implicit declaration left; with 9front's own `mk` in a 9front guest
 (amd64 `pcc`/`6c`, 386 `pcc`/`8c`) they compile as on `front` (6c's
