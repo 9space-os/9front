@@ -38,7 +38,7 @@ rdtmout(void) {
 }
 
 int
-getline(int fd, char *buf, int len) {
+fdgetline(int fd, char *buf, int len) {
 	char *bp, c;
 	int i = 0, n;
 
@@ -254,7 +254,7 @@ reselect:
 		if (n > 0 && FD_ISSET(printerfd, &readfds)) {
 			/* printer wants to be read */
 			if (debug&0x1) fprintf(stderr, "printer wants to be read\n");
-			if ((c=getline(printerfd, buf, MESGSIZE)) < 0) {
+			if ((c=fdgetline(printerfd, buf, MESGSIZE)) < 0) {
 				fprintf(stderr, "read printer failed\n");
 				progstate = FATAL_ERROR;
 				continue;
