@@ -248,7 +248,16 @@ notify(Ureg *ureg, char *msg)
 	sp = ureg->sp;
 	sp -= 256;	/* debugging: preserve context causing problem */
 	sp -= sizeof(Ureg);
-	sp = STACKALIGN(sp);
+	/*
+	 * nfront: the handler entered as an AAPCS function too: the note's
+	 * message in x1 (nureg is in x0 already), the stack 16-byte aligned
+	 * (Ureg 16-aligned, the 160 bytes below it keep it so).  libc's
+	 * notify(2) then registers the handler itself, per process, as
+	 * 9front's; the gcc port's trampoline called the handler of one
+	 * variable shared by a program's processes (RFMEM: one's
+	 * notify(nil), the others' next note went to pc 0).
+	 */
+	sp &= ~(uintptr)15;
 
 	if(!okaddr(sp-ERRMAX-4*BY2WD, sizeof(Ureg)+ERRMAX+4*BY2WD, 1)
 	|| ((uintptr) up->notify & 3) != 0
@@ -263,6 +272,7 @@ notify(Ureg *ureg, char *msg)
 	*(uintptr*)(sp+2*BY2WD) = sp+3*BY2WD;
 	*(uintptr*)(sp+1*BY2WD) = (uintptr)nureg;
 	ureg->r0 = (uintptr)nureg;
+	ureg->r1 = sp+3*BY2WD;		/* nfront: the message, AAPCS's arg 2 */
 	ureg->sp = sp;
 	ureg->pc = (uintptr)up->notify;
 	ureg->link = 0;
