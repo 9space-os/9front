@@ -6,6 +6,13 @@
  * 9front-ng: except shared memory objects (memfd_create, shm_open): segments of
  * segment(3) at an address the kernel chooses, attached for MAP_SHARED: the same
  * memory in every process that maps one (below, after shm_open).
+ * 9space: munmap gives back exactly the pages asked for (a part of a mapping too, as
+ * SpiderMonkey's GC trims an over-sized mapping to an aligned chunk); before, it freed
+ * the whole mapping whatever the length, memory the program still used. The memory of
+ * a mapping is one block of malloc's, freed when its last part goes; the pages of a part
+ * unmapped before go back to the system at once (segfree(2): the heap's pages are
+ * released, the addresses stay the block's). MAP_FIXED is not honoured (addr is
+ * ignored, as before).
  */
 #define _POSIX_SOURCE
 #define _PLAN9_SOURCE
@@ -20,13 +27,31 @@
 #include <lock.h>
 #include <stdint.h>
 
+extern int _SEGFREE(void*, unsigned long);	/* ../plan9/sys9.h, included below */
 
+
+enum { Pagesz = 4096 };	/* mmap's alignment; munmap's addresses are multiples */
+
+/*
+ * the memory of one mmap: freed (and fd closed) when no Map has a part of it and
+ * no write back of a part is under way (another thread's munmap or msync)
+ */
+typedef struct Block Block;
+struct Block {
+	char	*base;
+	size_t	live;	/* bytes still mapped: the sum of its Maps' len */
+	int	busy;	/* write backs under way */
+	int	fd;	/* a dup of the file's, if written back; else -1 */
+	Block	*next;	/* in munmap's list of blocks to free */
+};
+
+/* a range still mapped: a whole mapping, or what munmap left of one */
 typedef struct Map Map;
 struct Map {
 	char	*p;
 	size_t	len;
-	int	fd;	/* a dup of the file's, if written back; else -1 */
-	off_t	off;
+	off_t	off;	/* the file's offset of p */
+	Block	*b;
 	Map	*next;
 };
 
@@ -39,16 +64,17 @@ static int shmunmap(void *);
 static Shm *shmfind(void *);
 static int shmdata(int);
 
+/* n bytes from p back to the file at off, if the mapping is written back */
 static int
-writeback(Map *m, char *from, size_t n)
+writeback(int fd, off_t off, char *p, size_t n)
 {
 	size_t done;
 	long r;
 
-	if(m->fd < 0)
+	if(fd < 0)
 		return 0;
 	for(done = 0; done < n; done += r){
-		r = pwrite(m->fd, from + done, n - done, m->off + (from - m->p) + done);
+		r = pwrite(fd, p + done, n - done, off + done);
 		if(r <= 0)
 			return -1;
 	}
@@ -59,6 +85,7 @@ void *
 mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 {
 	Map *m;
+	Block *b;
 	char *p;
 	size_t done;
 	long r;
@@ -72,19 +99,25 @@ mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 		return MAP_FAILED;
 	}
 	m = malloc(sizeof *m);
-	if(posix_memalign((void **)&p, 4096, len) != 0)
+	b = malloc(sizeof *b);
+	if(posix_memalign((void **)&p, Pagesz, len) != 0)
 		p = NULL;
-	if(m == NULL || p == NULL){
+	if(m == NULL || b == NULL || p == NULL){
 		free(m);
+		free(b);
 		free(p);
 		errno = ENOMEM;
 		return MAP_FAILED;
 	}
 	memset(p, 0, len);
+	b->base = p;
+	b->live = len;
+	b->busy = 0;
+	b->fd = -1;
 	m->p = p;
 	m->len = len;
 	m->off = off;
-	m->fd = -1;
+	m->b = b;
 	if(!(flags & MAP_ANONYMOUS)){
 		/* a private mapping of a shared memory object: a copy of its bytes */
 		rfd = shmdata(fd);
@@ -94,6 +127,7 @@ mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 				if(rfd >= 0)
 					close(rfd);
 				free(p);
+				free(b);
 				free(m);
 				return MAP_FAILED;
 			}
@@ -103,9 +137,10 @@ mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 		if(rfd >= 0)
 			close(rfd);
 		if((flags & MAP_SHARED) && (prot & PROT_WRITE)){
-			m->fd = dup(fd);
-			if(m->fd < 0){
+			b->fd = dup(fd);
+			if(b->fd < 0){
 				free(p);
+				free(b);
 				free(m);
 				return MAP_FAILED;
 			}
@@ -118,41 +153,161 @@ mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 	return p;
 }
 
+/* the Map with p in it (with lk) */
 static Map *
-find(void *p, int unlink)
+find(void *p)
 {
-	Map *m, **l;
+	Map *m;
 
-	lock(&lk);
-	for(l = &maps; (m = *l) != NULL; l = &m->next)
-		if((char *)p >= m->p && (char *)p < m->p + m->len){
-			if(unlink)
-				*l = m->next;
+	for(m = maps; m != NULL; m = m->next)
+		if((char *)p >= m->p && (char *)p < m->p + m->len)
 			break;
-		}
-	unlock(&lk);
 	return m;
 }
 
-int
-munmap(void *p, size_t len)
+static void
+freeblock(Block *b)
 {
-	Map *m;
+	if(b->fd >= 0)
+		close(b->fd);
+	free(b->base);
+	free(b);
+}
+
+/* a write back of b's is done: b goes if nothing else holds it */
+static void
+unbusy(Block *b)
+{
+	int gone;
+
+	lock(&lk);
+	gone = --b->busy == 0 && b->live == 0;
+	unlock(&lk);
+	if(gone)
+		freeblock(b);
+}
+
+/*
+ * a part of a Map that munmap took away: written back (a shared file's), its pages
+ * released (if the block stays), before its block may go
+ */
+typedef struct Cut Cut;
+struct Cut {
+	char	*p;
+	size_t	len;
+	off_t	off;
+	Block	*b;
+	int	release;	/* the block keeps other parts: segfree the pages */
+	Cut	*next;
+};
+
+/*
+ * the pages of [addr, addr+len) are unmapped, of whatever mappings there are in
+ * that range (none: nothing to do); a mapping's part before or after them stays.
+ * A mapping's memory is freed when its last part goes.
+ */
+int
+munmap(void *addr, size_t len)
+{
+	char *lo, *hi, *a, *e;
+	Map *m, *n, **l;
+	Block *dead, *b;
+	Cut *cuts, *c;
 	int r;
 
-	(void)len;
-	if(shmunmap(p))
-		return 0;
-	m = find(p, 1);
-	if(m == NULL){
+	if(shmunmap(addr))
+		return 0;	/* shared memory: one mmap of it less (see shmunmap) */
+	if(len == 0 || ((uintptr_t)addr & (Pagesz-1)) != 0){
 		errno = EINVAL;
 		return -1;
 	}
-	r = writeback(m, m->p, m->len);
-	if(m->fd >= 0)
-		close(m->fd);
-	free(m->p);
-	free(m);
+	a = addr;
+	e = a + ((len + Pagesz-1) & ~(size_t)(Pagesz-1));
+	if(e < a){
+		errno = EINVAL;
+		return -1;
+	}
+	cuts = NULL;
+	dead = NULL;
+	r = 0;
+	lock(&lk);
+	for(l = &maps; (m = *l) != NULL; ){
+		lo = m->p > a ? m->p : a;
+		hi = m->p + m->len < e ? m->p + m->len : e;
+		if(lo >= hi){
+			l = &m->next;
+			continue;
+		}
+		b = m->b;
+		if((c = malloc(sizeof *c)) != NULL){
+			c->p = lo;
+			c->len = hi - lo;
+			c->off = m->off + (lo - m->p);
+			c->b = b;
+			c->release = 0;
+			b->busy++;
+			c->next = cuts;
+			cuts = c;
+		}else if(b->fd >= 0)
+			r = -1;	/* not written back (the pages stay too) */
+		b->live -= hi - lo;
+		if(c != NULL)
+			c->release = b->live != 0;
+		if(lo == m->p && hi == m->p + m->len){	/* all of it */
+			*l = m->next;
+			free(m);
+		}else if(lo == m->p){	/* its head */
+			m->off += hi - m->p;
+			m->len -= hi - m->p;
+			m->p = hi;
+			l = &m->next;
+		}else if(hi == m->p + m->len){	/* its tail */
+			m->len = lo - m->p;
+			l = &m->next;
+		}else{	/* its middle: what is after it a Map of its own */
+			if((n = malloc(sizeof *n)) == NULL){
+				b->live += hi - lo;	/* left mapped, as munmap fails */
+				if(c != NULL)
+					c->release = 0;	/* (written back all the same: harmless) */
+				r = -1;
+				errno = ENOMEM;
+				l = &m->next;
+				continue;
+			}
+			n->p = hi;
+			n->len = m->p + m->len - hi;
+			n->off = m->off + (hi - m->p);
+			n->b = b;
+			n->next = m->next;
+			m->len = lo - m->p;
+			m->next = n;
+			l = &n->next;
+		}
+		if(b->live == 0 && b->busy == 0){
+			b->next = dead;
+			dead = b;
+		}
+	}
+	unlock(&lk);
+	while((c = cuts) != NULL){
+		cuts = c->next;
+		if(writeback(c->b->fd, c->off, c->p, c->len) < 0)
+			r = -1;
+		/*
+		 * whole pages only: segfree zeroes the bytes of a page it covers
+		 * in part, and a mapping's last page (len not a multiple) has
+		 * malloc's bytes after its end
+		 */
+		e = (char *)((uintptr_t)(c->p + c->len) & ~(uintptr_t)(Pagesz-1));
+		if(c->release && e > c->p)
+			_SEGFREE(c->p, e - c->p);
+		unbusy(c->b);
+		free(c);
+	}
+	while((b = dead) != NULL){
+		dead = b->next;
+		freeblock(b);
+	}
 	return r;
 }
 
@@ -160,20 +315,30 @@ int
 msync(void *p, size_t len, int flags)
 {
 	Map *m;
+	Block *b;
 	size_t n;
+	off_t off;
+	int r;
 
 	(void)flags;
 	if(shmfind(p) != NULL)
 		return 0;	/* shared memory: nothing to write back */
-	m = find(p, 0);
-	if(m == NULL){
+	lock(&lk);
+	if((m = find(p)) == NULL){
+		unlock(&lk);
 		errno = ENOMEM;
 		return -1;
 	}
 	n = m->p + m->len - (char *)p;
+	off = m->off + ((char *)p - m->p);
+	b = m->b;
+	b->busy++;
+	unlock(&lk);
 	if(len < n)
 		n = len;
-	return writeback(m, p, n);
+	r = writeback(b->fd, off, p, n);
+	unbusy(b);
+	return r;
 }
 
 int

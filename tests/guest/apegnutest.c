@@ -2,7 +2,7 @@
  * What gcc's APE adds for the gcc driver's programs (sys/src/ape/lib/ap/gnu,
  * sys/src/ape/lib/musl, the headers' parts under _APE_GNU), run inside 9front
  * (tests/guest/run.sh): C99's printf over musl's engine, the wide functions,
- * aligned blocks (plan9/malloc.c), mmap, POSIX additions, pthreads, select and
+ * aligned blocks (plan9/malloc.c), mmap, munmap of a part, POSIX additions, pthreads, select and
  * poll on a pipe written by a thread and by a forked child (gnu/buf.c: more
  * than a buffer, the end, close, fork; a file's dup polled, the original read), and exit with a thread and
  * a copy proc still running. What foot needs: C11 threads, getopt_long,
@@ -168,6 +168,61 @@ testmmap(void)
 		munmap(p, 11);
 	close(fd);
 	remove("/tmp/apegnutest");
+}
+
+/*
+ * 9space: munmap of a part of a mapping unmaps that part only (before, the whole
+ * mapping went, memory still in use: SpiderMonkey's GC trims a mapping to an aligned
+ * chunk so). msync tells what is still mapped (ENOMEM where nothing is). A shared,
+ * writable file mapping writes back the part unmapped; the rest at its own munmap.
+ */
+static void
+testmunmap(void)
+{
+	enum { P = 4096 };
+	char *p, buf[2];
+	int fd, i;
+
+	p = mmap(NULL, 4*P, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+	if(p == MAP_FAILED){
+		check("munmap of a part", 0, "mmap: %s", strerror(errno));
+		return;
+	}
+	for(i = 0; i < 4; i++)
+		p[i*P] = 'a' + i;
+	check("munmap of a page in the middle", munmap(p + P, P) == 0, "%s", strerror(errno));
+	check("the pages before and after it stay mapped",
+		msync(p, P, MS_SYNC) == 0 && msync(p + 2*P, P, MS_SYNC) == 0 && msync(p + 3*P, P, MS_SYNC) == 0, NULL);
+	check("the page unmapped is not", msync(p + P, P, MS_SYNC) < 0 && errno == ENOMEM, NULL);
+	check("their bytes kept", p[0] == 'a' && p[2*P] == 'c' && p[3*P] == 'd', NULL);
+	check("munmap of the head and the tail (an aligned chunk's trim)",
+		munmap(p, P) == 0 && munmap(p + 3*P, P) == 0, "%s", strerror(errno));
+	check("the page left stays", msync(p + 2*P, P, MS_SYNC) == 0 && p[2*P] == 'c', NULL);
+	check("munmap of a range with nothing mapped", munmap(p, 2*P) == 0, "%s", strerror(errno));
+	check("munmap not at a page: EINVAL", munmap(p + 2*P + 1, 1) < 0 && errno == EINVAL, NULL);
+	check("munmap of the last part", munmap(p + 2*P, P) == 0 && msync(p + 2*P, P, MS_SYNC) < 0, NULL);
+
+	fd = open("/tmp/apegnutest.munmap", O_RDWR|O_CREAT|O_TRUNC, 0666);
+	if(fd < 0){
+		check("munmap of a part of a shared file mapping", 0, "open: %s", strerror(errno));
+		return;
+	}
+	ftruncate(fd, 2*P);
+	p = mmap(NULL, 2*P, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+	if(p == MAP_FAILED){
+		check("munmap of a part of a shared file mapping", 0, "mmap: %s", strerror(errno));
+		close(fd);
+		return;
+	}
+	p[0] = 'y';
+	p[P] = 'x';
+	check("munmap of its second page", munmap(p + P, P) == 0, "%s", strerror(errno));
+	check("that page written back, the first not yet",
+		pread(fd, buf, 1, P) == 1 && buf[0] == 'x' && pread(fd, buf, 1, 0) == 1 && buf[0] == 0, NULL);
+	check("then the first at its munmap",
+		munmap(p, P) == 0 && pread(fd, buf, 1, 0) == 1 && buf[0] == 'y', NULL);
+	close(fd);
+	remove("/tmp/apegnutest.munmap");
 }
 
 /*
@@ -1256,6 +1311,7 @@ main(void)
 	teststdio();
 	testalloc();
 	testmmap();
+	testmunmap();
 	testshm();
 	testseals();
 	testentropy();
