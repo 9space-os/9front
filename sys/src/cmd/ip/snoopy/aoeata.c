@@ -57,7 +57,7 @@ llba(uchar *c)
 	l = c[0];
 	l |= c[1]<<8;
 	l |= c[2]<<16;
-	l |= c[3]<<24;
+	l |= (u32int)c[3]<<24;	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 	l |= (uvlong)c[4]<<32;
 	l |= (uvlong)c[5]<<40;
 	return l;

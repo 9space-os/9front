@@ -22,7 +22,7 @@ gethostbyaddr(const void *addr, int len, int type)	/* GCC port: types as in the 
 		return 0;
 	}
 
-	y = (p[0]<<24)|(p[1]<<16)|(p[2]<<8)|p[3];
+	y = (unsigned)((p[0]<<24)|(p[1]<<16)|(p[2]<<8)|p[3]);	/* GCC port: through unsigned, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 	x.s_addr = htonl(y);
 
 	return gethostbyname(inet_ntoa(x));

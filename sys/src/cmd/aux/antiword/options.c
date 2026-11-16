@@ -18,9 +18,6 @@
 extern int getopt(int, char **, const char *);
 #else
 #include <unistd.h>
-#if defined(__Plan9__)
-extern int getopt(int, char **, const char *);	/* APE's unistd.h has none */
-#endif
 #endif /* __dos */
 #endif /* __riscos */
 #include "antiword.h"

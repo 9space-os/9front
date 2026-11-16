@@ -58,7 +58,7 @@ main(int argc, char *argv[])
 	if(oldindex){
 		seek(ix, ntruerand(ixbuf->length/sizeof(offs))*sizeof(offs), 0);
 		read(ix, off, sizeof(off));
-		Bseek(f, off[0]|(off[1]<<8)|(off[2]<<16)|(off[3]<<24), 0);
+		Bseek(f, (u32int)(off[0]|(off[1]<<8)|(off[2]<<16)|(off[3]<<24)), 0);	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 		p = Brdline(f, '\n');
 		if(p){
 			p[Blinelen(f)-1] = 0;

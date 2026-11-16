@@ -575,8 +575,8 @@ eepromwrite(int n)
 		}
 		if(eepromstate == EEPROMRDCMD){
 			p = back + eepromaddr * 8;
-			eepromdata = p[0] | p[1] << 8 | p[2] << 16 | p[3] << 24 | (u64int)p[4] << 32 | 
-				(u64int)p[5] << 40 | (u64int)p[6] << 48 | (u64int)p[7] << 56;
+			eepromdata = p[0] | p[1] << 8 | p[2] << 16 | (u32int)p[3] << 24 | (u64int)p[4] << 32 | 
+				(u64int)p[5] << 40 | (u64int)p[6] << 48 | (u64int)p[7] << 56;	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 			eeprompos = 0;
 			eepromstate = EEPROMRDRESP;
 			break;
