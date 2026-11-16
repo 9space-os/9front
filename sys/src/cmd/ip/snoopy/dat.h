@@ -6,7 +6,8 @@ typedef struct Proto Proto;
 
 #define NetS(x) ((((uchar*)x)[0]<<8) | ((uchar*)x)[1])
 #define Net3(x) ((((uchar*)x)[0]<<16) | (((uchar*)x)[1]<<8) | ((uchar*)x)[2])
-#define NetL(x) ((((uchar*)x)[0]<<24) | (((uchar*)x)[1]<<16) | (((uchar*)x)[2]<<8) | ((uchar*)x)[3])
+/* GCC port: through u32int: uchar promotes to int in gcc (unsigned in kencc), so a byte from 0x80 on <<24 was negative and sign-extended into 64 bits */
+#define NetL(x) ((u32int)((((uchar*)x)[0]<<24) | (((uchar*)x)[1]<<16) | (((uchar*)x)[2]<<8) | ((uchar*)x)[3]))
 
 /*
  *  one per protocol module

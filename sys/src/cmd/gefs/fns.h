@@ -22,8 +22,9 @@ extern ulong	fuzzseed;
 
 #define	UNPACK8(p)	(((uchar*)(p))[0])
 #define	UNPACK16(p)	((((uchar*)(p))[0]<<8)|(((uchar*)(p))[1]))
-#define	UNPACK32(p)	((((uchar*)(p))[0]<<24)|(((uchar*)(p))[1]<<16)|\
-				(((uchar*)(p))[2]<<8)|(((uchar*)(p))[3]))
+/* GCC port: through u32int: uchar promotes to int in gcc (unsigned in kencc), so a byte from 0x80 on <<24 was negative and sign-extended into 64 bits */
+#define	UNPACK32(p)	((u32int)((((uchar*)(p))[0]<<24)|(((uchar*)(p))[1]<<16)|\
+				(((uchar*)(p))[2]<<8)|(((uchar*)(p))[3])))
 /* GCC port: the halves through u32int: uchar promotes to int in gcc (unsigned in 8c), so p[4]<<24 is negative from 0x80 on and its sign filled the upper half (block hashes read back wrong, ream failed) */
 #define	UNPACK64(p)	(((u64int)(u32int)((((uchar*)(p))[0]<<24)|(((uchar*)(p))[1]<<16)|\
 				(((uchar*)(p))[2]<<8)|(((uchar*)(p))[3])))<<32 |\

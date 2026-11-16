@@ -344,7 +344,7 @@ unpack(uchar *p, uchar *e, char *fmt, ...)
 			break;
 		case 'v':
 			if(p + 8 > e) return nil;
-			vl = p[0] | p[1] << 8 | p[2] << 16 | p[3] << 24;
+			vl = (u32int)(p[0] | p[1] << 8 | p[2] << 16 | p[3] << 24);	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 			vl |= (uvlong)p[4] << 32 | (uvlong)p[5] << 40 | (uvlong)p[6] << 48 | (uvlong)p[7] << 56;
 			*va_arg(va, u64int *) = vl;
 			p += 8;

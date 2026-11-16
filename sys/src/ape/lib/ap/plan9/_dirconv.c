@@ -38,9 +38,10 @@ convD2M(Dir *f, char *ap)
 
 #define	CHAR(x)		f->x = *p++
 #define	SHORT(x)	f->x = (p[0] | (p[1]<<8)); p += 2
-#define	LONG(x)		f->x = (p[0] | (p[1]<<8) |\
+/* GCC port: through unsigned: uchar promotes to int in gcc (unsigned in kencc), so a byte from 0x80 on <<24 was negative and sign-extended into 64 bits */
+#define	LONG(x)		f->x = (unsigned)(p[0] | (p[1]<<8) |\
 			(p[2]<<16) | (p[3]<<24)); p += 4
-#define	VLONG(x)	f->x = (p[0] | (p[1]<<8) |\
+#define	VLONG(x)	f->x = (unsigned)(p[0] | (p[1]<<8) |\
 			(p[2]<<16) | (p[3]<<24)); p += 8
 #define	STRING(x,n)	memcpy(f->x, p, n); p += n
 

@@ -79,6 +79,7 @@ enum
 #define	PPTR(x, n)	(memmove(dataptr, (x), n), dataptr += ROUNDUP(n))
 #define	PBYTE(x)	(*dataptr++ = (x))
 
-#define	GLONG()		(argptr += 4, (((uchar*)argptr)[-1] | (((uchar*)argptr)[-2]<<8) | (((uchar*)argptr)[-3]<<16) | (((uchar*)argptr)[-4]<<24)))
+/* GCC port: through u32int: uchar promotes to int in gcc (unsigned in kencc), so a byte from 0x80 on <<24 was negative and sign-extended into 64 bits */
+#define	GLONG()		(argptr += 4, (u32int)(((uchar*)argptr)[-1] | (((uchar*)argptr)[-2]<<8) | (((uchar*)argptr)[-3]<<16) | (((uchar*)argptr)[-4]<<24)))
 #define	GPTR(n)		(void *)(argptr); argptr += ROUNDUP(n)
 #define	GBYTE()	(argptr++, ((uchar*)argptr)[-1])

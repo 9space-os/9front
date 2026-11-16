@@ -290,13 +290,13 @@ fmt3(char *f)
 	unsigned long long v;
 	for(i=0; i<ndata; i+=sizeof(unsigned long long)){
 		if(le){
-			v = (data[i+3+4]<<24)|(data[i+2+4]<<16)|(data[i+1+4]<<8)|data[i+4];
+			v = (u32int)((data[i+3+4]<<24)|(data[i+2+4]<<16)|(data[i+1+4]<<8)|data[i+4]);	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 			v <<= 32;
-			v |= (data[i+3]<<24)|(data[i+2]<<16)|(data[i+1]<<8)|data[i];
+			v |= (u32int)((data[i+3]<<24)|(data[i+2]<<16)|(data[i+1]<<8)|data[i]);
 		}else{
-			v = (data[i]<<24)|(data[i+1]<<16)|(data[i+2]<<8)|data[i+3];
+			v = (u32int)((data[i]<<24)|(data[i+1]<<16)|(data[i+2]<<8)|data[i+3]);
 			v <<= 32;
-			v |= (data[i+4]<<24)|(data[i+1+4]<<16)|(data[i+2+4]<<8)|data[i+3+4];
+			v |= (u32int)((data[i+4]<<24)|(data[i+1+4]<<16)|(data[i+2+4]<<8)|data[i+3+4]);
 		}
 		if(Bprint(&bout, f, v)<0){
 			fprint(2, "xd: i/o error\n");

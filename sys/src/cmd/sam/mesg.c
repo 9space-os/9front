@@ -639,7 +639,7 @@ invlong(void)
 {
 	vlong v;
 	
-	v = (inp[7]<<24) | (inp[6]<<16) | (inp[5]<<8) | inp[4];
+	v = (u32int)((inp[7]<<24) | (inp[6]<<16) | (inp[5]<<8) | inp[4]);	/* GCC port: 32 unsigned bits, as kencc's uchar; the shifts below took the sign bits out anyway (find-promotions) */
 	v = (v<<16) | (inp[3]<<8) | inp[2];
 	v = (v<<16) | (inp[1]<<8) | inp[0];
 	inp += 8;

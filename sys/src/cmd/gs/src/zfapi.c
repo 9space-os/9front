@@ -171,7 +171,8 @@ private ushort sfnts_reader_rword(sfnts_reader *r)
 }
 
 private ulong sfnts_reader_rlong(sfnts_reader *r)
-{   return (sfnts_reader_rbyte_inline(r) << 24) + (sfnts_reader_rbyte_inline(r) << 16) + 
+{   return ((unsigned)sfnts_reader_rbyte_inline(r) << 24) + 	/* GCC port: through unsigned, as kencc promotes a byte: no sign extension into ulong */
+           (sfnts_reader_rbyte_inline(r) << 16) + 
            (sfnts_reader_rbyte_inline(r) << 8) + sfnts_reader_rbyte_inline(r);
 }
 

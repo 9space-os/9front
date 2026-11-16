@@ -65,7 +65,7 @@ populate(char *name)
 long
 cvtime(unsigned char *tp)
 {
-	unsigned long t = (tp[1]<<24)+(tp[0]<<16)+(tp[3]<<8)+(tp[2]<<0);
+	unsigned long t = (u32int)((tp[1]<<24)+(tp[0]<<16)+(tp[3]<<8)+(tp[2]<<0));	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 	if (!newtap) {
 		t /= 60;
 		t += 3*365*24*3600;
