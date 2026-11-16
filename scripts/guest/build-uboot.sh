@@ -12,7 +12,7 @@
 #   needs: curl, make, gcc, bison, flex, python3 (host side of u-boot's build)
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: nfront/cache/cli)
+. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
 UBOOT=${UBOOT:-2026.07}
 CROSS=${CROSS:-aarch64-linux-musl-}
 D=$CLI_DIR/uboot
