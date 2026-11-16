@@ -15,7 +15,7 @@
 # Needs the build (CC=gcc ARCH=amd64 sys/src/cmd/build/build.exe) and
 # scripts/guest/build-boot.sh. Write it to a stick with dd (HOWTO.txt of PACK=1).
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: nfront/cache/cli)
+. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
 OUT=${1:-$CLI_DIR/hwstick.amd64.img}
 MB=${MB:-3770}
 CONFIGS=${CONFIGS:-$ROOT/tests/hw/configs}

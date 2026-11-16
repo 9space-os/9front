@@ -15,7 +15,7 @@
 #        scripts/guest/boot-cli.sh cmd [cmd ...]  type each argument as one line
 #                                          at the rc prompt, print the
 #                                          console log, quit
-#   env:  CLI_DIR     work dir (default: CLI_DIR of dist/paths.env, nfront/cache/cli)
+#   env:  CLI_DIR     work dir (default: CLI_DIR of dist/paths.env, 9space/cache/cli)
 #         UFS         ufs binary (default: ufs in PATH, else ~/go/bin/ufs)
 #         SERVICE     cpu (default: cpurc, console rc) or terminal
 #         SCREENSHOT  PNG file: screen dump after the commands (QMP)
@@ -65,7 +65,7 @@
 set -e
 
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: nfront/cache/cli)
+. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
 # objtype: the system to boot, amd64 (pc64) or 386 (pc)
 case ${objtype:=amd64} in
 amd64)	KNAME=9pc64 QEMU=qemu-system-x86_64 CPU=${CPU:-qemu64,+rdrand} ;;

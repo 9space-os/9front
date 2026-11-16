@@ -12,7 +12,7 @@
 # usage: scripts/guest/build-boot.sh   (needs the build first: CC=gcc ARCH=amd64 sys/src/cmd/build/build.exe)
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: nfront/cache/cli)
+. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 die(){ echo "build-boot: $*" >&2; exit 1; }
