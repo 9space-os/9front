@@ -1,6 +1,7 @@
 #if defined(V9) || defined(BSD4_2) || defined(plan9)
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/types.h>
