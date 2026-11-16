@@ -487,7 +487,6 @@
             "../port/devwd.c",
             "../port/ecc.c",
             "../port/thwack.c",
-            "../port/ucalloc.c",
             "../port/unthwack.c",
             "vgavesa.c",
             "ether2000.c",
