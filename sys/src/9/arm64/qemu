@@ -20,6 +20,8 @@ dev
 	rtc
 	pci	pci
 	sd
+#	nfront: segment(3), #g (as pc64's)
+	segment
 #	performance counters, pmc(3)
 	pmc	pmcio
 

@@ -82,6 +82,7 @@
 					"rtc",
 					"pci pci",
 					"sd",
+					"segment",
 					"pmc pmcio"
 				],
 				"Link": [
@@ -146,6 +147,7 @@
 			"../port/devroot.c",
 			"devrtc.c",
 			"../port/devsd.c",
+			"../port/devsegment.c",
 			"../port/devshr.c",
 			"../port/devsrv.c",
 			"../port/devswap.c",
