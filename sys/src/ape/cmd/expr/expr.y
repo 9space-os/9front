@@ -54,7 +54,11 @@ expr:	'(' expr ')' = { $$ = $2; }
 	;
 %%
 /*	expression command */
+#define _POSIX_SOURCE
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 /* get rid of yacc debug printf's */
 #define printf
 #define ESIZE	512
@@ -67,9 +71,16 @@ int	Ac;
 int	Argi;
 
 char Mstring[1][128];
-char *malloc();
 extern int nbra;
 int yyparse(void);
+int ematch(char*, char*);
+int errxx(int);
+int yyerror(char*);
+int prt(int, char*);
+/* regexp.h's, included below */
+int advance(char*, char*);
+int getrnge(char*);
+int ecmp(char*, char*, int);
 
 void
 main(int argc, char **argv)

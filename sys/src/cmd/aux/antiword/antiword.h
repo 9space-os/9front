@@ -144,6 +144,7 @@
 #if defined(__dos) || defined(__EMX__)
 #define STRCEQ(x,y)	(stricmp(x,y) == 0)
 #else
+#include <strings.h>	/* strcasecmp */
 #define STRCEQ(x,y)	(strcasecmp(x,y) == 0)
 #endif /* __dos or __EMX__ */
 #define elementsof(a)	(sizeof(a) / sizeof(a[0]))

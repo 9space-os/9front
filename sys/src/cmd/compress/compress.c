@@ -37,6 +37,7 @@
  *		Joe Orost		(decvax!vax135!petsd!joe)
  */
 #define _PLAN9_SOURCE
+#define _POSIX_SOURCE
 
 #include <u.h>
 #include <stdio.h>
@@ -46,6 +47,8 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <utime.h>
 
 #define	min(a,b)	((a>b) ? b : a)
 
@@ -158,6 +161,7 @@ void cl_block(void);
 void cl_hash(long);
 void prratio(FILE*, long, long);
 void version(void);
+int foreground(void);
 
 void
 main(int argc, char **argv)
