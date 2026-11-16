@@ -111,6 +111,7 @@ Called by `build.exe` (Pre/Post steps); rarely run by hand.
 | `find-spinloops.sh` | busy-wait loops gcc made endless, in a kernel binary. `scripts/check/find-spinloops.sh amd64/bin/9pc64` |
 | `find-clobbered.py` | locals a jump back to waserror() can clobber (gcc's `-Wclobbered`; kencc keeps them in memory), in a kernel manifest's sources: changed between waserror() and error() and read after it, they need `volatile`. `scripts/check/find-clobbered.py [sys/src/9/pc64/build.json]` |
 | `find-shortened-members.py` | member paths shorter than in 9front (`&mc->Mouse` → `&mc`) |
+- `check/list-incompatible-pointers.py LOG` — gcc's `-Wincompatible-pointer-types` places in a build log (`LC_ALL=C`), grouped by kind; `check/incompatible-pointers.txt` keeps the known ones (the class stays a warning).
 | `find-added-casts.py`, `find-embedded-casts.py` | casts the port added, casts to embedded member types |
 | `cmp-lp64.sh` | 6c/6a/6l output built as -m32 vs. -m64 host programs. `scripts/check/cmp-lp64.sh 6c file.c` |
 | `i915-upstream.py` | aux/intelgpu and Linux's i915 (`UPSTREAM`): the hunks between two Linux trees that touch our functions, `-c` names still there, `-n` NOTICE's Linux part. `scripts/check/i915-upstream.py ~/Devel/linux-6.6 ~/Devel/linux-6.12` |
