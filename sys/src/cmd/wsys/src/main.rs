@@ -384,6 +384,7 @@ struct Win {
     shown: (usize, usize, usize), // lines laid out, the first shown, how many fit
     sel: (usize, usize), // the selection: byte offsets in text, then line
     rows: Vec<Row>,      // where the runes shown are
+    drawn: Option<TextDrawn>, // what drawtext drew last (None: draw it all)
     hold: bool,          // rio's hold mode: lines typed wait (Esc toggles it)
     want: Option<usize>, // drawtext scrolls so that this offset is shown (look)
     hidden: bool,        // off the screen (button 3's Hide), listed in its menu
@@ -441,6 +442,19 @@ struct Row {
     y: i32,
     runes: Vec<(i32, i32, usize)>,
     end: usize,
+}
+
+/// a row drawtext drew: its runes (rune, x, width, selected), the rest of the
+/// line selected, the tick's x
+type RowSig = (Vec<(char, i32, i32, bool)>, bool, Option<i32>);
+
+/// what drawtext drew in a text window: only rows that differ are drawn again
+/// (each upload to a display over the network costs: drawterm); the key (the
+/// window's rectangle, layer, ink, the font's height, the tab) the same, else all
+struct TextDrawn {
+    key: (Rect, u32, u32, i32, i32),
+    rows: Vec<RowSig>,
+    thumb: Rect, // the scroll bar's white part
 }
 
 /// a menu while its button is held
@@ -1721,7 +1735,7 @@ impl Wsys {
             label: String::new(), wdir: o.cd.clone().unwrap_or_default(), text: String::new(), partial: vec![],
             events: VecDeque::new(), raw: false, line: String::new(), cons: VecDeque::new(), eof: false,
             kbd: VecDeque::new(), kbdopen: 0, mouseopen: 0, mouse: VecDeque::new(), resized: false,
-            cursor: vec![], state: 1, textwin: text, scroll: 0, scrolling: false, sel: (0, 0), rows: vec![], hidden: false,
+            cursor: vec![], state: 1, textwin: text, scroll: 0, scrolling: false, sel: (0, 0), rows: vec![], drawn: None, hidden: false,
             hold: false, want: None, stale: false,
             scrollr: Rect::default(), shown: (1, 0, 1), lastb: None, inside: false, nooverlay: false, ovsent: None, shownb: None, held: None, queued: vec![], ovheld: None,
             layers: vec![], lgpu: false, lheld: vec![], lqueued: vec![], scratch: None,
@@ -2765,6 +2779,10 @@ impl Wsys {
             t.scale = self.theme.scale;
         }
         self.theme = t;
+        // the colours (the same images) and maybe the font: the text windows all again
+        for w in self.wins.values_mut() {
+            w.drawn = None;
+        }
         // another font (the scale's, the theme's)
         self.cursorsize();
         let fname = textfont(&self.fontflag, &self.theme);
@@ -3377,6 +3395,8 @@ impl Wsys {
     /// while a program has its mouse: then the program draws), the selection on
     /// a pale background; where each rune went is kept for the mouse
     fn drawtext(&mut self, n: u32) {
+        // what was drawn before; not drawn now (a program draws there): all, next time
+        let prev = self.wins.get_mut(&n).and_then(|w| w.drawn.take());
         let Some(w) = self.wins.get(&n) else { return };
         if !w.textwin || w.mouseopen > 0 || !w.bufs.is_empty() || self.font.is_none() {
             return;
@@ -3444,10 +3464,35 @@ impl Wsys {
         let end = lines.len() - scroll;
         let begin = end.saturating_sub(nvis);
         let mut rows = vec![];
-        let res = (|| -> std::io::Result<()> {
-            d.draw(l, &r, white, 0, 0)?;
-            // the scroll bar: grey, white where the lines shown are (rio's scrpos)
-            d.draw(l, &scrollr, scrollbg, 0, 0)?;
+        // the tick where typing goes (the selection, empty), if shown: at its rune,
+        // else at the end of the line it ends
+        let mut tick = None;
+        if sel.0 == sel.1 && !raw {
+            let q = sel.0;
+            for (row, (line, lend)) in lines[begin..end].iter().enumerate() {
+                if let Some(&(_, cx, _, _)) = line.iter().find(|r| r.3 == q) {
+                    tick = Some((row, cx));
+                    break;
+                }
+                if *lend == q {
+                    tick = Some((row, line.last().map(|r| r.1 + r.2).unwrap_or(0)));
+                }
+            }
+        }
+        let sigs: Vec<RowSig> = lines[begin..end]
+            .iter()
+            .enumerate()
+            .map(|(row, (line, lend))| {
+                (
+                    line.iter().map(|&(c, cx, cw, off)| (c, cx, cw, off >= sel.0 && off < sel.1)).collect(),
+                    *lend >= sel.0 && *lend < sel.1,
+                    tick.filter(|t| t.0 == row).map(|t| t.1),
+                )
+            })
+            .collect();
+        let key = (r, l, ink, h, tab);
+        let old = prev.filter(|p| p.key == key);
+        let thumb = {
             let (tot, hh) = (lines.len().max(1) as i64, scrollr.dy() as i64);
             let mut t = scrollr;
             t.y0 += (hh * begin as i64 / tot) as i32;
@@ -3456,55 +3501,63 @@ impl Wsys {
                 t.y1 = (t.y0 + 2).min(scrollr.y1);
                 t.y0 = t.y1 - 2;
             }
-            d.draw(l, &Rect::new(t.x0, t.y0, t.x1 - 1, t.y1), white, 0, 0)?;
+            Rect::new(t.x0, t.y0, t.x1 - 1, t.y1)
+        };
+        let res = (|| -> std::io::Result<()> {
+            if old.is_none() {
+                d.draw(l, &r, white, 0, 0)?;
+            }
+            // the scroll bar: grey, white where the lines shown are (rio's scrpos)
+            if old.as_ref().is_none_or(|o| o.thumb != thumb) {
+                d.draw(l, &scrollr, scrollbg, 0, 0)?;
+                d.draw(l, &thumb, white, 0, 0)?;
+            }
             for (row, (line, lend)) in lines[begin..end].iter().enumerate() {
                 let y = inner.y0 + row as i32 * h;
+                rows.push(Row { y, runes: line.iter().map(|r| (inner.x0 + r.1, r.2, r.3)).collect(), end: *lend });
+                if old.as_ref().is_some_and(|o| o.rows.get(row) == Some(&sigs[row])) {
+                    continue;
+                }
+                let rowr = Rect::new(inner.x0, y, inner.x1, y + h).clip(&inner);
+                if old.is_some() {
+                    d.draw(l, &rowr, white, 0, 0)?;
+                }
                 for &(c, cx, cw, off) in line {
                     if off >= sel.0 && off < sel.1 {
-                        d.draw(l, &Rect::new(inner.x0 + cx, y, inner.x0 + cx + cw, y + h).clip(&inner), pale, 0, 0)?;
+                        d.draw(l, &Rect::new(inner.x0 + cx, y, inner.x0 + cx + cw, y + h).clip(&rowr), pale, 0, 0)?;
                     }
                     if c == '\t' {
                         continue;
                     }
                     if let Some(g) = font.glyph(d, c) {
                         let dst = Rect::new(0, 0, g.src.dx(), g.src.dy()).add(inner.x0 + cx + g.dx, y + g.dy + g.src.y0);
-                        d.drawmask(l, &dst.clip(&inner), ink, (0, 0), g.img, (g.src.x0, g.src.y0))?;
+                        d.drawmask(l, &dst.clip(&rowr), ink, (0, 0), g.img, (g.src.x0, g.src.y0))?;
                     }
                 }
                 // a selection across the end of the line: the rest of it pale
                 if *lend >= sel.0 && *lend < sel.1 {
                     let lx = line.last().map(|r| r.1 + r.2).unwrap_or(0);
-                    d.draw(l, &Rect::new(inner.x0 + lx, y, inner.x1, y + h), pale, 0, 0)?;
+                    d.draw(l, &Rect::new(inner.x0 + lx, y, inner.x1, y + h).clip(&rowr), pale, 0, 0)?;
                 }
-                rows.push(Row { y, runes: line.iter().map(|r| (inner.x0 + r.1, r.2, r.3)).collect(), end: *lend });
+                if let Some(tx) = sigs[row].2 {
+                    d.draw(l, &Rect::new(inner.x0 + tx, y, inner.x0 + tx + 1, y + h).clip(&rowr), black, 0, 0)?;
+                }
             }
-            if sel.0 == sel.1 && !raw {
-                // the tick where typing goes (the selection, empty), if shown: at its
-                // rune, else at the end of the line it ends
-                let q = sel.0;
-                let mut at = None;
-                for (row, (line, lend)) in lines[begin..end].iter().enumerate() {
-                    if let Some(&(_, cx, _, _)) = line.iter().find(|r| r.3 == q) {
-                        at = Some((row, cx));
-                        break;
-                    }
-                    if *lend == q {
-                        at = Some((row, line.last().map(|r| r.1 + r.2).unwrap_or(0)));
-                    }
-                }
-                if let Some((row, tx)) = at {
+            // rows shown before, now none
+            if let Some(o) = &old {
+                for row in sigs.len()..o.rows.len() {
                     let y = inner.y0 + row as i32 * h;
-                    let t = Rect::new(inner.x0 + tx, y, inner.x0 + tx + 1, y + h).clip(&inner);
-                    d.draw(l, &t, black, 0, 0)?;
+                    d.draw(l, &Rect::new(inner.x0, y, inner.x1, y + h).clip(&inner), white, 0, 0)?;
                 }
             }
             d.flush()
         })();
-        if let Err(e) = res {
+        if let Err(e) = &res {
             eprintln!("wsys: text: {e}");
         }
         if let Some(w) = self.wins.get_mut(&n) {
             w.rows = rows;
+            w.drawn = res.is_ok().then(|| TextDrawn { key, rows: sigs, thumb });
             w.scrollr = scrollr;
             w.shown = (lines.len(), begin, nvis);
             w.scroll = scroll;
@@ -5224,20 +5277,31 @@ fn main() {
     // longer, until they let go of their windows (rio exits on hangup, but a note
     // like a write on wsys' closed pipe would break it)
     let mut quit: Option<std::time::Instant> = None;
+    // events already waiting are handled before the screen goes out (corepresent): on
+    // a display over the network (drawterm) each upload is many synchronous writes,
+    // one per mouse message while a window is dragged let them pile up; at least
+    // every PRESENTGAP all the same
+    const PRESENTGAP: std::time::Duration = std::time::Duration::from_millis(20);
+    let mut next: Option<Ev> = None;
+    let mut presented = std::time::Instant::now();
     loop {
-        let ev = match quit {
-            None => match rx.recv() {
-                Ok(ev) => ev,
-                Err(_) => break,
-            },
-            Some(t) => {
-                let left = std::time::Duration::from_secs(2).saturating_sub(t.elapsed());
-                if ws.wins.values().all(|w| w.pid.is_none()) || left.is_zero() {
-                    break;
-                }
-                match rx.recv_timeout(left) {
+        let ev = if let Some(ev) = next.take() {
+            ev
+        } else {
+            match quit {
+                None => match rx.recv() {
                     Ok(ev) => ev,
                     Err(_) => break,
+                },
+                Some(t) => {
+                    let left = std::time::Duration::from_secs(2).saturating_sub(t.elapsed());
+                    if ws.wins.values().all(|w| w.pid.is_none()) || left.is_zero() {
+                        break;
+                    }
+                    match rx.recv_timeout(left) {
+                        Ok(ev) => ev,
+                        Err(_) => break,
+                    }
                 }
             }
         };
@@ -5297,11 +5361,18 @@ fn main() {
                 }
             }
         }
+        if presented.elapsed() < PRESENTGAP {
+            if let Ok(ev) = rx.try_recv() {
+                next = Some(ev);
+                continue;
+            }
+        }
         // after whatever changed: the window on the overlay plane may have to leave it;
         // with -g, what the GPU composes
         ws.corepresent();
         ws.ovcheck();
         ws.compsync();
+        presented = std::time::Instant::now();
     }
     let _ = p9::remove(&srvpath);
     if let Some(kd) = ws.kd.as_ref().filter(|_| wsysdebug("compress")) {
