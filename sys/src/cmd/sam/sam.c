@@ -342,6 +342,16 @@ edit(File *f, int cmd)
 	if((io = open(genc, OREAD))<0) {
 		if (curfile && curfile->unread)
 			curfile->unread = FALSE;
+		/*
+		 * the first read of a file that does not exist yet: a new,
+		 * empty file.  Under samterm it comes within the command that
+		 * first needs the file, which an error would cancel (a/text/
+		 * on a new file was lost)
+		 */
+		if(cmd == 'I' && access(genc, AEXIST) < 0){
+			warn_s(Wfile, genc);
+			return;
+		}
 		error_r(Eopen, genc);
 	}
 	p = readio(f, &nulls, empty, TRUE);
