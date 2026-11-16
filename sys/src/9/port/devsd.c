@@ -1160,12 +1160,12 @@ sdfakescsirw(SDreq *r, uvlong *llba, int *nsec, int *rwp)
 		break;
 	case 0x28:	/* read10 */
 	case 0x2a:
-		lba = c[2]<<24 | c[3]<<16 | c[4]<<8 | c[5];
+		lba = (u32int)(c[2]<<24 | c[3]<<16 | c[4]<<8 | c[5]);	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 		count = c[7]<<8 | c[8];
 		break;
 	case 0xa8:	/* read12 */
 	case 0xaa:
-		lba = c[2]<<24 | c[3]<<16 | c[4]<<8 | c[5];
+		lba = (u32int)(c[2]<<24 | c[3]<<16 | c[4]<<8 | c[5]);	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 		count = c[6]<<24 | c[7]<<16 | c[8]<<8 | c[9];
 		break;
 	case 0x88:	/* read16 */
@@ -1174,7 +1174,7 @@ sdfakescsirw(SDreq *r, uvlong *llba, int *nsec, int *rwp)
 		if(c[2] || c[3])
 			return sdsetsense(r, SDcheck, 3, 0xc, 2);
 		lba = (uvlong)c[4]<<40 | (uvlong)c[5]<<32;
-		lba |= c[6]<<24 | c[7]<<16 | c[8]<<8 | c[9];
+		lba |= (u32int)(c[6]<<24 | c[7]<<16 | c[8]<<8 | c[9]);	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 		count = c[10]<<24 | c[11]<<16 | c[12]<<8 | c[13];
 		break;
 	default:

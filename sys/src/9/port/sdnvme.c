@@ -297,7 +297,7 @@ nvmerio(SDreq *r)
 static u64int
 get64(uchar *p)
 {
-	return p[0] | p[1]<<8 | p[2]<<16 | p[3]<<24
+	return (u32int)(p[0] | p[1]<<8 | p[2]<<16 | p[3]<<24)	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 		| (u64int)p[4]<<32
 		| (u64int)p[5]<<40
 		| (u64int)p[6]<<48

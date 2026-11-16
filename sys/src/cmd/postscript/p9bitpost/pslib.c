@@ -617,7 +617,7 @@ cmap2ascii85(uchar *b, uchar *c) {
 /*	fprintf(stderr, "addr=0x%x %x %x %x %x\n", b, b[0], b[1], b[2], b[3]); */
 	b--;	/* one-index b */
 	c--;	/* one-index c */
-	i1 = (b[1]<<24)+(b[2]<<16)+(b[3]<<8)+b[4];
+	i1 = (unsigned)((b[1]<<24)+(b[2]<<16)+(b[3]<<8)+b[4]);	/* GCC port: through unsigned, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 	if(i1 == 0){
 		c[1] = 'z';
 		c[2] = '\0';

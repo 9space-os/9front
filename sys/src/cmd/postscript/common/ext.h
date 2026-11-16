@@ -57,7 +57,6 @@ int	error(int, char*, ...);
 int	saverequest(char*);
 int	writerequest(int, FILE*);
 int	dumprequest(char*, char*, FILE*);
-int	getopt(int, char**, char*);	/* common's (getopt.c) */
 #endif
 /* 
  * extern char	*malloc();

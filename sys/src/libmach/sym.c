@@ -1216,7 +1216,7 @@ pc2sp(uvlong pc)
 			return currsp;
 		u = *c;
 		if (u == 0) {
-			currsp += (c[1]<<24)|(c[2]<<16)|(c[3]<<8)|c[4];
+			currsp += (u32int)((c[1]<<24)|(c[2]<<16)|(c[3]<<8)|c[4]);	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 			c += 4;
 		}
 		else if (u < 65)

@@ -11,8 +11,9 @@ typedef	unsigned long ulong;
 
 #define	GBIT8(p)	((p)[0])
 #define	GBIT16(p)	((p)[0]|((p)[1]<<8))
-#define	GBIT32(p)	((p)[0]|((p)[1]<<8)|((p)[2]<<16)|((p)[3]<<24))
-#define	GBIT64(p)	((vlong)((p)[0]|((p)[1]<<8)|((p)[2]<<16)|((p)[3]<<24)) |\
+/* GCC port: through unsigned: uchar promotes to int in gcc (unsigned in kencc), so a byte from 0x80 on <<24 was negative and sign-extended into 64 bits */
+#define	GBIT32(p)	((unsigned)((p)[0]|((p)[1]<<8)|((p)[2]<<16)|((p)[3]<<24)))
+#define	GBIT64(p)	((vlong)(unsigned)((p)[0]|((p)[1]<<8)|((p)[2]<<16)|((p)[3]<<24)) |\
 				((vlong)((p)[4]|((p)[5]<<8)|((p)[6]<<16)|((p)[7]<<24)) << 32))
 
 #define	PBIT8(p,v)	(p)[0]=(v)

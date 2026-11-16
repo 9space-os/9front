@@ -55,7 +55,7 @@ extern void	bhappy(void*);
 extern int	rresvport(int*);
 extern int	rcmd(char**, int, char*, char*, char*, int*);
 
-extern int	getopt(int, char**, char*);
+extern int	getopt(int, char *const *, const char *);	/* GCC port: POSIX's, as unistd.h has it */
 extern int	opterr;
 extern int	optind;
 extern int	optopt;

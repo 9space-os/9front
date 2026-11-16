@@ -458,7 +458,7 @@ applydelta(Object *dst, Object *base, char *d, int nd)
 			if(d != ed && (c & 0x01)) o |= *(uchar*)d++ <<  0;
 			if(d != ed && (c & 0x02)) o |= *(uchar*)d++ <<  8;
 			if(d != ed && (c & 0x04)) o |= *(uchar*)d++ << 16;
-			if(d != ed && (c & 0x08)) o |= *(uchar*)d++ << 24;
+			if(d != ed && (c & 0x08)) o |= (u32int)*(uchar*)d++ << 24;	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
 
 			/* Length to copy */
 			if(d != ed && (c & 0x10)) l |= *(uchar*)d++ <<  0;
