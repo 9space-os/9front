@@ -54,6 +54,22 @@ ctlline(char *key, char *buf, int n)
 	return nil;
 }
 
+/*
+ * a new segment's mode: front's devsegment gives each 0660, its owner
+ * sets another by a wstat of the segment's ctl (segment(3))
+ */
+static int
+segmode(char *name, ulong perm)
+{
+	char path[64];
+	Dir d;
+
+	snprint(path, sizeof path, "#g/%s/ctl", name);
+	nulldir(&d);
+	d.mode = perm & 0777;
+	return dirwstat(path, &d);
+}
+
 uvlong
 fixedseg(char *name, uvlong va, ulong size, int perm)
 {
@@ -61,8 +77,13 @@ fixedseg(char *name, uvlong va, ulong size, int perm)
 	int fd, n;
 
 	snprint(path, sizeof path, "#g/%s", name);
-	if((fd = create(path, OREAD, DMDIR|perm)) >= 0)
+	if((fd = create(path, OREAD, DMDIR|perm)) >= 0){
 		close(fd);
+		if(segmode(name, perm) < 0){
+			remove(path);
+			return 0;
+		}
+	}
 	snprint(path, sizeof path, "#g/%s/ctl", name);
 	if((fd = open(path, ORDWR)) < 0)
 		return 0;
@@ -93,8 +114,13 @@ stickyseg(char *name, uvlong va, ulong size, int perm)
 	int fd, j;
 
 	snprint(path, sizeof path, "#g/%s", name);
-	if((fd = create(path, OREAD, DMDIR|perm)) >= 0)
+	if((fd = create(path, OREAD, DMDIR|perm)) >= 0){
 		close(fd);
+		if(segmode(name, perm) < 0){
+			remove(path);
+			return nil;
+		}
+	}
 	snprint(path, sizeof path, "#g/%s/ctl", name);
 	if((fd = open(path, OWRITE)) < 0)
 		return nil;

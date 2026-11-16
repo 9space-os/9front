@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 extern void	*_SEGATTACH(int, char*, void*, unsigned long);
 extern int	_SEGDETACH(void*);
@@ -186,6 +187,9 @@ mesa9_sharedmem(unsigned long long size, int *fdp)
 	if((fd = _CREATE(path, OREAD9|ORCLOSE9, DMDIR9|0600)) < 0)
 		return (void*)-1;
 	snprintf(path, sizeof path, "#g/%s/ctl", name);
+	/* devsegment gives a new segment 0660, as front's; 0600 by a wstat of ctl (segment(3)) */
+	if(chmod(path, 0600) < 0)
+		goto fail;
 	if((cfd = _OPEN(path, OWRITE9)) < 0)
 		goto fail;
 	m = snprintf(buf, sizeof buf, "va 0 %llu", size);

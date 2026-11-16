@@ -316,6 +316,22 @@ probe(void)
 	forcewake(0);
 }
 
+/*
+ * a new segment's mode: front's devsegment gives each 0660, its owner
+ * sets another by a wstat of the segment's ctl (segment(3))
+ */
+static int
+segmode(char *name, ulong perm)
+{
+	char path[64];
+	Dir d;
+
+	snprint(path, sizeof path, "#g/%s/ctl", name);
+	nulldir(&d);
+	d.mode = perm & 0777;
+	return dirwstat(path, &d);
+}
+
 static uvlong
 fixedseg(char *name, uintptr va, ulong size)
 {
@@ -323,8 +339,13 @@ fixedseg(char *name, uintptr va, ulong size)
 	int fd, n;
 
 	snprint(path, sizeof path, "#g/%s", name);
-	if((fd = create(path, OREAD, DMDIR|0700)) >= 0)
+	if((fd = create(path, OREAD, DMDIR|0700)) >= 0){
 		close(fd);
+		if(segmode(name, 0700) < 0){
+			remove(path);
+			return 0;
+		}
+	}
 	snprint(path, sizeof path, "#g/%s/ctl", name);
 	if((fd = open(path, ORDWR)) < 0)
 		return 0;

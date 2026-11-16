@@ -28,6 +28,7 @@
 #include <pthread.h>
 #include <poll.h>
 #include <sys/select.h>
+#include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <wchar.h>
@@ -221,13 +222,31 @@ testseals(void)
 	}
 }
 
+/* the mode of segment dir (its ctl's, as devsegment shows it), -1 without */
+static int
+segmode(const char *dir)
+{
+	char ctl[96];
+	struct stat st;
+
+	snprintf(ctl, sizeof ctl, "%s/ctl", dir);
+	return stat(ctl, &st) < 0 ? -1 : (int)(st.st_mode & 0777);
+}
+
 static void
 testshm(void)
 {
+	char seg[64];
 	char *p, *q, path[64];
 	int fd, fd2, st;
 	pid_t pid;
 
+	snprintf(seg, sizeof seg, "#g/apegnutest.%d", getpid());
+	if(mkdir(seg, 0700) == 0){
+		check("a new segment is 0660, as front's (create's 0700 not taken)", segmode(seg) == 0660, "%#o", segmode(seg));
+		rmdir(seg);
+	} else
+		check("a segment by mkdir", 0, "%s", strerror(errno));
 	fd = memfd_create("apegnutest", MFD_CLOEXEC);
 	check("memfd_create", fd >= 0, "%s", strerror(errno));
 	if(fd < 0)
@@ -281,6 +300,7 @@ testshm(void)
 	check("munmap of the last mapping", munmap(p, 1<<20) == 0, NULL);
 	snprintf(path, sizeof path, "#g/ape.memfd.%d.0", getpid());
 	check("the memfd's segment in #g while open", access(path, 0) == 0, "%s", path);
+	check("its mode 0600 (devsegment gives 0660, as front; a wstat of ctl after the create)", segmode(path) == 0600, "%#o", segmode(path));
 	close(fd);
 	check("gone with the last descriptor", access(path, 0) < 0, "%s", path);
 
@@ -288,6 +308,7 @@ testshm(void)
 	check("shm_open O_CREAT", fd >= 0, "%s", strerror(errno));
 	if(fd >= 0){
 		check("shm_open O_EXCL of an existing one: EEXIST", shm_open("/apegnutest", O_RDWR|O_CREAT|O_EXCL, 0600) < 0 && errno == EEXIST, NULL);
+		check("shm_open's segment has its mode, 0600", segmode("#g/ape.shm.apegnutest") == 0600, "%#o", segmode("#g/ape.shm.apegnutest"));
 		ftruncate(fd, 4096);
 		p = mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
 		if(p != MAP_FAILED)

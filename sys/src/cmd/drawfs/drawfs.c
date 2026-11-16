@@ -66,6 +66,7 @@ mkscreen(ulong size)
 	char path[64], buf[64];
 	void *v;
 	int fd;
+	Dir d;
 
 	segname = smprint("drawfs.%d", getpid());
 	snprint(path, sizeof path, "#g/%s", segname);
@@ -73,6 +74,11 @@ mkscreen(ulong size)
 		sysfatal("create %s: %r", path);
 	close(fd);
 	snprint(path, sizeof path, "#g/%s/ctl", segname);
+	/* devsegment gives a new segment 0660, as front's; 0700 by a wstat of ctl (segment(3)) */
+	nulldir(&d);
+	d.mode = 0700;
+	if(dirwstat(path, &d) < 0)
+		sysfatal("wstat %s: %r", path);
 	if((fd = open(path, OWRITE)) < 0)
 		sysfatal("open %s: %r", path);
 	if(fprint(fd, "va 0 %lud", size) < 0)

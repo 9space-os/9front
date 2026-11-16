@@ -214,6 +214,7 @@ posix_madvise(void *p, size_t len, int advice)
  * detaches it; a MAP_PRIVATE mapping is a copy of its bytes (its data file).
  */
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include "../plan9/lib.h"
 #include "../plan9/sys9.h"
@@ -598,6 +599,19 @@ __shmfault(unsigned long long addr)
 }
 
 /* a segment's directory as a descriptor APE knows */
+/*
+ * a new segment's mode: devsegment gives each 0660, as front's; another
+ * by a wstat of its ctl (segment(3)); path is the segment's directory
+ */
+static int
+segmode(const char *path, mode_t mode)
+{
+	char ctl[300];
+
+	snprintf(ctl, sizeof ctl, "%s/ctl", path);
+	return chmod(ctl, mode & 0777);
+}
+
 static int
 shmfd(int fd, int cloexec)
 {
@@ -633,7 +647,12 @@ memfd_create(const char *name, unsigned int flags)
 	n = memfdn++;
 	unlock(&lk);
 	snprintf(path, sizeof path, "#g/ape.memfd.%d.%d", getpid(), n);
-	fd = shmfd(_CREATE(path, OREAD9|ORCLOSE9, DMDIR9|0600), flags & MFD_CLOEXEC);
+	fd = _CREATE(path, OREAD9|ORCLOSE9, DMDIR9|0600);
+	if(fd >= 0 && segmode(path, 0600) < 0){
+		_CLOSE(fd);	/* ORCLOSE: the segment goes with it */
+		fd = -1;
+	}
+	fd = shmfd(fd, flags & MFD_CLOEXEC);
 	if(fd >= 0 && (sl = malloc(sizeof *sl)) != NULL){
 		snprintf(sl->name, sizeof sl->name, "ape.memfd.%d.%d", getpid(), n);
 		sl->seals = flags & (MFD_ALLOW_SEALING|MFD_NOEXEC_SEAL) ? 0 : F_SEAL_SEAL;
@@ -667,8 +686,14 @@ shm_open(const char *name, int flags, mode_t mode)
 		errno = EEXIST;
 		return -1;
 	}
-	if(fd < 0 && (flags & O_CREAT))
+	if(fd < 0 && (flags & O_CREAT)){
 		fd = _CREATE(path, OREAD9, DMDIR9|(mode&0777));
+		if(fd >= 0 && segmode(path, mode) < 0){
+			_CLOSE(fd);
+			_REMOVE(path);
+			fd = -1;
+		}
+	}
 	return shmfd(fd, 1);
 }
 

@@ -67,6 +67,8 @@ impl Core {
         let size = ((r.dx() as usize * depth + 31) / 32 + 1) * 4 * r.dy() as usize + 4096;
         // the segment: a directory of #g, its addresses where the kernel puts them
         Fd::create(&format!("#g/{name}"), 0, 0x8000_0000 | 0o700)?;
+        // devsegment gives a new segment 0660, as front's; 0700 by a wstat of ctl (segment(3))
+        std::fs::set_permissions(format!("#g/{name}/ctl"), std::os::plan9::fs::PermissionsExt::from_mode(0o700))?;
         Fd::open(&format!("#g/{name}/ctl"), OWRITE)?.write1(format!("va 0 {size}").as_bytes())?;
         let seg = Seg::attach(&name, Seg::find(&name)?)?;
         let mut e = [0u8; 128];

@@ -611,6 +611,22 @@ p9_meminfo(unsigned long long *total, unsigned long long *free)
 }
 
 /*
+ * a new segment's mode: front's devsegment gives each 0660, its owner
+ * sets another by a wstat of the segment's ctl (segment(3))
+ */
+static int
+segmode(char *name, ulong perm)
+{
+	char path[64];
+	Dir d;
+
+	snprint(path, sizeof path, "#g/%s/ctl", name);
+	nulldir(&d);
+	d.mode = perm & 0777;
+	return dirwstat(path, &d);
+}
+
+/*
  * pinned memory: a #g segment, sticky (its pages stay where they are),
  * attached here at a virtual address of ours, 2 MB apart
  */
@@ -633,8 +649,13 @@ p9_segalloc(const char *name, unsigned long size, unsigned long long *pa, int fl
 	segnext += (size + (2<<20) - 1) & ~((2UL<<20) - 1);
 	unlock(&seglk);
 	snprint(path, sizeof path, "#g/%s", name);
-	if((fd = create(path, OREAD, DMDIR|0700)) >= 0)
+	if((fd = create(path, OREAD, DMDIR|0700)) >= 0){
 		close(fd);
+		if(segmode(name, 0700) < 0){
+			remove(path);
+			return nil;
+		}
+	}
 	snprint(path, sizeof path, "#g/%s/ctl", name);
 	if((fd = open(path, OWRITE)) < 0)
 		return nil;
@@ -690,8 +711,11 @@ p9_segalias(const char *name, int n, const char **src, unsigned long long *off, 
 	segnext += (size + (2<<20) - 1) & ~((2ULL<<20) - 1);
 	unlock(&seglk);
 	snprint(path, sizeof path, "#g/%s", name);
-	if((fd = create(path, OREAD, DMDIR|0700)) >= 0)
+	if((fd = create(path, OREAD, DMDIR|0700)) >= 0){
 		close(fd);
+		if(segmode(name, 0700) < 0)
+			goto err0;
+	}
 	snprint(path, sizeof path, "#g/%s/ctl", name);
 	if((fd = open(path, OWRITE)) < 0)
 		goto err0;
@@ -750,8 +774,11 @@ p9_segphys(const char *name, const char *phys, unsigned long long off, unsigned 
 	segnext += (size + (2<<20) - 1) & ~((2ULL<<20) - 1);
 	unlock(&seglk);
 	snprint(path, sizeof path, "#g/%s", name);
-	if((fd = create(path, OREAD, DMDIR|0700)) >= 0)
+	if((fd = create(path, OREAD, DMDIR|0700)) >= 0){
 		close(fd);
+		if(segmode(name, 0700) < 0)
+			goto err;
+	}
 	snprint(path, sizeof path, "#g/%s/ctl", name);
 	if((fd = open(path, OWRITE)) < 0)
 		goto err;
@@ -780,7 +807,7 @@ p9_pagerq(const char *name)
 	if((fd = create(path, OREAD, DMDIR|0700)) < 0)
 		return -1;
 	close(fd);
-	if(p9_segctl(name, "pager") < 0){
+	if(segmode(name, 0700) < 0 || p9_segctl(name, "pager") < 0){
 		remove(path);
 		return -1;
 	}
@@ -804,8 +831,13 @@ p9_segpager(const char *name, const char *phys, unsigned long long size, const c
 	segnext += (size + (2<<20) - 1) & ~((2ULL<<20) - 1);
 	unlock(&seglk);
 	snprint(path, sizeof path, "#g/%s", name);
-	if((fd = create(path, OREAD, DMDIR|0700)) >= 0)
+	if((fd = create(path, OREAD, DMDIR|0700)) >= 0){
 		close(fd);
+		if(segmode(name, 0700) < 0){
+			remove(path);
+			return nil;
+		}
+	}
 	if(p9_segctl(name, "va %#llux %#llux phys %s pager %s", va, size, phys, queue) < 0){
 		fprint(2, "%s: pager segment %s of %s: %r\n", argv0 ? argv0 : "kpi", name, phys);
 		remove(path);
