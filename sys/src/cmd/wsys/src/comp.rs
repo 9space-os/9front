@@ -529,8 +529,8 @@ impl Vkc {
                     if len < size {
                         return Err(format!("{name}: {len} bytes, the screen {size}"));
                     }
-                    // inherited when wsys attached it before starting this thread
-                    Seg::attach_or_have(name, (va, len)).map_err(|e| format!("{name}: {e}"))?
+                    // drawcore's, attached for wsys' whole run: in this thread too
+                    Seg::view((va, len))
                 }
                 None => fbattach(&self.gdir, size)?,
             });

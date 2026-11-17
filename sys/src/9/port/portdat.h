@@ -17,6 +17,7 @@ typedef struct Lock	Lock;
 typedef struct Log	Log;
 typedef struct Logflag	Logflag;
 typedef struct Mntcache Mntcache;
+typedef struct Mgrp	Mgrp;
 typedef struct Mount	Mount;
 typedef struct Mntrah	Mntrah;
 typedef struct Mntrpc	Mntrpc;
@@ -567,6 +568,18 @@ struct Rgrp
 	Proc	*rendhash[RENDHASH];	/* Rendezvous tag hash */
 };
 
+/*
+ * 9front-ng: the processes of one memory image, made by rfork(RFMEM): a
+ * segment one of them attaches or detaches is attached or detached in
+ * all of them (segment.c, segattach(2)); each keeps its own stack.
+ */
+struct Mgrp
+{
+	Ref;
+	QLock;			/* held while the members' tables change; before any p->seglock */
+	Proc	*procs;		/* the members, by Proc.mnext */
+};
+
 struct Evalue
 {
 	char	*value;
@@ -757,6 +770,9 @@ struct Proc
 	Rendez	waitr;		/* Place to hang out in wait */
 
 	QLock	seglock;	/* locked whenever seg[] changes */
+	Lock	segtab;		/* 9front-ng: seg, sorted, nseg, nsorted as they change (ilock; segment.c) */
+	Mgrp	*mgrp;		/* 9front-ng: the memory image shared with others (rfork RFMEM), or nil */
+	Proc	*mnext;		/* in mgrp->procs */
 	Segment	**seg;		/* 9front-ng: seg0, or the table it grew into (segment.c) */
 	int	nseg;		/* slots in use: seg[0] to seg[nseg-1] */
 	int	segcap;		/* slots of seg and sorted */

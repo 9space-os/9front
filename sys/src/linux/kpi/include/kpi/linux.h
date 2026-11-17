@@ -27,6 +27,5 @@ int	kpi_wlan_status(char *buf, int n);
  * kpi/plan9: a fault on a segment the KPI attached in another proc
  * attaches it in this one: 1 if so (the note handler goes on), else 0
  */
-int	p9_fault(char *note);
 
 #endif

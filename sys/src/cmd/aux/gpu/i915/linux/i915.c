@@ -45,7 +45,8 @@ i915_start(void)
 
 /*
  * -T: what the laptop hit first: a page of a pool chunk attached after
- * the workers forked, read by a worker (p9_fault attaches it there)
+ * the workers forked, read by a worker (the kernel attaches it in every
+ * proc of the memory image: segattach(2))
  */
 struct segtest {
 	struct work_struct	work;

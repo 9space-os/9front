@@ -254,11 +254,12 @@ procgen(Chan *c, char *name, Dirtab *tab, int, int s, Dir *dp)
 		len = p->nwait;	/* incorrect size, but >0 means there's something to read */
 		break;
 	case Qprofile:
-		q = p->seg[TSEG];
+		q = segslot(p, TSEG);	/* 9front-ng: with a reference (segment.c) */
 		if(q != nil && q->profile != nil) {
 			len = (q->top-q->base)>>LRESPROF;
 			len *= sizeof(*q->profile);
 		}
+		putseg(q);
 		break;
 	case Qwatchpt:
 		len = lenwatchpt(p);
@@ -950,16 +951,26 @@ procread(Chan *c, void *va, long n, vlong off)
 		return readnum(offset, va, n, p->parentpid, NUMSIZE);
 
 	case Qprofile:
-		s = p->seg[TSEG];
-		if(s == nil || s->profile == nil)
+		s = segslot(p, TSEG);	/* 9front-ng: with a reference: the copy may fault (segment.c) */
+		if(s == nil || s->profile == nil){
+			putseg(s);
 			error("profile is off");
+		}
+		if(waserror()){
+			putseg(s);
+			nexterror();
+		}
 		i = (s->top-s->base)>>LRESPROF;
 		i *= sizeof(s->profile[0]);
 		if(i < 0 || offset >= i)
-			return 0;
-		if(offset+n > i)
-			n = i - offset;
-		memmove(va, ((char*)s->profile)+offset, n);
+			n = 0;
+		else {
+			if(offset+n > i)
+				n = i - offset;
+			memmove(va, ((char*)s->profile)+offset, n);
+		}
+		poperror();
+		putseg(s);
 		return n;
 
 	case Qproc:
@@ -1521,9 +1532,15 @@ procctlreq(Proc *p, char *va, int n)
 			flushmmu();
 		break;
 	case CMprofile:
-		s = p->seg[TSEG];
-		if(s == nil || (s->type&SG_TYPE) != SG_TEXT)	/* won't expand */
+		s = segslot(p, TSEG);	/* 9front-ng: with a reference (segment.c) */
+		if(s == nil || (s->type&SG_TYPE) != SG_TEXT){	/* won't expand */
+			putseg(s);
 			error(Egreg);
+		}
+		if(waserror()){
+			putseg(s);
+			nexterror();
+		}
 		eqlock(&s->QLock);
 		npc = (s->top-s->base)>>LRESPROF;
 		if(s->profile == nil){
@@ -1536,6 +1553,8 @@ procctlreq(Proc *p, char *va, int n)
 			memset(s->profile, 0, npc*sizeof(*s->profile));
 		}
 		qunlock(&s->QLock);
+		poperror();
+		putseg(s);
 		break;
 	case CMstart:
 		if(p->state != Stopped)

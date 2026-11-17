@@ -719,8 +719,10 @@ newproc(void)
 	unlock(&procalloc.Lock);
 
 	p->psstate = nil;
-	p->nseg = NSEG;		/* 9front-ng: the table may be one a process before grew */
+	p->nseg = NSEG;		/* 9front-ng: p->seg0 (pexit: segtabreset) */
 	p->nsorted = 0;
+	p->mgrp = nil;
+	p->mnext = nil;
 	p->state = New;
 	p->PFPU.fpstate = FPinit;
 #ifdef KFPSTATE
@@ -1358,9 +1360,11 @@ pexit(char *exitstr, int freemem)
 		addbroken();
 	}
 
+	mgrpleave();	/* 9front-ng: before the table goes (segment.c) */
 	qlock(&up->seglock);
 	for(i = up->nseg-1; i >= 0; i--)
 		putseg(detachseg(up, i));
+	segtabreset(up);
 	qunlock(&up->seglock);
 
 	qlock(&up->debug);
@@ -1472,8 +1476,10 @@ dumpaproc(Proc *p)
 		return;
 
 	bss = 0;
+	ilock(&p->segtab);	/* 9front-ng: others change p's table too (segment.c) */
 	if(p->seg[BSEG] != nil)
 		bss = p->seg[BSEG]->top;
+	iunlock(&p->segtab);
 
 	s = p->psstate;
 	if(s == nil)
@@ -1558,7 +1564,12 @@ procflushmmu(int firstproc, int lastproc, int (*match)(Proc*, void*), void *a)
 static int
 matchseg(Proc *p, void *a)
 {
-	return segno(p, (Segment*)a) >= 0;
+	int r;
+
+	ilock(&p->segtab);	/* 9front-ng: others change p's table too (segment.c) */
+	r = segno(p, (Segment*)a) >= 0;
+	iunlock(&p->segtab);
+	return r;
 }
 void
 procflushseg(Segment *s)
@@ -1569,17 +1580,20 @@ procflushseg(Segment *s)
 static int
 matchpseg(Proc *p, void *a)
 {
-	int i, n;
+	int i, r;
 	Segment *s;
 
-	n = p->nseg;	/* 9front-ng: before p->seg, which segreserve swaps first */
-	coherence();
-	for(i = 0; i < n; i++) {
+	r = 0;
+	ilock(&p->segtab);	/* 9front-ng: others change p's table too (segment.c) */
+	for(i = 0; i < p->nseg; i++) {
 		s = p->seg[i];
-		if(s != nil && s->pseg == a)
-			return 1;
+		if(s != nil && s->pseg == a){
+			r = 1;
+			break;
+		}
 	}
-	return 0;
+	iunlock(&p->segtab);
+	return r;
 }
 void
 procflushpseg(Physseg *ps)
@@ -1596,6 +1610,18 @@ void
 procflushothers(void)
 {
 	procflushmmu(0, conf.nproc, matchother, up);
+}
+
+/* 9front-ng: the other members of a memory image: a segment left them (syssegdetach) */
+static int
+matchmgrp(Proc *p, void *a)
+{
+	return p != up && p->mgrp == a;
+}
+void
+mgrpflush(Mgrp *g)
+{
+	procflushmmu(0, conf.nproc, matchmgrp, g);
 }
 
 static void
@@ -1747,17 +1773,17 @@ exhausted(char *resource)
 ulong
 procpagecount(Proc *p)
 {
-	int i, n;
+	int i;
 	Segment *s;
 	ulong pages;
 
 	pages = 0;
-	n = p->nseg;	/* 9front-ng: before p->seg, which segreserve swaps first */
-	coherence();
-	for(i = 0; i < n; i++) {
+	ilock(&p->segtab);	/* 9front-ng: others change p's table too (segment.c) */
+	for(i = 0; i < p->nseg; i++) {
 		if((s = p->seg[i]) != nil)
 			pages += s->used;
 	}
+	iunlock(&p->segtab);
 	return pages;
 }
 

@@ -20,9 +20,9 @@ static struct {
 } bars[6];
 
 /*
- * the segments the KPI attaches (pool chunks, BARs): a proc that forked
- * before one was attached does not have it (rfork shares only the
- * segments there are then); its fault on it attaches it (p9_fault)
+ * the segments the KPI attaches (pool chunks, BARs), by name: found again
+ * (p9_memmap), removed at exit (segexit); every proc of the driver has
+ * them, those forked before as well (the kernel's memory image: segattach(2))
  */
 typedef struct Seg Seg;
 struct Seg {
@@ -102,34 +102,6 @@ segadd(char *name, void *va, uvlong size)
 	}else
 		fprint(2, "p9dev: more than %d segments\n", nelem(segs));
 	unlock(&segslk);
-}
-
-/* a note "sys: trap: fault read addr=0x..." on a KPI segment: attach it here, go on */
-int
-p9_fault(char *note)
-{
-	char *a, name[64];
-	uvlong addr, va, size;
-	int i;
-
-	if(strncmp(note, "sys: trap: fault", 16) != 0 || (a = strstr(note, "addr=")) == nil)
-		return 0;
-	addr = strtoull(a + 5, nil, 0);
-	va = size = 0;
-	lock(&segslk);
-	for(i = 0; i < nsegs; i++)
-		if(addr >= segs[i].va && addr < segs[i].va + segs[i].size){
-			strcpy(name, segs[i].name);
-			va = segs[i].va;
-			size = segs[i].size;
-			break;
-		}
-	unlock(&segslk);
-	if(i == nsegs)
-		return 0;
-	if(segattach(0, name, (void*)(uintptr)va, size) == (void*)-1)
-		return 0;	/* attached already: a fault of its own */
-	return 1;
 }
 
 static char*

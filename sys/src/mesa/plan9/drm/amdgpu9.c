@@ -51,9 +51,9 @@
 /* libmesaplan9 (lib/dmabuf.c): a token of gpu(4)'s export as a dma-buf descriptor */
 extern int	plan9_dmabuf_fd(const char *token);
 extern int	plan9_dmabuf_token(int fd, char *buf, int n);
-/* libmesaplan9 (lib/segfault.c): attached here and in the program's other procs when they touch it */
-extern void	*mesa9_segattach(const char*, void*, unsigned long long);
-extern int	mesa9_segdetach(void*);
+/* the program's procs (rfork RFMEM) share what one attaches or detaches (segattach(2)) */
+extern void	*_SEGATTACH(int, char*, void*, unsigned long);
+extern int	_SEGDETACH(void*);
 extern int	_ERRSTR(char*, unsigned int);
 
 enum {
@@ -498,9 +498,9 @@ dbgpeek(Amd *a, uint32_t ctx, uint64_t va, uint32_t n)
 			   sscanf(reply, "map %*u %63s %lli %lli", seg, &sva, &ssize) != 3)
 				goto out;
 			if(k == 0)
-				ibp = mesa9_segattach(seg, NULL, ssize);
+				ibp = _SEGATTACH(0, seg, NULL, ssize);
 			else
-				dstp = mesa9_segattach(seg, NULL, ssize);
+				dstp = _SEGATTACH(0, seg, NULL, ssize);
 		}
 		if(ibp == (void*)-1 || dstp == (void*)-1)
 			goto out;
@@ -2189,7 +2189,7 @@ amdgpu_bo_cpu_map(amdgpu_bo_handle b, void **cpu)
 		return -e;
 	}
 	if(sscanf(reply, "map %*u %63s %lli %lli", seg, &va, &size) == 3){
-		p = mesa9_segattach(seg, NULL, size);
+		p = _SEGATTACH(0, seg, NULL, size);
 		if(p == (void*)-1){
 			char why[128];
 
@@ -2229,7 +2229,7 @@ amdgpu_bo_cpu_unmap(amdgpu_bo_handle b)
 	b->cpu = NULL;
 	pthread_mutex_unlock(&b->dev->lk);
 	if(b->seg)
-		mesa9_segdetach(p);
+		_SEGDETACH(p);
 	b->seg = 0;
 	if((a = amd9of(b->dev->fd)) != NULL)
 		ctlreq(a, NULL, 0, "unmap %u", b->handle);

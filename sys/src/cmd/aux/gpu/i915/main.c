@@ -120,8 +120,6 @@ trapnote(void *v, char *note)
 		return 0;
 	if(strncmp(note, "sys:", 4) != 0)
 		return 0;
-	if(p9_fault(note))
-		return 1;
 	u = v;
 	fprint(2, "i915 %d: %s pc %#llux sp %#llux; chain", getpid(), note, u->pc, u->sp);
 	bp = (uvlong*)u->bp;

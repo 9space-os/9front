@@ -153,6 +153,7 @@ pub fn remove(name: &str) -> io::Result<()> {
 pub struct Seg {
     pub va: usize,
     pub len: usize,
+    own: bool, // detached when it goes (not a view of another's: Seg::view)
 }
 
 /// The end of a process's user addresses (USTKTOP of 9front's mem.h); 0 where
@@ -221,23 +222,20 @@ impl Seg {
         if p as isize == -1 {
             return Err(err());
         }
-        let s = Seg { va: p as usize, len };
+        let s = Seg { va: p as usize, len, own: true };
         if s.va != va {
             return Err(io::Error::other(format!("segment {name} at {:#x}, its ctl says {va:#x}", s.va)));
         }
         Ok(s)
     }
 
-    /// segment name as this proc has it already: inherited from the proc that
-    /// attached it before starting this one (std's threads are procs; rfork
-    /// RFMEM shares the segments there are), else attached
+    /// a segment another part of wsys has attached, (va, len) as find gave
+    /// them: every thread has it (std's threads are procs of one memory image,
+    /// which shares what one of them attaches: segattach(2)); its owner
+    /// detaches it, not this
     #[cfg(feature = "gpu")] // (comp.rs)
-    pub fn attach_or_have(name: &str, (va, len): (usize, usize)) -> io::Result<Seg> {
-        match Seg::attach(name, (va, len)) {
-            Ok(s) => Ok(s),
-            Err(e) if e.to_string().contains("overlap") => Ok(Seg { va, len }),
-            Err(e) => Err(e),
-        }
+    pub fn view((va, len): (usize, usize)) -> Seg {
+        Seg { va, len, own: false }
     }
 
     /// len bytes of a segment of the kernel's of class (segment(3)'s physical
@@ -250,7 +248,7 @@ impl Seg {
         if p as isize == -1 {
             return Err(err());
         }
-        Ok(Seg { va: p as usize, len })
+        Ok(Seg { va: p as usize, len, own: true })
     }
 
     pub fn bytes(&self) -> &[u8] {
@@ -260,7 +258,10 @@ impl Seg {
 
 impl Drop for Seg {
     fn drop(&mut self) {
-        // the client's: wsys only lets go of it (gone when nobody has it attached)
-        unsafe { p9segdetach(self.va as *mut c_void) };
+        // the client's: wsys only lets go of it (gone when nobody has it attached);
+        // detached in all of wsys' threads (segattach(2))
+        if self.own {
+            unsafe { p9segdetach(self.va as *mut c_void) };
+        }
     }
 }

@@ -338,7 +338,8 @@ fault(uintptr addr, uintptr pc, int read)
 		ulong lastflush = up->tlbflush;
 		spllo();
 
-		s = seg(up, addr, 1);		/* leaves s locked if seg != nil */
+		/* 9front-ng: kept: another of the memory image may detach it (segment.c: segref) */
+		s = segref(addr, 1);		/* leaves s locked if seg != nil */
 		if(s == nil) {
 			up->psstate = sps;
 			up->insyscall = ins;
@@ -359,6 +360,7 @@ fault(uintptr addr, uintptr pc, int read)
 		|| (read? ((attr & SG_NOEXEC) != 0 || s->flushme == 0) && (addr & -BY2PG) == (pc & -BY2PG):
 			 (attr & SG_RONLY) != 0)) {
 			qunlock(&s->QLock);
+			segunref(s);
 			up->psstate = sps;
 			up->insyscall = ins;
 			if(up->kp && up->nerrlab)	/* for segio */
@@ -380,6 +382,7 @@ fault(uintptr addr, uintptr pc, int read)
 				 */
 				qunlock(&s->QLock);
 				if((*_pagerwait)(s->pseg->pager, addr-s->base) < 0){
+					segunref(s);
 					up->psstate = sps;
 					up->insyscall = ins;
 					if(up->kp && up->nerrlab)	/* for segio */
@@ -399,6 +402,7 @@ fault(uintptr addr, uintptr pc, int read)
 
 		if((i = fixfault(s, addr, read)) == -2){
 			/* 9front-ng: no page there and none to make (sticky) */
+			segunref(s);
 			up->psstate = sps;
 			up->insyscall = ins;
 			if(up->kp && up->nerrlab)	/* for segio */
@@ -407,12 +411,15 @@ fault(uintptr addr, uintptr pc, int read)
 		}
 		if(i == 0){
 		done:
-			if(up->tlbflush == lastflush)
+			if(up->tlbflush == lastflush){
+				segunref(s);
 				break;
+			}
 			/* TLB might be stale, go around */
 		}
 
 	again:
+		segunref(s);
 		splhi();
 		switch(up->procctl){
 		case Proc_exitme:
@@ -446,8 +453,10 @@ okaddr(uintptr addr, ulong len, int write)
 	Segment *s;
 
 	if((s32int)len >= 0 && len <= -addr) {	/* GCC port: kencc's long is 32 bits like len, gcc's is 64 */
+		/* 9front-ng: under segtab, as another of the memory image may detach one (segment.c) */
+		ilock(&up->segtab);
 		for(;;) {
-			s = seg(up, addr, 0);
+			s = findseg(up, addr);
 			if(s == nil || (write && (s->type&SG_RONLY)))
 				break;
 
@@ -456,8 +465,10 @@ okaddr(uintptr addr, ulong len, int write)
 				addr = s->top;
 				continue;
 			}
+			iunlock(&up->segtab);
 			return 1;
 		}
+		iunlock(&up->segtab);
 	}
 	return 0;
 }
@@ -531,6 +542,7 @@ checkpages(void)
 	if(up == nil)
 		return;
 
+	qlock(&up->seglock);	/* 9front-ng: others change up's table too (segment.c) */
 	for(i = 0; i < up->nseg; i++) {
 		if((s = up->seg[i]) == nil)
 			continue;
@@ -543,5 +555,5 @@ checkpages(void)
 			}
 		}
 		qunlock(&s->QLock);
-	}
+	}	qunlock(&up->seglock);
 }

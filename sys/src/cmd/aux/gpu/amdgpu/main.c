@@ -107,8 +107,6 @@ trapnote(void *v, char *note)
 	}
 	if(strncmp(note, "sys:", 4) != 0)
 		return 0;
-	if(p9_fault(note))
-		return 1;
 	u = v;
 	fprint(2, "amdgpu %d: %s pc %#llux sp %#llux; chain", getpid(), note, u->pc, u->sp);
 	chain((uvlong*)u->bp, u->sp, u->sp + 1024*1024);

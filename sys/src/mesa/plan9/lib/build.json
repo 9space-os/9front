@@ -10,8 +10,7 @@
 		"SourceFiles": [
 			"dl.c",
 			"dmabuf.c",
-			"plan9compat.c",
-			"segfault.c"
+			"plan9compat.c"
 		]
 	},
 	{

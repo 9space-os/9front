@@ -135,16 +135,6 @@ _notehandler(void *u, char *msg)	/* GCC port: types as in the prototype, kencc i
 
 	if(_finishing)
 		_finish(0, 0);
-	/* GCC port: a fault in a segment another proc of the program mapped (gnu/mman.c) */
-	if(strncmp(msg, "sys: trap: fault", 16) == 0){
-		extern int __shmfault(unsigned long long);
-		char *a;
-
-		if((a = strstr(msg, "addr=")) != 0 && __shmfault(strtoull(a+5, 0, 0))){
-			_NOTED(0); /* NCONT: the instruction again */
-			return 0;
-		}
-	}
 	/* GCC port: a write with MSG_NOSIGNAL (gnu/nosigpipe.c): it only fails */
 	if(strncmp(msg, "sys: write on closed pipe", 25) == 0){
 		extern int __nosigpipe(void);

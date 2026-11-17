@@ -77,8 +77,6 @@ trapnote(void *v, char *note)
 
 	if(strncmp(note, "sys:", 4) != 0)
 		return 0;
-	if(p9_fault(note))
-		return 1;
 	u = v;
 	fprint(2, "rtw89 %d: %s pc %#llux sp %#llux\n", getpid(), note, (uvlong)u->pc, (uvlong)u->sp);
 	return 0;

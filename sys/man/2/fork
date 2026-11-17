@@ -135,6 +135,10 @@ and
 segments.
 Otherwise, the child inherits a copy of those segments.
 Other segment types, in particular stack segments, will be unaffected.
+In 9space the processes then share their memory whole: what one of them
+attaches or detaches later is attached or detached in all
+.RI ( segattach (2));
+9front's share only the segments there are at the fork.
 May be set only with
 .BR RFPROC .
 .PD

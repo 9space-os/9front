@@ -34,7 +34,8 @@
 			"paktest.c",
 			"segtest.c",
 			"segpager.c",
-			"segshared.c"
+			"segshared.c",
+			"segmgrp.c"
 		]
 	},
 	{

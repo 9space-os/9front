@@ -289,10 +289,8 @@ struct FidState {
     chan: Option<drawcore::Chan>, // a file of wsys' devdraw, open
 }
 
-/// A client's buffer. Only the main loop touches it: Rust's std on Plan 9 runs
-/// threads as procs, and a segment attached after they started is the attaching
-/// proc's alone. Each is a segment of wsys's: with the 64 stack segments std
-/// makes, some 190 fit (NSEG).
+/// A client's buffer, a segment of wsys's (every thread has it: std's threads
+/// are procs of one memory image, segattach(2)). The main loop owns it (Rc).
 struct Buf {
     mem: Mem,
     w: i32,
