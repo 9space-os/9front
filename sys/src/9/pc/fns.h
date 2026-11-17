@@ -52,7 +52,7 @@ ulong	getcr4(void);
 u32int	getdr6(void);
 char*	getconf(char*);
 void	halt(void);
-void	mwait(void*);
+void	mwait(volatile void*);	/* GCC port: volatile, the word MONITOR watches (another processor writes it) */
 int	i8042auxcmd(int);
 void	i8042auxenable(void (*)(int, int));
 void	i8042reset(void);
