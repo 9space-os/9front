@@ -11,6 +11,7 @@
  * wayland-client.o, wayland-util.o and wayland-protocol.o out of the
  * archive.  The names are those Mesa uses (build.sh fails on another).
  */
+#pragma weak wl_display_cancel_read
 #pragma weak wl_display_connect
 #pragma weak wl_display_create_queue_with_name
 #pragma weak wl_display_disconnect
@@ -19,6 +20,9 @@
 #pragma weak wl_display_dispatch_queue_pending
 #pragma weak wl_display_dispatch_queue_timeout
 #pragma weak wl_display_flush
+#pragma weak wl_display_get_fd
+#pragma weak wl_display_prepare_read_queue
+#pragma weak wl_display_read_events
 #pragma weak wl_display_roundtrip_queue
 #pragma weak wl_event_queue_destroy
 #pragma weak wl_list_init

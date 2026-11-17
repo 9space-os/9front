@@ -429,6 +429,9 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		check "rio (VNC): rio's background where the window was" bash -c "grep -q '^150,400 777777' '$TMPD/shotrio.txt' && grep -q '^850,400 777777' '$TMPD/shotrio.txt'"
 		check "rio: q quits vkcube (status empty)" grep -qx 'riovk: vkcube exit *' "$riolog"
 	fi
+	# Mesa 0038: a waiter found a venus ring idle with commands in it and
+	# no notify for 50 ms (a lost wake-up, its cause not known): it says so
+	check "venus: no lost ring notify" bash -c "! cat '$TMPD'/console* '$TMPD'/log* '${riolog:-/dev/null}' 2>/dev/null | grep 'venus: ring .* notified again'"
 else
 	skip "3d tests" "no render node or no virtio-gpu-gl-pci in $QEMU"
 fi

@@ -183,6 +183,82 @@ loader_wayland_dispatch(struct wl_display *wl_display,
                                             &remaining_timeout);
 }
 
+/*
+ * Dispatch queue until done(data) holds (1), end_time passes (0; NULL: no
+ * end) or the display fails (-1).
+ *
+ * Unlike a loop around wl_display_dispatch_queue(), this may run while
+ * another thread dispatches the same queue: done() is checked again after
+ * this thread is registered as a reader (wl_display_prepare_read_queue()),
+ * and from then on no thread can read events without it. The event that
+ * makes done() hold is then either dispatched already (done() sees it) or
+ * still to be read, which this thread's poll() sees. Checked only before,
+ * another thread could read and dispatch it in between, and this one
+ * would wait in poll() for an event that never comes.
+ */
+int
+loader_wayland_dispatch_until(struct wl_display *display,
+                              struct wl_event_queue *queue,
+                              const struct timespec *end_time,
+                              bool (*done)(void *data), void *data)
+{
+   MESA_TRACE_FUNC();
+
+   for (;;) {
+      if (done(data))
+         return 1;
+      if (wl_display_prepare_read_queue(display, queue) != 0) {
+         /* events queued: dispatch them, then check again */
+         if (wl_display_dispatch_queue_pending(display, queue) < 0)
+            return -1;
+         continue;
+      }
+      if (done(data)) {
+         wl_display_cancel_read(display);
+         return 1;
+      }
+
+      int timeout = -1;
+      if (end_time) {
+         struct timespec now, left;
+         clock_gettime(CLOCK_MONOTONIC, &now);
+         timespec_sub_saturate(&left, end_time, &now);
+         /* past it: what is there already, without waiting */
+         int64_t ms = (timespec_to_nsec(&left) + 999999) / 1000000;
+         timeout = ms > INT32_MAX ? INT32_MAX : (int)ms;
+      }
+
+      /* as wl_display_dispatch_queue(): the requests out first, and while
+       * the socket is full, wait for room as well
+       */
+      int ret = wl_display_flush(display);
+      if (ret < 0 && errno != EAGAIN && errno != EPIPE) {
+         wl_display_cancel_read(display);
+         return -1;
+      }
+      struct pollfd pfd = {
+         .fd = wl_display_get_fd(display),
+         .events = POLLIN | (ret < 0 && errno == EAGAIN ? POLLOUT : 0),
+      };
+      ret = poll(&pfd, 1, timeout);
+      if (ret <= 0) {
+         wl_display_cancel_read(display);
+         if (ret == 0)
+            return 0;
+         if (errno == EINTR)
+            continue;
+         return -1;
+      }
+      if (!(pfd.revents & (POLLIN | POLLERR | POLLHUP))) {
+         /* room to write only: flush again */
+         wl_display_cancel_read(display);
+         continue;
+      }
+      if (wl_display_read_events(display) < 0)
+         return -1;
+   }
+}
+
 static char *
 stringify_wayland_id(uint32_t id)
 {

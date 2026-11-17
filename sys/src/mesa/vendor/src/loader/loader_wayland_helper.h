@@ -79,6 +79,12 @@ loader_wayland_dispatch(struct wl_display *display,
                         struct wl_event_queue *queue,
                         struct timespec *end_time);
 
+int
+loader_wayland_dispatch_until(struct wl_display *display,
+                              struct wl_event_queue *queue,
+                              const struct timespec *end_time,
+                              bool (*done)(void *data), void *data);
+
 void
 loader_wayland_wrap_buffer(struct loader_wayland_buffer *lwb,
                            struct wl_buffer *wl_buffer);

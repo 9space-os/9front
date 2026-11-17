@@ -1,0 +1,206 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Tue, 17 Nov 2026 16:14:14 +0100
+Subject: [PATCH] vulkan/wsi/wayland: wait on the display queue with the
+ condition checked after registering as a reader (two threads dispatch it:
+ venus' async present thread and the application's acquire)
+
+present waited for legacy_fifo_ready in a loop around
+wl_display_dispatch_queue(), acquire for a released image around
+loader_wayland_dispatch(). With venus presenting on a thread of its own
+(no implicit fencing, as on 9front), both run at once on the same queue:
+one checks its condition, the other reads and dispatches the very event
+that sets it, and the first blocks in poll() for an event that has come
+and gone (no other is due: a FIFO frame callback, the last release).
+
+loader_wayland_dispatch_until() checks the condition again after
+wl_display_prepare_read_queue(): from then on no thread reads events
+without this one, so the event is either dispatched already (the check
+sees it) or still to be read (this thread's poll() sees it). This
+replaces the earlier patch's 16 ms slices, which only bounded the wait.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/loader/loader_wayland_helper.c  | 76 +++++++++++++++++++++++++++++
+ src/loader/loader_wayland_helper.h  |  6 +++
+ src/vulkan/wsi/wsi_common_wayland.c | 46 ++++++++++++++---
+ 3 files changed, 121 insertions(+), 7 deletions(-)
+
+diff --git a/src/loader/loader_wayland_helper.c b/src/loader/loader_wayland_helper.c
+index 4c420c5..0b4ea1b 100644
+--- a/src/loader/loader_wayland_helper.c
++++ b/src/loader/loader_wayland_helper.c
+@@ -183,6 +183,82 @@ loader_wayland_dispatch(struct wl_display *wl_display,
+                                             &remaining_timeout);
+ }
+ 
++/*
++ * Dispatch queue until done(data) holds (1), end_time passes (0; NULL: no
++ * end) or the display fails (-1).
++ *
++ * Unlike a loop around wl_display_dispatch_queue(), this may run while
++ * another thread dispatches the same queue: done() is checked again after
++ * this thread is registered as a reader (wl_display_prepare_read_queue()),
++ * and from then on no thread can read events without it. The event that
++ * makes done() hold is then either dispatched already (done() sees it) or
++ * still to be read, which this thread's poll() sees. Checked only before,
++ * another thread could read and dispatch it in between, and this one
++ * would wait in poll() for an event that never comes.
++ */
++int
++loader_wayland_dispatch_until(struct wl_display *display,
++                              struct wl_event_queue *queue,
++                              const struct timespec *end_time,
++                              bool (*done)(void *data), void *data)
++{
++   MESA_TRACE_FUNC();
++
++   for (;;) {
++      if (done(data))
++         return 1;
++      if (wl_display_prepare_read_queue(display, queue) != 0) {
++         /* events queued: dispatch them, then check again */
++         if (wl_display_dispatch_queue_pending(display, queue) < 0)
++            return -1;
++         continue;
++      }
++      if (done(data)) {
++         wl_display_cancel_read(display);
++         return 1;
++      }
++
++      int timeout = -1;
++      if (end_time) {
++         struct timespec now, left;
++         clock_gettime(CLOCK_MONOTONIC, &now);
++         timespec_sub_saturate(&left, end_time, &now);
++         /* past it: what is there already, without waiting */
++         int64_t ms = (timespec_to_nsec(&left) + 999999) / 1000000;
++         timeout = ms > INT32_MAX ? INT32_MAX : (int)ms;
++      }
++
++      /* as wl_display_dispatch_queue(): the requests out first, and while
++       * the socket is full, wait for room as well
++       */
++      int ret = wl_display_flush(display);
++      if (ret < 0 && errno != EAGAIN && errno != EPIPE) {
++         wl_display_cancel_read(display);
++         return -1;
++      }
++      struct pollfd pfd = {
++         .fd = wl_display_get_fd(display),
++         .events = POLLIN | (ret < 0 && errno == EAGAIN ? POLLOUT : 0),
++      };
++      ret = poll(&pfd, 1, timeout);
++      if (ret <= 0) {
++         wl_display_cancel_read(display);
++         if (ret == 0)
++            return 0;
++         if (errno == EINTR)
++            continue;
++         return -1;
++      }
++      if (!(pfd.revents & (POLLIN | POLLERR | POLLHUP))) {
++         /* room to write only: flush again */
++         wl_display_cancel_read(display);
++         continue;
++      }
++      if (wl_display_read_events(display) < 0)
++         return -1;
++   }
++}
++
+ static char *
+ stringify_wayland_id(uint32_t id)
+ {
+diff --git a/src/loader/loader_wayland_helper.h b/src/loader/loader_wayland_helper.h
+index 657582f..9331331 100644
+--- a/src/loader/loader_wayland_helper.h
++++ b/src/loader/loader_wayland_helper.h
+@@ -79,6 +79,12 @@ loader_wayland_dispatch(struct wl_display *display,
+                         struct wl_event_queue *queue,
+                         struct timespec *end_time);
+ 
++int
++loader_wayland_dispatch_until(struct wl_display *display,
++                              struct wl_event_queue *queue,
++                              const struct timespec *end_time,
++                              bool (*done)(void *data), void *data);
++
+ void
+ loader_wayland_wrap_buffer(struct loader_wayland_buffer *lwb,
+                            struct wl_buffer *wl_buffer);
+diff --git a/src/vulkan/wsi/wsi_common_wayland.c b/src/vulkan/wsi/wsi_common_wayland.c
+index caca666..867afb7 100644
+--- a/src/vulkan/wsi/wsi_common_wayland.c
++++ b/src/vulkan/wsi/wsi_common_wayland.c
+@@ -2976,6 +2976,26 @@ wsi_wl_swapchain_acquire_next_image_explicit(struct wsi_swapchain *wsi_chain,
+    return result;
+ }
+ 
++static bool
++wsi_wl_swapchain_has_free_image(void *data)
++{
++   struct wsi_wl_swapchain *chain = data;
++
++   for (uint32_t i = 0; i < chain->base.image_count; i++) {
++      if (!chain->images[i].busy)
++         return true;
++   }
++   return false;
++}
++
++static bool
++wsi_wl_swapchain_fifo_ready(void *data)
++{
++   struct wsi_wl_swapchain *chain = data;
++
++   return chain->legacy_fifo_ready;
++}
++
+ static VkResult
+ wsi_wl_swapchain_acquire_next_image_implicit(struct wsi_swapchain *wsi_chain,
+                                              const VkAcquireNextImageInfoKHR *info,
+@@ -3019,10 +3039,15 @@ wsi_wl_swapchain_acquire_next_image_implicit(struct wsi_swapchain *wsi_chain,
+          }
+       }
+ 
+-      /* Try to dispatch potential events. */
+-      int ret = loader_wayland_dispatch(wsi_wl_surface->display->wl_display,
+-                                        wsi_wl_surface->display->queue,
+-                                        &end_time);
++      /* Dispatch until an image is released: another thread may dispatch
++       * this queue too (a driver presenting on a thread of its own, e.g.
++       * venus without implicit fencing) and with it the release.
++       */
++      int ret = loader_wayland_dispatch_until(wsi_wl_surface->display->wl_display,
++                                              wsi_wl_surface->display->queue,
++                                              &end_time,
++                                              wsi_wl_swapchain_has_free_image,
++                                              chain);
+       if (ret == -1)
+          return VK_ERROR_OUT_OF_DATE_KHR;
+ 
+@@ -3324,9 +3349,16 @@ wsi_wl_swapchain_queue_present(struct wsi_swapchain *wsi_chain,
+ 
+    /* For KHR_swapchain_maintenance1. We might have transitioned from FIFO to MAILBOX.
+     * In this case we need to let the FIFO request complete, before presenting MAILBOX. */
+-   while (!chain->legacy_fifo_ready) {
+-      int ret = wl_display_dispatch_queue(wsi_wl_surface->display->wl_display,
+-                                          wsi_wl_surface->display->queue);
++   if (!chain->legacy_fifo_ready) {
++      /* not wl_display_dispatch_queue() until the flag is set: another
++       * thread may dispatch this queue and with it the frame callback
++       * (loader_wayland_dispatch_until)
++       */
++      int ret = loader_wayland_dispatch_until(wsi_wl_surface->display->wl_display,
++                                              wsi_wl_surface->display->queue,
++                                              NULL,
++                                              wsi_wl_swapchain_fifo_ready,
++                                              chain);
+       if (ret < 0)
+          return VK_ERROR_OUT_OF_DATE_KHR;
+ 
+-- 
+2.56.0
+

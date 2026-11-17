@@ -5,6 +5,8 @@
 
 #include "vn_ring.h"
 
+#include "util/log.h"
+
 #if !DETECT_OS_WINDOWS
 #include <sys/resource.h>
 #endif
@@ -66,6 +68,7 @@ struct vn_ring {
 
    int64_t last_notify;
    int64_t next_notify;
+   bool lost_said; /* a lost notify reported (vn_ring_kick_stalled) */
 };
 
 struct vn_ring_submit {
@@ -206,6 +209,24 @@ vn_ring_kick_stalled(struct vn_ring *ring, int64_t *next)
    if (now < *next)
       return;
    *next = now + VN_RING_IDLE_TIMEOUT_NS;
+
+   /* A notify may still be on its way (a submit sent it moments ago); none
+    * for 50 ms, and the ring idle with commands in it, is one lost: say so,
+    * with what the next search needs (the cause is not known; tests fail
+    * on this line).
+    */
+   if (mtx_trylock(&ring->mutex) == thrd_success) {
+      const int64_t since = now - ring->last_notify;
+      if (since > 50 * 1000 * 1000 && !ring->lost_said) {
+         ring->lost_said = true;
+         mesa_logw("venus: ring %" PRIu64 " idle with commands (status %#x, "
+                   "head %u, tail %u), last notify %" PRId64 " us ago: "
+                   "notified again", ring->id,
+                   (unsigned)vn_ring_load_status(ring),
+                   vn_ring_load_head(ring), tail, since / 1000);
+      }
+      mtx_unlock(&ring->mutex);
+   }
 
    uint32_t notify_ring_data[8];
    struct vn_cs_encoder local_enc = VN_CS_ENCODER_INITIALIZER_LOCAL(

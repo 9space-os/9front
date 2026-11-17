@@ -184,6 +184,12 @@ elif [ "${NOVK:-0}" = 0 ]; then
 	else
 		echo "FAIL vkcube --wsi wayland"; fail=1
 	fi
+	# Mesa 0038: a lost venus ring notify is said (its cause not known)
+	if echo "$vk" | grep 'venus: ring .* notified again'; then
+		echo "FAIL venus: a lost ring notify"; fail=1
+	else
+		echo "ok venus: no lost ring notify"
+	fi
 fi
 [ $fail = 0 ] && { echo "wayland: all passed"; exit 0; }
 echo "wayland: failed"

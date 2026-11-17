@@ -2976,6 +2976,26 @@ wsi_wl_swapchain_acquire_next_image_explicit(struct wsi_swapchain *wsi_chain,
    return result;
 }
 
+static bool
+wsi_wl_swapchain_has_free_image(void *data)
+{
+   struct wsi_wl_swapchain *chain = data;
+
+   for (uint32_t i = 0; i < chain->base.image_count; i++) {
+      if (!chain->images[i].busy)
+         return true;
+   }
+   return false;
+}
+
+static bool
+wsi_wl_swapchain_fifo_ready(void *data)
+{
+   struct wsi_wl_swapchain *chain = data;
+
+   return chain->legacy_fifo_ready;
+}
+
 static VkResult
 wsi_wl_swapchain_acquire_next_image_implicit(struct wsi_swapchain *wsi_chain,
                                              const VkAcquireNextImageInfoKHR *info,
@@ -3019,27 +3039,21 @@ wsi_wl_swapchain_acquire_next_image_implicit(struct wsi_swapchain *wsi_chain,
          }
       }
 
-      /* Try to dispatch potential events: for 16 ms at most, as present's
-       * FIFO wait; another thread may dispatch this queue and with it the
-       * release we wait for (venus' async present).
+      /* Dispatch until an image is released: another thread may dispatch
+       * this queue too (a driver presenting on a thread of its own, e.g.
+       * venus without implicit fencing) and with it the release.
        */
-      struct timespec now, slice;
-      clock_gettime(CLOCK_MONOTONIC, &now);
-      timespec_add_msec(&slice, &now, 16);
-      if (timespec_after(&slice, &end_time))
-         slice = end_time;
-      int ret = loader_wayland_dispatch(wsi_wl_surface->display->wl_display,
-                                        wsi_wl_surface->display->queue,
-                                        &slice);
+      int ret = loader_wayland_dispatch_until(wsi_wl_surface->display->wl_display,
+                                              wsi_wl_surface->display->queue,
+                                              &end_time,
+                                              wsi_wl_swapchain_has_free_image,
+                                              chain);
       if (ret == -1)
          return VK_ERROR_OUT_OF_DATE_KHR;
 
       /* Check for timeout. */
-      if (ret == 0) {
-         clock_gettime(CLOCK_MONOTONIC, &now);
-         if (!timespec_after(&end_time, &now))
-            return (info->timeout ? VK_TIMEOUT : VK_NOT_READY);
-      }
+      if (ret == 0)
+         return (info->timeout ? VK_TIMEOUT : VK_NOT_READY);
    }
 }
 
@@ -3335,17 +3349,16 @@ wsi_wl_swapchain_queue_present(struct wsi_swapchain *wsi_chain,
 
    /* For KHR_swapchain_maintenance1. We might have transitioned from FIFO to MAILBOX.
     * In this case we need to let the FIFO request complete, before presenting MAILBOX. */
-   while (!chain->legacy_fifo_ready) {
-      /* Not blocking for good: another thread may dispatch the queue and
-       * with it the frame callback (venus presents on a thread of its own
-       * without implicit fencing, while the application's acquire waits
-       * for a release on this queue); then no event is left for this one
-       * and the flag is only seen again after a timeout.
+   if (!chain->legacy_fifo_ready) {
+      /* not wl_display_dispatch_queue() until the flag is set: another
+       * thread may dispatch this queue and with it the frame callback
+       * (loader_wayland_dispatch_until)
        */
-      const struct timespec poll_interval = { 0, 16 * 1000 * 1000 };
-      int ret = wl_display_dispatch_queue_timeout(wsi_wl_surface->display->wl_display,
-                                                  wsi_wl_surface->display->queue,
-                                                  &poll_interval);
+      int ret = loader_wayland_dispatch_until(wsi_wl_surface->display->wl_display,
+                                              wsi_wl_surface->display->queue,
+                                              NULL,
+                                              wsi_wl_swapchain_fifo_ready,
+                                              chain);
       if (ret < 0)
          return VK_ERROR_OUT_OF_DATE_KHR;
 
