@@ -6,7 +6,8 @@
  * attach another at that address); a third process forked from the child
  * sees the segments both attached before and after; enough segments that
  * the tables grow; a process forked without RFMEM keeps its own image
- * (what the others attach later is not in it).
+ * (what the others attach later is not in it); one member dying of a
+ * trap ends the others (it stays Broken), a process outside is left alone.
  * Prints "ok ..." / "FAIL ..." lines and a summary.
  */
 #include <u.h>
@@ -95,6 +96,114 @@ third(void)
 		thirdsaw = 0;
 	rendezvous(&thirdsaw, 0);
 	_exits(nil);
+}
+
+/* a proc's status file: its state ("Broken", ...), or nil when it is gone */
+static char*
+procstate(int pid, char *buf, int n)
+{
+	char name[32];
+	int fd, m;
+
+	snprint(name, sizeof name, "/proc/%d/status", pid);
+	if((fd = open(name, OREAD)) < 0)
+		return nil;
+	m = read(fd, buf, n-1);
+	close(fd);
+	if(m < 0)
+		return nil;
+	buf[m] = 0;
+	return buf;
+}
+
+static void
+procctl(int pid, char *msg)
+{
+	char name[32];
+	int fd;
+
+	snprint(name, sizeof name, "/proc/%d/ctl", pid);
+	if((fd = open(name, OWRITE)) >= 0){
+		write(fd, msg, strlen(msg));
+		close(fd);
+	}
+}
+
+/* the alarm ends a wait that would hang (the old kernel), not us */
+static int
+alarmed(void*, char *msg)
+{
+	return strcmp(msg, "alarm") == 0;
+}
+
+/*
+ * a helper outside our memory image makes one: a member that sleeps and
+ * one that faults; the fault ends the helper and the sleeper, the
+ * faulting one stays Broken
+ */
+static void
+trapends(void)
+{
+	int p[2], pids[2], h, i;
+	char buf[256], *st;
+	Waitmsg *w;
+
+	if(pipe(p) < 0){
+		fail("pipe: %r");
+		return;
+	}
+	switch(h = rfork(RFPROC|RFFDG)){
+	case -1:
+		fail("rfork: %r");
+		return;
+	case 0:
+		close(p[0]);
+		switch(pids[0] = rfork(RFPROC|RFMEM)){
+		case 0:
+			for(;;)
+				sleep(1000);
+		}
+		switch(pids[1] = rfork(RFPROC|RFMEM)){
+		case 0:
+			sleep(200);
+			*(volatile int*)0 = 0;	/* the trap */
+			_exits("no trap");
+		}
+		write(p[1], pids, sizeof pids);
+		for(;;)
+			sleep(1000);
+	}
+	close(p[1]);
+	if(readn(p[0], pids, sizeof pids) != sizeof pids){
+		fail("the helper's pids: %r");
+		close(p[0]);
+		return;
+	}
+	close(p[0]);
+	atnotify(alarmed, 1);
+	alarm(20000);
+	while((w = wait()) != nil && w->pid != h)
+		free(w);
+	alarm(0);
+	atnotify(alarmed, 0);
+	if(w != nil && strstr(w->msg, "Killed") != nil)
+		ok("a member's trap ended the others of its image (%s)", w->msg);
+	else
+		fail("the helper after its member's trap: %s", w != nil ? w->msg : "no wait (still running)");
+	free(w);
+	for(i = 0; i < 40 && procstate(pids[0], buf, sizeof buf) != nil; i++)
+		sleep(50);
+	if((st = procstate(pids[0], buf, sizeof buf)) == nil)
+		ok("the sleeping member is gone");
+	else
+		fail("the sleeping member is still there: %.40s", st);
+	if((st = procstate(pids[1], buf, sizeof buf)) != nil && strstr(st, "Broken") != nil)
+		ok("the member with the trap stays Broken for the debugger");
+	else
+		fail("the member with the trap: %.40s", st != nil ? st : "gone");
+	procctl(h, "kill");		/* if it was not ended */
+	procctl(pids[0], "kill");
+	procctl(pids[1], "kill");	/* Broken: gone now */
 }
 
 void
@@ -206,6 +315,7 @@ main(void)
 	if(va != (uintptr)-1)
 		segdetach((void*)va);
 
+	trapends();
 	print("segmgrp: %d failed\n", nfail);
 	exits(nfail ? "failed" : nil);
 }

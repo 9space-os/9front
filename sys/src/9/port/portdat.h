@@ -578,6 +578,7 @@ struct Mgrp
 	Ref;
 	QLock;			/* held while the members' tables change; before any p->seglock */
 	Proc	*procs;		/* the members, by Proc.mnext */
+	int	dying;		/* a member died of a trap: the others are killed (mgrpkill) */
 };
 
 struct Evalue

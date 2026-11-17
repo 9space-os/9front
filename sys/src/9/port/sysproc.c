@@ -222,6 +222,8 @@ sysrfork(uchar *list)
 		p->mgrp = g;
 		p->mnext = g->procs;
 		g->procs = p;
+		if(g->dying)
+			p->procctl = Proc_exitme;	/* 9front-ng: a member died of a trap (proc.c: mgrpkill) */
 	}
 	qunlock(&p->seglock);
 	mgrpunlock(g);

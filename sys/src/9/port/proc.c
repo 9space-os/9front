@@ -1262,6 +1262,38 @@ freenotes(Proc *p)
 	}
 }
 
+/*
+ * 9front-ng: up dies of a trap (pexit without freemem: it stays Broken for
+ * the debugger). The memory it shares with the other members of its
+ * memory image (rfork RFMEM) may be wrong now, and they would go on
+ * without it (a program's threads waiting for one that is gone): they are
+ * killed, as proc(3)'s kill does, as POSIX's fatal signals end a process
+ * with all its threads. Members Broken already stay so; a child rfork is
+ * making exits as soon as it runs (sysrfork: dying).
+ */
+static void
+mgrpkill(void)
+{
+	Mgrp *g;
+	Proc *p;
+
+	if((g = up->mgrp) == nil)
+		return;
+	qlock(&g->QLock);
+	g->dying = 1;
+	for(p = g->procs; p != nil; p = p->mnext){
+		if(p == up || p->state == Broken)
+			continue;
+		qlock(&p->debug);
+		if(p->state <= New)
+			p->procctl = Proc_exitme;	/* not running yet */
+		else
+			killproc(p, Proc_exitme);
+		qunlock(&p->debug);
+	}
+	qunlock(&g->QLock);
+}
+
 _Noreturn void
 pexit(char *exitstr, int freemem)
 {
@@ -1356,6 +1388,7 @@ pexit(char *exitstr, int freemem)
 	}
 
 	if(!freemem){
+		mgrpkill();	/* 9front-ng: the program ends as a whole */
 		edfstop(up);
 		addbroken();
 	}
