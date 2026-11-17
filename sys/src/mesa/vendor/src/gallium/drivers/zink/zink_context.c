@@ -3964,9 +3964,14 @@ zink_update_descriptor_refs(struct zink_context *ctx, bool compute)
    } else {
       for (unsigned i = 0; i < ZINK_GFX_SHADER_COUNT; i++)
          update_resource_refs_for_stage(ctx, i);
-      unsigned vertex_buffers_enabled_mask = ctx->gfx_pipeline_state.vertex_buffers_enabled_mask;
-      unsigned last_vbo = util_last_bit(vertex_buffers_enabled_mask);
-      for (unsigned i = 0; i < last_vbo + 1; i++) {
+      /* every slot that holds a buffer: draws bind them through the binding
+       * map, and vertex_buffers_enabled_mask is not kept with optimal keys
+       * (zink_set_vertex_buffers_optimal), where it is 0: a buffer bound in
+       * a slot past 0 got no usage in the new batch, and when it was
+       * released later the batch that bound it kept no reference to it
+       * (its VkBuffer destroyed while the command buffer was recording)
+       */
+      for (unsigned i = 0; i < ARRAY_SIZE(ctx->vertex_buffers); i++) {
          struct zink_resource *res = zink_resource(ctx->vertex_buffers[i].buffer.resource);
          if (res) {
             zink_batch_resource_usage_set(ctx->bs, res, false, true);
@@ -5630,7 +5635,8 @@ zink_resource_rebind(struct zink_context *ctx, struct zink_resource *res)
 void
 zink_rebind_all_buffers(struct zink_context *ctx)
 {
-   ctx->vertex_buffers_dirty = ctx->gfx_pipeline_state.vertex_buffers_enabled_mask > 0;
+   /* not vertex_buffers_enabled_mask: 0 with optimal keys */
+   ctx->vertex_buffers_dirty = ctx->element_state && ctx->element_state->hw_state.num_bindings > 0;
    ctx->dirty_so_targets = ctx->num_so_targets > 0;
    if (ctx->num_so_targets)
       zink_screen(ctx->base.screen)->buffer_barrier(ctx, zink_resource(ctx->dummy_xfb_buffer),
