@@ -523,6 +523,24 @@ vsys0:
 	cmp	w17, #0x15	// SVC trap?
 	b.ne	_itsatrap	// nope.
 
+	// GCC port: all of the caller's registers in the Ureg, as for a trap:
+	// a note that comes in the system call returns through noteret,
+	// which loads them all (gcc's code keeps x19-x28 across the call,
+	// AAPCS); before, x1-x25 were what the Ureg's stack held
+	stp	x1, x2, [sp, #24]
+	stp	x3, x4, [sp, #40]
+	stp	x5, x6, [sp, #56]
+	stp	x7, x8, [sp, #72]
+	stp	x9, x10, [sp, #88]
+	stp	x11, x12, [sp, #104]
+	stp	x13, x14, [sp, #120]
+	stp	x15, x16, [sp, #136]
+
+	stp	x18, x19, [sp, #160]
+	stp	x20, x21, [sp, #176]
+	stp	x22, x23, [sp, #192]
+	stp	x24, x25, [sp, #208]
+
 	stp	x26, x27, [sp, #224]
 	stp	x28, x29, [sp, #240]
 

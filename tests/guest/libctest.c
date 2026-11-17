@@ -255,6 +255,52 @@ testnotifynil(void)
 	free(w);
 }
 
+/*
+ * nfront: notify(2)'s handler is the process's own: one that shares the
+ * memory (RFMEM: libthread's, rio's) and calls notify(nil) does not take
+ * it away (the gcc port's trampoline kept one handler for them all: the
+ * other died at pc 0); and it is entered as a System V function: the
+ * stack 16-byte aligned in its frame
+ */
+static int sharedok;
+
+static void
+sharedhandler(void*, char *msg)
+{
+	uintptr fp;
+
+	fp = (uintptr)__builtin_frame_address(0);
+	if(strcmp(msg, "shared") == 0)
+		sharedok = (fp & 15) == 0 ? 1 : 2;
+	noted(NCONT);
+}
+
+static void
+testnotifyshared(void)
+{
+	Waitmsg *w;
+
+	switch(fork()){
+	case 0:
+		notify(sharedhandler);
+		switch(rfork(RFPROC|RFMEM)){
+		case 0:
+			notify(nil);
+			_exits(nil);
+		case -1:
+			exits("rfork");
+		}
+		free(wait());
+		postnote(PNPROC, getpid(), "shared");
+		sleep(50);
+		exits(sharedok == 1 ? nil : sharedok == 2 ? "misaligned" : "no handler");
+	}
+	w = wait();
+	check("notify: the handler the process's own (RFMEM, notify(nil) in the other), stack aligned",
+		w != nil && w->msg[0] == 0, "%s", w ? w->msg : "no wait");
+	free(w);
+}
+
 static void
 testliterals(void)
 {
@@ -506,6 +552,7 @@ main(void)
 	testjmp();
 	testnote();
 	testnotifynil();
+	testnotifyshared();
 	testliterals();
 	testatomic();
 	testbigbss();
