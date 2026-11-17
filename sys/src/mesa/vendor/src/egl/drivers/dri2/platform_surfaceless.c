@@ -384,6 +384,13 @@ dri2_initialize_surfaceless(_EGLDisplay *disp)
    bool driver_loaded = false;
    struct dri2_egl_display *dri2_dpy = dri2_egl_display(disp);
 
+#ifdef HAVE_PLAN9_PLATFORM
+   /* 9front: no DRM driver for a device node (libdrm's interface over
+    * gpu(4) names none Mesa has); zink on the Vulkan devices it finds,
+    * as the plan9 and wayland platforms do */
+   disp->Options.Zink = true;
+   driver_loaded = surfaceless_probe_device_sw(disp);
+#else
    /* When ForceSoftware is false, we try the HW driver.  When ForceSoftware
     * is true, we try kms_swrast and swrast in order.
     */
@@ -393,6 +400,7 @@ dri2_initialize_surfaceless(_EGLDisplay *disp)
       _eglLog(_EGL_DEBUG, "Falling back to surfaceless swrast without DRM.");
       driver_loaded = surfaceless_probe_device_sw(disp);
    }
+#endif
 
    if (!driver_loaded) {
       err = "DRI2: failed to load driver";

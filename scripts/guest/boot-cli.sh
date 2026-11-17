@@ -58,7 +58,12 @@
 #                     secstore key and the p9sk1 default
 #         CMDWAIT     seconds at most per line: until rc prompts after its
 #                     output (60; input typed into a rio window gets no prompt
-#                     on the serial line, there it is the pause)
+#                     on the serial line, there it is the pause). With
+#                     SERVICE=cpu a line rc does not prompt after by then is a
+#                     failure: the lines are all typed, the script ends with
+#                     1 and names them (a hung command looked like one that
+#                     printed nothing); so is a guest that ends before every
+#                     line is typed, and a WAITFOR that never comes
 #         HOLD        1: after the commands keep the guest running (until
 #                     this script is killed); scripts/guest/guest-cmd.sh types
 #                     further lines into it
@@ -360,12 +365,18 @@ if [ "$SERVICE" = cpu ] && ! prompted; then
 fi
 ready=0	# rc prompted after the last line (replied)
 prompt=
+failed=()	# what went wrong with the lines: the script ends with 1
+n=0
 for c in "${cmds[@]}"; do
+	n=$((n+1))
 	end=$((SECONDS + ${PROMPTWAIT:-300}))
 	until [ $ready = 1 ] || prompted || [ $SECONDS -ge $end ] || ! running; do
 		sleep 1
 	done
-	running || break
+	if ! running; then
+		failed+=("the guest ended before line $n of ${#cmds[@]} was typed: $c")
+		break
+	fi
 	# rc's prompt as it stands at the end of the log (it may change)
 	if [ $ready = 0 ] && prompted; then
 		prompt=$(tr -d '\r' < "$CLI_DIR/console.log")
@@ -385,13 +396,21 @@ for c in "${cmds[@]}"; do
 	until replied $start "$prompt" || [ $SECONDS -ge $end ] || ! running; do
 		sleep 0.5
 	done
-	replied $start "$prompt" && ready=1
+	if replied $start "$prompt"; then
+		ready=1
+	elif [ "$SERVICE" = cpu ] && running && ! { [ $n = ${#cmds[@]} ] && [ -n "$WAITFOR" ]; }; then
+		# no prompt after it (the last line before a WAITFOR may run on:
+		# the WAITFOR says); a line that ends the guest (fshalt) is no failure
+		failed+=("no rc prompt ${CMDWAIT:-60} s after line $n: $c")
+	fi
 done
-if [ -n "$WAITFOR" ]; then
+if [ -n "$WAITFOR" ] && [ -z "$noprompt" ]; then
 	end=$((SECONDS + ${WAITMAX:-3600}))
 	until tr -d '\r' < "$CLI_DIR/console.log" | grep -qE "$WAITFOR" || [ $SECONDS -ge $end ] || ! running; do
 		sleep 2
 	done
+	tr -d '\r' < "$CLI_DIR/console.log" | grep -qE "$WAITFOR" ||
+		failed+=("no $WAITFOR on the console after ${WAITMAX:-3600} s")
 fi
 running || echo "boot-cli: the guest powered off" >> "$CLI_DIR/console.log"
 sleep 1
@@ -450,4 +469,7 @@ fi
 cleanup
 pids=()
 tr -d '\r' < "$CLI_DIR/console.log"
-[ -z "$noprompt" ] || exit 1
+for f in "${failed[@]}"; do
+	echo "boot-cli: $f" >&2
+done
+[ -z "$noprompt" ] && [ ${#failed[@]} = 0 ] || exit 1

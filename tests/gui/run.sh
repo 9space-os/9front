@@ -3,18 +3,37 @@
 # vgasize/monitor/mouseport as plan9.ini would set them): screenrc runs
 # aux/realemu and aux/vga -m vesa, the profile starts rio with riostart
 # (desktop=rio: wsys is the default where it is installed; tests/ui has it).
-# The commands are typed into rio's window; they write their output to
-# the kernel console ('#c/cons', the serial line) so it can be checked --
-# after a pause, as the console window echoes the typed line meanwhile.
-# Typed input reaches rio's window slowly (kbdfs), so the line is short.
+# The command is typed into rio's window; it writes its output to the
+# kernel console ('#c/cons', the serial line) so it can be checked, once
+# the programs the profile starts are there (/tests/guiready waits for
+# them, not a fixed pause). Typed input reaches rio's window slowly
+# (kbdfs), so the line is short.
 . "$(dirname "$0")/../lib.sh"
 [ -f "$ROOT/amd64/bin/9pc64" ] || { skip "gui" "no kernel, run $BUILDHOW"; done_tests; exit; }
 
+mkdir -p "$TMPD/root/tests"
+cat > "$TMPD/root/tests/guiready" <<'EOF2'
+#!/bin/rc
+# until rio, stats, plumber and webfs run (60 s at most), then the mode
+# and the processes on the console
+# (rc has no break: the rounds after it is there do nothing)
+ready=0
+for(i in `{seq 60}){
+	if(~ $ready 0){
+		if(~ `{ps | awk '$NF ~ /^(rio|stats|plumber|webfs)$/ {print $NF}' | sort -u | wc -l} 4)
+			ready=1
+		if not
+			sleep 1
+	}
+}
+{grep size /dev/vgactl; ps} > '#c/cons'
+EOF2
+chmod 755 "$TMPD/root/tests/guiready"
 boot(){
 	SERVICE=terminal KARGS="vgasize=1024x768x16 monitor=vesa mouseport=ps2 desktop=rio" \
-	SCREENSHOT="$TMPD/screen.png" CMDWAIT=${CMDWAIT:-30} \
+	SCREENSHOT="$TMPD/screen.png" CMDWAIT=${CMDWAIT:-30} UFS_EXTRA="$TMPD/root" \
 		"$ROOT/scripts/guest/boot-cli.sh" \
-		"sleep 3;{grep size /dev/vgactl;ps}>'#c/cons'" \
+		/tests/guiready \
 		> "$TMPD/console" 2>&1
 	tr -d '\r' < "$TMPD/console" > "$TMPD/log"
 }

@@ -5,8 +5,9 @@
  * EGL (its native platform, plan9), without a window: a 64 x 64 pbuffer
  * cleared red, a green triangle drawn over its middle, read back with
  * glReadPixels and checked.  The renderer's name says which Vulkan
- * device zink took.
- *	gltest
+ * device zink took.  -s: on EGL's surfaceless platform (a render node,
+ * no window system) instead.
+ *	gltest [-s]
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,7 +58,7 @@ pixel(int x, int y)
 }
 
 int
-main(void)
+main(int argc, char **argv)
 {
 	static const EGLint cattr[] = {
 		EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
@@ -76,7 +77,17 @@ main(void)
 	GLuint p;
 	unsigned v;
 
-	d = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+	if(argc > 1 && strcmp(argv[1], "-s") == 0){
+		PFNEGLGETPLATFORMDISPLAYEXTPROC getplatform;
+
+		getplatform = (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
+		if(getplatform == NULL){
+			printf("FAIL no eglGetPlatformDisplayEXT\n");
+			return 1;
+		}
+		d = getplatform(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, NULL);
+	}else
+		d = eglGetDisplay(EGL_DEFAULT_DISPLAY);
 	if(d == EGL_NO_DISPLAY || !eglInitialize(d, &maj, &min)){
 		printf("FAIL eglInitialize: %#x\n", eglGetError());
 		return 1;

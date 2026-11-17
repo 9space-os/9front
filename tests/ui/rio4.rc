@@ -78,8 +78,10 @@ echo ok rio runs in a window of wsys
 key 'echo nested >/tmp/nested'
 key '
 '
+# up to 30 s: the keys go through wsys, the inner rio and its window to
+# rc (5 s were too few for a busy host)
 n=0
-while(! test -f /tmp/nested && test $n -lt 50){ sleep 0.1; n=`{echo $n+1 | hoc} }
+while(! test -f /tmp/nested && test $n -lt 300){ sleep 0.1; n=`{echo $n+1 | hoc} }
 ~ `{cat /tmp/nested} nested || fail the shell in the inner rio did not run what was typed
 echo ok typed into a shell in rio in wsys: /tmp/nested `{cat /tmp/nested}
 
