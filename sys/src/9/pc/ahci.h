@@ -309,8 +309,8 @@ enum {
 
 typedef struct {
 	uint	encsz;
-	ulong	*enctx;
-	ulong	*encrx;
+	volatile ulong	*enctx;	/* GCC port: volatile, device registers */
+	volatile ulong	*encrx;	/* GCC port: volatile, device registers */
 } Aenc;
 
 enum {
@@ -329,6 +329,6 @@ typedef struct {
 } Aportm;
 
 typedef struct {
-	Aport	*p;
+	volatile Aport	*p;	/* GCC port: volatile, device registers */
 	Aportm	*m;
 } Aportc;

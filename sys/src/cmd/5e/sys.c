@@ -621,7 +621,7 @@ static void
 syssemacquire(void)
 {
 	u32int addr, block;
-	long *addrt;
+	int *addrt;	/* GCC port: int, the guest's 32-bit semaphore (was long) */
 
 	addr = arg(0);
 	block = arg(1);
@@ -635,7 +635,7 @@ static void
 syssemrelease(void)
 {
 	u32int addr, count;
-	long *addrt;
+	int *addrt;	/* GCC port: int, the guest's 32-bit semaphore (was long) */
 	Segment *seg;
 
 	addr = arg(0);

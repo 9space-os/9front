@@ -247,7 +247,7 @@ struct Ctlr {
 
 	int temp;
 	u32int ie;
-	u32int *nic;
+	volatile u32int *nic;	/* GCC port: volatile, device registers */
 
 	/* assigned node ids in hardware node table or -1 if unassigned */
 	int bcastnodeid;
@@ -1777,7 +1777,7 @@ wpipci(void)
 	pdev = nil;
 	while(pdev = pcimatch(pdev, 0x8086, 0)){
 		Ctlr *ctlr;
-		void *mem;
+		volatile void *mem;	/* GCC port: volatile, device registers */
 		switch(pdev->did){
 		default:
 			continue;

@@ -227,7 +227,7 @@ struct Cardbus {
 	Lock;
 	Variant		*variant;		/* Which CardBus chipset */
 	Pcidev		*pci;			/* The bridge itself */
-	ulong		*regs;			/* Cardbus registers */
+	volatile ulong		*regs;			/* Cardbus registers */	/* GCC port: volatile, device registers */
 	int		ltype;			/* Legacy type */
 	int		lindex;			/* Legacy port index address */
 	int		ldata;			/* Legacy port data address */
@@ -557,7 +557,7 @@ devpccardlink(void)
 
 		if(pci->mem[0].size == 0 || (pci->mem[0].bar & 0xF) != 0)
 			continue;
-		cb->regs = (ulong *)vmap(pci->mem[0].bar & ~0xFULL, pci->mem[0].size);
+		cb->regs = (volatile ulong*)vmap(pci->mem[0].bar & ~0xFULL, pci->mem[0].size);	/* GCC port: volatile, device registers */
 		if(cb->regs == nil)
 			continue;
 

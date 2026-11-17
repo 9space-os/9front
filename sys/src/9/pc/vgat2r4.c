@@ -61,7 +61,7 @@ static void
 t2r4enable(VGAscr* scr)
 {
 	Pcidev *p;
-	void *mmio;
+	volatile void *mmio;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio)
 		return;
@@ -84,7 +84,7 @@ t2r4enable(VGAscr* scr)
 static uchar
 t2r4xi(VGAscr* scr, int index)
 {
-	ulong *mmio;
+	volatile ulong *mmio;	/* GCC port: volatile, device registers */
 
 	mmio = scr->mmio;
 	mmio[IndexLo] = index & 0xFF;
@@ -96,7 +96,7 @@ t2r4xi(VGAscr* scr, int index)
 static void
 t2r4xo(VGAscr* scr, int index, uchar data)
 {
-	ulong *mmio;
+	volatile ulong *mmio;	/* GCC port: volatile, device registers */
 
 	mmio = scr->mmio;
 	mmio[IndexLo] = index & 0xFF;
@@ -116,9 +116,10 @@ t2r4curdisable(VGAscr* scr)
 static void
 t2r4curload(VGAscr* scr, Cursor* curs)
 {
-	uchar *data;
+	volatile uchar *data;	/* GCC port: volatile, device registers */
 	int size, x, y, zoom;
-	ulong clr, *mmio, pixels, set;
+	ulong clr, pixels, set;
+	volatile ulong *mmio;	/* GCC port: volatile, device registers */
 
 	mmio = scr->mmio;
 	if(mmio == 0)
@@ -159,7 +160,7 @@ t2r4curload(VGAscr* scr, Cursor* curs)
 		zoom = 32;
 	else
 		zoom = 16;
-	data = (uchar*)&mmio[Data];
+	data = (volatile uchar*)&mmio[Data];	/* GCC port: volatile, device registers */
 	for(y = 0; y < zoom; y++){
 		clr = (curs->clr[2*y]<<8)|curs->clr[y*2 + 1];
 		set = (curs->set[2*y]<<8)|curs->set[y*2 + 1];
@@ -351,7 +352,7 @@ t2r4hwscroll(VGAscr *scr, Rectangle r, Rectangle sr)
 {
 	int ctl;
 	Point dp, sp;
-	ulong *d;
+	volatile ulong *d;	/* GCC port: volatile, device registers */
 	int depth;
 
 	if(r.min.y == sr.min.y){	/* a purely horizontal scroll */
@@ -420,7 +421,7 @@ t2r4hwscroll(VGAscr *scr, Rectangle r, Rectangle sr)
 static int
 t2r4hwfill(VGAscr *scr, Rectangle r, ulong sval)
 {
-	ulong *d;
+	volatile ulong *d;	/* GCC port: volatile, device registers */
 
 	d = scr->mmio + RBaseD;
 
@@ -460,7 +461,7 @@ static void
 t2r4drawinit(VGAscr *scr)
 {
 	int fmt;
-	ulong *d;
+	volatile ulong *d;	/* GCC port: volatile, device registers */
 
 	switch(scr->gscreen->chan){
 	case RGB16:

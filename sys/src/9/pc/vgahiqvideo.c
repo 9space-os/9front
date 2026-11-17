@@ -98,7 +98,7 @@ hiqvideocurdisable(VGAscr*)
 static void
 hiqvideocurload(VGAscr* scr, Cursor* curs)
 {
-	uchar *p;
+	volatile uchar *p;	/* GCC port: volatile, device registers */
 	int x, y;
 
 	/*
@@ -108,7 +108,7 @@ hiqvideocurload(VGAscr* scr, Cursor* curs)
 
 	if(scr->mmio == 0)
 		return;
-	p = (uchar*)scr->mmio;
+	p = (volatile uchar*)scr->mmio;	/* GCC port: volatile, device registers */
 
 	for(y = 0; y < 16; y += 2){
 		*p++ = ~(curs->clr[2*y]|curs->set[2*y]);

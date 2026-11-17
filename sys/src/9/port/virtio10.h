@@ -37,7 +37,7 @@ struct Vio
 	int type;
 	union {
 		int port;
-		uchar *mem;
+		volatile uchar *mem;	/* GCC port: volatile, device registers */
 	};
 };
 

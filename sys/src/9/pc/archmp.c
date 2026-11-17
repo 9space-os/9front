@@ -453,7 +453,7 @@ identify(void)
 		return 1;
 
 	memreserve(pa, len);
-	if((pcmp = vmap(pa, len)) == nil)
+	if((pcmp = vmapmem(pa, len)) == nil)	/* GCC port: the MP table, memory: not volatile */
 		return 1;
 	if(pcmp->length < PCMPsz
 	|| pa + pcmp->length-1 < pa
@@ -467,7 +467,7 @@ Bad:
 	len = pcmp->length;
 	memreserve(pa, len);
 	vunmap(pcmp, PCMPsz);
-	if((pcmp = vmap(pa, len)) == nil)
+	if((pcmp = vmapmem(pa, len)) == nil)	/* GCC port: the MP table, memory: not volatile */
 		return 1;
 
 	if(checksum(pcmp, len) != 0)

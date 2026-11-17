@@ -103,7 +103,7 @@ enum {					/* Msr */
 };
 
 typedef struct Ctlr {
-	uchar	*io;
+	volatile uchar	*io;	/* volatile: device registers */
 	int	shift;		/* soc.uartshift, soc.uartwidth */
 	int	width;
 	int	irq;

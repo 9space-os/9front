@@ -34,7 +34,7 @@ enum {
 };
 
 typedef struct Ctlr {
-	u32int	*io;
+	volatile u32int	*io;	/* volatile: device registers */
 	int	irq;
 	int	iena;
 	Lock;

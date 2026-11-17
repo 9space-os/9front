@@ -140,7 +140,7 @@ enum {				/* Td->size_flags bits */
 };
 
 struct Ctlr {
-	u32int	*regs;		/* memory-mapped device registers */
+	volatile u32int	*regs;	/* memory-mapped device registers: volatile */
 	uintptr	physreg;	/* their physical address */
 	int	irq;
 	Ether	*edev;
@@ -413,7 +413,7 @@ rxon(Ctlr *ctlr)
 static void
 rxinit(Ctlr *ctlr)
 {
-	u32int *regs;
+	volatile u32int *regs;	/* volatile: device registers */
 	ulong cfg;
 	uvlong physbda;
 
@@ -645,7 +645,7 @@ macremember(Ctlr *ctlr)
 static void
 setmacregs(Ctlr *ctlr)
 {
-	u32int *regs;
+	volatile u32int *regs;	/* volatile: device registers */
 	Macaddr addr;
 
 	addr = ctlr->macregs;
@@ -660,7 +660,7 @@ setmacregs(Ctlr *ctlr)
 static void
 detach(Ctlr *ctlr)
 {
-	u32int *regs;
+	volatile u32int *regs;	/* volatile: device registers */
 
 	regs = ctlr->regs;
 	macremember(ctlr);
@@ -693,7 +693,7 @@ setmacs(Ctlr *ctlr)
 {
 	int i;
 	Macaddr a;
-	u32int *regs;
+	volatile u32int *regs;	/* volatile: device registers */
 	uchar *ra;
 
 	regs = ctlr->regs;
@@ -737,7 +737,7 @@ reset(Ctlr *ctlr)
 static void
 txinit(Ctlr *ctlr)
 {
-	u32int *regs;
+	volatile u32int *regs;	/* volatile: device registers */
 	uvlong physbda;
 
 	regs = ctlr->regs;
@@ -834,7 +834,7 @@ static void
 interrupt(Ureg*, void *v)
 {
 	int icr, im, waker, waket, wakel;
-	u32int *regs;
+	volatile u32int *regs;	/* volatile: device registers */
 	Ctlr *ctlr;
 
 	ctlr = ((Ether *)v)->ctlr;

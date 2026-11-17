@@ -358,7 +358,7 @@ struct {
 static void
 waitforlinearfifo(VGAscr *scr)
 {
-	ulong *mmio;
+	volatile ulong *mmio;	/* GCC port: volatile, device registers */
 	long x;
 	static ulong nwaitforlinearfifo;
 	ulong mask, val;
@@ -389,7 +389,7 @@ waitforlinearfifo(VGAscr *scr)
 static void
 waitforfifo(VGAscr *scr, int entries)
 {
-	ulong *mmio;
+	volatile ulong *mmio;	/* GCC port: volatile, device registers */
 	long x;
 	static ulong nwaitforfifo;
 
@@ -404,7 +404,7 @@ waitforfifo(VGAscr *scr, int entries)
 static void
 waitforidle(VGAscr *scr)
 {
-	ulong *mmio;
+	volatile ulong *mmio;	/* GCC port: volatile, device registers */
 	long x;
 
 	mmio = scr->mmio;
@@ -419,7 +419,7 @@ static int
 hwscroll(VGAscr *scr, Rectangle r, Rectangle sr)
 {
 	enum { Bitbltop = 0xCC };	/* copy source */
-	ulong *mmio;
+	volatile ulong *mmio;	/* GCC port: volatile, device registers */
 	ulong cmd;
 	Point dp, sp;
 	int did;
@@ -463,7 +463,7 @@ static int
 hwfill(VGAscr *scr, Rectangle r, ulong sval)
 {
 	enum { Bitbltop = 0xCC };	/* copy source */
-	ulong *mmio;
+	volatile ulong *mmio;	/* GCC port: volatile, device registers */
 	ulong cmd;
 	int did;
 

@@ -310,7 +310,7 @@ struct Ctlr {
 	uvlong port;
 	Pcidev *pcidev;
 	
-	uchar *mem;
+	volatile uchar *mem;	/* GCC port: volatile, device registers */
 	ulong size;
 	
 	Queue *q;
@@ -328,9 +328,9 @@ struct Ctlr {
 	Codec *codec[Maxcodecs];
 };
 
-#define csr32(c, r)	(*(ulong *)&(c)->mem[r])
-#define csr16(c, r)	(*(ushort *)&(c)->mem[r])
-#define csr8(c, r)	(*(uchar *)&(c)->mem[r])
+#define csr32(c, r)	(*(volatile ulong*)&(c)->mem[r])	/* GCC port: volatile, device registers */
+#define csr16(c, r)	(*(volatile ushort*)&(c)->mem[r])	/* GCC port: volatile, device registers */
+#define csr8(c, r)	(*(volatile uchar*)&(c)->mem[r])	/* GCC port: volatile, device registers */
 
 static char *widtype[] = {
 	"aout",

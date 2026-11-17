@@ -121,9 +121,10 @@ meminit(void)
 
 /*
  * device registers: the first GB of the physical address space
- * is at KZERO (l.s); anything else gets 4K pages in VMAP
+ * is at KZERO (l.s); anything else gets 4K pages in VMAP. volatile:
+ * gcc may move, merge, narrow or drop plain accesses (pc's vmap)
  */
-void*
+volatile void*
 vmap(uvlong pa, vlong size)
 {
 	static Lock lk;
@@ -159,7 +160,7 @@ vmap(uvlong pa, vlong size)
 }
 
 void
-vunmap(void *, vlong)
+vunmap(volatile void *, vlong)
 {
 }
 

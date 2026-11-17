@@ -167,8 +167,8 @@ struct	Queue
 
 	int	size;		/* size of queue */
 
-	long	count;		/* how many in queue (semaphore) */
-	long	avail;		/* how many available to send (semaphore) */
+	int	count;		/* how many in queue (semaphore) */	/* GCC port: int, semacquire(2)'s word (was long) */
+	int	avail;		/* how many available to send (semaphore) */
 
 	Lock	rl, wl;		/* circular pointers */
 	void	**rp;

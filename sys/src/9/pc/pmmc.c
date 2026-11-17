@@ -139,7 +139,7 @@ struct Ctlr {
 	Lock;
 
 	Pcidev	*pdev;
-	u8int	*mmio;
+	volatile u8int	*mmio;	/* GCC port: volatile, device registers */
 
 	int	change;
 
@@ -153,9 +153,9 @@ struct Ctlr {
 	} io;
 };
 
-#define CR8(c, off)	*((u8int*)(c->mmio + off))
-#define CR16(c, off)	*((u16int*)(c->mmio + off))
-#define CR32(c, off)	*((u32int*)(c->mmio + off))
+#define CR8(c, off)	*((volatile u8int*)(c->mmio + off))	/* GCC port: volatile, device registers */
+#define CR16(c, off)	*((volatile u16int*)(c->mmio + off))	/* GCC port: volatile, device registers */
+#define CR32(c, off)	*((volatile u32int*)(c->mmio + off))	/* GCC port: volatile, device registers */
 
 static void
 mmcinterrupt(Ureg*, void *arg)

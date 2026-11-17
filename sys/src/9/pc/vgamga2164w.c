@@ -82,11 +82,11 @@ enum {
 static void
 tvp3026disable(VGAscr* scr)
 {
-	uchar *tvp3026;
+	volatile uchar *tvp3026;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return;
-	tvp3026 = (uchar*)scr->mmio+0x3C00;
+	tvp3026 = (volatile uchar*)scr->mmio+0x3C00;	/* GCC port: volatile, device registers */
 
 	/*
 	 * Make sure cursor is off
@@ -101,11 +101,11 @@ static void
 tvp3026load(VGAscr* scr, Cursor* curs)
 {
 	int x, y;
-	uchar *tvp3026;
+	volatile uchar *tvp3026;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return;
-	tvp3026 = (uchar*)scr->mmio+0x3C00;
+	tvp3026 = (volatile uchar*)scr->mmio+0x3C00;	/* GCC port: volatile, device registers */
 
 	/*
 	 * Make sure cursor is off by initialising the cursor
@@ -163,11 +163,11 @@ static int
 tvp3026move(VGAscr* scr, Point p)
 {
 	int x, y;
-	uchar *tvp3026;
+	volatile uchar *tvp3026;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return 1;
-	tvp3026 = (uchar*)scr->mmio+0x3C00;
+	tvp3026 = (volatile uchar*)scr->mmio+0x3C00;	/* GCC port: volatile, device registers */
 
 	x = p.x+scr->offset.x;
 	y = p.y+scr->offset.y;
@@ -184,11 +184,11 @@ static void
 tvp3026enable(VGAscr* scr)
 {
 	int i;
-	uchar *tvp3026;
+	volatile uchar *tvp3026;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return;
-	tvp3026 = (uchar*)scr->mmio+0x3C00;
+	tvp3026 = (volatile uchar*)scr->mmio+0x3C00;	/* GCC port: volatile, device registers */
 
 	tvp3026disable(scr);
 

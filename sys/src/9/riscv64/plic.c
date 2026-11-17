@@ -33,14 +33,14 @@ struct Vctl {
 
 static Lock vctllock;
 static Vctl *vctl[Nirq];
-static u32int *plic;
+static volatile u32int *plic;	/* volatile: device registers */
 
 #define REG(o)	plic[(o)/4]
 
 static void
 plicenable(int irq, int on)
 {
-	u32int *e;
+	volatile u32int *e;	/* volatile: device registers */
 	int ctx;
 
 	ctx = MACHP(0)->plicctx;

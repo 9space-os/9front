@@ -270,7 +270,7 @@ typedef struct {
 	Ether	*edev;
 	uvlong	io;
 	volatile u32int	*reg;	/* GCC port: volatile, gcc keeps the value of a load in a loop (kencc reloads) */
-	u32int	*regmsi;
+	volatile u32int	*regmsi;	/* GCC port: volatile, device registers */
 	uchar	flag;
 	int	nrd;
 	int	ntd;
@@ -850,7 +850,7 @@ static void
 scan(void)
 {
 	uvlong io, iomsi;
-	void *mem, *memmsi;
+	volatile void *mem, *memmsi;	/* GCC port: volatile, device registers */
 	int pciregs, pcimsix;
 	Ctlr *c;
 	Pcidev *p;
@@ -904,8 +904,8 @@ scan(void)
 		pcienable(p);
 		c->p = p;
 		c->io = io;
-		c->reg = (u32int*)mem;
-		c->regmsi = (u32int*)memmsi;
+		c->reg = (volatile u32int*)mem;	/* GCC port: volatile, device registers */
+		c->regmsi = (volatile u32int*)memmsi;	/* GCC port: volatile, device registers */
 		c->rbsz = ROUND(Mtu, 1024);
 		if(reset(c)){
 			print("i82598: can't reset\n");

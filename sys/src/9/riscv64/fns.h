@@ -53,8 +53,8 @@ extern void kmapinval(void);
 extern KMap *kmap(Page*);
 extern void kunmap(KMap*);
 extern void kmapram(uintptr, uintptr);
-extern void* vmap(uvlong, vlong);
-extern void vunmap(void*, vlong);
+extern volatile void* vmap(uvlong, vlong);	/* device registers: volatile (gcc moves, merges, narrows plain accesses) */
+extern void vunmap(volatile void*, vlong);
 extern void mmu1init(void);
 extern void putasid(Proc*);
 extern void meminit(void);

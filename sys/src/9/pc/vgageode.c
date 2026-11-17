@@ -85,9 +85,9 @@ geodecurload(VGAscr* scr, Cursor* curs)
 static int
 geodecurmove(VGAscr* scr, Point p) {
 	if(!scr->mmio) return 1;
-	((ulong*)scr->mmio)[DC_UNLOCK] = DC_UNLOCKVALUE;
-	((ulong*)scr->mmio)[DC_CURSOR_X] = p.x + scr->offset.x;
-	((ulong*)scr->mmio)[DC_CURSOR_Y] = p.y + scr->offset.y;
+	((volatile ulong*)scr->mmio)[DC_UNLOCK] = DC_UNLOCKVALUE;	/* GCC port: volatile, device registers */
+	((volatile ulong*)scr->mmio)[DC_CURSOR_X] = p.x + scr->offset.x;	/* GCC port: volatile, device registers */
+	((volatile ulong*)scr->mmio)[DC_CURSOR_Y] = p.y + scr->offset.y;	/* GCC port: volatile, device registers */
 	return 0;
 }
 
@@ -98,21 +98,21 @@ geodecurenable(VGAscr* scr)
 	if(!scr->mmio) return;
 	geodecurload(scr, &cursor);
 	geodecurmove(scr, ZP);
-	((ulong*)scr->mmio)[DC_UNLOCK] = DC_UNLOCKVALUE;
-	((ulong*)scr->mmio)[DC_CURS_ST_OFFSET] = scr->storage;
-	((ulong*)scr->mmio)[DC_GENERAL_CFG] |= CURE;
+	((volatile ulong*)scr->mmio)[DC_UNLOCK] = DC_UNLOCKVALUE;	/* GCC port: volatile, device registers */
+	((volatile ulong*)scr->mmio)[DC_CURS_ST_OFFSET] = scr->storage;	/* GCC port: volatile, device registers */
+	((volatile ulong*)scr->mmio)[DC_GENERAL_CFG] |= CURE;	/* GCC port: volatile, device registers */
 	/* set cursor colours */
-	((ulong*)scr->mmio)[DC_PAL_ADDRESS] = 0x100;
-	((ulong*)scr->mmio)[DC_PAL_DATA] = -1;
-	((ulong*)scr->mmio)[DC_PAL_DATA] = 0;
+	((volatile ulong*)scr->mmio)[DC_PAL_ADDRESS] = 0x100;	/* GCC port: volatile, device registers */
+	((volatile ulong*)scr->mmio)[DC_PAL_DATA] = -1;	/* GCC port: volatile, device registers */
+	((volatile ulong*)scr->mmio)[DC_PAL_DATA] = 0;	/* GCC port: volatile, device registers */
 }
 
 static void
 geodecurdisable(VGAscr* scr)
 {
 	if(!scr->mmio) return;
-	((ulong*)scr->mmio)[DC_UNLOCK] = DC_UNLOCKVALUE;
-	((ulong*)scr->mmio)[DC_GENERAL_CFG] &= ~CURE;
+	((volatile ulong*)scr->mmio)[DC_UNLOCK] = DC_UNLOCKVALUE;	/* GCC port: volatile, device registers */
+	((volatile ulong*)scr->mmio)[DC_GENERAL_CFG] &= ~CURE;	/* GCC port: volatile, device registers */
 }
 
 VGAdev vgageodedev = {

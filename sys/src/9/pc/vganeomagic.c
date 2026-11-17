@@ -103,11 +103,11 @@ Map:
 static void
 neomagiccurdisable(VGAscr* scr)
 {
-	CursorNM *cursornm;
+	volatile CursorNM *cursornm;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return;
-	cursornm = (void*)((char*)scr->mmio + scr->io);
+	cursornm = (volatile void*)((volatile char*)scr->mmio + scr->io);	/* GCC port: volatile, device registers */
 	cursornm->enable = 0;
 }
 
@@ -158,11 +158,11 @@ neomagicinitcursor(VGAscr* scr, int xo, int yo, int index)
 static void
 neomagiccurload(VGAscr* scr, Cursor* curs)
 {
-	CursorNM *cursornm;
+	volatile CursorNM *cursornm;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return;
-	cursornm = (void*)((char*)scr->mmio + scr->io);
+	cursornm = (volatile void*)((volatile char*)scr->mmio + scr->io);	/* GCC port: volatile, device registers */
 
 	cursornm->enable = 0;
 	memmove(&scr->Cursor, curs, sizeof(Cursor));
@@ -173,12 +173,12 @@ neomagiccurload(VGAscr* scr, Cursor* curs)
 static int
 neomagiccurmove(VGAscr* scr, Point p)
 {
-	CursorNM *cursornm;
+	volatile CursorNM *cursornm;	/* GCC port: volatile, device registers */
 	int addr, index, x, xo, y, yo;
 
 	if(scr->mmio == 0)
 		return 1;
-	cursornm = (void*)((char*)scr->mmio + scr->io);
+	cursornm = (volatile void*)((volatile char*)scr->mmio + scr->io);	/* GCC port: volatile, device registers */
 
 	index = 0;
 	if((x = p.x+scr->offset.x) < 0){
@@ -212,12 +212,12 @@ neomagiccurmove(VGAscr* scr, Point p)
 static void
 neomagiccurenable(VGAscr* scr)
 {
-	CursorNM *cursornm;
+	volatile CursorNM *cursornm;	/* GCC port: volatile, device registers */
 
 	neomagicenable(scr);
 	if(scr->mmio == 0)
 		return;
-	cursornm = (void*)((char*)scr->mmio + scr->io);
+	cursornm = (volatile void*)((volatile char*)scr->mmio + scr->io);	/* GCC port: volatile, device registers */
 	cursornm->enable = 0;
 
 	/*
@@ -363,7 +363,7 @@ waitforfifo(VGAscr *scr, int entries)
 static int
 neomagichwfill(VGAscr *scr, Rectangle r, ulong sval)
 {
-	ulong *mmio;
+	volatile ulong *mmio;	/* GCC port: volatile, device registers */
 
 	mmio = scr->mmio;
 
@@ -386,7 +386,7 @@ neomagichwfill(VGAscr *scr, Rectangle r, ulong sval)
 static int
 neomagichwscroll(VGAscr *scr, Rectangle r, Rectangle sr)
 {
-	ulong *mmio;
+	volatile ulong *mmio;	/* GCC port: volatile, device registers */
 
 	mmio = scr->mmio;
 
@@ -423,7 +423,7 @@ neomagichwscroll(VGAscr *scr, Rectangle r, Rectangle sr)
 static void
 neomagicdrawinit(VGAscr *scr)
 {
-	ulong *mmio;
+	volatile ulong *mmio;	/* GCC port: volatile, device registers */
 	uint bltmode;
 
 	mmio = scr->mmio;

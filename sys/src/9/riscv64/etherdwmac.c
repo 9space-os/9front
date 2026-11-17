@@ -146,7 +146,7 @@ struct Descr
 typedef struct Ctlr Ctlr;
 struct Ctlr
 {
-	u32int	*regs;
+	volatile u32int	*regs;	/* volatile: device registers */
 	uintptr	physreg;
 	int	irq;
 	int	ctlrno;		/* which of soc.ether */

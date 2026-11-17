@@ -104,7 +104,7 @@ enum {
 typedef struct Ctlr Ctlr;
 struct Ctlr {
 	Lock;
-	u32int	*regs;
+	volatile u32int	*regs;	/* volatile: device registers */
 	int	irq;
 	int	fifo;			/* the data register's index */
 	int	fifow;			/* bytes per fifo word, 4 or 8 */

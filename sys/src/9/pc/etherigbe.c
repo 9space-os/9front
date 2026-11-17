@@ -467,7 +467,7 @@ typedef struct Ctlr {
 	int	nrd;
 	int	ntd;
 
-	int*	nic;
+	volatile int*	nic;	/* GCC port: volatile, device registers */
 	Lock	imlock;
 	int	im;			/* interrupt mask */
 
@@ -1919,7 +1919,7 @@ igbepci(void)
 {
 	Pcidev *p;
 	Ctlr *ctlr;
-	void *mem;
+	volatile void *mem;	/* GCC port: volatile, device registers */
 
 	p = nil;
 	while(p = pcimatch(p, 0, 0)){

@@ -32,12 +32,12 @@ enum {
 static void
 i81xblank(VGAscr *scr, int blank)
 {
-	char *srx, *srxd, *dpms;
+	volatile char *srx, *srxd, *dpms;	/* GCC port: volatile, device registers */
 	char sr01, mode;
 
-	srx = (char *)scr->mmio+SRX;
+	srx = (volatile char*)scr->mmio+SRX;	/* GCC port: volatile, device registers */
 	srxd = srx+1;
-	dpms = (char *)scr->mmio+DPMSsync;
+	dpms = (volatile char*)scr->mmio+DPMSsync;	/* GCC port: volatile, device registers */
 
 	*srx = 0x01;
 	sr01 = *srxd & ~0x20;
@@ -56,7 +56,8 @@ i81xenable(VGAscr* scr)
 {
 	Pcidev *p;
 	int size;
-	ulong *pgtbl, *rp;
+	ulong *pgtbl;
+	volatile ulong *rp;	/* GCC port: volatile, device registers */
 	uintptr fbuf, fbend;
 	
 	if(scr->mmio)
@@ -101,11 +102,11 @@ i81xenable(VGAscr* scr)
 static void
 i81xcurdisable(VGAscr* scr)
 {
-	CursorI81x *hwcurs;
+	volatile CursorI81x *hwcurs;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return;
-	hwcurs = (void*)((uchar*)scr->mmio+hwCur);
+	hwcurs = (volatile void*)((volatile uchar*)scr->mmio+hwCur);	/* GCC port: volatile, device registers */
 	hwcurs->ctl = (1<<4);
 }
 
@@ -114,11 +115,11 @@ i81xcurload(VGAscr* scr, Cursor* curs)
 {
 	int y;
 	uchar *p;
-	CursorI81x *hwcurs;
+	volatile CursorI81x *hwcurs;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0 || scr->storage == 0)
 		return;
-	hwcurs = (void*)((uchar*)scr->mmio+hwCur);
+	hwcurs = (volatile void*)((volatile uchar*)scr->mmio+hwCur);	/* GCC port: volatile, device registers */
 
 	/*
 	 * Disable the cursor then load the new image in
@@ -157,11 +158,11 @@ i81xcurmove(VGAscr* scr, Point p)
 {
 	int x, y;
 	ulong pos;
-	CursorI81x *hwcurs;
+	volatile CursorI81x *hwcurs;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return 1;
-	hwcurs = (void*)((uchar*)scr->mmio+hwCur);
+	hwcurs = (volatile void*)((volatile uchar*)scr->mmio+hwCur);	/* GCC port: volatile, device registers */
 
 	x = p.x+scr->offset.x;
 	y = p.y+scr->offset.y;
@@ -191,14 +192,14 @@ i81xcurenable(VGAscr* scr)
 		return;
 
 	if(scr->storage == 0){
-		CursorI81x *hwcurs;
+		volatile CursorI81x *hwcurs;	/* GCC port: volatile, device registers */
 		Page *pg = newpage(0, nil);
 		scr->storage = (uintptr)vmap(pg->pa, BY2PG);
 		if(scr->storage == 0){
 			putpage(pg);
 			return;
 		}
-		hwcurs = (void*)((uchar*)scr->mmio+hwCur);
+		hwcurs = (volatile void*)((volatile uchar*)scr->mmio+hwCur);	/* GCC port: volatile, device registers */
 		hwcurs->base = pg->pa;
 	}
 

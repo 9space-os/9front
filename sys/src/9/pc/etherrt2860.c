@@ -974,7 +974,7 @@ struct Ctlr {
 	int broken;
 	int attached;
 
-	u32int *nic;
+	volatile u32int *nic;	/* GCC port: volatile, device registers */
 
 	/* assigned node ids in hardware node table or -1 if unassigned */
 	int bcastnodeid;
@@ -1269,11 +1269,11 @@ put16(uchar *p, uint v){
 };
 static void
 memwrite(Ctlr *ctlr, u32int off, uchar *data, uint size){
-	memmove((uchar*)ctlr->nic + off, data, size);
+	memmovetoio((volatile uchar*)ctlr->nic + off, data, size);	/* GCC port: the card's memory */
 }
 static void
 setregion(Ctlr *ctlr, u32int off, uint val, uint size){
-	memset((uchar*)ctlr->nic + off, val, size);
+	memsetio((volatile uchar*)ctlr->nic + off, val, size);	/* GCC port: the card's memory */
 }
 
 static long
@@ -3471,7 +3471,7 @@ rt2860pci(void)
 	pdev = nil;
 	while(pdev = pcimatch(pdev, 0, 0)){
 		Ctlr *ctlr;
-		void *mem;
+		volatile void *mem;	/* GCC port: volatile, device registers */
 		
 		if(pdev->ccrb != 2 || pdev->ccru != 0x80)
 			continue;

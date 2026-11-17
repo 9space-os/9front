@@ -3,14 +3,18 @@
 agetl,
 agetv,
 agetp,
+ageti,
 aswapl,
 aswapv,
 aswapp,
+aswapi,
 aincl,
 aincv,
+ainci,
 acasl,
 acasv,
 acasp,
+acasi,
 coherence
 \- atomic operations
 .SH SYNOPSIS
@@ -22,21 +26,26 @@ coherence
 typedef struct Along Along;
 typedef struct Avlong Avlong;
 typedef struct Aptr Aptr;
+typedef struct Aint Aint;
 
 long	agetl(Along *);
 vlong	agetv(Avlong *);
 void*	agetp(Aptr *);
+int	ageti(Aint *);
 
 long	aswapl(Along *, long new);
 vlong	aswapv(Avlong *, vlong new);
 void*	aswapp(Aptr *, void* new);
+int	aswapi(Aint *, int new);
 
 long	aincl(Along *, long);
 vlong	aincv(Avlong *, vlong);
+int	ainci(Aint *, int);
 
 int	acasl(Along *, long old, long new);
 int	acasv(Avlong *, vlong old, vlong new);
 int	acasp(Aptr *, void* old, void* new);
+int	acasi(Aint *, int old, int new);
 
 void	coherence(void);
 .EE
@@ -78,6 +87,23 @@ then it is replaced by
 .B new
 and the function returns 1.
 If not, the function returns 0.
+.P
+9space:
+.BR Aint ,
+an
+.B int
+(32 bits), has the same operations
+.RI ( ageti ,
+.IR aswapi ,
+.IR ainci ,
+.IR acasi ).
+It is what a semaphore of
+.IR semacquire (2)
+is: a program can work on a semaphore's word with these and the kernel's
+32-bit compare-and-swap at once.
+A
+.B long
+has 64 bits on amd64 and arm64 under gcc.
 
 .P
 .I Coherence
