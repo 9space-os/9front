@@ -51,7 +51,7 @@ u64int	getxcr0(void);
 u64int	getdr6(void);
 char*	getconf(char*);
 void	halt(void);
-void	mwait(void*);
+void	mwait(volatile void*);	/* GCC port: volatile, the word MONITOR watches (another processor writes it) */
 void	lapicipiirq(int, int);	/* pmc(3) */
 int	i8042auxcmd(int);
 void	i8042auxenable(void (*)(int, int));
