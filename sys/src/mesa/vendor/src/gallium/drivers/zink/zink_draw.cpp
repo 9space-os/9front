@@ -520,7 +520,6 @@ zink_draw(struct pipe_context *pctx,
    VkBuffer counter_buffers[PIPE_MAX_SO_BUFFERS];
    VkDeviceSize counter_buffer_offsets[PIPE_MAX_SO_BUFFERS];
    bool need_index_buffer_unref = false;
-   bool mode_changed = ctx->gfx_pipeline_state.gfx_prim_mode != dinfo->mode;
    bool reads_drawid = ctx->shader_reads_drawid;
    bool reads_basevertex = ctx->shader_reads_basevertex;
    unsigned work_count = ctx->work_count;
@@ -632,6 +631,10 @@ zink_draw(struct pipe_context *pctx,
       zink_update_descriptor_refs(ctx, false);
 
    /* these must be after renderpass start to avoid issues with recursion */
+   bool mode_changed = ctx->gfx_pipeline_state.gfx_prim_mode != dinfo->mode;
+   /* a pipeline only draws its own topology, or its own topology class with dynamic topology */
+   const bool pipeline_idx_changed = mode_changed &&
+                                     get_gfx_pipeline_idx<DYNAMIC_STATE>(screen, mode) != ctx->gfx_pipeline_state.idx;
    bool drawid_broken = false;
    if (reads_drawid && (!dindirect || !dindirect->buffer))
       drawid_broken = (drawid_offset != 0 ||
@@ -695,7 +698,11 @@ zink_draw(struct pipe_context *pctx,
    if (have_streamout && ctx->dirty_so_targets)
       zink_emit_stream_output_targets(pctx);
 
-   bool pipeline_changed = ctx->gfx_pipeline_state.dirty || rp_state != ctx->gfx_pipeline_state.rp_state || ctx->gfx_dirty || ctx->dirty_gfx_stages || prim_changed || BATCH_CHANGED ?
+   /* without dynamic vertex input, the vertex input state is part of the pipeline */
+   const bool vertex_input_changed = DYNAMIC_STATE != ZINK_DYNAMIC_VERTEX_INPUT &&
+                                     DYNAMIC_STATE != ZINK_DYNAMIC_VERTEX_INPUT2 &&
+                                     ctx->vertex_state_changed;
+   bool pipeline_changed = ctx->gfx_pipeline_state.dirty || rp_state != ctx->gfx_pipeline_state.rp_state || ctx->gfx_dirty || ctx->dirty_gfx_stages || prim_changed || pipeline_idx_changed || vertex_input_changed || BATCH_CHANGED ?
                            update_gfx_pipeline<DYNAMIC_STATE, BATCH_CHANGED>(ctx, bs, mode) :
                            false;
 
@@ -1266,8 +1273,9 @@ zink_launch_grid(struct pipe_context *pctx, const struct pipe_grid_info *info)
       for (unsigned i = 0; i < info->num_globals; i++) {
          struct zink_resource *res = zink_resource(info->globals[i]);
          util_range_add(&res->base.b, &res->valid_buffer_range, 0, res->base.b.width0);
-         zink_batch_reference_resource_rw(ctx, res, true);
+         /* barrier before setting usage so access from completed batches is reset */
          zink_screen(ctx->base.screen)->buffer_barrier(ctx, res, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+         zink_batch_reference_resource_rw(ctx, res, true);
          zink_resource_disable_unordered(res, true);
       }
    }

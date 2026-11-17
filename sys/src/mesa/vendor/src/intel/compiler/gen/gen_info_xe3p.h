@@ -56,6 +56,16 @@ struct gen_encoding_xe3p {
       gen_range { 32, 31 },
       gen_range { 28, 18 },
    });
+   static constexpr auto UNCOMP_3SRC_SOURCE = gen_ranges<8>({
+      gen_range { 114, 112 },
+      gen_range { 98, 96 },
+      gen_range { 91, 91 },
+      gen_range { 87, 84 },
+      gen_range { 66, 64 },
+      gen_range { 49, 49 },
+      gen_range { 47, 43 },
+      gen_range { 35, 35 },
+   });
    static constexpr auto UNCOMP_DPAS_CONTROL = gen_ranges<7>({
       gen_range { 95, 92 },
       gen_range { 90, 88 },
@@ -318,15 +328,6 @@ struct gen_encoding_xe3p {
       gen_range { 42, 36 },
       gen_range { 34, 31 },
       gen_range { 28, 16 },
-   });
-   static constexpr auto UNCOMP_3SRC_SOURCE = gen_ranges<7>({
-      gen_range { 114, 112 },
-      gen_range { 98, 96 },
-      gen_range { 91, 91 },
-      gen_range { 87, 83 },
-      gen_range { 66, 64 },
-      gen_range { 47, 43 },
-      gen_range { 35, 35 },
    });
    static constexpr auto UNCOMP_3SRC_SUBREG = gen_ranges<4>({
       gen_range { 119, 115 },

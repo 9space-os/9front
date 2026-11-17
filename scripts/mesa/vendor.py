@@ -107,12 +107,13 @@ def where(f):
 
 def copy(src, dst):
 	"""src to dst unless it is the same already; another objtype's
-	different file there is a conflict"""
+	different file there is a conflict (not in ARCHDIR: this objtype's
+	own, a new Mesa changes it)"""
 	try:
 		with open(src, 'rb') as a, open(dst, 'rb') as b:
 			if a.read() == b.read():
 				return
-		if os.environ.get('VENDOR_FRESH') != '1':
+		if os.environ.get('VENDOR_FRESH') != '1' and not dst.startswith(ARCHDIR + os.sep):
 			conflicts.append(dst)
 			return
 	except OSError:

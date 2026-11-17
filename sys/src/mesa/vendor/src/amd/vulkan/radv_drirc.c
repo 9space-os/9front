@@ -97,6 +97,10 @@ DRI_CONF_SECTION("Debugging")
       , false
       , "Treat FMax/FMin/FClamp like NMax/NMin/NClamp."
       )
+   DRI_CONF_OPT_B(radv_force_exact_glsl_fma
+      , false
+      , "Disallow contract/reassociation for GLSLstd450Fma."
+      )
    DRI_CONF_OPT_B(radv_disable_binning_gfx11
       , false
       , "Disable primitive binning on GFX11 to workaround a hw bug."
@@ -260,6 +264,7 @@ radv_parse_dri_options(struct radv_drirc *drirc,
    drirc->debug.override_uniform_offset_alignment = driQueryOptioni(&drirc->options, "radv_override_uniform_offset_alignment");
    drirc->debug.force_64_byte_sampled_image = driQueryOptionb(&drirc->options, "radv_force_64_byte_sampled_image");
    drirc->debug.force_nan_preserve_min_max = driQueryOptionb(&drirc->options, "radv_force_nan_preserve_min_max");
+   drirc->debug.force_exact_glsl_fma = driQueryOptionb(&drirc->options, "radv_force_exact_glsl_fma");
    drirc->debug.disable_binning_gfx11 = driQueryOptionb(&drirc->options, "radv_disable_binning_gfx11");
    drirc->debug.force_vk_devicename = driQueryOptionstr(&drirc->options, "force_vk_devicename");
    drirc->debug.lower_terminate_to_discard = driQueryOptionb(&drirc->options, "vk_lower_terminate_to_discard");

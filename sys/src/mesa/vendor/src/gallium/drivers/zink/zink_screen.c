@@ -256,7 +256,7 @@ static void
 zink_set_max_shader_compiler_threads(struct pipe_screen *pscreen, unsigned max_threads)
 {
    struct zink_screen *screen = zink_screen(pscreen);
-   util_queue_adjust_num_threads(&screen->cache_get_thread, max_threads, false);
+   util_queue_adjust_num_threads(&screen->cache_get_thread, max_threads);
 }
 
 static bool
@@ -935,6 +935,15 @@ zink_init_screen_caps(struct zink_screen *screen)
          quirk |= PIPE_QUIRK_TEXTURE_BORDER_COLOR_SWIZZLE_NV50;
       caps->texture_border_color_quirk = quirk;
    }
+
+   /* On PVR HW that have a small custom border colour table disable the caching
+    * of samplers that use custom border color.
+    */
+   if (zink_driverid(screen) == VK_DRIVER_ID_IMAGINATION_OPEN_SOURCE_MESA &&
+       screen->info.border_color_props.maxCustomBorderColorSamplers < 64) {
+      caps->disable_custom_border_color_caching = true;
+   }
+
    /* TODO: 32K textures are broken */
    caps->max_texture_2d_size =
       MIN3(screen->info.props.limits.maxImageDimension1D,
@@ -1646,6 +1655,8 @@ zink_destroy_screen(struct pipe_screen *pscreen)
       VKSCR(DestroySemaphore)(screen->dev, util_dynarray_pop(&screen->semaphores, VkSemaphore), NULL);
    while (util_dynarray_contains(&screen->fd_semaphores, VkSemaphore))
       VKSCR(DestroySemaphore)(screen->dev, util_dynarray_pop(&screen->fd_semaphores, VkSemaphore), NULL);
+   util_dynarray_fini(&screen->semaphores);
+   util_dynarray_fini(&screen->fd_semaphores);
    if (screen->bindless_layout)
       VKSCR(DestroyDescriptorSetLayout)(screen->dev, screen->bindless_layout, NULL);
 
@@ -1675,6 +1686,14 @@ zink_destroy_screen(struct pipe_screen *pscreen)
    simple_mtx_unlock(&instance_lock);
 
    util_idalloc_mt_fini(&screen->buffer_ids);
+
+   for (unsigned i = 0; i < 2; i++) {
+      for (unsigned j = 0; j < 2; j++) {
+         util_idalloc_fini(&screen->bindless_handles.table[i][j].slots);
+         _mesa_hash_table_fini(&screen->bindless_handles.table[i][j].handles, NULL);
+      }
+   }
+   simple_mtx_destroy(&screen->bindless_handles.lock);
 
    if (screen->loader_lib)
       util_dl_close(screen->loader_lib);
@@ -1912,7 +1931,8 @@ zink_flush_frontbuffer(struct pipe_screen *pscreen,
 
    if (!zink_kopper_acquired(res->obj->dt, res->obj->dt_idx)) {
       /* swapbuffers to an undefined surface: acquire and present garbage */
-      zink_kopper_acquire(ctx, res, UINT64_MAX);
+      if (!zink_kopper_acquire(ctx, res, UINT64_MAX))
+         return;
       zink_resource_reference(&ctx->needs_present, res);
       /* set batch usage to submit acquire semaphore */
       zink_batch_resource_usage_set(ctx->bs, res, true, false);
@@ -2225,11 +2245,13 @@ retry:
       }
 
       if (screen->info.have_EXT_image_drm_format_modifier && mod_props.drmFormatModifierCount) {
+         simple_mtx_lock(&screen->ralloc_lock);
          /* The A8_UNORM workaround below can retry this query for the same pformat. */
          ralloc_free(screen->modifier_props[pformat].pDrmFormatModifierProperties);
 
          screen->modifier_props[pformat].drmFormatModifierCount = mod_props.drmFormatModifierCount;
          screen->modifier_props[pformat].pDrmFormatModifierProperties = ralloc_array(screen, VkDrmFormatModifierPropertiesEXT, mod_props.drmFormatModifierCount);
+         simple_mtx_unlock(&screen->ralloc_lock);
          if (mod_props.pDrmFormatModifierProperties) {
             for (unsigned j = 0; j < mod_props.drmFormatModifierCount; j++)
                screen->modifier_props[pformat].pDrmFormatModifierProperties[j] = mod_props.pDrmFormatModifierProperties[j];
@@ -2468,13 +2490,16 @@ zink_resource_get_dma_buf(struct zink_screen *screen, struct zink_resource *res)
 }
 #endif
 
+/* Returns a semaphore that signals once the dma-buf can be accessed: after
+ * its write fences for a read, or after all of its fences for a write.
+ */
 VkSemaphore
-zink_screen_export_dmabuf_semaphore(struct zink_screen *screen, struct zink_resource *res)
+zink_screen_export_dmabuf_semaphore(struct zink_screen *screen, struct zink_resource *res, bool write)
 {
    VkSemaphore sem = VK_NULL_HANDLE;
 #if defined(HAVE_LIBDRM) && (DETECT_OS_LINUX || DETECT_OS_BSD)
    struct dma_buf_export_sync_file export = {
-      .flags = DMA_BUF_SYNC_RW,
+      .flags = write ? DMA_BUF_SYNC_RW : DMA_BUF_SYNC_READ,
       .fd = -1,
    };
 
@@ -2515,8 +2540,11 @@ zink_screen_export_dmabuf_semaphore(struct zink_screen *screen, struct zink_reso
    return sem;
 }
 
+/* Adds sem to the dma-buf's fences: as a write fence if the access wrote
+ * the buffer, otherwise as a read fence.
+ */
 bool
-zink_screen_import_dmabuf_semaphore(struct zink_screen *screen, struct zink_resource *res, VkSemaphore sem)
+zink_screen_import_dmabuf_semaphore(struct zink_screen *screen, struct zink_resource *res, VkSemaphore sem, bool write)
 {
 #if defined(HAVE_LIBDRM) && (DETECT_OS_LINUX || DETECT_OS_BSD)
    const VkSemaphoreGetFdInfoKHR get_fd_info = {
@@ -2534,7 +2562,7 @@ zink_screen_import_dmabuf_semaphore(struct zink_screen *screen, struct zink_reso
    int fd = zink_resource_get_dma_buf(screen, res);
    if (fd != -1) {
       struct dma_buf_import_sync_file import = {
-         .flags = DMA_BUF_SYNC_RW,
+         .flags = write ? DMA_BUF_SYNC_RW : DMA_BUF_SYNC_READ,
          .fd = sync_file_fd,
       };
       int ioctl_ret = drmIoctl(fd, DMA_BUF_IOCTL_IMPORT_SYNC_FILE, &import);
@@ -3406,6 +3434,7 @@ zink_internal_create_screen(const struct pipe_screen_config *config, int64_t dev
 
    screen->driver_name_is_inferred = config && config->driver_name_is_inferred;
    screen->drm_fd = -1;
+   simple_mtx_init(&screen->ralloc_lock, mtx_plain);
 
    glsl_type_singleton_init_or_ref();
    zink_debug = debug_get_option_zink_debug();
@@ -3810,14 +3839,25 @@ zink_internal_create_screen(const struct pipe_screen_config *config, int64_t dev
    }
 
    simple_mtx_init(&screen->free_batch_states_lock, mtx_plain);
+   simple_mtx_init(&screen->submit_lock, mtx_plain);
    simple_mtx_init(&screen->active_batch_states_lock, mtx_plain);
    simple_mtx_init(&screen->dt_lock, mtx_plain);
 
    util_idalloc_mt_init_tc(&screen->buffer_ids);
 
+   simple_mtx_init(&screen->bindless_handles.lock, mtx_plain);
+   for (unsigned i = 0; i < 2; i++) {
+      for (unsigned j = 0; j < 2; j++) {
+         _mesa_hash_table_init(&screen->bindless_handles.table[i][j].handles, NULL, _mesa_hash_pointer, _mesa_key_pointer_equal);
+         /* allocate 1024 slots and reserve slot 0 */
+         util_idalloc_init(&screen->bindless_handles.table[i][j].slots, ZINK_MAX_BINDLESS_HANDLES);
+         util_idalloc_alloc(&screen->bindless_handles.table[i][j].slots);
+      }
+   }
+
    simple_mtx_init(&screen->semaphores_lock, mtx_plain);
-   util_dynarray_init(&screen->semaphores, screen);
-   util_dynarray_init(&screen->fd_semaphores, screen);
+   util_dynarray_init(&screen->semaphores, NULL);
+   util_dynarray_init(&screen->fd_semaphores, NULL);
 
    util_vertex_state_cache_init(&screen->vertex_state_cache,
                                 zink_create_vertex_state, zink_vertex_state_destroy);

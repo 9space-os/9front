@@ -20,7 +20,7 @@
 set -e
 . "$(dirname "$0")/common.sh"
 [ -d "$SRC/.git" ] || "$(dirname "$0")/prepare.sh"
-[ -x "$WORK/clc/bin/mesa_clc" ] || "$(dirname "$0")/clc.sh"
+{ [ -x "$WORK/clc/bin/mesa_clc" ] && ! moved "$WORK/build-native-clc"; } || "$(dirname "$0")/clc.sh"	# (another release: again)
 export PATH=$WORK/clc/bin:$VENV/bin:$PATH
 mkdir -p "$BUILD/plan9"
 P9=$MESA/plan9

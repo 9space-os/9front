@@ -2006,18 +2006,29 @@ vn_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
    const struct vn_layered_api_properties *layered_props =
       &physical_dev->layered_properties;
 
-   vk_common_GetPhysicalDeviceProperties2(physicalDevice, pProperties);
-
-   /* Properly fill maint7 layered api properties. */
    VkPhysicalDeviceLayeredApiPropertiesListKHR *layered_props_list =
       vk_find_struct(pProperties->pNext,
                      PHYSICAL_DEVICE_LAYERED_API_PROPERTIES_LIST_KHR);
+
+   /* track app passed count before common helper overrides it */
+   const uint32_t layered_api_count =
+      layered_props_list ? layered_props_list->layeredApiCount : 0;
+
+   vk_common_GetPhysicalDeviceProperties2(physicalDevice, pProperties);
+
+   /* Properly fill maint7 layered api properties. */
    if (!layered_props_list)
       return;
 
-   layered_props_list->layeredApiCount = 1;
-   if (!layered_props_list->pLayeredApis)
+   if (!layered_props_list->pLayeredApis) {
+      layered_props_list->layeredApiCount = 1;
       return;
+   }
+
+   if (!layered_api_count)
+      return;
+
+   layered_props_list->layeredApiCount = 1;
 
    VN_COPY_STRUCT_GUTS(layered_props_list->pLayeredApis, &layered_props->api,
                        sizeof(layered_props->api));
@@ -2295,6 +2306,7 @@ vn_image_get_image_format_key(
     */
    if (format_info->pNext) {
       vk_foreach_struct_const(src, format_info->pNext) {
+         _mesa_blake3_update(&blake3_ctx, &src->sType, sizeof(src->sType));
          switch (src->sType) {
          case VK_STRUCTURE_TYPE_IMAGE_COMPRESSION_CONTROL_EXT: {
             VkImageCompressionControlEXT *compression_control =
@@ -2662,7 +2674,7 @@ vn_get_ahb_image_props(struct vn_physical_device *physical_dev,
       .maxMipLevels = 1,
       .maxArrayLayers = 1,
       .sampleCounts = VK_SAMPLE_COUNT_1_BIT,
-      .maxResourceSize = 1 << 31,
+      .maxResourceSize = 1ull << 31,
    };
 
    /* AHB + VK_KHR_sampler_ycbcr_conversion */
@@ -2707,10 +2719,11 @@ vn_GetPhysicalDeviceImageFormatProperties2(
    const VkPhysicalDeviceExternalImageFormatInfo *external_info =
       vk_find_struct_const(pImageFormatInfo->pNext,
                            PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO);
+   if (external_info && !external_info->handleType)
+      external_info = NULL;
+
    if (external_info) {
-      if (!external_info->handleType) {
-         external_info = NULL;
-      } else if (!(external_info->handleType & supported_handle_types)) {
+      if (!(external_info->handleType & supported_handle_types)) {
          return vn_error(physical_dev->instance,
                          VK_ERROR_FORMAT_NOT_SUPPORTED);
       }
@@ -3002,6 +3015,12 @@ vn_GetPhysicalDeviceDescriptorSizeEXT(VkPhysicalDevice physicalDevice,
          struct vn_ring *ring = physical_dev->instance->ring.ring;
 
          for (uint32_t i = 0; i < ARRAY_SIZE(vn_descriptor_heap_types); i++) {
+            if (vn_descriptor_heap_types[i] ==
+                   VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR &&
+                !physical_dev->base.vk.supported_extensions
+                    .KHR_acceleration_structure)
+               continue;
+
             const enum vn_descriptor_type type =
                vn_descriptor_type(vn_descriptor_heap_types[i]);
             physical_dev->descriptor_sizes[type] =

@@ -156,7 +156,7 @@ zink_create_instance(struct zink_screen *screen, struct zink_instance_info *inst
       instance_info->have_KHR_surface = have_KHR_surface;
       extensions[num_extensions++] = "VK_KHR_surface";
    }
-   if (have_EXT_headless_surface ) {
+   if (have_EXT_headless_surface && (have_KHR_surface)) {
       instance_info->have_EXT_headless_surface = have_EXT_headless_surface;
       extensions[num_extensions++] = "VK_EXT_headless_surface";
    }

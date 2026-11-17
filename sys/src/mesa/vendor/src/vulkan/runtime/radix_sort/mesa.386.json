@@ -25,7 +25,7 @@
 			"-D__STDC_CONSTANT_MACROS",
 			"-D__STDC_FORMAT_MACROS",
 			"-D__STDC_LIMIT_MACROS",
-			"-DPACKAGE_VERSION=\"26.2.4\"",
+			"-DPACKAGE_VERSION=\"26.2.7\"",
 			"-DPACKAGE_BUGREPORT=\"https://gitlab.freedesktop.org/mesa/mesa/-/issues\"",
 			"-DHAVE_OPENGL=1",
 			"-DHAVE_OPENGL_ES_1=0",

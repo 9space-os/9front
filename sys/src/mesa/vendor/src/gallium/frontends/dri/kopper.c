@@ -134,6 +134,9 @@ static struct pipe_resource *
 kopper_get_pixmap_buffer(struct dri_drawable *drawable,
                          enum pipe_format pf)
 {
+#ifdef GLX_USE_APPLEGL
+   return drawable->image ? drawable->image->texture : NULL;
+#else
    xcb_drawable_t                       pixmap;
    int                                  width;
    int                                  height;
@@ -152,12 +155,8 @@ kopper_get_pixmap_buffer(struct dri_drawable *drawable,
     */
    struct dri_screen *screen = drawable->screen;
 
-#ifndef GLX_USE_APPLEGL
    drawable->image = loader_dri3_get_pixmap_buffer(conn, pixmap, screen,
                                                    fourcc, drawable->screen->has_multibuffer, &width, &height, drawable);
-#else
-   drawable->image = NULL;
-#endif
    if (!drawable->image)
       return NULL;
 
@@ -165,6 +164,7 @@ kopper_get_pixmap_buffer(struct dri_drawable *drawable,
    drawable->h = height;
 
    return drawable->image->texture;
+#endif
 }
 #endif //VK_USE_PLATFORM_XCB_KHR
 
@@ -451,7 +451,8 @@ kopper_update_tex_buffer(struct dri_drawable *drawable,
                          struct pipe_resource *res)
 {
    struct dri_screen *screen = drawable->screen;
-   if (screen->has_dmabuf || drawable->is_window || drawable->info.bos.sType != VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR)
+   if (!screen->swrast_loader || screen->has_dmabuf || drawable->is_window ||
+       drawable->info.bos.sType != VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR)
       return;
    drisw_update_tex_buffer(drawable, ctx, res);
 }
@@ -492,14 +493,10 @@ kopper_init_drawable(struct dri_drawable *drawable, bool isPixmap, int alphaBits
       VkXcbSurfaceCreateInfoKHR *xcb = (VkXcbSurfaceCreateInfoKHR *)&drawable->info.bos;
       xcb_connection_t *conn = xcb->connection;
 
-      int32_t eid = xcb_generate_id(conn);
-      if (drawable->is_window) {
-         xcb_present_select_input(conn, eid, xcb->window,
-                                  XCB_PRESENT_EVENT_MASK_COMPLETE_NOTIFY);
-      }
-
+      drawable->present_eid = xcb_generate_id(conn);
       drawable->special_event =
-         xcb_register_for_special_xge(conn, &xcb_present_id, eid, NULL);
+         xcb_register_for_special_xge(conn, &xcb_present_id,
+                                      drawable->present_eid, NULL);
    }
 #endif
 }
@@ -589,7 +586,6 @@ kopper_swap_buffers(struct dri_drawable *drawable)
 void
 kopperSetSwapInterval(struct dri_drawable *drawable, int interval)
 {
-   struct dri_screen *screen = drawable->screen;
    struct pipe_resource *ptex = drawable->textures[ST_ATTACHMENT_BACK_LEFT] ?
                                 drawable->textures[ST_ATTACHMENT_BACK_LEFT] :
                                 drawable->textures[ST_ATTACHMENT_FRONT_LEFT];
@@ -603,8 +599,9 @@ kopperSetSwapInterval(struct dri_drawable *drawable, int interval)
     * the swapchain is eventually created.
     */
    if (ptex) {
-      struct pipe_screen *pscreen = kopper_get_zink_screen(screen->base.screen);
-      zink_kopper_set_swap_interval(pscreen, ptex, interval);
+      struct dri_context *ctx = dri_get_current();
+      _mesa_glthread_finish(ctx->st->ctx);
+      zink_kopper_set_swap_interval(ctx->st->pipe, ptex, interval);
    }
 }
 
@@ -647,6 +644,11 @@ kopperGetSyncValues(struct dri_drawable *drawable, int64_t target_msc, int64_t d
    VkXcbSurfaceCreateInfoKHR *xcb = (VkXcbSurfaceCreateInfoKHR *)&info->bos;
    xcb_connection_t *conn = xcb->connection;
 
+   if (!drawable->is_window)
+      return 0;
+
+   xcb_present_select_input(conn, drawable->present_eid, xcb->window,
+                            XCB_PRESENT_EVENT_MASK_COMPLETE_NOTIFY);
    xcb_void_cookie_t cookie =
       xcb_present_notify_msc(conn, xcb->window, 0, target_msc, divisor, remainder);
 
@@ -679,6 +681,8 @@ kopperGetSyncValues(struct dri_drawable *drawable, int64_t target_msc, int64_t d
 
       free(event);
    }
+
+   xcb_present_select_input(conn, drawable->present_eid, xcb->window, 0);
 
    return ret;
 #else

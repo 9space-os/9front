@@ -3760,7 +3760,6 @@ struct _nir_load_push_data_intel_indices {
    int _; /* exists to avoid empty initializers */
    int base;
    unsigned range;
-   enum gl_access_qualifier access;
 };
 struct _nir_load_r600_per_vertex_input_indices {
    int _; /* exists to avoid empty initializers */
@@ -11995,7 +11994,6 @@ _nir_build_load_push_data_intel(nir_builder *build, unsigned num_components, uns
    intrin->src[0] = nir_src_for_ssa(src0);
    nir_intrinsic_set_base(intrin, indices.base);
    nir_intrinsic_set_range(intrin, indices.range);
-   nir_intrinsic_set_access(intrin, indices.access);
 
    nir_builder_instr_insert(build, &intrin->instr);
    return &intrin->def;

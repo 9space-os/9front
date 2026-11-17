@@ -37,6 +37,7 @@ struct radv_drirc {
       int override_uniform_offset_alignment;
       bool force_64_byte_sampled_image;
       bool force_nan_preserve_min_max;
+      bool force_exact_glsl_fma;
       bool disable_binning_gfx11;
       char * force_vk_devicename;
       bool lower_terminate_to_discard;

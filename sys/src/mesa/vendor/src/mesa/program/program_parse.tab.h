@@ -166,7 +166,7 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 137 "../../src/mesa-26.2.4/src/mesa/program/program_parse.y"
+#line 137 "../../src/mesa-26.2.7/src/mesa/program/program_parse.y"
 
    struct asm_instruction *inst;
    struct asm_symbol *sym;

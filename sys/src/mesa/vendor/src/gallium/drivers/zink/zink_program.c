@@ -745,10 +745,13 @@ static struct zink_gfx_program *
 replace_separable_prog(struct zink_context *ctx, struct hash_entry *entry, struct zink_gfx_program *prog)
 {
    struct zink_screen *screen = zink_screen(ctx->base.screen);
+   bool is_mesh = !!prog->shaders[MESA_SHADER_MESH];
    struct zink_gfx_program *real = prog->full_prog ?
                                    prog->full_prog :
                                    /* this will be NULL with ZINK_DEBUG_NOOPT */
-                                   zink_create_gfx_program(ctx, ctx->gfx_stages, ctx->gfx_pipeline_state.dyn_state2.vertices_per_patch, ctx->gfx_hash, false);
+                                   zink_create_gfx_program(ctx, ctx->gfx_stages,
+                                                           is_mesh ? 0 : ctx->gfx_pipeline_state.dyn_state2.vertices_per_patch,
+                                                           is_mesh ? ctx->mesh_hash : ctx->gfx_hash, is_mesh);
    entry->data = real;
    entry->key = real->shaders;
    real->base.removed = false;
@@ -1361,9 +1364,10 @@ gfx_program_init(struct zink_context *ctx, struct zink_gfx_program *prog)
       if (prog->shaders[i]) {
          util_queue_fence_wait(&prog->shaders[i]->precompile.fence);
          /* this may have already been precompiled for separate shader */
-         if (prog->shaders[i]->info.stage == MESA_SHADER_TESS_CTRL && prog->shaders[i]->non_fs.is_generated && prog->shaders[MESA_SHADER_TESS_CTRL]->nir)
+         if (prog->shaders[i]->info.stage == MESA_SHADER_TESS_CTRL && prog->shaders[i]->non_fs.is_generated && prog->shaders[MESA_SHADER_TESS_CTRL]->nir) {
             zink_shader_tcs_init(screen, prog->shaders[MESA_SHADER_TESS_CTRL], nir[MESA_SHADER_TESS_EVAL], &nir[i]);
-         else
+            prog->shaders[MESA_SHADER_TESS_CTRL]->nir = NULL;
+         } else
             nir[i] = zink_shader_deserialize(screen, prog->shaders[i]);
       } else {
          nir[i] = NULL;

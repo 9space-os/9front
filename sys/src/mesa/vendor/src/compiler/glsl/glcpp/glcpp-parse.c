@@ -72,7 +72,7 @@
 #define yynerrs         glcpp_parser_nerrs
 
 /* First part of user prologue.  */
-#line 1 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 1 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
 
 /*
  * Copyright © 2010 Intel Corporation
@@ -1748,7 +1748,7 @@ YYLTYPE yylloc = yyloc_default;
 
 
 /* User initialization code.  */
-#line 183 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 183 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
 {
    yylloc.first_line = 1;
    yylloc.first_column = 1;
@@ -1968,7 +1968,7 @@ yyreduce:
   switch (yyn)
     {
   case 6: /* line: text_line  */
-#line 231 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 231 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
              {
       _glcpp_parser_print_expanded_token_list (parser, (yyvsp[0].token_list));
       _mesa_string_buffer_append_char(parser->output, '\n');
@@ -1977,7 +1977,7 @@ yyreduce:
     break;
 
   case 8: /* expanded_line: IF_EXPANDED expression NEWLINE  */
-#line 239 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 239 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                   {
       if (parser->is_gles && (yyvsp[-1].expression_value).undefined_macro)
          glcpp_error(& (yylsp[-2]), parser, "undefined macro %s in expression (illegal in GLES)", (yyvsp[-1].expression_value).undefined_macro);
@@ -1987,7 +1987,7 @@ yyreduce:
     break;
 
   case 9: /* expanded_line: ELIF_EXPANDED expression NEWLINE  */
-#line 244 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 244 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                     {
       if (parser->is_gles && (yyvsp[-1].expression_value).undefined_macro)
          glcpp_error(& (yylsp[-2]), parser, "undefined macro %s in expression (illegal in GLES)", (yyvsp[-1].expression_value).undefined_macro);
@@ -1997,7 +1997,7 @@ yyreduce:
     break;
 
   case 10: /* expanded_line: LINE_EXPANDED integer_constant NEWLINE  */
-#line 249 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 249 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                           {
       parser->has_new_line_number = 1;
       parser->new_line_number = (yyvsp[-1].ival);
@@ -2007,7 +2007,7 @@ yyreduce:
     break;
 
   case 11: /* expanded_line: LINE_EXPANDED integer_constant integer_constant NEWLINE  */
-#line 254 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 254 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                                            {
       parser->has_new_line_number = 1;
       parser->new_line_number = (yyvsp[-2].ival);
@@ -2021,7 +2021,7 @@ yyreduce:
     break;
 
   case 12: /* expanded_line: LINE_EXPANDED integer_constant PATH NEWLINE  */
-#line 263 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 263 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                                {
       parser->has_new_line_number = 1;
       parser->new_line_number = (yyvsp[-2].ival);
@@ -2033,7 +2033,7 @@ yyreduce:
     break;
 
   case 13: /* define: OBJ_IDENTIFIER replacement_list NEWLINE  */
-#line 273 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 273 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                            {
       _define_object_macro (parser, & (yylsp[-2]), (yyvsp[-2].str), (yyvsp[-1].token_list));
    }
@@ -2041,7 +2041,7 @@ yyreduce:
     break;
 
   case 14: /* define: FUNC_IDENTIFIER '(' ')' replacement_list NEWLINE  */
-#line 276 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 276 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                                     {
       _define_function_macro (parser, & (yylsp[-4]), (yyvsp[-4].str), NULL, (yyvsp[-1].token_list));
    }
@@ -2049,7 +2049,7 @@ yyreduce:
     break;
 
   case 15: /* define: FUNC_IDENTIFIER '(' identifier_list ')' replacement_list NEWLINE  */
-#line 279 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 279 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                                                     {
       _define_function_macro (parser, & (yylsp[-5]), (yyvsp[-5].str), (yyvsp[-3].string_list), (yyvsp[-1].token_list));
    }
@@ -2057,7 +2057,7 @@ yyreduce:
     break;
 
   case 16: /* control_line: control_line_success  */
-#line 285 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 285 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                         {
       _mesa_string_buffer_append_char(parser->output, '\n');
    }
@@ -2065,7 +2065,7 @@ yyreduce:
     break;
 
   case 18: /* control_line: HASH_TOKEN LINE pp_tokens NEWLINE  */
-#line 289 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 289 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                      {
 
       if (parser->skip_stack == NULL ||
@@ -2080,7 +2080,7 @@ yyreduce:
     break;
 
   case 20: /* control_line_success: HASH_TOKEN UNDEF IDENTIFIER NEWLINE  */
-#line 303 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 303 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                        {
       struct hash_entry *entry;
 
@@ -2137,7 +2137,7 @@ yyreduce:
     break;
 
   case 21: /* control_line_success: HASH_TOKEN INCLUDE NEWLINE  */
-#line 355 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 355 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                               {
       size_t include_cursor = _mesa_get_shader_include_cursor(parser->gl_ctx->Shared);
 
@@ -2216,7 +2216,7 @@ yyreduce:
     break;
 
   case 22: /* control_line_success: HASH_TOKEN IF pp_tokens NEWLINE  */
-#line 429 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 429 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                    {
       /* Be careful to only evaluate the 'if' expression if
        * we are not skipping. When we are skipping, we
@@ -2242,7 +2242,7 @@ yyreduce:
     break;
 
   case 23: /* control_line_success: HASH_TOKEN IF NEWLINE  */
-#line 450 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 450 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                          {
       /* #if without an expression is only an error if we
        *  are not skipping */
@@ -2257,7 +2257,7 @@ yyreduce:
     break;
 
   case 24: /* control_line_success: HASH_TOKEN IFDEF IDENTIFIER junk NEWLINE  */
-#line 460 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 460 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                             {
       struct hash_entry *entry =
             _mesa_hash_table_search(parser->defines, (yyvsp[-2].str));
@@ -2268,7 +2268,7 @@ yyreduce:
     break;
 
   case 25: /* control_line_success: HASH_TOKEN IFNDEF IDENTIFIER junk NEWLINE  */
-#line 466 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 466 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                              {
       struct hash_entry *entry =
             _mesa_hash_table_search(parser->defines, (yyvsp[-2].str));
@@ -2279,7 +2279,7 @@ yyreduce:
     break;
 
   case 26: /* control_line_success: HASH_TOKEN ELIF pp_tokens NEWLINE  */
-#line 472 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 472 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                      {
       /* Be careful to only evaluate the 'elif' expression
        * if we are not skipping. When we are skipping, we
@@ -2310,7 +2310,7 @@ yyreduce:
     break;
 
   case 27: /* control_line_success: HASH_TOKEN ELIF NEWLINE  */
-#line 498 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 498 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                            {
       /* #elif without an expression is an error unless we
        * are skipping. */
@@ -2335,13 +2335,13 @@ yyreduce:
     break;
 
   case 28: /* $@1: %empty  */
-#line 518 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 518 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                    { parser->lexing_directive = 1; }
 #line 2341 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 29: /* control_line_success: HASH_TOKEN ELSE $@1 NEWLINE  */
-#line 518 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 518 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                                              {
       if (parser->skip_stack &&
           parser->skip_stack->has_else)
@@ -2359,7 +2359,7 @@ yyreduce:
     break;
 
   case 30: /* $@2: %empty  */
-#line 531 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 531 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                     {
       _glcpp_parser_skip_stack_pop (parser, & (yylsp[-1]));
    }
@@ -2367,7 +2367,7 @@ yyreduce:
     break;
 
   case 32: /* control_line_success: HASH_TOKEN VERSION_TOKEN version_constant NEWLINE  */
-#line 534 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 534 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                                      {
       if (parser->version_set) {
          glcpp_error(& (yylsp[-3]), parser, "#version must appear on the first line");
@@ -2378,7 +2378,7 @@ yyreduce:
     break;
 
   case 33: /* control_line_success: HASH_TOKEN VERSION_TOKEN version_constant IDENTIFIER NEWLINE  */
-#line 540 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 540 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                                                 {
       if (parser->version_set) {
          glcpp_error(& (yylsp[-4]), parser, "#version must appear on the first line");
@@ -2389,7 +2389,7 @@ yyreduce:
     break;
 
   case 34: /* control_line_success: HASH_TOKEN NEWLINE  */
-#line 546 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 546 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                       {
       glcpp_parser_resolve_implicit_version(parser);
    }
@@ -2397,7 +2397,7 @@ yyreduce:
     break;
 
   case 35: /* control_line_success: HASH_TOKEN PRAGMA NEWLINE  */
-#line 549 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 549 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                              {
       _mesa_string_buffer_printf(parser->output, "#%s", (yyvsp[-1].str));
    }
@@ -2405,7 +2405,7 @@ yyreduce:
     break;
 
   case 36: /* control_line_error: HASH_TOKEN ERROR_TOKEN NEWLINE  */
-#line 555 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 555 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                   {
       glcpp_error(& (yylsp[-2]), parser, "#%s", (yyvsp[-1].str));
    }
@@ -2413,7 +2413,7 @@ yyreduce:
     break;
 
   case 37: /* control_line_error: HASH_TOKEN DEFINE_TOKEN NEWLINE  */
-#line 558 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 558 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                    {
       glcpp_error (& (yylsp[-2]), parser, "#define without macro name");
    }
@@ -2421,7 +2421,7 @@ yyreduce:
     break;
 
   case 38: /* control_line_error: HASH_TOKEN GARBAGE pp_tokens NEWLINE  */
-#line 561 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 561 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                          {
       glcpp_error (& (yylsp[-3]), parser, "Illegal non-directive after #");
    }
@@ -2429,7 +2429,7 @@ yyreduce:
     break;
 
   case 39: /* integer_constant: INTEGER_STRING  */
-#line 567 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 567 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                   {
       /* let strtoll detect the base */
       (yyval.ival) = strtoll ((yyvsp[0].str), NULL, 0);
@@ -2438,7 +2438,7 @@ yyreduce:
     break;
 
   case 40: /* integer_constant: INTEGER  */
-#line 571 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 571 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
            {
       (yyval.ival) = (yyvsp[0].ival);
    }
@@ -2446,7 +2446,7 @@ yyreduce:
     break;
 
   case 41: /* version_constant: INTEGER_STRING  */
-#line 576 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 576 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                   {
       /* Both octal and hexadecimal constants begin with 0. */
       if ((yyvsp[0].str)[0] == '0' && (yyvsp[0].str)[1] != '\0') {
@@ -2460,7 +2460,7 @@ yyreduce:
     break;
 
   case 42: /* expression: integer_constant  */
-#line 587 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 587 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                     {
       (yyval.expression_value).value = (yyvsp[0].ival);
       (yyval.expression_value).undefined_macro = NULL;
@@ -2469,7 +2469,7 @@ yyreduce:
     break;
 
   case 43: /* expression: IDENTIFIER  */
-#line 591 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 591 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
               {
       (yyval.expression_value).value = 0;
       if (parser->is_gles)
@@ -2481,7 +2481,7 @@ yyreduce:
     break;
 
   case 44: /* expression: expression OR expression  */
-#line 598 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 598 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                             {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value || (yyvsp[0].expression_value).value;
 
@@ -2497,7 +2497,7 @@ yyreduce:
     break;
 
   case 45: /* expression: expression AND expression  */
-#line 609 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 609 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                              {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value && (yyvsp[0].expression_value).value;
 
@@ -2513,7 +2513,7 @@ yyreduce:
     break;
 
   case 46: /* expression: expression '|' expression  */
-#line 620 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 620 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                              {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value | (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2525,7 +2525,7 @@ yyreduce:
     break;
 
   case 47: /* expression: expression '^' expression  */
-#line 627 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 627 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                              {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value ^ (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2537,7 +2537,7 @@ yyreduce:
     break;
 
   case 48: /* expression: expression '&' expression  */
-#line 634 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 634 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                              {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value & (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2549,7 +2549,7 @@ yyreduce:
     break;
 
   case 49: /* expression: expression NOT_EQUAL expression  */
-#line 641 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 641 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                    {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value != (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2561,7 +2561,7 @@ yyreduce:
     break;
 
   case 50: /* expression: expression EQUAL expression  */
-#line 648 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 648 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value == (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2573,7 +2573,7 @@ yyreduce:
     break;
 
   case 51: /* expression: expression GREATER_OR_EQUAL expression  */
-#line 655 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 655 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                           {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value >= (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2585,7 +2585,7 @@ yyreduce:
     break;
 
   case 52: /* expression: expression LESS_OR_EQUAL expression  */
-#line 662 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 662 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                        {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value <= (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2597,7 +2597,7 @@ yyreduce:
     break;
 
   case 53: /* expression: expression '>' expression  */
-#line 669 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 669 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                              {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value > (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2609,7 +2609,7 @@ yyreduce:
     break;
 
   case 54: /* expression: expression '<' expression  */
-#line 676 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 676 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                              {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value < (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2621,7 +2621,7 @@ yyreduce:
     break;
 
   case 55: /* expression: expression RIGHT_SHIFT expression  */
-#line 683 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 683 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                      {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value >> (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2633,7 +2633,7 @@ yyreduce:
     break;
 
   case 56: /* expression: expression LEFT_SHIFT expression  */
-#line 690 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 690 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                     {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value << (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2645,7 +2645,7 @@ yyreduce:
     break;
 
   case 57: /* expression: expression '-' expression  */
-#line 697 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 697 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                              {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value - (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2657,7 +2657,7 @@ yyreduce:
     break;
 
   case 58: /* expression: expression '+' expression  */
-#line 704 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 704 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                              {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value + (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2669,7 +2669,7 @@ yyreduce:
     break;
 
   case 59: /* expression: expression '%' expression  */
-#line 711 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 711 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                              {
       if ((yyvsp[0].expression_value).value == 0) {
          yyerror (& (yylsp[-2]), parser,
@@ -2686,7 +2686,7 @@ yyreduce:
     break;
 
   case 60: /* expression: expression '/' expression  */
-#line 723 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 723 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                              {
       if ((yyvsp[0].expression_value).value == 0) {
          yyerror (& (yylsp[-2]), parser,
@@ -2703,7 +2703,7 @@ yyreduce:
     break;
 
   case 61: /* expression: expression '*' expression  */
-#line 735 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 735 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                              {
       (yyval.expression_value).value = (yyvsp[-2].expression_value).value * (yyvsp[0].expression_value).value;
       if ((yyvsp[-2].expression_value).undefined_macro)
@@ -2715,7 +2715,7 @@ yyreduce:
     break;
 
   case 62: /* expression: '!' expression  */
-#line 742 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 742 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                               {
       (yyval.expression_value).value = ! (yyvsp[0].expression_value).value;
       (yyval.expression_value).undefined_macro = (yyvsp[0].expression_value).undefined_macro;
@@ -2724,7 +2724,7 @@ yyreduce:
     break;
 
   case 63: /* expression: '~' expression  */
-#line 746 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 746 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                               {
       (yyval.expression_value).value = ~ (yyvsp[0].expression_value).value;
       (yyval.expression_value).undefined_macro = (yyvsp[0].expression_value).undefined_macro;
@@ -2733,7 +2733,7 @@ yyreduce:
     break;
 
   case 64: /* expression: '-' expression  */
-#line 750 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 750 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                               {
       (yyval.expression_value).value = - (yyvsp[0].expression_value).value;
       (yyval.expression_value).undefined_macro = (yyvsp[0].expression_value).undefined_macro;
@@ -2742,7 +2742,7 @@ yyreduce:
     break;
 
   case 65: /* expression: '+' expression  */
-#line 754 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 754 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                               {
       (yyval.expression_value).value = + (yyvsp[0].expression_value).value;
       (yyval.expression_value).undefined_macro = (yyvsp[0].expression_value).undefined_macro;
@@ -2751,7 +2751,7 @@ yyreduce:
     break;
 
   case 66: /* expression: '(' expression ')'  */
-#line 758 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 758 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                       {
       (yyval.expression_value) = (yyvsp[-1].expression_value);
    }
@@ -2759,7 +2759,7 @@ yyreduce:
     break;
 
   case 67: /* identifier_list: IDENTIFIER  */
-#line 764 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 764 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
               {
       (yyval.string_list) = _string_list_create (parser);
       _string_list_append_item (parser, (yyval.string_list), (yyvsp[0].str));
@@ -2768,7 +2768,7 @@ yyreduce:
     break;
 
   case 68: /* identifier_list: identifier_list ',' IDENTIFIER  */
-#line 768 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 768 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                   {
       (yyval.string_list) = (yyvsp[-2].string_list);
       _string_list_append_item (parser, (yyval.string_list), (yyvsp[0].str));
@@ -2777,19 +2777,19 @@ yyreduce:
     break;
 
   case 69: /* text_line: NEWLINE  */
-#line 775 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 775 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
            { (yyval.token_list) = NULL; }
 #line 2783 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 71: /* replacement_list: %empty  */
-#line 780 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 780 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                { (yyval.token_list) = NULL; }
 #line 2789 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 74: /* junk: pp_tokens  */
-#line 786 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 786 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
              {
       if (parser->gl_ctx->Const.AllowExtraPPTokens)
          glcpp_warning(&(yylsp[0]), parser, "extra tokens at end of directive");
@@ -2802,7 +2802,7 @@ yyreduce:
     break;
 
   case 75: /* pp_tokens: preprocessing_token  */
-#line 797 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 797 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                        {
       parser->space_tokens = 1;
       (yyval.token_list) = _token_list_create (parser);
@@ -2812,7 +2812,7 @@ yyreduce:
     break;
 
   case 76: /* pp_tokens: pp_tokens preprocessing_token  */
-#line 802 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 802 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                                  {
       (yyval.token_list) = (yyvsp[-1].token_list);
       _token_list_append (parser, (yyval.token_list), (yyvsp[0].token));
@@ -2821,7 +2821,7 @@ yyreduce:
     break;
 
   case 77: /* preprocessing_token: IDENTIFIER  */
-#line 809 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 809 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
               {
       (yyval.token) = _token_create_str (parser, IDENTIFIER, (yyvsp[0].str));
       (yyval.token)->location = yylloc;
@@ -2830,7 +2830,7 @@ yyreduce:
     break;
 
   case 78: /* preprocessing_token: INTEGER_STRING  */
-#line 813 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 813 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                   {
       (yyval.token) = _token_create_str (parser, INTEGER_STRING, (yyvsp[0].str));
       (yyval.token)->location = yylloc;
@@ -2839,7 +2839,7 @@ yyreduce:
     break;
 
   case 79: /* preprocessing_token: PATH  */
-#line 817 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 817 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
         {
       (yyval.token) = _token_create_str (parser, PATH, (yyvsp[0].str));
       (yyval.token)->location = yylloc;
@@ -2848,7 +2848,7 @@ yyreduce:
     break;
 
   case 80: /* preprocessing_token: operator  */
-#line 821 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 821 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
             {
       (yyval.token) = _token_create_ival (parser, (yyvsp[0].ival), (yyvsp[0].ival));
       (yyval.token)->location = yylloc;
@@ -2857,7 +2857,7 @@ yyreduce:
     break;
 
   case 81: /* preprocessing_token: DEFINED  */
-#line 825 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 825 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
            {
       (yyval.token) = _token_create_ival (parser, DEFINED, DEFINED);
       (yyval.token)->location = yylloc;
@@ -2866,7 +2866,7 @@ yyreduce:
     break;
 
   case 82: /* preprocessing_token: OTHER  */
-#line 829 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 829 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
          {
       (yyval.token) = _token_create_str (parser, OTHER, (yyvsp[0].str));
       (yyval.token)->location = yylloc;
@@ -2875,7 +2875,7 @@ yyreduce:
     break;
 
   case 83: /* preprocessing_token: SPACE  */
-#line 833 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 833 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
          {
       (yyval.token) = _token_create_ival (parser, SPACE, SPACE);
       (yyval.token)->location = yylloc;
@@ -2884,199 +2884,199 @@ yyreduce:
     break;
 
   case 84: /* operator: '['  */
-#line 840 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 840 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '['; }
 #line 2890 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 85: /* operator: ']'  */
-#line 841 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 841 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = ']'; }
 #line 2896 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 86: /* operator: '('  */
-#line 842 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 842 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '('; }
 #line 2902 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 87: /* operator: ')'  */
-#line 843 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 843 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = ')'; }
 #line 2908 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 88: /* operator: '{'  */
-#line 844 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 844 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '{'; }
 #line 2914 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 89: /* operator: '}'  */
-#line 845 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 845 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '}'; }
 #line 2920 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 90: /* operator: '.'  */
-#line 846 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 846 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '.'; }
 #line 2926 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 91: /* operator: '&'  */
-#line 847 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 847 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '&'; }
 #line 2932 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 92: /* operator: '*'  */
-#line 848 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 848 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '*'; }
 #line 2938 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 93: /* operator: '+'  */
-#line 849 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 849 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '+'; }
 #line 2944 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 94: /* operator: '-'  */
-#line 850 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 850 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '-'; }
 #line 2950 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 95: /* operator: '~'  */
-#line 851 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 851 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '~'; }
 #line 2956 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 96: /* operator: '!'  */
-#line 852 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 852 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '!'; }
 #line 2962 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 97: /* operator: '/'  */
-#line 853 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 853 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '/'; }
 #line 2968 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 98: /* operator: '%'  */
-#line 854 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 854 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '%'; }
 #line 2974 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 99: /* operator: LEFT_SHIFT  */
-#line 855 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 855 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = LEFT_SHIFT; }
 #line 2980 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 100: /* operator: RIGHT_SHIFT  */
-#line 856 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 856 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = RIGHT_SHIFT; }
 #line 2986 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 101: /* operator: '<'  */
-#line 857 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 857 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '<'; }
 #line 2992 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 102: /* operator: '>'  */
-#line 858 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 858 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '>'; }
 #line 2998 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 103: /* operator: LESS_OR_EQUAL  */
-#line 859 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 859 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = LESS_OR_EQUAL; }
 #line 3004 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 104: /* operator: GREATER_OR_EQUAL  */
-#line 860 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 860 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = GREATER_OR_EQUAL; }
 #line 3010 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 105: /* operator: EQUAL  */
-#line 861 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 861 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = EQUAL; }
 #line 3016 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 106: /* operator: NOT_EQUAL  */
-#line 862 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 862 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = NOT_EQUAL; }
 #line 3022 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 107: /* operator: '^'  */
-#line 863 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 863 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '^'; }
 #line 3028 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 108: /* operator: '|'  */
-#line 864 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 864 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '|'; }
 #line 3034 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 109: /* operator: AND  */
-#line 865 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 865 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = AND; }
 #line 3040 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 110: /* operator: OR  */
-#line 866 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 866 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = OR; }
 #line 3046 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 111: /* operator: ';'  */
-#line 867 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 867 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = ';'; }
 #line 3052 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 112: /* operator: ','  */
-#line 868 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 868 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = ','; }
 #line 3058 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 113: /* operator: '='  */
-#line 869 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 869 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = '='; }
 #line 3064 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 114: /* operator: PASTE  */
-#line 870 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 870 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = PASTE; }
 #line 3070 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 115: /* operator: PLUS_PLUS  */
-#line 871 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 871 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = PLUS_PLUS; }
 #line 3076 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
 
   case 116: /* operator: MINUS_MINUS  */
-#line 872 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 872 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
                      { (yyval.ival) = MINUS_MINUS; }
 #line 3082 "src/compiler/glsl/glcpp/glcpp-parse.c"
     break;
@@ -3311,7 +3311,7 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 875 "../../src/mesa-26.2.4/src/compiler/glsl/glcpp/glcpp-parse.y"
+#line 875 "../../src/mesa-26.2.7/src/compiler/glsl/glcpp/glcpp-parse.y"
 
 
 string_list_t *

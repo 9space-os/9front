@@ -6256,7 +6256,7 @@ emit_prolog_regs(struct radv_cmd_buffer *cmd_buffer, const struct radv_shader *v
    if (pdev->info.gfx_level >= GFX12) {
       gfx12_push_sh_reg(vs_shader->regs.pgm_lo, prolog->va >> 8);
       gfx12_push_sh_reg(vs_shader->regs.pgm_rsrc1, rsrc1);
-      if (vs_shader->info.merged_shader_compiled_separately)
+      if (vs_shader->info.merged_shader_compiled_separately && vs_shader->info.next_stage == MESA_SHADER_GEOMETRY)
          gfx12_push_sh_reg(vs_shader->regs.pgm_rsrc2, rsrc2);
 
       if (prolog->key.vs.is_ngg) {
@@ -6268,7 +6268,7 @@ emit_prolog_regs(struct radv_cmd_buffer *cmd_buffer, const struct radv_shader *v
    } else {
       radeon_set_sh_reg(vs_shader->regs.pgm_lo, prolog->va >> 8);
       radeon_set_sh_reg(vs_shader->regs.pgm_rsrc1, rsrc1);
-      if (vs_shader->info.merged_shader_compiled_separately)
+      if (vs_shader->info.merged_shader_compiled_separately && vs_shader->info.next_stage == MESA_SHADER_GEOMETRY)
          radeon_set_sh_reg(vs_shader->regs.pgm_rsrc2, rsrc2);
 
       if (pdev->info.gfx_level >= GFX11) {
@@ -8927,6 +8927,11 @@ radv_bind_pre_rast_shader(struct radv_cmd_buffer *cmd_buffer, const struct radv_
       cmd_buffer->state.last_first_instance = -1;
       cmd_buffer->state.last_vertex_offset_valid = false;
       cmd_buffer->state.last_drawid = -1;
+   } else if (shader->info.stage == MESA_SHADER_MESH) {
+      cmd_buffer->state.vtx_base_sgpr = 0;
+      cmd_buffer->state.vtx_emit_num = 0;
+      cmd_buffer->state.uses_drawid = false;
+      cmd_buffer->state.uses_baseinstance = false;
    }
 
    if ((shader->info.stage == MESA_SHADER_MESH) != !!(cmd_buffer->state.active_stages & VK_SHADER_STAGE_MESH_BIT_EXT)) {
@@ -10205,7 +10210,7 @@ radv_CmdExecuteCommands(VkCommandBuffer commandBuffer, uint32_t commandBufferCou
       radv_merge_queue_state(&secondary->queue_state, &primary->queue_state);
 
       if (!secondary->state.render.has_image_views) {
-         if (primary->state.render.active && (primary->state.dirty & RADV_CMD_DIRTY_GFX12_HIZ_WA_STATE)) {
+         if (primary->state.render.active) {
             if (pdev->gfx12_hiz_wa == RADV_GFX12_HIZ_WA_FULL) {
                const struct radv_rendering_state *render = &primary->state.render;
                const struct radv_image_view *iview = render->ds_att.iview;
@@ -15875,6 +15880,7 @@ radv_barrier(struct radv_cmd_buffer *cmd_buffer, uint32_t dep_count, const VkDep
       radv_mark_noncoherent_rb(cmd_buffer);
 
    radv_describe_barrier_start(cmd_buffer, reason);
+   radv_suspend_conditional_rendering(cmd_buffer);
 
    for (uint32_t dep_idx = 0; dep_idx < dep_count; dep_idx++) {
       const VkDependencyInfo *dep_info = &dep_infos[dep_idx];
@@ -16010,6 +16016,7 @@ radv_barrier(struct radv_cmd_buffer *cmd_buffer, uint32_t dep_count, const VkDep
 
    cmd_buffer->state.flush_bits |= dst_flush_bits;
 
+   radv_resume_conditional_rendering(cmd_buffer);
    radv_describe_barrier_end(cmd_buffer);
 }
 

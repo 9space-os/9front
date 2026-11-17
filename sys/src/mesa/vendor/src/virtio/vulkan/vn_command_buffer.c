@@ -711,7 +711,7 @@ vn_CreateCommandPool(VkDevice device,
 
    list_inithead(&pool->free_query_records);
 
-   vn_cached_storage_init(&pool->storage, alloc);
+   vn_cached_storage_init(&pool->storage, &pool->base.vk.alloc);
 
    VkCommandPool pool_handle = vn_command_pool_to_handle(pool);
    vn_async_vkCreateCommandPool(dev->primary_ring, device, pCreateInfo, NULL,
@@ -731,7 +731,7 @@ vn_cmd_reset(struct vn_command_buffer *cmd)
 
    vn_cs_encoder_reset(&cmd->cs);
 
-   cmd->base.vk.state = MESA_VK_COMMAND_BUFFER_STATE_INITIAL;
+   vk_command_buffer_reset(&cmd->base.vk);
 
    /* reset cmd builder */
    vk_free(&cmd->base.vk.pool->alloc, cmd->builder.present_src_images);
@@ -763,13 +763,14 @@ vn_DestroyCommandPool(VkDevice device,
    vn_async_vkDestroyCommandPool(dev->primary_ring, device, commandPool,
                                  NULL);
 
+   vn_cached_storage_fini(&pool->storage);
+
+   vn_command_pool_base_fini(&pool->base);
+
    list_for_each_entry_safe(struct vn_cmd_query_record, record,
                             &pool->free_query_records, head)
       vk_free(alloc, record);
 
-   vn_cached_storage_fini(&pool->storage);
-
-   vn_command_pool_base_fini(&pool->base);
    vk_free(alloc, pool);
 }
 
@@ -2314,6 +2315,8 @@ vn_CmdPushDescriptorSetWithTemplate(
                templ->iub_count);
    STACK_ARRAY(VkWriteDescriptorSetAccelerationStructureKHR, accels,
                templ->accel_count);
+   STACK_ARRAY(VkAccelerationStructureKHR, accel_handles,
+               templ->accel_handle_count);
    struct vn_descriptor_set_update update = {
       .writes = writes,
       .img_infos = img_infos,
@@ -2321,6 +2324,7 @@ vn_CmdPushDescriptorSetWithTemplate(
       .bview_handles = bview_handles,
       .iubs = iubs,
       .accels = accels,
+      .accel_handles = accel_handles,
    };
    vn_descriptor_set_fill_update_with_template(templ, VK_NULL_HANDLE, pData,
                                                &update);
@@ -2335,6 +2339,7 @@ vn_CmdPushDescriptorSetWithTemplate(
    STACK_ARRAY_FINISH(bview_handles);
    STACK_ARRAY_FINISH(iubs);
    STACK_ARRAY_FINISH(accels);
+   STACK_ARRAY_FINISH(accel_handles);
 }
 
 VKAPI_ATTR void VKAPI_CALL
@@ -2354,6 +2359,8 @@ vn_CmdPushDescriptorSetWithTemplate2(VkCommandBuffer commandBuffer,
                templ->iub_count);
    STACK_ARRAY(VkWriteDescriptorSetAccelerationStructureKHR, accels,
                templ->accel_count);
+   STACK_ARRAY(VkAccelerationStructureKHR, accel_handles,
+               templ->accel_handle_count);
    struct vn_descriptor_set_update update = {
       .writes = writes,
       .img_infos = img_infos,
@@ -2361,6 +2368,7 @@ vn_CmdPushDescriptorSetWithTemplate2(VkCommandBuffer commandBuffer,
       .bview_handles = bview_handles,
       .iubs = iubs,
       .accels = accels,
+      .accel_handles = accel_handles,
    };
    vn_descriptor_set_fill_update_with_template(
       templ, VK_NULL_HANDLE, pPushDescriptorSetWithTemplateInfo->pData,
@@ -2408,6 +2416,7 @@ vn_CmdPushDescriptorSetWithTemplate2(VkCommandBuffer commandBuffer,
    STACK_ARRAY_FINISH(bview_handles);
    STACK_ARRAY_FINISH(iubs);
    STACK_ARRAY_FINISH(accels);
+   STACK_ARRAY_FINISH(accel_handles);
 }
 
 VKAPI_ATTR void VKAPI_CALL

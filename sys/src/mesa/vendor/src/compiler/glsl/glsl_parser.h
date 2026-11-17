@@ -204,7 +204,7 @@ extern int _mesa_glsl_debug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 102 "../../src/mesa-26.2.4/src/compiler/glsl/glsl_parser.yy"
+#line 102 "../../src/mesa-26.2.7/src/compiler/glsl/glsl_parser.yy"
 
    int n;
    int64_t n64;

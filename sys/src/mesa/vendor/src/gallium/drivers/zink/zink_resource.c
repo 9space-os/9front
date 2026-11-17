@@ -648,7 +648,7 @@ find_good_mod(struct zink_screen *screen, VkImageCreateInfo *ici, const struct p
          continue;
 
       VkImageCreateFlags try_flags = saved_flags;
-      if (feats & VK_FORMAT_FEATURE_DISJOINT_BIT && util_format_get_num_planes(templ->format))
+      if (feats & VK_FORMAT_FEATURE_DISJOINT_BIT && util_format_get_num_planes(templ->format) > 1)
          try_flags |= VK_IMAGE_CREATE_DISJOINT_BIT;
       ici->flags = try_flags;
 
@@ -1156,8 +1156,10 @@ allocate_bo(struct zink_screen *screen, const struct pipe_resource *templ,
    }
 
    while (1) {
+      bool small_bar = heap == ZINK_HEAP_DEVICE_LOCAL_VISIBLE && !screen->resizable_bar;
+      bool skip = small_bar && screen->vis_vram_full;
       /* iterate over all available memory types to reduce chance of oom */
-      for (unsigned i = 0; !obj->bo && i < screen->heap_count[heap]; i++) {
+      for (unsigned i = 0; !skip && !obj->bo && i < screen->heap_count[heap]; i++) {
          if (!(reqs->memoryTypeBits & BITFIELD_BIT(screen->heap_map[heap][i])))
             continue;
 
@@ -1168,8 +1170,12 @@ allocate_bo(struct zink_screen *screen, const struct pipe_resource *templ,
       if (obj->bo || heap != ZINK_HEAP_DEVICE_LOCAL_VISIBLE)
          break;
 
+      if (small_bar && !skip && reqs->size <= 2 * 1024 * 1024)
+         screen->vis_vram_full = true;
+
       /* demote BAR allocations to a different heap on failure to avoid oom */
-      if (templ->flags & PIPE_RESOURCE_FLAG_MAP_COHERENT || templ->usage == PIPE_USAGE_DYNAMIC)
+      if (templ->flags & PIPE_RESOURCE_FLAG_MAP_COHERENT || templ->usage == PIPE_USAGE_DYNAMIC ||
+          templ->bind & ZINK_BIND_DESCRIPTOR)
           heap = ZINK_HEAP_HOST_VISIBLE_COHERENT;
       else
           heap = ZINK_HEAP_DEVICE_LOCAL;
@@ -2050,7 +2056,7 @@ add_resource_bind(struct zink_context *ctx, struct zink_resource *res, unsigned 
    res->rebind_count++;
    if (old_obj->exportable) {
       simple_mtx_lock(&ctx->bs->exportable_lock);
-      _mesa_set_remove_key(&ctx->bs->dmabuf_exports, &staging);
+      _mesa_hash_table_remove_key(&ctx->bs->dmabuf_exports, &staging);
       simple_mtx_unlock(&ctx->bs->exportable_lock);
    }
    zink_resource_object_reference(screen, &old_obj, NULL);
@@ -2839,8 +2845,8 @@ zink_image_map(struct pipe_context *pctx,
       return NULL;
 
    trans->base.b.level = level;
-   if (zink_is_swapchain(res))
-      /* this is probably a multi-chain which has already been acquired */
+   /* reads of presented images go through zink_kopper_acquire_readback */
+   if (zink_is_swapchain(res) && (!(usage & PIPE_MAP_READ) || res->obj->last_dt_idx == UINT32_MAX))
       zink_kopper_acquire(ctx, res, 0);
 
    void *ptr;

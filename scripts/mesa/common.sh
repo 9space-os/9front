@@ -14,8 +14,13 @@ WORK=${MESA_WORK:-$CACHE/mesa}
 SRC=$WORK/src/mesa-$MESA_VERSION
 VENV=$WORK/venv
 # a meson build directory set up elsewhere (WORK moved: its build.ninja calls the
-# old venv's meson by its absolute path, and ninja's regenerate step fails)
-moved(){ [ -f "$1/build.ninja" ] && ! grep -q -F "$VENV/bin/meson" "$1/build.ninja"; }
+# old venv's meson by its absolute path, and ninja's regenerate step fails), or
+# for another source tree (a new Mesa release in VERSION: it built the old one's)
+moved(){
+	[ -f "$1/build.ninja" ] || return 1
+	! grep -q -F "$VENV/bin/meson" "$1/build.ninja" ||
+	! grep -q -E "\"source\": *\"$SRC\"" "$1/meson-info/meson-info.json" 2>/dev/null
+}
 objtype=${objtype:-amd64}
 case $objtype in
 amd64)	TRIPLE=x86_64-pc-plan9 CPU=x86_64 ;;

@@ -442,7 +442,6 @@
 			"vendor/src/compiler/nir/nir_divergence_analysis.o",
 			"vendor/src/compiler/nir/nir_dominance.o",
 			"vendor/src/compiler/nir/nir_dominance_lca.o",
-			"vendor/src/compiler/nir/nir_downgrade_pls_vars.o",
 			"vendor/src/compiler/nir/nir_fixup_is_exported.o",
 			"vendor/src/compiler/nir/nir_format_convert.o",
 			"vendor/src/compiler/nir/nir_from_ssa.o",

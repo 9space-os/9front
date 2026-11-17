@@ -1,5 +1,5 @@
 /*
- * File generated with ../../src/mesa-26.2.4/src/gallium/auxiliary/driver_trace/enums2names.py, please do not edit manually.
+ * File generated with ../../src/mesa-26.2.7/src/gallium/auxiliary/driver_trace/enums2names.py, please do not edit manually.
  */
 #include "tr_util.h"
 

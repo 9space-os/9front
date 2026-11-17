@@ -3898,7 +3898,7 @@ GLAPI void GLAPIENTRY glGetVertexAttribiv(GLuint index, GLenum pname, GLint *par
 GLAPI void GLAPIENTRY glGetnColorTable(GLenum target, GLenum format, GLenum type, GLsizei bufSize, void *table)
 {
    const struct _glapi_table *_tbl = GET_DISPATCH();
-   _glapi_proc _func = ((const _glapi_proc *) _tbl)[1634];
+   _glapi_proc _func = ((const _glapi_proc *) _tbl)[1635];
    ((void (GLAPIENTRY *)(GLenum target, GLenum format, GLenum type, GLsizei bufSize, void *table)) _func)(target, format, type, bufSize, table);
 }
 
@@ -3912,14 +3912,14 @@ GLAPI void GLAPIENTRY glGetnCompressedTexImage(GLenum target, GLint lod, GLsizei
 GLAPI void GLAPIENTRY glGetnConvolutionFilter(GLenum target, GLenum format, GLenum type, GLsizei bufSize, void *image)
 {
    const struct _glapi_table *_tbl = GET_DISPATCH();
-   _glapi_proc _func = ((const _glapi_proc *) _tbl)[1635];
+   _glapi_proc _func = ((const _glapi_proc *) _tbl)[1636];
    ((void (GLAPIENTRY *)(GLenum target, GLenum format, GLenum type, GLsizei bufSize, void *image)) _func)(target, format, type, bufSize, image);
 }
 
 GLAPI void GLAPIENTRY glGetnHistogram(GLenum target, GLboolean reset, GLenum format, GLenum type, GLsizei bufSize, void *values)
 {
    const struct _glapi_table *_tbl = GET_DISPATCH();
-   _glapi_proc _func = ((const _glapi_proc *) _tbl)[1636];
+   _glapi_proc _func = ((const _glapi_proc *) _tbl)[1637];
    ((void (GLAPIENTRY *)(GLenum target, GLboolean reset, GLenum format, GLenum type, GLsizei bufSize, void *values)) _func)(target, reset, format, type, bufSize, values);
 }
 
@@ -3947,7 +3947,7 @@ GLAPI void GLAPIENTRY glGetnMapiv(GLenum target, GLenum query, GLsizei bufSize, 
 GLAPI void GLAPIENTRY glGetnMinmax(GLenum target, GLboolean reset, GLenum format, GLenum type, GLsizei bufSize, void *values)
 {
    const struct _glapi_table *_tbl = GET_DISPATCH();
-   _glapi_proc _func = ((const _glapi_proc *) _tbl)[1637];
+   _glapi_proc _func = ((const _glapi_proc *) _tbl)[1638];
    ((void (GLAPIENTRY *)(GLenum target, GLboolean reset, GLenum format, GLenum type, GLsizei bufSize, void *values)) _func)(target, reset, format, type, bufSize, values);
 }
 
@@ -3982,7 +3982,7 @@ GLAPI void GLAPIENTRY glGetnPolygonStipple(GLsizei bufSize, GLubyte *pattern)
 GLAPI void GLAPIENTRY glGetnSeparableFilter(GLenum target, GLenum format, GLenum type, GLsizei rowBufSize, void *row, GLsizei columnBufSize, void *column, void *span)
 {
    const struct _glapi_table *_tbl = GET_DISPATCH();
-   _glapi_proc _func = ((const _glapi_proc *) _tbl)[1638];
+   _glapi_proc _func = ((const _glapi_proc *) _tbl)[1639];
    ((void (GLAPIENTRY *)(GLenum target, GLenum format, GLenum type, GLsizei rowBufSize, void *row, GLsizei columnBufSize, void *column, void *span)) _func)(target, format, type, rowBufSize, row, columnBufSize, column, span);
 }
 
@@ -6824,7 +6824,7 @@ GLAPI void GLAPIENTRY glTexSubImage3D(GLenum target, GLint level, GLint xoffset,
 GLAPI void GLAPIENTRY glTextureBarrier(void)
 {
    const struct _glapi_table *_tbl = GET_DISPATCH();
-   _glapi_proc _func = ((const _glapi_proc *) _tbl)[1311];
+   _glapi_proc _func = ((const _glapi_proc *) _tbl)[1310];
    ((void (GLAPIENTRY *)(void)) _func)();
 }
 
@@ -9603,16 +9603,16 @@ STUB_ASM_ENTRY("glGetVertexAttribiv")"\n"
 "\t"STUB_ASM_CODE("474")"\n"
 
 STUB_ASM_ENTRY("glGetnColorTable")"\n"
-"\t"STUB_ASM_CODE("1634")"\n"
+"\t"STUB_ASM_CODE("1635")"\n"
 
 STUB_ASM_ENTRY("glGetnCompressedTexImage")"\n"
 "\t"STUB_ASM_CODE("810")"\n"
 
 STUB_ASM_ENTRY("glGetnConvolutionFilter")"\n"
-"\t"STUB_ASM_CODE("1635")"\n"
+"\t"STUB_ASM_CODE("1636")"\n"
 
 STUB_ASM_ENTRY("glGetnHistogram")"\n"
-"\t"STUB_ASM_CODE("1636")"\n"
+"\t"STUB_ASM_CODE("1637")"\n"
 
 STUB_ASM_ENTRY("glGetnMapdv")"\n"
 "\t"STUB_ASM_CODE("811")"\n"
@@ -9624,7 +9624,7 @@ STUB_ASM_ENTRY("glGetnMapiv")"\n"
 "\t"STUB_ASM_CODE("813")"\n"
 
 STUB_ASM_ENTRY("glGetnMinmax")"\n"
-"\t"STUB_ASM_CODE("1637")"\n"
+"\t"STUB_ASM_CODE("1638")"\n"
 
 STUB_ASM_ENTRY("glGetnPixelMapfv")"\n"
 "\t"STUB_ASM_CODE("814")"\n"
@@ -9639,7 +9639,7 @@ STUB_ASM_ENTRY("glGetnPolygonStipple")"\n"
 "\t"STUB_ASM_CODE("817")"\n"
 
 STUB_ASM_ENTRY("glGetnSeparableFilter")"\n"
-"\t"STUB_ASM_CODE("1638")"\n"
+"\t"STUB_ASM_CODE("1639")"\n"
 
 STUB_ASM_ENTRY("glGetnTexImage")"\n"
 "\t"STUB_ASM_CODE("818")"\n"
@@ -10857,7 +10857,7 @@ STUB_ASM_ENTRY("glTexSubImage3D")"\n"
 "\t"STUB_ASM_CODE("340")"\n"
 
 STUB_ASM_ENTRY("glTextureBarrier")"\n"
-"\t"STUB_ASM_CODE("1311")"\n"
+"\t"STUB_ASM_CODE("1310")"\n"
 
 STUB_ASM_ENTRY("glTextureBuffer")"\n"
 "\t"STUB_ASM_CODE("965")"\n"

@@ -644,7 +644,7 @@ struct zink_batch_state {
    struct util_queue_fence flush_completed;
 
    struct set programs;
-   struct set dmabuf_exports;
+   struct hash_table dmabuf_exports;
 
 #define BUFFER_HASHLIST_SIZE 32768
    /* buffer_indices_hashlist[hash(bo)] returns -1 if the bo
@@ -662,7 +662,7 @@ struct zink_batch_state {
    struct util_dynarray swapchain_obj; //this doesn't have a zink_bo and must be handled differently
    struct util_dynarray swapchain_obj_unsync; //this doesn't have a zink_bo and must be handled differently
 
-   struct util_dynarray bindless_releases[2];
+   struct util_dynarray bindless_unrefs; //zink_bindless_descriptor
 
    struct util_dynarray zombie_samplers;
 
@@ -1206,6 +1206,7 @@ struct zink_resource_object {
     * in the ordered cmdbuf which can promote barriers to unordered
     */
    bool ordered_access_is_copied;
+   bool has_ordered_access;
    bool unordered_read;
    bool unordered_write;
    bool unsync_access;
@@ -1392,6 +1393,7 @@ struct zink_screen {
    struct zink_batch_state *free_batch_states; //unused batch states
    struct zink_batch_state *last_free_batch_state; //for appending
    simple_mtx_t free_batch_states_lock;
+   simple_mtx_t submit_lock;
 
    struct zink_batch_state *active_batch_states; //active batch states
    struct zink_batch_state *last_active_batch_state; //for appending
@@ -1429,7 +1431,7 @@ struct zink_screen {
    struct set mesh_pipeline_libs[2];
    simple_mtx_t mesh_pipeline_libs_lock[2];
 
-   simple_mtx_t desc_set_layouts_lock;
+   simple_mtx_t ralloc_lock;
    struct hash_table desc_set_layouts[ZINK_DESCRIPTOR_BASE_TYPES];
    simple_mtx_t desc_pool_keys_lock;
    struct set desc_pool_keys[ZINK_DESCRIPTOR_BASE_TYPES];
@@ -1439,6 +1441,15 @@ struct zink_screen {
    unsigned base_descriptor_size;
    VkDescriptorSetLayout bindless_layout;
 
+   /* bindless handles are valid in every context of a share group */
+   struct {
+      simple_mtx_t lock;
+      struct {
+         struct util_idalloc slots;
+         struct hash_table handles;
+      } table[2][2]; //[is_image][is_buffer]
+   } bindless_handles;
+
    struct {
       struct pb_cache bo_cache;
       struct pb_slabs bo_slabs;
@@ -1447,6 +1458,7 @@ struct zink_screen {
    uint8_t heap_map[ZINK_HEAP_MAX][VK_MAX_MEMORY_TYPES];  // mapping from zink heaps to memory type indices
    uint8_t heap_count[ZINK_HEAP_MAX];  // number of memory types per zink heap
    bool resizable_bar;
+   bool vis_vram_full;
 
    uint64_t total_video_mem;
    uint64_t clamp_video_mem;
@@ -1678,7 +1690,6 @@ struct zink_descriptor_db_info {
 struct zink_descriptor_surface {
    union {
       struct zink_surface *surface;
-      struct zink_buffer_view *bufferview;
       struct zink_descriptor_db_info db;
    };
    bool is_buffer;
@@ -1688,10 +1699,18 @@ struct zink_bindless_descriptor {
    struct zink_descriptor_surface ds;
    struct pipe_resource *pres;
    struct zink_sampler_state *sampler;
+   /* the handle and each context it is resident in hold a reference */
+   uint32_t refcount;
+   bool is_image;
    uint32_t handle;
-   uint32_t access; //PIPE_ACCESS_...
    uint16_t first_layer;
    uint16_t last_layer;
+};
+
+struct zink_bindless_resident {
+   struct zink_bindless_descriptor *bd;
+   /* PIPE_IMAGE_ACCESS_*, per context since each can use a different one */
+   unsigned access;
 };
 
 struct zink_rendering_info {
@@ -1943,10 +1962,6 @@ struct zink_context {
       struct zink_resource *descriptor_res[ZINK_DESCRIPTOR_BASE_TYPES][MESA_SHADER_MESH_STAGES][PIPE_MAX_SAMPLERS];
 
       struct {
-         struct util_idalloc tex_slots; //img, buffer
-         struct util_idalloc img_slots; //img, buffer
-         struct hash_table tex_handles; //img, buffer
-         struct hash_table img_handles; //img, buffer
          union {
             struct {
                VkBufferView *buffer_infos; //tex, img
