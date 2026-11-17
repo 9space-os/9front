@@ -24,8 +24,14 @@
 #   machine: tests/hw/machines/<machine>, plan9.ini lines the machine always
 #   gets (e.g. *nonvme=1: its own disk is not to be touched; mouseport=,
 #   monitor=, vgasize= there: not asked at boot), and lines
-#   "firmware pattern": the host's /usr/lib/firmware/pattern (FWDIR),
-#   unpacked into the root's /lib/firmware (e.g. amdgpu/yellow_carp_*)
+#   "firmware pattern [name]": the host's /usr/lib/firmware/pattern (FWDIR),
+#   unpacked into the root's /lib/firmware (e.g. amdgpu/yellow_carp_*),
+#   under name where the driver wants another (iwlwifi-7265-17.ucode.zst
+#   iwm-7265-17: etheriwl's)
+#   $PXE_DIR/wlan.conf ("SSID: name" and "PWD: passphrase" lines), if there:
+#   the machine joins that WLAN at boot (its WPA key in factotum, aux/wpa,
+#   ip/ipconfig on the first wlan interface; termrc.local, after the wired
+#   network the root comes over)
 #   env:	IFACE	the LAN interface (default: the one of the default route)
 #	HOSTIP	this host's address on it (default: IFACE's)
 #	UFS_PORT	the root's port (5650)
@@ -98,17 +104,19 @@ cp "$ROOT/scripts/hw/termcpu.rc" "$X/rc/bin/termcpu"
 chmod +x "$X/rc/bin/termcpu"
 # the machine's firmware (linux-firmware's, as the host has it: .zst, .xz or plain)
 FWDIR=${FWDIR:-/usr/lib/firmware}
-[ -z "$MACHINE" ] || grep '^firmware ' "$MACHINE" | while read -r _ pat; do
+[ -z "$MACHINE" ] || grep '^firmware ' "$MACHINE" | while read -r _ pat name; do
 	found=
 	for z in $FWDIR/$pat; do
 		[ -f "$z" ] || continue
 		found=1
 		d=$X/lib/firmware/$(dirname "${z#$FWDIR/}")
 		b=$(basename "$z")
+		b=${b%.zst}; b=${b%.xz}
+		[ -z "$name" ] || { d=$X/lib/firmware; b=$name; }
 		mkdir -p "$d"
 		case $z in
-		*.zst)	zstd -q -d -c < "$z" > "$d/${b%.zst}" ;;
-		*.xz)	xz -d -c < "$z" > "$d/${b%.xz}" ;;
+		*.zst)	zstd -q -d -c < "$z" > "$d/$b" ;;
+		*.xz)	xz -d -c < "$z" > "$d/$b" ;;
 		*)	cp "$z" "$d/$b" ;;
 		esac
 	done
@@ -134,6 +142,39 @@ if [ "${MCP:-1}" = 1 ]; then
 	if(test -s /usr/glenda/lib/nvram && test -s /usr/glenda/lib/keys)
 		termcpu >/tmp/termcpu.log >[2=1]
 	9front-mcp -http 'tcp!*!8090' -tokenfile /usr/glenda/lib/mcptoken -deny /sys/lib/mcp/deny -dir /usr/glenda >[2]/tmp/mcp.log
+} </dev/null >/dev/null >[2]/dev/null &
+EOF2
+fi
+# the WLAN of wlan.conf: rc quoting ('' for '), factotum's (a value in ''),
+# after the wired network (the root's: its subnet route stays the first)
+if [ -s "$P/wlan.conf" ]; then
+	ssid=$(sed -n 's/^SSID: *//p' "$P/wlan.conf")
+	pwd=$(sed -n 's/^PWD: *//p' "$P/wlan.conf")
+	[ -n "$ssid" ] && [ -n "$pwd" ] || die "$P/wlan.conf: no SSID: or PWD: line"
+	fq(){ printf "'%s'" "$(printf %s "$1" | sed "s/'/''/g")"; }	# factotum's quoting
+	key="key proto=wpapsk essid=$(fq "$ssid") !password=$(fq "$pwd")"
+	rq(){ printf "'%s'" "$(printf %s "$1" | sed "s/'/''/g")"; }	# rc's
+	mkdir -p "$X/rc/bin"
+	cat >> "$X/rc/bin/termrc.local" <<EOF2
+# scripts/hw/pxe.sh: the WLAN of \$PXE_DIR/wlan.conf, once the wired network is up
+@{
+	rfork s
+	n=0
+	while(! test -e /net/dns && test \$n -lt 120){
+		sleep 1
+		n=\`{echo \$n+1 | hoc}
+	}
+	wlan=()
+	for(e in /net/ether*)
+		if(~ \$#wlan 0 && grep -s '^essid:' \$e/ifstats)
+			wlan=\$e
+	if(~ \$#wlan 0){
+		echo 'wlan: no wlan interface' >/tmp/wlan.log
+		exit
+	}
+	echo $(rq "$key") >/mnt/factotum/ctl
+	aux/wpa -s $(rq "$ssid") \$wlan >/tmp/wlan.log >[2=1] && ip/ipconfig ether \$wlan >>/tmp/wlan.log >[2=1]
+	cat \$wlan/ifstats >>/tmp/wlan.log
 } </dev/null >/dev/null >[2]/dev/null &
 EOF2
 fi

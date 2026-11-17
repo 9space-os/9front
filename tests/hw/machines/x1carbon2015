@@ -1,0 +1,11 @@
+# Lenovo ThinkPad X1 Carbon, 3rd generation (2015: Broadwell, HD 5500,
+# Intel Wireless 7265): booted by PXE through Lenovo's Ethernet adapter
+# (scripts/hw/pxe.sh mac x1carbon2015). Its internal SSD is only read
+# (tests/hw/README.md): nothing in this boot mounts or writes it.
+# booted without questions: the screen by aux/i915 (the panel's mode; vgasize
+# is VESA's, if i915 fails), the keyboard's and trackpoint's PS/2 port
+monitor=i915
+vgasize=1920x1080x32
+mouseport=ps2
+# WLAN: etheriwl's firmware for the 7265 under the name it reads
+firmware iwlwifi-7265-17.ucode.zst iwm-7265-17
