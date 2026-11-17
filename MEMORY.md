@@ -38,13 +38,13 @@
 ## Mittlere Priorität
 - [x] ~~build.json - inkompatible Module entfernt: wifi, virtio10pc, vgax, vgaradeon, vga, vgaigfx, usbuhci, usbxhci~~ — veraltet, seit Commit `81871b586` (Teil 9, "voller Treibersatz") sind alle wieder in `sys/src/9/pc64/build.json` enthalten, verifiziert 2026-10-02.
 - [x] ~~Bug 3 (siehe Teil 11): Kernel-seitiger `ureg->sp`-Mismatch...~~ — Fehldiagnose korrigiert und behoben: Syscall-Stub-Template schrieb Argumente in den Aufrufer-Stack-Frame statt eigenes Frame zu reservieren (`mksys.go`, `subq $64,%rsp`-Fix). Verifiziert: `init.c` läuft jetzt vollständig durch bis zum erwarteten `/bin/rc`-ENOENT.
-- [ ] klibc.a und andere klib*.a als leere Archives stubbed - echte Implementierung fehlt
-- [ ] GCC built-in functions: __popcountdi2, __unordtf2, __letf2 - stubben oder -mlong-double-128 entfernen
-- [ ] Kernel kann nicht gegen system libc (-lc) linken (-mcmodel=kernel PLT overflow)
-- [ ] Andere Kernel-Module auf gcc Errors prüfen
+- [x] ~~klibc.a und andere klib*.a als leere Archives stubbed~~ — erledigt: jede `sys/src/lib*/klib.json` baut echte Kernel-Archive (`x.k.o`, Objtag), klibc.a ~1 MB (Stand 2026-11-17)
+- [x] ~~GCC built-in functions: __popcountdi2, __unordtf2, __letf2~~ — erledigt: libgcc.a in `/$objtype/lib.gcc` (scripts/build/prep-objtype.sh) wird nach den Bibliotheken gelinkt
+- [x] ~~Kernel kann nicht gegen system libc (-lc) linken~~ — gegenstandslos: der Kernel linkt die klib*.a des Baums, keine libc des Systems
+- [x] ~~Andere Kernel-Module auf gcc Errors prüfen~~ — erledigt: voller Treibersatz seit Teil 9 (`81871b586`), alle Kernel (pc, pc64, arm64) bauen
 
 ## Niedrige Priorität / Später
-- [ ] **na (NCR53c8xx Assembler) mit gcc kompilierbar machen**
+- [x] ~~**na (NCR53c8xx Assembler) mit gcc kompilierbar machen**~~ — erledigt: `scripts/build/gen-sd53c8xx-i.sh` (Schritt kernelgen) erzeugt sys/src/9/pc/sd53c8xx.i wie pc/mkfile; die Punkte darunter damit auch
   - na.y verwendet <u.h> und <libc.h> (Plan9 Headers)
   - Erfordert Port der Plan9 stdlib Headers oder Ersatz
   - Danach: na bauen, sd53c8xx.n → sd53c8xx.i generieren

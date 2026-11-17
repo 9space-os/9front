@@ -12,6 +12,8 @@ files those rules install, scripts/build/mkinstall.py) and the kernel.
            toolchain (scripts/build/cargo.sh skips them)
   nocross  a program of APE's parts (scripts/gen/apeprogs.py: wlsys) not built: no
            cross compiler of ../9front-gcc (scripts/build/ape.sh skips them)
+  hostlib  386's libgcc.a is the host's -m32 one (scripts/build/prep-objtype.sh:
+           no ../9front-gcc yet): its 64-bit division needs SSE2 and cmov
   stale    in /$objtype/bin or /acme/bin/$objtype, but nothing installs
            it there (left from an older build: telnet before it moved
            from /amd64/bin/ip to /amd64/bin, as ip/mkfile installs it)
@@ -159,6 +161,9 @@ def main():
 			else:
 				print('nocross %s (%s: no cross compiler, GCC_DIR: toolchain/gcc)' % (p, name))
 	exp.update(ape)
+	host = g.ROOT + '/%s/lib.gcc/libgcc.a.host' % A
+	if os.path.exists(host):
+		print('hostlib /%s/lib.gcc/libgcc.a (%s: needs SSE2 and cmov; GCC_DIR: toolchain/gcc)' % (A, open(host).read().strip()))
 	# stale: what no rule installs in the program directories (the kernel
 	# build's ELF amd64/bin/9pc64 is for boot-cli.sh's multiboot)
 	keep = {'/%s/bin/%s' % (A, KERNELS[0])}

@@ -9,7 +9,8 @@
 # -m32's is the x86-64 Linux multilib's: SSE2 and cmov in its 64-bit
 # division and friends, which the 386 programs and the kernel link (a
 # Pentium has neither, the kernel does not save the SSE registers). Without
-# ../9front-gcc the host's stays, with a warning.
+# ../9front-gcc the host's stays, with a warning, and libgcc.a.host beside
+# it, which scripts/build/check-install.py reports at the end ("hostlib").
 #
 # usage: objtype=386|amd64|arm64 scripts/build/prep-objtype.sh   (build.exe sets objtype)
 set -e
@@ -30,6 +31,9 @@ case $objtype in
 		echo "prep-objtype.sh: warning: no $GCC_OUT/386/gnu/lib/gcc/i686-pc-plan9/*/libgcc.a" \
 			"(GCC_DIR: toolchain/gcc, objtype=386 build.sh cross native); the host's $lib" \
 			"needs SSE2 and cmov (not a Pentium)" >&2
+		echo "$lib" >386/lib.gcc/libgcc.a.host
+	else
+		rm -f 386/lib.gcc/libgcc.a.host
 	fi
 	copy "$lib" 386/lib.gcc/libgcc.a
 	;;
