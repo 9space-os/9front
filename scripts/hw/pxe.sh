@@ -38,6 +38,9 @@
 #	UFS_PORT	the root's port (5650)
 #	PXE_DIR	the work dir (default $CLI_DIR/pxe)
 #	DNSMASQ	the dnsmasq in the printed command (default: dnsmasq)
+#	PLAN9	the tree of the system to boot (default this one; e.g. a
+#		worktree of another branch: ../tree-nix), built and with
+#		its boot loaders (scripts/guest/build-boot.sh)
 #	KARGS	more plan9.ini lines, space separated
 #	QEMU	1: the same in QEMU instead (OVMF, QEMU's own DHCP and TFTP,
 #		the root through guestfwd; no dnsmasq): a rehearsal; the
@@ -45,7 +48,11 @@
 #		QEMU_EXTRA: more QEMU options
 # Stops with Ctrl-C (ufs; dnsmasq is stopped in its own terminal).
 set -e
-ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+# HERE: this script's tree (the machines, termcpu, the root's generator);
+# ROOT: the system's
+# (PLAN9=, e.g. ../tree-nix: its kernel, loaders, root and tests/hw)
+HERE=$(cd "$(dirname "$0")/../.." && pwd)
+ROOT=${PLAN9:-$HERE}
 . "$ROOT/scripts/lib/paths.sh"
 die() { echo "pxe: $*" >&2; exit 1; }
 
@@ -53,7 +60,7 @@ die() { echo "pxe: $*" >&2; exit 1; }
 MAC=$(echo "$1" | tr 'A-F' 'a-f')
 MACHINE=
 if [ $# = 2 ]; then
-	MACHINE=$ROOT/tests/hw/machines/$2
+	MACHINE=$HERE/tests/hw/machines/$2
 	[ -f "$MACHINE" ] || die "no $MACHINE"
 fi
 echo "$MAC" | grep -Eq '^([0-9a-f]{2}:){5}[0-9a-f]{2}$' || die "not a MAC: $1"
@@ -145,12 +152,19 @@ for c in "$ROOT"/tests/hw/cat/*; do
 	case $c in */disk.rc|*/hangme.*) continue ;; esac
 	cp "$c" "$X/sys/lib/hwtest/cat/"
 done
-(cd "$ROOT/tests/hw" && env PLAN9="$ROOT" ARCH=amd64 CC=gcc "$ROOT/sys/src/cmd/build/build.exe" build.json) \
-	> "$P/hwbuild.log" 2>&1 || die "tests/hw did not build ($P/hwbuild.log)"
-cp "$ROOT/tests/hw/root/tests/hwfreq" "$X/tests/"
+# the programs of each test dir that wants them on the stick (hwstick:
+# tests/hw's hwfreq, nix's nixtest, ...), as scripts/hw/mkstick.sh
+for t in "$ROOT"/tests/*/build.json; do
+	td=$(dirname "$t")
+	case $td in */guest) continue ;; esac
+	[ -f "$td/hwstick" ] || continue
+	(cd "$td" && env PLAN9="$ROOT" ARCH=amd64 CC=gcc "$ROOT/sys/src/cmd/build/build.exe" build.json) \
+		> "$P/hwbuild.log" 2>&1 || die "$td did not build ($P/hwbuild.log)"
+	[ -d "$td/root/tests" ] && cp -r "$td/root/tests/." "$X/tests/"
+done
 # drawterm's way in, for testing (scripts/hw/termcpu.rc)
 mkdir -p "$X/rc/bin"
-cp "$ROOT/scripts/hw/termcpu.rc" "$X/rc/bin/termcpu"
+cp "$HERE/scripts/hw/termcpu.rc" "$X/rc/bin/termcpu"
 chmod +x "$X/rc/bin/termcpu"
 # the machine's firmware (linux-firmware's, as the host has it: .zst, .xz or plain)
 FWDIR=${FWDIR:-/usr/lib/firmware}
@@ -236,7 +250,8 @@ EOF2
 fi
 
 echo "pxe: the root in $P/ufsroot"
-bash "$ROOT/scripts/guest/gen-ufs-root.sh" "$P/ufsroot" "$X" > /dev/null
+# this tree's generator (with extra dirs), the system's files
+PLAN9="$ROOT" bash "$HERE/scripts/guest/gen-ufs-root.sh" "$P/ufsroot" "$X" > /dev/null
 
 cat > "$P/dnsmasq.conf" <<EOF
 # scripts/hw/pxe.sh: proxy DHCP and TFTP for $MAC only, no DNS
