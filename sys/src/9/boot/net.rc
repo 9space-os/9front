@@ -87,8 +87,8 @@ fn confignet{
 	} 
 }
 
-# 9space: fsport= in plan9.ini, the file server's port (default 564): a
-# root served by an unprivileged server (scripts/hw/pxe.sh: ufs on 5640)
+# GCC port branch: fsport= in plan9.ini, the file server's port (default
+# 564), for a root an unprivileged server serves (not in 9front)
 fn connecttcp{
 	if(~ $#fsport 0)
 		fsport=564
