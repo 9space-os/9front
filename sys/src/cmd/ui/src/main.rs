@@ -26,7 +26,7 @@ use std::num::NonZeroU32;
 use std::sync::{mpsc, Arc};
 
 use masonry::app::{RenderRoot, RenderRootOptions, RenderRootSignal, VisualLayerKind, WindowSizePolicy};
-use masonry::core::{CollectionWidget, ErasedAction, NewWidget, TextEvent, Widget, WidgetId, WindowEvent};
+use masonry::core::{CollectionWidget, ErasedAction, LayerType, NewWidget, TextEvent, Widget, WidgetId, WindowEvent};
 use masonry::peniko::Blob;
 use masonry::properties::{Background, BorderColor, BorderWidth, ContentColor, CornerRadius, Gap, Padding};
 use masonry::core::{PropertySet, WidgetMut};
@@ -820,6 +820,7 @@ struct App {
     lastframe: Option<std::time::Instant>, // the last frame of something moving (Masonry's AnimFrame: the time since)
     due: Option<std::time::Instant>,       // the next frame of something moving, not before then (FRAME)
     wheel: (f64, f64),                     // the wheel's pixels not given to the widgets yet
+    layers: Vec<(WidgetId, &'static str)>, // Masonry's layers open (a select's list, a tooltip): their roots, kinds
 }
 
 impl App {
@@ -1111,6 +1112,34 @@ impl App {
                     }
                 }
                 RenderRootSignal::Exit => el.exit(),
+                // Masonry's layers (a select's list, a tooltip): the driver makes
+                // them, else they never come (they are drawn as the window's
+                // overlays, paint below)
+                RenderRootSignal::NewLayer(kind, root, pos) => {
+                    if let Some(g) = &mut self.gui {
+                        let k = match kind {
+                            LayerType::Selector { .. } => "select",
+                            LayerType::Tooltip(_) => "tooltip",
+                            _ => "other",
+                        };
+                        self.layers.push((root.id(), k));
+                        g.root.add_layer(root, pos);
+                        g.window.request_redraw();
+                    }
+                }
+                RenderRootSignal::RemoveLayer(id) => {
+                    self.layers.retain(|l| l.0 != id);
+                    if let Some(g) = &mut self.gui {
+                        g.root.remove_layer(id);
+                        g.window.request_redraw();
+                    }
+                }
+                RenderRootSignal::RepositionLayer(id, pos) => {
+                    if let Some(g) = &mut self.gui {
+                        g.root.reposition_layer(id, pos);
+                        g.window.request_redraw();
+                    }
+                }
                 _ => {}
             }
         }
@@ -1323,6 +1352,18 @@ impl App {
                 let b = w.ctx().bounding_box();
                 let px = |v: f64| (v * scale).round() as i32;
                 self.fs.rects.insert(id.clone(), [px(b.x0), px(b.y0), px(b.x1), px(b.y1)]);
+            }
+        }
+        // the layers open and their items (a select's options), where they are
+        self.fs.layers.clear();
+        for (n, (lid, kind)) in self.layers.iter().enumerate() {
+            let Some(w) = g.root.get_widget(*lid) else { continue };
+            let px = |v: f64| (v * scale).round() as i32;
+            let b = w.ctx().bounding_box();
+            self.fs.layers.push(format!("{n} {kind} {} {} {} {}", px(b.x0), px(b.y0), px(b.x1), px(b.y1)));
+            for (i, c) in w.children().iter().enumerate() {
+                let b = c.ctx().bounding_box();
+                self.fs.layers.push(format!("{n} item {i} {} {} {} {}", px(b.x0), px(b.y0), px(b.x1), px(b.y1)));
             }
         }
         if moving {
@@ -1595,6 +1636,7 @@ fn main() {
         srv: srv.clone(),
         cpu,
         debug: std::env::var_os("UIDEBUG").is_some(),
+        layers: Vec::new(),
         pointer: (0.0, 0.0),
         b3at: None,
         lastframe: None,

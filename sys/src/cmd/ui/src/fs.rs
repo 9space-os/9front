@@ -33,6 +33,7 @@ enum Path {
     Tree,
     Renderer,
     Frames,
+    Layers, // Masonry's layers open: a select's list, a tooltip (ui(4))
     Nodes,
     Node(String),
     NodeFile(String, &'static str),
@@ -58,6 +59,7 @@ pub struct Fs {
     pub renderer: String, // "gpu adapter" or "cpu"
     pub frames: u64,      // the frames drawn (frames: the pace of what moves, for tests)
     pub rects: HashMap<String, [i32; 4]>, // the widgets' places, as the last frame had them
+    pub layers: Vec<String>, // Masonry's layers open, as the last frame had them (main.rs)
     uid: String,
     msize: u32,
 }
@@ -78,6 +80,7 @@ impl Fs {
             renderer: String::new(),
             frames: 0,
             rects: HashMap::new(),
+            layers: Vec::new(),
             uid: uid.to_string(),
             msize: 8192 + ninep::IOHDRSZ,
         }
@@ -100,6 +103,7 @@ impl Fs {
             Path::Tree => (0, 4),
             Path::Renderer => (0, 6),
             Path::Frames => (0, 7),
+            Path::Layers => (0, 8),
             Path::Nodes => (QTDIR, 5),
             Path::Node(id) => (QTDIR, self.num(id)),
             Path::NodeFile(id, f) => (0, self.num(id) + 1 + NODEFILES.iter().position(|x| x == f).unwrap() as u64),
@@ -115,6 +119,7 @@ impl Fs {
             Path::Tree => "tree".into(),
             Path::Renderer => "renderer".into(),
             Path::Frames => "frames".into(),
+            Path::Layers => "layers".into(),
             Path::Nodes => "nodes".into(),
             Path::Node(id) => id.clone(),
             Path::NodeFile(_, f) => f.to_string(),
@@ -153,6 +158,7 @@ impl Fs {
                 "tree" => Path::Tree,
                 "renderer" => Path::Renderer,
                 "frames" => Path::Frames,
+                "layers" => Path::Layers,
                 "nodes" => Path::Nodes,
                 _ => return None,
             },
@@ -168,7 +174,7 @@ impl Fs {
 
     fn children(&self, p: &Path) -> Vec<Path> {
         match p {
-            Path::Root => vec![Path::Ctl, Path::Event, Path::Tree, Path::Renderer, Path::Frames, Path::Nodes],
+            Path::Root => vec![Path::Ctl, Path::Event, Path::Tree, Path::Renderer, Path::Frames, Path::Layers, Path::Nodes],
             Path::Nodes => self.scene.nodes.keys().map(|k| Path::Node(k.clone())).collect(),
             Path::Node(id) => NODEFILES.iter().map(|f| Path::NodeFile(id.clone(), f)).collect(),
             _ => vec![],
@@ -181,6 +187,7 @@ impl Fs {
             Path::Tree => self.scene.dump().into_bytes(),
             Path::Renderer => format!("{}\n", self.renderer).into_bytes(),
             Path::Frames => format!("{}\n", self.frames).into_bytes(),
+            Path::Layers => self.layers.iter().map(|l| format!("{l}\n")).collect::<String>().into_bytes(),
             Path::NodeFile(id, f) => {
                 let Some(n) = self.scene.nodes.get(id) else { return vec![] };
                 match *f {

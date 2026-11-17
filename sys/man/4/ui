@@ -106,6 +106,20 @@ or
 .B frames
 How many frames it has drawn (for tests: the pace of what moves).
 .TP
+.B layers
+What opens over the window (a select's list of options, a tooltip), as the
+last frame had it: a line
+.I n kind x0 y0 x1 y1
+for each
+.RB ( select ,
+.BR tooltip ),
+then
+.I n
+.B item
+.I i x0 y0 x1 y1
+for each of its items (a list's options), in the window's pixels as
+.BI nodes/ id /rectR.
+.TP
 .BI nodes/ id /kind
 The node's kind.
 .TP

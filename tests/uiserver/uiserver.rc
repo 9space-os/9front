@@ -205,6 +205,32 @@ sleep 0.3
 waitfor /tmp/ev3 '^check sw 1$'
 grep -s '^check sw 1$' /tmp/ev3 && ok 'switch: clicked, check sw 1' || fail switch: `{cat /tmp/ev3}
 echo kill >/proc/$evpid3/note
+# the select clicked: its list opens (a Masonry layer, ui's layers file),
+# its third option clicked: select sel 2 blue, the list gone
+w=`{cat /mnt/ui/nodes/sel/rect}
+x=`{echo $o(1)+'('$w(1)+$w(3)')'/2 | hoc}
+y=`{echo $o(2)+'('$w(2)+$w(4)')'/2 | hoc}
+cat /mnt/ui/event >/tmp/ev4 &
+evpid4=$apid
+sleep 0.3
+{ m $x $y 0; m $x $y 1; m $x $y 0 } >/dev/mousein
+waitfor /mnt/ui/layers '^0 item 2 '
+if(grep -s '^0 select ' /mnt/ui/layers) ok 'select: clicked, its list opens'
+if not fail select: no list: `{cat /mnt/ui/layers}
+it=`{grep '^0 item 2 ' /mnt/ui/layers}
+if(~ $#it 7){
+	x=`{echo $o(1)+'('$it(4)+$it(6)')'/2 | hoc}
+	y=`{echo $o(2)+'('$it(5)+$it(7)')'/2 | hoc}
+	{ m $x $y 0; m $x $y 1; m $x $y 0 } >/dev/mousein
+	waitfor /tmp/ev4 '^select sel 2 blue$'
+	grep -s '^select sel 2 blue$' /tmp/ev4 && ok 'select: option 3 clicked, select sel 2 blue' || fail select: `{cat /tmp/ev4}
+	n=0
+	while(grep -s select /mnt/ui/layers && test $n -lt 30){ sleep 0.1; n=`{echo $n+1 | hoc} }
+	if(! grep -s select /mnt/ui/layers) ok 'select: the list gone'
+	if not fail select: list still open: `{cat /mnt/ui/layers}
+}
+if not fail select: no item 2: $it
+echo kill >/proc/$evpid4/note
 
 # a node's look: a label's background red, then blue in place (its widget stays)
 echo clear >/mnt/ui/ctl
