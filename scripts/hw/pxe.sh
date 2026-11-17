@@ -2,14 +2,15 @@
 # Boot a real machine of the LAN from this host by PXE (tests/hw/README.md):
 # the machine's UEFI asks for PXE, dnsmasq (proxy DHCP: the router keeps
 # giving the addresses, dnsmasq answers this machine's PXE requests only)
-# gives 9boot (bootx64.efi) by TFTP, 9boot reads /cfg/pxe/<mac> (plan9.ini)
+# gives 9boot (bootx64.efi; a BIOS machine 9bootpxe) by TFTP, 9boot reads /cfg/pxe/<mac> (plan9.ini)
 # and the kernel, and the kernel's root is served by ufs from this host
 # (nobootprompt=tcp, fs=this host, fsport=), as for the QEMU guests.
 #
 # Host side, in $PXE_DIR ($CLI_DIR/pxe; not the QEMU guests' ufsroot):
-#	tftp/		bootx64.efi, amd64/9pc64, cfg/pxe/<mac> (plan9.ini)
+#	tftp/		bootx64.efi, 9bootpxe.0, amd64/9pc64, cfg/pxe/<mac> (plan9.ini)
 #	ufsroot/	the root (scripts/guest/gen-ufs-root.sh)
 #	dnsmasq.conf	for the one command run as root (printed)
+#	stick.img	or 9boot, plan9.ini and the kernel on a USB stick (BIOS and UEFI)
 #
 # The root also has the MCP server (MCP_DIR, tools/mcp: /amd64/bin/9front-mcp,
 # /sys/lib/mcp/deny, the token in /usr/glenda/lib/mcptoken, kept in
@@ -64,7 +65,7 @@ UFS_PORT=${UFS_PORT:-5650}
 UFS=${UFS:-$(command -v ufs 2>/dev/null || echo "$HOME/go/bin/ufs")}
 [ -x "$UFS" ] || die "ufs missing (see scripts/guest/boot-cli.sh)"
 KERNEL=$ROOT/amd64/9pc64
-for f in "$ROOT/386/bootx64.efi" "$KERNEL"; do
+for f in "$ROOT/386/bootx64.efi" "$ROOT/386/9bootpxe" "$KERNEL"; do
 	[ -s "$f" ] || die "$f missing: the build and scripts/guest/build-boot.sh"
 done
 
@@ -72,6 +73,7 @@ P=${PXE_DIR:-$CLI_DIR/pxe}
 T=$P/tftp
 mkdir -p "$T/amd64" "$T/cfg/pxe"
 cp "$ROOT/386/bootx64.efi" "$T/bootx64.efi"
+cp "$ROOT/386/9bootpxe" "$T/9bootpxe.0"	# the ROM adds the layer, .0
 cp "$KERNEL" "$T/amd64/9pc64"
 # 9boot asks for /cfg/pxe/ and the MAC in hex, without colons
 {
@@ -89,6 +91,43 @@ cp "$KERNEL" "$T/amd64/9pc64"
 	[ -z "$MACHINE" ] || grep -v '^#' "$MACHINE" | grep -v '^$' | grep -v '^firmware '
 	for a in $KARGS; do echo "$a"; done
 } > "$T/cfg/pxe/$(echo "$MAC" | tr -d :)"
+
+# the same as a USB stick, for a machine whose firmware's PXE will not do:
+# 9boot and the kernel from the stick, the root still from this host over
+# the wired network. Boots both ways, as 9front's disks (disk/mbr,
+# disk/format -b pbs): BIOS -> 386/mbr -> the active partition's pbs ->
+# 9bootfat; UEFI -> efi/boot/bootx64.efi of the same FAT
+S=$P/stick.img
+for f in mbr pbs 9bootfat bootx64.efi; do
+	[ -s "$ROOT/386/$f" ] || die "386/$f missing: scripts/guest/build-boot.sh"
+done
+rm -f "$S"
+truncate -s 64M "$S"
+# one active FAT32 partition (LBA) of 62 MB from 1 MB
+printf 'label: dos\nstart=2048, size=126976, type=c, bootable\n' | sfdisk -q "$S"
+# -h: hidden sectors, where pbs finds its partition
+mkfs.fat -F 32 -n 9SPACE -h 2048 --offset 2048 "$S" $((126976 / 2)) > /dev/null 2>&1 || die "mkfs.fat"
+# the MBR's code (before the partition table at 446)
+[ $(stat -c %s "$ROOT/386/mbr") -le 446 ] || die "386/mbr larger than 446 bytes"
+dd if="$ROOT/386/mbr" of="$S" conv=notrunc status=none
+# pbs into the partition's boot sector, as disk/format: its jump, then its
+# code from the jump's target on; the BPB between stays mkfs.fat's
+python3 - "$ROOT/386/pbs" "$S" <<'PY'
+import sys
+pbs = open(sys.argv[1], 'rb').read()
+f = open(sys.argv[2], 'r+b'); f.seek(2048*512); b = bytearray(f.read(512))
+n = pbs[1] + 2
+assert pbs[0] == 0xEB and b[0] == 0xEB and n <= len(pbs) <= 510, 'pbs'
+b[0:3] = pbs[0:3]; b[n:len(pbs)] = pbs[n:]
+b[510:512] = b'\x55\xaa'
+f.seek(2048*512); f.write(b)
+PY
+sed 's!^bootfile=.*!bootfile=9pc64!' "$T/cfg/pxe/$(echo "$MAC" | tr -d :)" > "$P/plan9.ini"
+mcopy -i "$S@@1M" "$ROOT/386/9bootfat" ::/9bootfat
+mmd -i "$S@@1M" ::/efi ::/efi/boot
+mcopy -i "$S@@1M" "$ROOT/386/bootx64.efi" ::/efi/boot/bootx64.efi
+mcopy -i "$S@@1M" "$P/plan9.ini" ::/plan9.ini
+mcopy -i "$S@@1M" "$KERNEL" ::/9pc64
 
 # the MCP server, its deny list and token
 X=$P/extra
@@ -164,10 +203,16 @@ if [ -s "$P/wlan.conf" ]; then
 		sleep 1
 		n=\`{echo \$n+1 | hoc}
 	}
+	# the boot binds only the interface it came over ('#l0'): the
+	# others' devices into /net first (a wlan device loads its
+	# firmware at that first use, from the root, which is there now)
 	wlan=()
-	for(e in /net/ether*)
-		if(~ \$#wlan 0 && grep -s '^essid:' \$e/ifstats)
-			wlan=\$e
+	for(i in 0 1 2 3 4 5 6 7)
+		if(test -e '#l'\$i/ether\$i){
+			test -e /net/ether\$i || bind -a '#l'\$i /net
+			if(~ \$#wlan 0 && grep -s '^essid:' /net/ether\$i/ifstats)
+				wlan=/net/ether\$i
+		}
 	if(~ \$#wlan 0){
 		echo 'wlan: no wlan interface' >/tmp/wlan.log
 		exit
@@ -192,7 +237,13 @@ dhcp-range=$HOSTIP,proxy
 dhcp-host=$MAC,set:9space
 dhcp-match=set:efi64,option:client-arch,7
 dhcp-match=set:efi64,option:client-arch,9
+# dnsmasq offers only the services of the client's arch; without one the
+# ROM stops ("bad or missing multicast discovery address"): x86-64 UEFI
+# (RFC 4578: 7 and 9) and BIOS (0, x86PC: a machine in legacy mode, as the
+# X1 Carbon came; 9front's 9bootpxe, which reads the same /cfg/pxe/<mac>)
 pxe-service=tag:9space,tag:efi64,X86-64_EFI,"9space",bootx64.efi
+pxe-service=tag:9space,tag:efi64,BC_EFI,"9space",bootx64.efi
+pxe-service=tag:9space,x86PC,"9space",9bootpxe
 enable-tftp
 tftp-root=$T
 log-dhcp
@@ -229,6 +280,8 @@ cat <<EOF
 pxe: run in another terminal (as root: ports 67, 69, 4011):
 	sudo dnsmasq --no-daemon --conf-file=$P/dnsmasq.conf
 then let $MAC boot from the network (UEFI IPv4).
+pxe: or boot it from a USB stick (wired network still needed):
+	sudo dd if=$S of=/dev/sdX bs=4M conv=fsync status=progress
 pxe: ufs serves the root on $HOSTIP:$UFS_PORT (Ctrl-C ends it)
 EOF
 exec "$UFS" -root="$P/ufsroot" -addr="$HOSTIP:$UFS_PORT"
