@@ -828,8 +828,8 @@ struct Blk {
 
 struct Chan {
 	int	size;	/* size of queue */
-	Along	count;	/* how many in queue (semaphore) */
-	Along	avail;	/* how many available to send (semaphore) */
+	Aint	count;	/* how many in queue (semaphore) */	/* GCC port: Aint, semacquire(2)'s 32-bit word (was Along) */
+	Aint	avail;	/* how many available to send (semaphore) */
 	Lock	rl, wl;	/* circular pointers */
 	void	**rp;
 	void	**wp;

@@ -127,7 +127,7 @@ maptable(uvlong pa)
 	tblpa[ntblpa++] = pa;
 
 	memreserve(pa, 8);
-	if((t = vmap(pa, 8)) == nil)
+	if((t = vmapmem(pa, 8)) == nil)	/* GCC port: ACPI tables, memory: not volatile */
 		return;
 	l = get32(t->len);
 	if(l < Tblsz
@@ -138,7 +138,7 @@ maptable(uvlong pa)
 	}
 	memreserve(pa, l);
 	vunmap(t, 8);
-	if((t = vmap(pa, l)) == nil)
+	if((t = vmapmem(pa, l)) == nil)	/* GCC port: ACPI tables, memory: not volatile */
 		return;
 	if(checksum(t, l)){
 		vunmap(t, l);
@@ -717,7 +717,7 @@ readmem(Chan*, void *v, long n, vlong o)
 
 	if((n = memcheck(pa, n)) <= 0)
 		return 0;
-	if((t = vmap(pa, n)) == nil)
+	if((t = vmapmem(pa, n)) == nil)	/* GCC port: ACPI tables, memory: not volatile */
 		error(Enovmem);
 	if(waserror()){
 		vunmap(t, n);
@@ -737,7 +737,7 @@ writemem(Chan*, void *v, long n, vlong o)
 
 	if(memcheck(pa, n) != n)
 		error(Eio);
-	if((t = vmap(pa, n)) == nil)
+	if((t = vmapmem(pa, n)) == nil)	/* GCC port: ACPI tables, memory: not volatile */
 		error(Enovmem);
 	if(waserror()){
 		vunmap(t, n);
@@ -1301,7 +1301,7 @@ identify(void)
 		rsd = rsdsearch();
 	else {
 		memreserve(v, sizeof(Rsd));
-		rsd = vmap(v, sizeof(Rsd));
+		rsd = vmapmem(v, sizeof(Rsd));	/* GCC port: memory, not registers (vmapmem) */
 	}
 	if(rsd == nil)
 		return 1;

@@ -53,7 +53,7 @@ struct Ctlr
 	u32int	irqc[2];
 
 	Pcidev	*pci;
-	u32int	*reg;
+	volatile u32int	*reg;	/* GCC port: volatile, device registers */
 
 	u64int	cap;
 	uchar	*ident;

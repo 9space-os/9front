@@ -103,7 +103,7 @@ struct VGAscr {
 	int	height;
 
 	ulong	io;		/* device specific registers */
-	ulong	*mmio;
+	volatile ulong	*mmio;	/* GCC port: volatile, device registers (vmap, fns.h) */
 	
 	ulong	colormap[Pcolours][3];
 	int	palettedepth;

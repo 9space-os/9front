@@ -2539,12 +2539,12 @@ msverify(SDunit *u)
 	return 1;
 }
 
-static uint*
+static volatile uint*	/* GCC port: volatile, device registers */
 map(Pcidev *p, int bar)
 {
 	if(p->mem[bar].size == 0 || (p->mem[bar].bar & 1) != 0)
 		return nil;
-	return (uint*)vmap(p->mem[bar].bar & ~0xf, p->mem[bar].size);
+	return (volatile uint*)vmap(p->mem[bar].bar & ~0xf, p->mem[bar].size);	/* GCC port: volatile, device registers */
 }
 
 /* §5.1.3 */

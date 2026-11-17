@@ -155,6 +155,7 @@
             "-Wno-unknown-pragmas",
             "-Wno-switch",
             "-Werror=sequence-point",
+            "-Werror=discarded-qualifiers",
             "-fno-reorder-functions"
         ],
         "Oflags": [

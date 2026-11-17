@@ -597,7 +597,7 @@ kunmap(KMap *k)
  * between processors (see mpstartap) so no
  * synchronization is being done.
  */
-void*
+volatile void*	/* GCC port: volatile (fns.h) */
 vmap(uvlong pa, vlong size)
 {
 	uintptr va;
@@ -629,10 +629,20 @@ Nope:
 	return (void*)(va+o);
 }
 
-void
-vunmap(void *v, vlong)
+/*
+ * GCC port: vmap for memory, not device registers (ACPI and MP tables,
+ * the BIOS, frame buffers): a plain pointer, as 9front's vmap gave
+ */
+void*
+vmapmem(uvlong pa, vlong size)
 {
-	paddr(v);	/* will panic on error */
+	return (void*)(uintptr)vmap(pa, size);
+}
+
+void
+vunmap(volatile void *v, vlong)	/* GCC port: volatile, as vmap */
+{
+	paddr((void*)(uintptr)v);	/* GCC port: v volatile (vmap); paddr only translates it */	/* will panic on error */
 }
 
 /*

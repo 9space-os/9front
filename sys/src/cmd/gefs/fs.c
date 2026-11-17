@@ -315,8 +315,8 @@ mkchan(int size)
 
 	if((c = mallocz(sizeof(Chan) + size*sizeof(void*), 1)) == nil)
 		sysfatal("create channel");
-	aswapl(&c->avail, size);
-	aswapl(&c->count, 0);
+	aswapi(&c->avail, size);	/* GCC port: Aint */
+	aswapi(&c->count, 0);
 	c->size = size;
 	c->rp = c->args;
 	c->wp = c->args;
@@ -328,10 +328,10 @@ void*
 chrecv(Chan *c)
 {
 	void *a;
-	long v;
+	int v;	/* GCC port: int, as Chan.count */
 
-	v = agetl(&c->count);
-	if(v == 0 || !acasl(&c->count, v, v-1))
+	v = ageti(&c->count);
+	if(v == 0 || !acasi(&c->count, v, v-1))
 		semacquire(&c->count.v, 1);
 	lock(&c->rl);
 	a = *c->rp;
@@ -345,10 +345,10 @@ chrecv(Chan *c)
 void
 chsend(Chan *c, void *m)
 {
-	long v;
+	int v;	/* GCC port: int, as Chan.count */
 
-	v = agetl(&c->avail);
-	if(v == 0 || !acasl(&c->avail, v, v-1))
+	v = ageti(&c->avail);
+	if(v == 0 || !acasi(&c->avail, v, v-1))
 		semacquire(&c->avail.v, 1);
 	lock(&c->wl);
 	*c->wp = m;

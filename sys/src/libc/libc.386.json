@@ -173,6 +173,7 @@
 			"port/atof.c",
 			"port/atol.c",
 			"port/atoll.c",
+			"port/atomicint.c",
 			"port/calloc.c",
 			"port/cistrcmp.c",
 			"port/cistrncmp.c",

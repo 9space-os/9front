@@ -56,7 +56,7 @@ getehci(Ctlr* ctlr)
 static void
 ehcireset(Ctlr *ctlr)
 {
-	Eopio *opio;
+	volatile Eopio *opio;	/* GCC port: volatile, device registers */
 	int i;
 
 	ilock(&ctlr->Lock);
@@ -127,7 +127,7 @@ shutdown(Hci *hp)
 {
 	int i;
 	Ctlr *ctlr;
-	Eopio *opio;
+	volatile Eopio *opio;	/* GCC port: volatile, device registers */
 
 	ctlr = hp->Hciimpl.aux;
 	ilock(&ctlr->Lock);
@@ -158,7 +158,7 @@ scanpci(void)
 	static Ctlr *first, **lastp;
 	Ctlr *ctlr;
 	Pcidev *p;
-	Ecapio *capio;
+	volatile Ecapio *capio;	/* GCC port: volatile, device registers */
 	uvlong io;
 
 	if(lastp != nil)
@@ -215,7 +215,7 @@ static int
 reset(Hci *hp)
 {
 	Ctlr *ctlr;
-	Ecapio *capio;
+	volatile Ecapio *capio;	/* GCC port: volatile, device registers */
 	Pcidev *p;
 
 	if(getconf("*nousbehci"))

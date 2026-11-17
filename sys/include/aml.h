@@ -74,7 +74,7 @@ struct Amlio
 	uvlong	off;
 	uvlong	len;
 	void	*name;
-	uchar	*va;
+	volatile uchar	*va;	/* GCC port: volatile, a SystemMemory region is device registers (amlmapio: vmap) */
 
 	void	*aux;
 	int	(*read)(Amlio *io, void *data, int len, int off);

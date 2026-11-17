@@ -1,12 +1,13 @@
 #!/bin/awk -f
+# GCC port: the casts (int(*)()), as struct Call in syscall.c (was (int(*)(...)))
 {	e = e $2 ", "
-	s = s sprintf("[%s] \"%s\", (int(*)(...))%s,\n",
+	s = s sprintf("[%s] \"%s\", (int(*)())%s,\n",
 		$2, tolower($2), tolower($2))
 }
 END{
 	e = e "READ, WRITE, NTAB"
-	s = s "[READ] \"read\", (int(*)(...))read,\n"
-	s = s "[WRITE] \"write\", (int(*)(...))write,\n"
+	s = s "[READ] \"read\", (int(*)())read,\n"
+	s = s "[WRITE] \"write\", (int(*)())write,\n"
 	s = s "[NTAB] nil, 0\n"
 	
 	print "enum{", e, "};"

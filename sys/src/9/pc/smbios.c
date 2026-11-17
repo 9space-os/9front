@@ -99,7 +99,7 @@ smbioslink(void)
 	e = nil;
 	pa = 0;
 	if((cp = getconf("*smbios")) != nil && (pa = strtoull(cp, nil, 0)) != 0)
-		e = vmap(pa, 32);
+		e = vmapmem(pa, 32);	/* GCC port: the SMBIOS entry point, memory: not volatile */
 	if(e == nil && (e = sigsearch("_SM3_", 0x18)) == nil)
 		e = sigsearch("_SM_", 0x1F);
 	if(e == nil)
@@ -107,7 +107,7 @@ smbioslink(void)
 	n = entry(e, &tpa, &tlen);
 	if(n > 0 && tlen > 0 && tlen <= Maxtable && (smbios = malloc(n + tlen)) != nil){
 		memmove(smbios, e, n);
-		if((t = vmap(tpa, tlen)) != nil){
+		if((t = vmapmem(tpa, tlen)) != nil){	/* GCC port: the SMBIOS table, memory: not volatile */
 			memmove(smbios + n, t, tlen);
 			vunmap(t, tlen);
 			nsmbios = n + tlen;

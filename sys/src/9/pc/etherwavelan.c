@@ -97,7 +97,7 @@ static void
 wavelanpciscan(void)
 {
 	int i;
-	void *mem;
+	volatile void *mem;	/* GCC port: volatile, device registers */
 	Pcidev *p;
 	Ctlr *ctlr;
 

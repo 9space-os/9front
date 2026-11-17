@@ -1404,9 +1404,9 @@ sysrendezvous(uchar *list)
 
 /*
  * GCC port: user semaphores are 32 bits, the Plan 9 ABI's long (6c);
- * gcc's long is 64 bits, its programs' semaphore longs hold the value
- * in the low half (little-endian, never negative). semcas is a 32-bit
- * compare-and-swap: cas on pc64, cmpswap where long is 32 bits.
+ * gcc's long is 64 bits, so libc.h declares them int (semacquire(2),
+ * Aint in atomic(2)). semcas is a 32-bit compare-and-swap: cas on pc64,
+ * cmpswap where long is 32 bits.
  */
 #ifndef semcas
 #define semcas(p, o, n)	cmpswap((long*)(p), (o), (n))

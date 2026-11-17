@@ -87,7 +87,7 @@ struct Watch {
 static struct {
 	Lock;
 	QLock	wl;		/* the watchers' list, changed */
-	u32int	*regs;
+	volatile u32int	*regs;	/* GCC port: volatile, device registers */
 	int	irq;
 	int	on;		/* interrupt enabled */
 	uchar	use[Npins];

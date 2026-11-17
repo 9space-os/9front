@@ -260,7 +260,7 @@ struct Ctlr {
 
 	uchar	ea[Eaddrlen];
 
-	int*	nic;
+	volatile int*	nic;	/* GCC port: volatile, device registers */
 	Gib*	gib;
 
 	Ere*	er;
@@ -1139,7 +1139,7 @@ ga620reset(Ctlr* ctlr)
 static void
 ga620pci(void)
 {
-	void *mem;
+	volatile void *mem;	/* GCC port: volatile, device registers */
 	Pcidev *p;
 	Ctlr *ctlr;
 

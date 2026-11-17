@@ -66,7 +66,7 @@ static Waiter *wlist;
 static int waker;
 static Rendez wakerr;
 static QLock wakerq;
-static long wakersem;		/* released: a nearer deadline */
+static int wakersem;		/* released: a nearer deadline */	/* 9space: int, semacquire(2)'s 32-bit word */
 static vlong wakerat;		/* when the waker looks again (under wl) */
 
 static void

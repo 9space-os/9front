@@ -310,7 +310,7 @@ struct Ctlr {
 	uvlong port;
 	Pcidev *pcidev;
 	
-	uchar *mem;
+	volatile uchar *mem;	/* GCC port: volatile, device registers */
 	ulong size;
 	
 	Queue *q;

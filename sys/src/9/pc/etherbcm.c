@@ -26,7 +26,8 @@ struct Ctlr {
 	Ctlr *link;
 	uvlong port;
 	Pcidev *pdev;
-	ulong *nic, *status;
+	volatile ulong *nic;	/* GCC port: volatile, device registers */
+	ulong *status;
 	/* One Ring to find them, One Ring to bring them all and in the darkness bind them */
 	ulong *recvret, *recvprod, *sendr;
 	ulong recvreti, recvprodi, sendri, sendcleani;
@@ -749,7 +750,7 @@ bcmpci(void)
 	pdev = nil;
 	while(pdev = pcimatch(pdev, 0, 0)) {
 		Ctlr *ctlr;
-		void *mem;
+		volatile void *mem;	/* GCC port: volatile, device registers */
 		
 		if(pdev->ccrb != 2 || pdev->ccru != 0)
 			continue;

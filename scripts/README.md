@@ -109,6 +109,8 @@ Called by `build.exe` (Pre/Post steps); rarely run by hand.
 | `cmp-struct-layout.sh` | struct sizes against kencc's (long 32 bit, `#pragma pack`); no argument: all known file/wire formats. `scripts/check/cmp-struct-layout.sh` |
 | `find-long-io.py` | candidates: `long` data written to or read from files, wire, devices. `scripts/check/find-long-io.py sys/src/cmd/cwfs` |
 | `find-spinloops.sh` | busy-wait loops gcc made endless, in a kernel binary. `scripts/check/find-spinloops.sh amd64/bin/9pc64` |
+| `find-dropped-volatile.py` | where a kernel drops vmap's volatile from a device register's pointer, casts too (`-Wdiscarded-qualifiers -Wcast-qual` on every kernel source); in `tests/static`. `scripts/check/find-dropped-volatile.py [pc64 pc arm64]` |
+| `find-narrow-mmio.py` | volatile loads gcc made narrower than their type (a register read as a byte), from the GIMPLE dump's volatile loads and the objects' reads per line; x86 kernels; in `tests/static`. `scripts/check/find-narrow-mmio.py [manifest...]` |
 | `find-clobbered.py` | locals a jump back to waserror() can clobber (gcc's `-Wclobbered`; kencc keeps them in memory), in a kernel manifest's sources: changed between waserror() and error() and read after it, they need `volatile`. `scripts/check/find-clobbered.py [sys/src/9/pc64/build.json]` |
 | `find-shortened-members.py` | member paths shorter than in 9front (`&mc->Mouse` → `&mc`) |
 - `check/find-promotions.py [dir...]` — where a uchar/ushort shifted to the top bit (`b<<24`, `s<<16`) reaches a 64-bit or unsigned type through an `int` (kencc zero-extends, gcc sign-extends): clang-query's AST matcher on the C files of the last build (their `.d` files); 0 places since 2026-11-16.

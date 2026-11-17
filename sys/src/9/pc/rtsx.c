@@ -256,7 +256,7 @@ struct Ctlr {
 	Lock;
 	Rendez	r;
 	Pcidev	*pdev;
-	u32int	*regs;
+	volatile u32int	*regs;	/* GCC port: volatile, device registers */
 	int	flags;
 	int	present;	/* a card in the slot */
 	int	change;		/* inserted or removed since */

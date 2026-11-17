@@ -74,7 +74,7 @@ enum {
 
 typedef struct Ctlr Ctlr;
 struct Ctlr {
-	u32int	*regs;
+	volatile u32int	*regs;	/* GCC port: volatile, device registers */
 	int	irq;
 	int	txdepth;
 	int	rxdepth;

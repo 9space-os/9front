@@ -226,13 +226,13 @@ rsdsearch(void)
 		size = memmapsize(base, 0);
 		if(size == 0 || size > 0x7fffffff)
 			continue;
-		if((v = vmap(base, size)) != nil){
+		if((v = vmapmem(base, size)) != nil){	/* GCC port: ACPI memory, not volatile */
 			p = sigscan(v, size, signature, 36, 4);
 			if(p == nil)
 				p = sigscan(v, size, signature, 20, 4);
 			vunmap(v, size);
 			if(p != nil)
-				return vmap(base + (p - v), 64);
+				return vmapmem(base + (p - v), 64);	/* GCC port: memory, not registers (vmapmem) */
 		}
 	}
 	return nil;
@@ -419,7 +419,8 @@ memmapisram(uvlong pa, uvlong size)
 static void
 ramscan(uintptr pa, uintptr top, uintptr chunk)
 {
-	ulong save, pat, seed, *v, *k0;
+	ulong save, pat, seed;
+	volatile ulong *v, *k0;	/* GCC port: volatile, the pattern written is read back (gcc would keep it in a register) */
 	int i, n, w;
 	char *attr;
 

@@ -102,7 +102,7 @@ struct Vmware {
 	ulong	rd;
 
 	ulong	r[Nreg];
-	ulong	*mmio;
+	volatile ulong	*mmio;	/* GCC port: volatile, device registers */
 	ulong	mmiosize;
 
 	char	chan[32];
@@ -196,7 +196,7 @@ vmwarelinear(VGAscr* scr, int, int)
 static void
 vmfifowr(Vmware *vm, ulong v)
 {
-	ulong *mm;
+	volatile ulong *mm;	/* GCC port: volatile, device registers */
 
 	mm = vm->mmio;
 	if(mm[FifoNextCmd]+sizeof(ulong) == mm[FifoStop]

@@ -165,11 +165,12 @@ uvlong	upaalloc(uvlong, uvlong, uvlong);
 uvlong	upaallocwin(uvlong, uvlong, uvlong, uvlong);
 void	upafree(uvlong, uvlong);
 void	vectortable(void);
-void*	vmap(uvlong, vlong);
+volatile void*	vmap(uvlong, vlong); /* GCC port: volatile, device registers (gcc may narrow, merge or drop plain accesses); memory mapped by it casts */
+void*	vmapmem(uvlong, vlong);	/* GCC port: vmap for memory (tables, frame buffers): not volatile */
 int	vmapsync(ulong);
 void	vmxprocrestore(Proc *);
 void	vmxshutdown(void);
-void	vunmap(void*, vlong);
+void	vunmap(volatile void*, vlong);	/* GCC port: volatile, as vmap */
 void	wbinvd(void);
 void	writeconf(void);
 int	wrmsr(int, vlong);

@@ -36,7 +36,7 @@ static int pcicfgrw32raw(int, int, int, int);
  * megabyte mapped.  Without it they read as ~0 and writes are dropped
  * (they went to the wrong register: mode 1 has 8 bits of rno).
  */
-static uchar *mcfgva[256];
+static volatile uchar *mcfgva[256];	/* GCC port: volatile, the ECAM: PCI configuration registers */
 static int mcfgmin, mcfgmax = -1;
 
 void
@@ -58,7 +58,7 @@ pcimcfginit(uvlong pa, int minbus, int maxbus)
 }
 
 /* the extended register rno of tbdf, or nil */
-static void*
+static volatile void*	/* GCC port: volatile, a register */
 mcfgreg(int tbdf, int rno)
 {
 	int b;
@@ -76,7 +76,7 @@ int (*pcicfgrw32)(int, int, int, int) = pcicfgrw32raw;
 static int
 pcicfgrw8raw(int tbdf, int rno, int data, int read)
 {
-	uchar *r;
+	volatile uchar *r;	/* GCC port: volatile, a configuration register (ECAM) */
 	int o;
 
 	if(rno >= 256){
@@ -117,7 +117,7 @@ pcicfgrw8raw(int tbdf, int rno, int data, int read)
 static int
 pcicfgrw16raw(int tbdf, int rno, int data, int read)
 {
-	ushort *r;
+	volatile ushort *r;	/* GCC port: volatile, a configuration register (ECAM) */
 	int o;
 
 	if(rno >= 256){
@@ -158,7 +158,7 @@ pcicfgrw16raw(int tbdf, int rno, int data, int read)
 static int
 pcicfgrw32raw(int tbdf, int rno, int data, int read)
 {
-	u32int *r;
+	volatile u32int *r;	/* GCC port: volatile, a configuration register (ECAM) */
 
 	if(rno >= 256){
 		if((r = mcfgreg(tbdf, rno & ~3)) == nil)

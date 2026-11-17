@@ -682,9 +682,9 @@ struct Ctlr {
 	uchar	nports;
 	uchar	portno;
 	uvlong	io;
-	uchar	*reg8;
-	ushort	*reg16;
-	uint	*reg;
+	volatile uchar	*reg8;	/* GCC port: volatile, device registers */
+	volatile ushort	*reg16;
+	volatile uint	*reg;
 	uint	rbsz;
 	uchar	ra[Eaddrlen];
 	uint	mca;
@@ -2127,7 +2127,8 @@ static int
 setup(Ctlr *c)
 {
 	uint n;
-	void *v, *mem;
+	void *v;
+	volatile void *mem;	/* GCC port: volatile, device registers */
 	Pcidev *p;
 
 	p = c->p;
@@ -2141,11 +2142,11 @@ setup(Ctlr *c)
 	}
 	pcienable(p);
 	c->p = p;
-	c->reg = (uint*)mem;
-	c->reg8 = (uchar*)mem;
-	c->reg16 = (ushort*)mem;
+	c->reg = (volatile uint*)mem;	/* GCC port: volatile, device registers */
+	c->reg8 = (volatile uchar*)mem;	/* GCC port: volatile, device registers */
+	c->reg16 = (volatile ushort*)mem;	/* GCC port: volatile, device registers */
 	if(memcmp(c->ra, nilea, sizeof c->ra) == 0)
-		memmove(c->ra, c->reg8 + Macadr + 8*c->portno, Eaddrlen);
+		memmovefromio(c->ra, c->reg8 + Macadr + 8*c->portno, Eaddrlen);	/* GCC port: the chip's registers */
 
 	setupr(&c->status, Sringcnt);
 	setupr(&c->tx, Tringcnt);

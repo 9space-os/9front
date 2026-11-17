@@ -34,7 +34,8 @@
 			"-Wno-parentheses",
 			"-Wno-unknown-pragmas",
 			"-Wno-switch",
-			"-Werror=sequence-point"
+			"-Werror=sequence-point",
+			"-Werror=discarded-qualifiers"
 		],
 		"Oflags": [
 			"-T",
