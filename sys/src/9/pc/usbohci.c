@@ -1524,6 +1524,19 @@ epio(Ep *ep, Qio *io, void *a, long count, int mustlock)
 	if(td0 == nil || ltd == nil || td0 == ltd)
 		panic("epio: no td");
 	td->last = 1;
+	/*
+	 * a short last packet in is the end of the transfer, not an
+	 * error: with bufferRounding the controller says how far it
+	 * got (cbp) and the endpoint goes on.  Without it QEMU's OHCI
+	 * retires the Td with "data underrun" and cbp as it was, which
+	 * qhinterrupt took for no data at all: a device's descriptors,
+	 * shorter than asked for, came back empty ("no data from
+	 * device") and nothing was attached.  Only the last Td: a short
+	 * packet before it must stop the endpoint, not run on into
+	 * the next buffer.
+	 */
+	if(io->tok == Tdtokin)
+		td->ctrl |= Tdround;
 	if(debug > 2 || ep->debug > 2)
 		dumptds(td0, "put td", ep->ttype == Tiso);
 	iunlock(&ctlr->Lock);
