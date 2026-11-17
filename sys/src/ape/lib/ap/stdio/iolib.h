@@ -45,3 +45,5 @@ FILE *_IO_sopenw(void);
 char *_IO_sclose(FILE *);
 int _IO_memsync(FILE *);
 FILE *_IO_newfile(void);
+FILE *_IO_nextfile(FILE *);
+FILE *_IO_reopen(const char *, const char *, FILE *);

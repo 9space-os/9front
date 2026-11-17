@@ -6,22 +6,54 @@
  */
 #include "iolib.h"
 #include <string.h>
+#define _PLAN9_SOURCE
+#include <lock.h>
 
-static struct {
+/* where each memstream's buffer and length go, by stream (FILEs are kept:
+ * _IO_newfile; one past FOPEN_MAX comes from the heap) */
+typedef struct Ms Ms;
+struct Ms {
+	Ms	*next;
+	FILE	*f;
 	char	**bufp;
 	size_t	*sizep;
-} ms[FOPEN_MAX];
+};
+static Ms *mslist;
+static Lock mslock;
+
+/* f's, made when make is set; kept for the next memstream on f */
+static Ms *msof(FILE *f, int make){
+	Ms *m;
+
+	lock(&mslock);
+	for(m=mslist; m!=NULL; m=m->next)
+		if(m->f==f)
+			break;
+	if(m==NULL && make && (m=malloc(sizeof *m))!=NULL){
+		m->f=f;
+		m->next=mslist;
+		mslist=m;
+	}
+	unlock(&mslock);
+	return m;
+}
 
 FILE *open_memstream(char **bufp, size_t *sizep){
 	FILE *f;
+	Ms *m;
 
 	if(bufp==NULL || sizep==NULL)
 		return NULL;
 	if((f=_IO_sopenw())==NULL)
 		return NULL;
+	if((m=msof(f, 1))==NULL){
+		f->flags=0;
+		f->state=CLOSED;	/* nothing written yet: no buffer */
+		return NULL;
+	}
 	f->flags|=MEMSTR;
-	ms[f-_IO_stream].bufp=bufp;
-	ms[f-_IO_stream].sizep=sizep;
+	m->bufp=bufp;
+	m->sizep=sizep;
 	*bufp=NULL;
 	*sizep=0;
 	return f;
@@ -30,6 +62,7 @@ FILE *open_memstream(char **bufp, size_t *sizep){
 int _IO_memsync(FILE *f){
 	char *t;
 	size_t n;
+	Ms *m;
 
 	if(f->state==OPEN && _IO_setvbuf(f)!=0)
 		return EOF;
@@ -47,7 +80,9 @@ int _IO_memsync(FILE *f){
 		f->rp=t+f->bufl;
 	}
 	f->buf[n]='\0';
-	*ms[f-_IO_stream].bufp=f->buf;
-	*ms[f-_IO_stream].sizep=n;
+	if((m=msof(f, 0))==NULL)
+		return EOF;
+	*m->bufp=f->buf;
+	*m->sizep=n;
 	return 0;
 }

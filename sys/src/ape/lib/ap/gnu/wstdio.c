@@ -19,6 +19,8 @@
 #include <string.h>
 #include <time.h>
 #include <wchar.h>
+#define _PLAN9_SOURCE
+#include <lock.h>
 
 extern int __apecompat_merrno;
 extern int __apecompat_mvfwprintf(void *, const wchar_t *, va_list);
@@ -35,28 +37,55 @@ struct Wstream {
 	int	n;	/* bytes given back, in b[0..n) */
 	unsigned char	b[8];
 };
-static Wstream wstream[FOPEN_MAX];
+/*
+ * 9front-ng: in blocks from the heap, as many as there are streams (past
+ * FOPEN_MAX they come from the heap too: stdio/_IO_newfile.c); a block is
+ * kept, its entries reused
+ */
+enum {
+	Nwblock = 32,
+};
+typedef struct Wblock Wblock;
+struct Wblock {
+	Wblock	*next;
+	Wstream	w[Nwblock];
+};
+static Wblock *wblocks;
+static Lock wlock;
 
 static Wstream *
 lookup(FILE *f, int make)
 {
+	Wblock *b;
 	Wstream *w, *free;
 
 	free = NULL;
-	for(w = wstream; w < wstream + FOPEN_MAX; w++){
-		if(w->f == f){
-			if(w->fd == f->fd && w->buf == f->buf)
-				return w;
-			memset(w, 0, sizeof *w);	/* closed and reopened */
+	lock(&wlock);
+	for(b = wblocks; b != NULL; b = b->next)
+		for(w = b->w; w < b->w + Nwblock; w++){
+			if(w->f == f){
+				if(w->fd == f->fd && w->buf == f->buf){
+					unlock(&wlock);
+					return w;
+				}
+				memset(w, 0, sizeof *w);	/* closed and reopened */
+			}
+			if(w->f == NULL && free == NULL)
+				free = w;
 		}
-		if(w->f == NULL && free == NULL)
-			free = w;
+	if(make && free == NULL && (b = calloc(1, sizeof *b)) != NULL){
+		b->next = wblocks;
+		wblocks = b;
+		free = b->w;
 	}
-	if(!make || free == NULL)
+	if(!make || free == NULL){
+		unlock(&wlock);
 		return NULL;
+	}
 	free->f = f;
 	free->fd = f->fd;
 	free->buf = f->buf;
+	unlock(&wlock);
 	return free;
 }
 

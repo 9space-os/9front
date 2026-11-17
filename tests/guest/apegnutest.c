@@ -9,7 +9,8 @@
  * pipe2, mkostemp, strchrnul, mbrtoc32, locale objects, syslog, a thread's
  * name in /proc, timercmp, byte swaps, regex (musl's TRE); a pty of ptyfs
  * with an APE program and rc in it (line editing, echo, raw modes, size,
- * interrupt, hangup, end of file); SIGCHLD; MSG_NOSIGNAL (EPIPE, no SIGPIPE).
+ * interrupt, hangup, end of file); SIGCHLD; MSG_NOSIGNAL (EPIPE, no SIGPIPE);
+ * fds past 96 and streams past FOPEN_MAX (9front-ng: OPEN_MAX is the kernel's).
  *
  * Output: one "ok name" or "FAIL name: detail" line per check, then
  * "apegnutest: N ok, M failed".
@@ -1303,11 +1304,143 @@ testnosignal(void)
 	close(p[1]);
 }
 
+/*
+ * 9front-ng: past 96 fds and 90 streams. OPEN_MAX is the kernel's (5000):
+ * a fd numbered past 96 reads, writes and survives exec (_fdinit reads
+ * all of /proc/n/fd); streams past FOPEN_MAX come from the heap, fflush(NULL)
+ * reaches them; threads opening at once each get a stream of their own
+ */
+enum {
+	Nmany = 200,
+	Nthr = 8,
+	Nround = 100,
+};
+
+static void *
+fopener(void *v)
+{
+	char name[64], line[64];
+	FILE *f;
+	int i, id, bad;
+
+	id = (int)(intptr_t)v;
+	bad = 0;
+	snprintf(name, sizeof name, "/tmp/apegnu.thr.%d.%d", getpid(), id);
+	for(i = 0; i < Nround; i++){
+		if((f = fopen(name, "w")) == NULL){
+			bad++;
+			continue;
+		}
+		fprintf(f, "thread %d round %d\n", id, i);
+		fclose(f);
+		if((f = fopen(name, "r")) == NULL){
+			bad++;
+			continue;
+		}
+		snprintf(line, sizeof line, "thread %d round %d\n", id, i);
+		{
+			char got[64];
+
+			if(fgets(got, sizeof got, f) == NULL || strcmp(got, line) != 0)
+				bad++;
+		}
+		fclose(f);
+	}
+	unlink(name);
+	return (void *)(intptr_t)bad;
+}
+
+static void
+testmanyfds(char *argv0)
+{
+	int fd[Nmany], i, n, hi, st, bad;
+	FILE *f[Nmany], *w, *ms;
+	char name[64], buf[64], arg[16], *mbuf;
+	size_t msize;
+	pthread_t t[Nthr];
+	void *r;
+	pid_t pid;
+
+	check("OPEN_MAX is the kernel's", sysconf(_SC_OPEN_MAX) == 5000, "%ld", sysconf(_SC_OPEN_MAX));
+	n = 0;
+	for(i = 0; i < Nmany; i++)
+		if((fd[i] = open("/dev/null", O_RDONLY)) >= 0)
+			n++;
+	hi = fd[Nmany-1];
+	check("200 fds open", n == Nmany && hi >= Nmany, "%d, the last %d: %s", n, hi, strerror(errno));
+	snprintf(name, sizeof name, "/tmp/apegnu.hi.%d", getpid());
+	i = open(name, O_RDWR|O_CREAT|O_TRUNC, 0666);
+	check("a fd past 96: write, seek, read", i > 96 && write(i, "high", 4) == 4 && lseek(i, 0, SEEK_SET) == 0
+		&& read(i, buf, 4) == 4 && memcmp(buf, "high", 4) == 0 && (fcntl(i, F_GETFL) & O_ACCMODE) == O_RDWR,
+		"fd %d: %s", i, strerror(errno));
+	check("dup2 to a fd past 96", dup2(i, 4000) == 4000 && lseek(4000, 0, SEEK_SET) == 0 && read(4000, buf, 4) == 4, "%s", strerror(errno));
+	close(4000);
+	close(i);
+	unlink(name);
+
+	/* exec: the child has the fd too (more of /proc/n/fd than 8 KB) */
+	snprintf(arg, sizeof arg, "%d", hi);
+	pid = fork();
+	if(pid == 0){
+		execl(argv0, argv0, "-fd", arg, NULL);
+		_exit(2);
+	}
+	st = -1;
+	waitpid(pid, &st, 0);
+	check("a fd past 96 after exec", pid > 0 && WIFEXITED(st) && WEXITSTATUS(st) == 0, "%s %s: status %#x", argv0, arg, st);
+	for(i = 0; i < Nmany; i++)
+		if(fd[i] >= 0)
+			close(fd[i]);
+
+	/* streams past FOPEN_MAX */
+	n = 0;
+	for(i = 0; i < Nmany; i++)
+		if((f[i] = fopen("/dev/null", "r")) != NULL)
+			n++;
+	check("200 streams open (FOPEN_MAX is 90)", n == Nmany, "%d: %s", n, strerror(errno));
+	snprintf(name, sizeof name, "/tmp/apegnu.st.%d", getpid());
+	w = fopen(name, "w");
+	if(w != NULL)
+		fputs("flushed\n", w);
+	check("fflush(NULL) reaches a stream from the heap", w != NULL && fflush(NULL) == 0
+		&& (i = open(name, O_RDONLY)) >= 0 && read(i, buf, 8) == 8 && memcmp(buf, "flushed\n", 8) == 0, NULL);
+	if(i >= 0)
+		close(i);
+	if(w != NULL)
+		fclose(w);
+	unlink(name);
+	ms = open_memstream(&mbuf, &msize);
+	if(ms != NULL){
+		fprintf(ms, "mem %d", 42);
+		fclose(ms);
+	}
+	check("open_memstream past FOPEN_MAX", ms != NULL && msize == 6 && strcmp(mbuf, "mem 42") == 0, NULL);
+	if(ms != NULL)
+		free(mbuf);
+	check("fwide on a stream from the heap", fwide(f[Nmany-1], 1) > 0, NULL);
+	for(i = 0; i < Nmany; i++)
+		if(f[i] != NULL)
+			fclose(f[i]);
+
+	/* threads opening at once: a stream each */
+	for(i = 0; i < Nthr; i++)
+		pthread_create(&t[i], NULL, fopener, (void *)(intptr_t)i);
+	bad = 0;
+	for(i = 0; i < Nthr; i++){
+		pthread_join(t[i], &r);
+		bad += (int)(intptr_t)r;
+	}
+	check("8 threads fopen and fclose at once, each its own stream", bad == 0, "%d wrong", bad);
+}
+
 int
-main(void)
+main(int argc, char **argv)
 {
 	pthread_t s;
 
+	/* testmanyfds' child: is fd argv[2] open? */
+	if(argc == 3 && strcmp(argv[1], "-fd") == 0)
+		exit(fcntl(atoi(argv[2]), F_GETFL) < 0);
 	teststdio();
 	testalloc();
 	testmmap();
@@ -1329,6 +1462,7 @@ main(void)
 	testselect();
 	testbuf();
 	testdupfile();
+	testmanyfds(argv[0]);
 	/* exit goes with a thread and a copy proc still there (run.rc: ps) */
 	pthread_create(&s, NULL, sleeper, NULL);
 	printf("apegnutest: %d ok, %d failed\n", nok, nfail);

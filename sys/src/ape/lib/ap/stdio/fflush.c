@@ -6,7 +6,8 @@ int fflush(FILE *f){
 	int error, cnt;
 	if(f==NULL){
 		error=0;
-		for(f=_IO_stream;f!=&_IO_stream[FOPEN_MAX];f++)
+		/* 9front-ng: the heap's streams too (_IO_newfile) */
+		for(f=_IO_nextfile(NULL);f!=NULL;f=_IO_nextfile(f))
 			if(f->state==WR && fflush(f)==EOF)
 				error=EOF;
 		return error;

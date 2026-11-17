@@ -13,22 +13,23 @@ tmpfile(void){
 	static char name[]="/tmp/tf0000000000000";
 	char *p;
 	int n;
-	for(f=_IO_stream;f!=&_IO_stream[FOPEN_MAX];f++)
-		if(f->state==CLOSED)
-			break;
-	if(f==&_IO_stream[FOPEN_MAX])
+	/* 9front-ng: a stream reserved for us, from the heap past FOPEN_MAX */
+	if((f=_IO_newfile())==NULL)
 		return NULL;
 	while(access(name, 0) >= 0){
 		p = name+7;
 		while(*p == '9')
 			*p++ = '0';
-		if(*p == '\0')
+		if(*p == '\0'){
+			f->state=CLOSED;
 			return NULL;
+		}
 		++*p;
 	}
 	n = _CREATE(name, 64|2, 0777); /* remove-on-close */
 	if(n==-1){
 		_syserrno();
+		f->state=CLOSED;
 		return NULL;
 	}
 	_fdinfo[n].flags = FD_ISOPEN;

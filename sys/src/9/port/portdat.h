@@ -616,7 +616,8 @@ struct Fgrp
 
 enum
 {
-	DELTAFD	= 20		/* incremental increase in Fgrp.fd's */
+	DELTAFD	= 20,		/* incremental increase in Fgrp.fd's */
+	MAXNFD	= 5000,		/* 9front-ng: most Fgrp.fd's (APE's OPEN_MAX, sys/include/ape/sys/limits.h) */
 };
 
 struct Palloc

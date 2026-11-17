@@ -15,6 +15,16 @@
 #include <unistd.h>
 #include "sys9.h"
 
+/*
+ * 9front-ng: the buffers are slots, not one per fd: OPEN_MAX is the kernel's
+ * 5000 now, and each Muxbuf holds PERFDMAX bytes. select's fd_set holds only
+ * fds below FD_SETSIZE: INSET leaves the others out (they were never in it).
+ */
+enum {
+	Nmuxbuf = 96,
+};
+#define INSET(fd, p)	((fd) < FD_SETSIZE && FD_ISSET(fd, p))
+
 typedef struct Muxseg {
 	Lock	lock;			/* for mutual exclusion access to buffer variables */
 	int	curfds;			/* number of fds currently buffered */
@@ -22,7 +32,7 @@ typedef struct Muxseg {
 	int	waittime;		/* time for timer process to wait */
 	fd_set	rwant;			/* fd's that select wants to read */
 	fd_set	ewant;			/* fd's that select wants to know eof info on */
-	Muxbuf	bufs[OPEN_MAX];
+	Muxbuf	bufs[Nmuxbuf];
 } Muxseg;
 
 static Muxseg *mux = 0;			/* shared memory segment */
@@ -94,7 +104,7 @@ _startbuf(int fd)
 	for(b = mux->bufs; b < &mux->bufs[mux->curfds]; b++)
 		if(b->fd == -1)
 			goto Found;
-	if(mux->curfds >= OPEN_MAX){
+	if(mux->curfds >= Nmuxbuf){
 		unlock(&mux->lock);
 		errno = ENFILE;
 		return -1;
@@ -203,7 +213,7 @@ _copyproc(int fd, Muxbuf *b)
 		}
 		if(n <= 0) {
 			b->eof = 1;
-			if(mux->selwait && FD_ISSET(fd, &mux->ewant)) {
+			if(mux->selwait && INSET(fd, &mux->ewant)) {
 				mux->selwait = 0;
 				unlock(&mux->lock);
 				_RENDEZVOUS(&mux->selwait, (void*)fd);
@@ -211,7 +221,7 @@ _copyproc(int fd, Muxbuf *b)
 				b->datawait = 0;
 				unlock(&mux->lock);
 				_RENDEZVOUS(&b->datawait, 0);
-			} else if(mux->selwait && FD_ISSET(fd, &mux->rwant)) {
+			} else if(mux->selwait && INSET(fd, &mux->rwant)) {
 				mux->selwait = 0;
 				unlock(&mux->lock);
 				_RENDEZVOUS(&mux->selwait, (void*)fd);
@@ -228,7 +238,7 @@ _copyproc(int fd, Muxbuf *b)
 					unlock(&mux->lock);
 					/* wake up _bufreading process */
 					_RENDEZVOUS(&b->datawait, 0);
-				} else if(mux->selwait && FD_ISSET(fd, &mux->rwant)) {
+				} else if(mux->selwait && INSET(fd, &mux->rwant)) {
 					mux->selwait = 0;
 					unlock(&mux->lock);
 					/* wake up selecting process */
@@ -329,8 +339,8 @@ select(int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds, struct timeval *timeo
 		return -1;
 
 	/* make sure all requested rfds and efds are buffered */
-	if(nfds >= OPEN_MAX)
-		nfds = OPEN_MAX;
+	if(nfds >= FD_SETSIZE)
+		nfds = FD_SETSIZE;
 	for(i = 0; i < nfds; i++)
 		if((rfds && FD_ISSET(i, rfds)) || (efds && FD_ISSET(i, efds))){
 			f = &_fdinfo[i];
@@ -369,7 +379,7 @@ select(int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds, struct timeval *timeo
 		if(fd == -1)
 			continue;
 		err = 0;
-		if(efds && FD_ISSET(fd, efds)) {
+		if(efds && INSET(fd, efds)) {
 			if(b->eof && b->n == 0){
 				err = 1;
 				n++;
@@ -378,7 +388,7 @@ select(int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds, struct timeval *timeo
 				FD_SET(fd, &mux->ewant);
 			}
 		}
-		if(rfds && FD_ISSET(fd, rfds)) {
+		if(rfds && INSET(fd, rfds)) {
 			if(!err && (b->n > 0 || b->eof))
 				n++;
 			else{
@@ -407,10 +417,10 @@ select(int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds, struct timeval *timeo
 	if(fd >= 0 && fd < nfds) {
 		b = _fdinfo[fd].buf;
 		if(b == 0 || b->fd != fd) {
-		} else  if(FD_ISSET(fd, &mux->rwant)) {
+		} else  if(INSET(fd, &mux->rwant)) {
 			FD_SET(fd, rfds);
 			n = 1;
-		} else if(FD_ISSET(fd, &mux->ewant) && b->eof && b->n == 0) {
+		} else if(INSET(fd, &mux->ewant) && b->eof && b->n == 0) {
 			FD_SET(fd, efds);
 			n = 1;
 		}

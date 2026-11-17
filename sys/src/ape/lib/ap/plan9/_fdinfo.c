@@ -32,49 +32,70 @@ static int
 readprocfdinit(void)
 {
 	/* construct info from /proc/$pid/fd */
-	char buf[8192];
+	char name[32], *buf, *nbuf;
 	Fdinfo *fi;
-	int fd, pfd, n, tot, m;
+	int fd, pfd, n, m;
+	long tot, size;
 	char *s, *nexts;
 
-	memset(buf, 0, sizeof buf);
-	strcpy(buf, "/proc/");
-	_ultoa(buf+6, getpid());
-	strcat(buf, "/fd");
-	pfd = _OPEN(buf, OREAD);
+	strcpy(name, "/proc/");
+	_ultoa(name+6, getpid());
+	strcat(name, "/fd");
+	pfd = _OPEN(name, OREAD);
 	if(pfd < 0)
 		return -1;
-	memset(buf, 0, sizeof buf);
+	/* 9front-ng: all of it, a line per fd (OPEN_MAX is 5000 now) */
+	size = 8192;
+	buf = malloc(size);
+	if(buf == 0){
+		_CLOSE(pfd);
+		return -1;
+	}
 	tot = 0;
 	for(;;){
-		n = _PREAD(pfd, buf+tot, sizeof buf-tot, tot);
+		if(tot == size-1){
+			nbuf = realloc(buf, 2*size);
+			if(nbuf == 0){
+				n = -1;
+				break;
+			}
+			buf = nbuf;
+			size *= 2;
+		}
+		n = _PREAD(pfd, buf+tot, size-1-tot, tot);
 		if(n <= 0)
 			break;
 		tot += n;
 	}
 	_CLOSE(pfd);
-	if(n < 0)
+	buf[tot] = '\0';
+	if(n < 0){
+		free(buf);
 		return -1;
-	buf[sizeof buf-1] = '\0';
+	}
 	s = strchr(buf, '\n');	/* skip current directory */
-	if(s == 0)
+	if(s == 0){
+		free(buf);
 		return -1;
+	}
 	s++;
-	m = 0;
 	for(; s && *s; s=nexts){
 		nexts = strchr(s, '\n');
 		if(nexts)
 			*nexts++ = '\0';
 		errno = 0;
 		fd = strtoul(s, &s, 10);
-		if(errno != 0)
+		if(errno != 0){
+			free(buf);
 			return -1;
+		}
 		if(fd < 0 || fd == pfd || fd >= OPEN_MAX)
 			continue;
 		fi = &_fdinfo[fd];
 		fi->flags = FD_ISOPEN;
 		while(*s == ' ' || *s == '\t')
 			s++;
+		m = 0;	/* each line's own (was set once: a fd after a writable one was O_RDWR) */
 		if(*s == 'r'){
 			m |= 1;
 			s++;
@@ -91,6 +112,7 @@ readprocfdinit(void)
 		if(strlen(s) >= 9 && strcmp(s+strlen(s)-9, "/dev/cons") == 0)
 			fi->flags |= FD_ISTTY;
 	}
+	free(buf);
 	return 0;
 }
 

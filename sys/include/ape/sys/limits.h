@@ -7,7 +7,10 @@
 #undef	CHILD_MAX
 #define	CHILD_MAX	75
 #undef	OPEN_MAX
-#define	OPEN_MAX	96
+/* 9front-ng: the kernel's limit (MAXNFD, port/portdat.h: fds 0 to 4999),
+ * not 96: a program whose other parts (a Rust std, libc) hold many files
+ * gets fd numbers past 96, which APE's calls refused */
+#define	OPEN_MAX	5000
 #undef	LINK_MAX
 #define	LINK_MAX	1
 #undef	NAME_MAX

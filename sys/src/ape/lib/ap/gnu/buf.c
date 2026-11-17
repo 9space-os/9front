@@ -319,7 +319,7 @@ _startbuf(int fd)
 	}
 	unlock(&lk);
 	{
-		int type, i, others[OPEN_MAX], nothers, isstream;
+		int type, i, *others, nothers, isstream;
 		unsigned int dev;
 		unsigned long long path;
 		Buf *ob;
@@ -342,7 +342,13 @@ _startbuf(int fd)
 			}
 		}
 		unlock(&lk);
-		/* other descriptors of it, not buffered yet: they share the new one */
+		/* other descriptors of it, not buffered yet: they share the new one
+		 * (on the heap: OPEN_MAX is 5000, a thread's stack is small) */
+		others = malloc(OPEN_MAX * sizeof others[0]);
+		if(others == NULL){
+			errno = ENOMEM;
+			return -1;
+		}
 		nothers = 0;
 		for(i = 0; i < OPEN_MAX; i++){
 			int t;
@@ -359,11 +365,13 @@ _startbuf(int fd)
 			lock(&lk);
 			if(f->flags&FD_BUFFERED){	/* another thread was quicker */
 				unlock(&lk);
+				free(others);
 				return 0;
 			}
 			b = calloc(1, sizeof *b);
 			if(b == NULL){
 				unlock(&lk);
+				free(others);
 				errno = ENOMEM;
 				return -1;
 			}
@@ -377,8 +385,10 @@ _startbuf(int fd)
 					_fdinfo[others[i]].flags |= FD_BUFFERED;
 					b->ref++;
 				}
+			free(others);
 			goto made;
 		}
+		free(others);
 	}
 	lock(&lk);
 	if(f->flags&FD_BUFFERED){

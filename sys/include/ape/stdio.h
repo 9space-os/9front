@@ -82,7 +82,7 @@ typedef long long fpos_t;
 #define	_IONBF	3			/* unbuffered */
 #define	BUFSIZ	4096			/* size of setbuf buffer */
 #define	EOF	(-1)			/* returned on end of file */
-#define	FOPEN_MAX	90		/* max files open */
+#define	FOPEN_MAX	90		/* streams there always are (_IO_stream); 9front-ng: more come from the heap */
 #define	FILENAME_MAX	BUFSIZ		/* silly filename length */
 #define	L_tmpnam	20		/* sizeof "/tmp/abcdefghij9999 */
 #define	L_cuserid	32		/* maximum size user name */

@@ -3,6 +3,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/limits.h>
 
 #define MAXFORKS	20
 #define NSYSFILE	3
@@ -41,7 +42,7 @@ popen(char *cmd, char *mode)
 		/* myside and hisside reverse roles in child */
 		close(myside);
 		dup2(hisside, tst(0, 1));
-		for (i=NSYSFILE; i<FOPEN_MAX; i++)
+		for (i=NSYSFILE; i<OPEN_MAX; i++)	/* 9front-ng: every fd (was FOPEN_MAX, 90) */
 			close(i);
 		execl("/bin/ape/sh", "sh", "-c", cmd, NULL);
 		_exit(1);
