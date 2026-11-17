@@ -2,8 +2,10 @@
  * aux/acpikeys: the brightness keys aux/acpi reports (its acpievents:
  * key brightnessup, brightnessdown, brightnesszero) on the backlight of
  * every panel a GPU driver serves (gpu(4): /srv/gpu.N, its
- * outputs/conn/backlight), a sixteenth of its range at a time, never
- * dark (a thirty-second at least) but by brightnesszero.  The drivers
+ * outputs/conn/backlight), one of sixteen steps at a time on a curve
+ * the eye sees as even (max * (k/16)^3, as brightnessctl -e: a linear
+ * sixteenth was hardly seen near the top, coarse near the bottom),
+ * never dark (a thirty-second at least) but by brightnesszero.  The drivers
  * are looked for at each key: one started later is found.  Without one
  * that has a backlight, aux/acpi's (/dev/backlight: the firmware's
  * levels, _BCM) is taken.
@@ -13,6 +15,44 @@
 #include <libc.h>
 
 static char *evfile = "/dev/acpievents";
+
+enum {
+	Nstep	= 16,
+	Gamma	= 3,	/* brightness = max * (k/Nstep)^Gamma */
+};
+
+/* the value of step k */
+static long
+stepval(long max, int k)
+{
+	return (long)(max * pow((double)k/Nstep, Gamma) + 0.5);
+}
+
+/* the backlight's next value from cur, dir steps on the curve */
+static long
+next(long cur, long max, int dir)
+{
+	long v;
+	int k;
+
+	/* the step cur is at (rounded), then dir steps on */
+	k = (int)(Nstep * pow((double)cur/max, 1.0/Gamma) + 0.5) + dir;
+	if(k > Nstep)
+		k = Nstep;
+	if(k < 0)
+		k = 0;
+	v = stepval(max, k);
+	/* a cur between steps: at least one unit in dir */
+	if(dir > 0 && v <= cur)
+		v = cur + 1;
+	if(dir < 0 && v >= cur)
+		v = cur - 1;
+	if(v > max)
+		v = max;
+	if(v < max/32)
+		v = max/32 > 0 ? max/32 : 1;
+	return v;
+}
 
 /* the backlight file path moved by dir steps; 0, or -1 if it is none */
 static int
@@ -38,11 +78,7 @@ step(char *path, int dir)
 	if(dir == 0)
 		v = 0;
 	else {
-		v = cur + dir * (max/16 > 0 ? max/16 : 1);
-		if(v > max)
-			v = max;
-		if(v < max/32)
-			v = max/32 > 0 ? max/32 : 1;
+		v = next(cur, max, dir);
 	}
 	if(v != cur && fprint(fd, "%ld", v) < 0)
 		fprint(2, "acpikeys: %s: %r\n", path);

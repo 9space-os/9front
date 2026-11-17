@@ -1526,6 +1526,14 @@ evalnotify(void)
 	p = FP->arg[0];
 	while(p != nil && (TAG(p) == 'R' || TAG(p) == 'A' || TAG(p) == 'L'))
 		p = ((Ref*)p)->ref;
+	/*
+	 * a method runs in a copy of its scope's path (forkname): a name
+	 * found through it may be such a copy (Notify(HKEY, ...) from a
+	 * method of HKEY's), which the collector frees after the method.
+	 * The namespace's own node, which the receiver can keep.
+	 */
+	while(p != nil && TAG(p) == 'N' && ((Name*)p)->fork != nil)
+		p = ((Name*)p)->fork;
 	if(amlnotify != nil && p != nil && TAG(p) == 'N')
 		amlnotify(p, ival(FP->arg[1]));
 	return nil;

@@ -253,7 +253,10 @@ reads
 and moves the backlight of every panel a GPU driver serves
 .RI ( gpu (4):
 .BR /srv/gpu. \fIN\fP)
-by a sixteenth of its range for each brightness key, without one the
+one of sixteen steps for each brightness key, on a curve the eye sees as
+even (the maximum times
+.RI ( k /16)^3),
+without one the
 firmware's
 .RB ( /dev/backlight ).
 .IR termrc (8)
