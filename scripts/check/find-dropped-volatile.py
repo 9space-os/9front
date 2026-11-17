@@ -17,15 +17,16 @@ the build too) and -Wcast-qual (a cast losing it, which gcc otherwise lets
 by); the warnings about volatile are reported.
 
 usage: scripts/check/find-dropped-volatile.py [-j N] [kernel dir ...]
-	(default pc64 pc arm64, sys/src/9/$dir/build.json; exit 1 if anything
+	(default every one of pc64 pc arm64 riscv64 the tree has, sys/src/9/$dir/build.json; exit 1 if anything
 	was found, 2 if a kernel's generated files are missing: no build yet)
 """
 import concurrent.futures, json, os, subprocess, sys
 
 ROOT = subprocess.run(['git', '-C', os.path.dirname(os.path.abspath(__file__)), 'rev-parse', '--show-toplevel'],
 	capture_output=True, text=True, check=True).stdout.strip()
-ARCH = {'pc': '386', 'pc64': 'amd64', 'arm64': 'arm64'}
-CC = {'arm64': os.environ.get('TOOLPREFIX', 'aarch64-linux-musl-') + 'gcc'}
+ARCH = {'pc': '386', 'pc64': 'amd64', 'arm64': 'arm64', 'riscv64': 'riscv64'}
+CC = {'arm64': os.environ.get('TOOLPREFIX', 'aarch64-linux-musl-') + 'gcc',
+	'riscv64': os.environ.get('TOOLPREFIX', 'riscv64-linux-gnu-') + 'gcc'}
 
 
 def main():
@@ -34,7 +35,7 @@ def main():
 	if args[:1] == ['-j']:
 		jobs = int(args[1]); args = args[2:]
 	found = 0
-	for kdir in args or ['pc64', 'pc', 'arm64']:
+	for kdir in args or [k for k in ARCH if os.path.isdir(os.path.join(ROOT, 'sys/src/9', k))]:
 		d = os.path.join(ROOT, 'sys/src/9', kdir)
 		m = json.load(open(os.path.join(d, 'build.json')))
 		b = [x for x in (m if isinstance(m, list) else [m]) if 'SourceFiles' in x][0]
