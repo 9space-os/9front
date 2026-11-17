@@ -6,6 +6,11 @@
  * as a rio client finds its window), the pixels loaded into the window
  * (loadimage, flushimage), or through an image of their size and draw
  * where the window's pixels are not 32-bit x8r8g8b8.
+ *
+ * A surface's name (include/plan9win.h): NULL, the process's window (its
+ * name space's /dev); a path, a window's directory of wsys(4) (/dev/wsys/n:
+ * a program's other windows, its dialogs and popups); else a window
+ * image's name in draw(3).
  */
 #include <u.h>
 #include <libc.h>
@@ -15,10 +20,23 @@
 
 static Lock lk;
 static Display *disp;
-static char curname[128];	/* the window image we hold */
-static Image *win;
-static int winborder;		/* a rio window's border is not ours */
 static Image *buf;
+
+/* the windows we hold, by the surface's name: their images by name */
+enum { Nwin = 16 };
+typedef struct Win Win;
+struct Win {
+	char	key[128];	/* the surface's name ("" for NULL) */
+	char	name[128];	/* its image's name in draw(3) */
+	Image	*img;
+	int	border;		/* a rio window's border is not ours */
+	ulong	used;
+};
+static Win wins[Nwin];
+static ulong usegen;
+static Image *win;		/* the one window() gave last */
+static char curname[128];	/* its image's name */
+static int winborder;
 
 static void
 drawerr(Display *d, char *msg)
@@ -27,45 +45,82 @@ drawerr(Display *d, char *msg)
 	fprint(2, "plan9win: draw: %s\n", msg);
 }
 
-/* the window by name, again if the name changed (rio renames on resize) */
+/* the window directory of a surface's name: /dev for NULL, the path for one */
+static void
+windir(const char *name, char *dir, int n)
+{
+	snprint(dir, n, "%s", name == nil ? "/dev" : name);
+}
+
+/* the window by name, again if its image's name changed (rio renames on resize) */
 static Image*
 window(const char *name)
 {
-	char wname[128];
-	int fd, n;
+	char wname[128], path[160];
+	const char *key;
+	Win *w, *lru;
+	int fd, n, i, border;
 
 	if(disp == nil){
 		disp = initdisplay(nil, nil, drawerr);
 		if(disp == nil)
 			return nil;
 	}
-	winborder = 0;
-	if(name == nil){
-		if((fd = open("/dev/winname", OREAD)) < 0){
+	key = name == nil ? "" : name;
+	border = 0;
+	if(name == nil || name[0] == '/'){
+		/* a window's directory: its winname (the process's: /dev/winname) */
+		windir(name, path, sizeof path);
+		strncat(path, "/winname", sizeof path - strlen(path) - 1);
+		if((fd = open(path, OREAD)) < 0){
 			win = nil;
 			curname[0] = 0;
+			if(name != nil)
+				return nil;	/* another window, gone */
 			return disp->image;	/* no rio: the screen */
 		}
 		n = read(fd, wname, sizeof wname - 1);
 		close(fd);
 		if(n <= 0)
-			return disp->image;
+			return name == nil ? disp->image : nil;
 		wname[n] = 0;
-		name = wname;
 		/* rio's windows have a border; devdraw's screen (no rio) is noborder.screen.N */
-		if(strncmp(name, "noborder.", 9) != 0)
-			winborder = Borderwidth;
+		if(strncmp(wname, "noborder.", 9) != 0)
+			border = Borderwidth;
+	}else
+		snprint(wname, sizeof wname, "%s", name);
+	lru = &wins[0];
+	for(i = 0; i < Nwin; i++){
+		w = &wins[i];
+		if(w->img != nil && strcmp(w->key, key) == 0){
+			if(strcmp(w->name, wname) == 0)
+				goto Found;
+			freeimage(w->img);
+			w->img = nil;
+			lru = w;
+			break;
+		}
+		if(w->img == nil || (lru->img != nil && w->used < lru->used))
+			lru = w;
 	}
-	if(win != nil && strcmp(curname, name) == 0)
-		return win;
-	if(win != nil)
-		freeimage(win);
-	win = namedimage(disp, (char*)name);
-	if(win == nil){
+	w = lru;
+	if(w->img != nil)
+		freeimage(w->img);
+	w->img = namedimage(disp, wname);
+	if(w->img == nil){
+		w->key[0] = 0;
+		win = nil;
 		curname[0] = 0;
 		return nil;
 	}
-	snprint(curname, sizeof curname, "%s", name);
+	snprint(w->key, sizeof w->key, "%s", key);
+	snprint(w->name, sizeof w->name, "%s", wname);
+Found:
+	w->border = border;
+	w->used = ++usegen;
+	win = w->img;
+	winborder = w->border;
+	snprint(curname, sizeof curname, "%s", w->name);
 	return win;
 }
 
@@ -169,10 +224,11 @@ Err:
 int
 plan9win_wsys(const char *name)
 {
-	char b[256], *f[12];
+	char b[256], path[160], *f[12];
 	int fd, n;
 
-	if(name != nil){
+	if(name != nil && name[0] != '/'){
+		/* an image's name: ours only if it is the process's window */
 		if((fd = open("/dev/winname", OREAD)) < 0)
 			return -1;
 		n = read(fd, b, sizeof b - 1);
@@ -182,8 +238,11 @@ plan9win_wsys(const char *name)
 		b[n] = 0;
 		if(strcmp(b, name) != 0)
 			return -1;
+		name = nil;
 	}
-	if((fd = open("/dev/ctl", ORDWR|OCEXEC)) < 0)
+	windir(name, path, sizeof path);
+	strncat(path, "/ctl", sizeof path - strlen(path) - 1);
+	if((fd = open(path, ORDWR|OCEXEC)) < 0)
 		return -1;
 	n = pread(fd, b, sizeof b - 1, 0);
 	if(n <= 0){
@@ -200,9 +259,13 @@ plan9win_wsys(const char *name)
 
 /* the window's events in wsys (wsys(4)'s event): a descriptor, -1 */
 int
-plan9win_wsysevents(void)
+plan9win_wsysevents(const char *name)
 {
-	return open("/dev/event", OREAD|OCEXEC);
+	char path[160];
+
+	windir(name != nil && name[0] != '/' ? nil : name, path, sizeof path);
+	strncat(path, "/event", sizeof path - strlen(path) - 1);
+	return open(path, OREAD|OCEXEC);
 }
 
 /*
@@ -243,6 +306,7 @@ int
 plan9win_again(void)
 {
 	char rect[64];
+	int i;
 
 	if(!wsyslost())
 		return -1;
@@ -253,8 +317,12 @@ plan9win_again(void)
 	/* the dead devdraw's: closed (what it says there fails, drawerr) */
 	if(buf != nil)
 		freeimage(buf);
-	if(win != nil)
-		freeimage(win);
+	for(i = 0; i < Nwin; i++){
+		if(wins[i].img != nil)
+			freeimage(wins[i].img);
+		wins[i].img = nil;
+		wins[i].key[0] = 0;
+	}
 	buf = win = nil;
 	curname[0] = 0;
 	if(disp != nil)

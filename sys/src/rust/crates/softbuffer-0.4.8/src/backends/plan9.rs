@@ -36,10 +36,12 @@ impl<D: HasDisplayHandle, W: HasWindowHandle> SurfaceInterface<D, W> for Plan9Im
 
     fn new(window: W, _display: &D) -> Result<Self, InitError<W>> {
         let raw = window.window_handle()?.as_raw();
-        let RawWindowHandle::Plan9(_) = raw else {
+        let RawWindowHandle::Plan9(h) = raw else {
             return Err(InitError::Unsupported(window));
         };
-        let draw = Draw::open().map_err(|e| {
+        // the process's window (0), or wsys' window n of the process
+        let dir = if h.window == 0 { "/dev".to_string() } else { format!("/dev/wsys/{}", h.window) };
+        let draw = Draw::open_in(&dir).map_err(|e| {
             SoftBufferError::PlatformError(Some("plan9: draw(3)".into()), Some(Box::new(e)))
         })?;
         Ok(Self {

@@ -54,8 +54,15 @@ impl DeviceId {
     }
 }
 
+/// what platform::plan9's WindowAttributesExtPlan9 sets
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct PlatformSpecificWindowAttributes;
+pub struct PlatformSpecificWindowAttributes {
+    /// a dialog of its parent window that takes the parent's clicks (wsys' modal)
+    pub modal: bool,
+    /// the user's close only asks (CloseRequested), the program closes it
+    /// (wsys' askclose); the default for windows other than the process's
+    pub ask_close: Option<bool>,
+}
 
 #[derive(Clone, Debug)]
 pub struct OsError(Arc<std::io::Error>);

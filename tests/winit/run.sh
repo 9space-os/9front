@@ -1,6 +1,7 @@
 #!/bin/bash
 # winit on 9front (sys/src/rust/crates: winit, softbuffer, raw-window-handle with
-# plan9 backends; p9win): winittest, eguitest, icedtest and eframetest (eframe
+# plan9 backends; p9win): winittest, eguitest, multiwin (a program's three
+# windows: wsys' clone), icedtest and eframetest (eframe
 # falls back to the processor: no GPU) in windows of wsys on a VESA
 # screen without a GPU driver, in a guest of scripts/guest/mcp-guest.sh; the
 # host types into them through QEMU (QMP) while their -e runs log the events.
@@ -19,7 +20,7 @@ for d in rust icedtest eframetest eframetestsw; do cargostd "$BUILD/cargo/$d" $T
 	CARGO_TARGET_X86_64_UNKNOWN_PLAN9_LINKER="$CROSS/$TRIPLE-gcc" \
 	cargo build --offline --release --target $T --quiet -p winittest)
 mkdir -p "$HERE/root/tests"
-for p in winittest eguitest; do cp "$BUILD/cargo/rust/$T/release/$p" "$HERE/root/tests/"; done
+for p in winittest eguitest multiwin; do cp "$BUILD/cargo/rust/$T/release/$p" "$HERE/root/tests/"; done
 # icedtest (iced: tiny-skia, window_clipboard, iced_graphics with plan9) is
 # ../9front-rust's (tests/crates/icedtest: crates.io's crates, not vendored here)
 I=$RUST_DIR/tests/crates/icedtest
@@ -80,14 +81,15 @@ keys /tmp/eguie.ready h shift+i
 keys /tmp/icede.ready x shift+y
 wait $run || true
 $M rc 'cat /tmp/wsys.log' 10 | grep -v -e '/srv/wsys' -e '^event' -e '^ok' -e '^winit' -e '^egui' || true
-out=$(cat "$CLI_DIR/winit.out"; printf '%s\n' 'cat /tmp/winit.log /tmp/egui.log /tmp/iced.log /tmp/eframetest*.log' "grep '^event' /tmp/winite.log" \
+out=$(cat "$CLI_DIR/winit.out"; printf '%s\n' 'cat /tmp/winit.log /tmp/egui.log /tmp/multiwin.log /tmp/iced.log /tmp/eframetest*.log' "grep '^event' /tmp/winite.log" \
 	"grep '^(event|clicks|button)' /tmp/eguie.log" "grep '^(event|clicks)' /tmp/icede.log | sed 's/^/iced /'" | $M rc - 10) || true
-echo "$out" | grep -E '^(ok|FAIL|winittest|eguitest|eframetest)' || true
+echo "$out" | grep -E '^(ok|FAIL|winittest|eguitest|multiwin|eframetest)' || true
 [ -n "$WINITDEBUG" ] && echo "$out"
 fail=0
 check() { if echo "$out" | grep -q -- "$2"; then echo "ok $1"; else echo "FAIL $1 (no \"$2\")"; fail=1; fi; }
 check "winittest" '^winittest: all passed'
 check "eguitest" '^eguitest: all passed'
+check "multiwin: three windows of one program (dialog, popup)" '^multiwin: all passed'
 check "winit: motion in window coordinates" '^event motion 196,146'
 check "winit: button 1" '^event button Left down'
 check "winit: button 3" '^event button Right down'

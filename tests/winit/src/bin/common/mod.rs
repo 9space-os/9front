@@ -39,7 +39,12 @@ impl Report {
 
 /// the window's pixel at x y inside its border of 4 (0xRRGGBB), from /dev/window
 pub fn pixel(x: i32, y: i32) -> Result<u32, String> {
-    let b = std::fs::read("/dev/window").map_err(|e| format!("/dev/window: {e}"))?;
+    pixel_in("/dev/window", 4, x, y)
+}
+
+/// a window's pixel at x y inside its border, from its window file (image(6))
+pub fn pixel_in(file: &str, border: i64, x: i32, y: i32) -> Result<u32, String> {
+    let b = std::fs::read(file).map_err(|e| format!("{file}: {e}"))?;
     if b.len() < 60 {
         return Err("/dev/window: short".into());
     }
@@ -49,7 +54,7 @@ pub fn pixel(x: i32, y: i32) -> Result<u32, String> {
     }
     let f = |i: usize| String::from_utf8_lossy(&b[12 * i..12 * i + 12]).trim().parse::<i64>().unwrap_or(0);
     let (minx, miny, maxx) = (f(1), f(2), f(3));
-    let (x, y) = (x as i64 + minx + 4, y as i64 + miny + 4);
+    let (x, y) = (x as i64 + minx + border, y as i64 + miny + border);
     let off = (60 + ((y - miny) * (maxx - minx) + (x - minx)) * 4) as usize;
     if off + 4 > b.len() {
         return Err(format!("/dev/window: {x},{y} outside"));

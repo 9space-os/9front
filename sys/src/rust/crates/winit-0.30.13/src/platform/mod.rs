@@ -20,6 +20,8 @@ pub mod web;
 pub mod windows;
 #[cfg(any(x11_platform, docsrs))]
 pub mod x11;
+#[cfg(any(plan9_platform, docsrs))]
+pub mod plan9; // 9front
 
 #[cfg(any(
     windows_platform,

@@ -1,7 +1,9 @@
-//! 9front: the window of winit's plan9 backend, the process's window of wsys
-//! or rio (the screen without either). Size, place and hiding go to
-//! /dev/wctl (rio(4)); the window system's answer comes back as a change the
-//! readers see (/dev/mouse's r, a line of /dev/wctl).
+//! 9front: the windows of winit's plan9 backend. The first is the process's
+//! window of wsys or rio (the screen without either); under wsys more are
+//! made through its clone file (p9win::Window): windows of their own,
+//! dialogs of a parent window, popups without decorations. Size, place and
+//! hiding go to the window's wctl (rio(4)); the window system's answer comes
+//! back as a change the readers see (its mouse's r, a line of its wctl).
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use p9win::cursor::{self, Shape};
 use p9win::draw::{Draw, Rect};
-use p9win::Inputs;
+use p9win::{Inputs, Role};
 
 use crate::cursor::Cursor;
 use crate::dpi::{PhysicalPosition, PhysicalSize, Position, Size};
@@ -17,7 +19,7 @@ use crate::platform_impl::Fullscreen;
 use crate::window::{CursorGrabMode, CursorIcon, ImePurpose};
 use crate::{error, window};
 
-use super::event_loop::{CursorShape, Shared, WinState, THE_WINDOW};
+use super::event_loop::{CursorShape, Shared, WinState};
 use super::{ActiveEventLoop, MonitorHandle, OsError, WindowId};
 
 pub struct Window {
@@ -29,8 +31,8 @@ fn os(e: std::io::Error) -> error::OsError {
     os_error!(OsError::new(e))
 }
 
-fn wctl(msg: &str) {
-    if let Err(e) = p9win::wctl(msg) {
+fn wctl_in(w: &p9win::Window, msg: &str) {
+    if let Err(e) = w.wctl(msg) {
         tracing::warn!("plan9: wctl {msg}: {e}");
     }
 }
@@ -62,65 +64,116 @@ impl Window {
         attrs: window::WindowAttributes,
     ) -> Result<Self, error::OsError> {
         let shared = el.shared.clone();
-        if shared.win.lock().unwrap().is_some() {
-            return Err(os(std::io::Error::other(
-                "plan9: one window a process (its window of the window system)",
-            )));
-        }
-        let mut draw = Draw::open().map_err(os)?;
+        // the first window is the process's; after it, windows of wsys' clone
+        // file (rio has none: there a program has its one window)
+        let first = shared.wins.lock().unwrap().is_empty();
+        let win = if first {
+            p9win::Window::process()
+        } else {
+            let parent = match attrs.parent_window() {
+                Some(rwh_06::RawWindowHandle::Plan9(h)) => Some(p9win::Window::of(h.window)),
+                _ => None,
+            };
+            let role = if !attrs.decorations {
+                // a menu takes the focus (active), a tooltip leaves it
+                Role::Popup { grab: attrs.active }
+            } else if parent.is_some() {
+                Role::Dialog { modal: attrs.platform_specific.modal }
+            } else {
+                Role::Toplevel
+            };
+            // a popup or dialog of the process's window when no parent is named
+            let parent = parent.or_else(|| (role != Role::Toplevel).then(p9win::Window::process));
+            p9win::Window::create(parent.as_ref(), role).map_err(|e| {
+                os(std::io::Error::other(format!("plan9: another window (wsys' clone): {e}")))
+            })?
+        };
+        // its id: wsys' number (the process's window under rio: 1)
+        let id = WindowId(if win.id() != 0 { win.id() as u64 } else { 1 });
+        let scale = win.dpi() as f64 / 96.0;
+        let mut draw = Draw::open_in(win.dir()).map_err(os)?;
         let b = draw.border();
         let screen = draw.screen();
         let mut restore = None;
         let mut fullscreen = false;
-        if attrs.fullscreen.is_some() {
-            fullscreen = true;
-            // wsys' fullscreen (no border, no title bar, above its bars), else
-            // rio's way: the whole screen, the border outside it
-            if p9win::wctl("fullscreen").is_err() {
-                restore = Some(draw.content().inset(-b));
-                wctl(&format!(
-                    "resize -r {} {} {} {}",
-                    screen.x0 - b,
-                    screen.y0 - b,
-                    screen.x1 + b,
-                    screen.y1 + b
-                ));
+        if first {
+            if attrs.fullscreen.is_some() {
+                fullscreen = true;
+                // wsys' fullscreen (no border, no title bar, above its bars), else
+                // rio's way: the whole screen, the border outside it
+                if win.wctl("fullscreen").is_err() {
+                    restore = Some(draw.content().inset(-b));
+                    wctl_in(&win, &format!(
+                        "resize -r {} {} {} {}",
+                        screen.x0 - b,
+                        screen.y0 - b,
+                        screen.x1 + b,
+                        screen.y1 + b
+                    ));
+                }
+            } else {
+                // logical sizes at the window system's scale (wsys' dpi)
+                if let Some(size) = attrs.inner_size {
+                    let (w, h): (u32, u32) = size.to_physical::<u32>(scale).into();
+                    wctl_in(&win, &format!("resize -dx {} -dy {}", w as i32 + 2 * b, h as i32 + 2 * b));
+                }
+                if let Some(pos) = attrs.position {
+                    let (x, y): (i32, i32) = pos.to_physical::<i32>(scale).into();
+                    wctl_in(&win, &format!("move -minx {x} -miny {y}"));
+                }
             }
         } else {
-            // logical sizes at the window system's scale (wsys' dpi)
-            if let Some(size) = attrs.inner_size {
-                let (w, h): (u32, u32) = size.to_physical::<u32>(p9win::scale()).into();
-                wctl(&format!("resize -dx {} -dy {}", w as i32 + 2 * b, h as i32 + 2 * b));
+            // its frame: where the program puts it (a popup: in the screen's
+            // coordinates, as winit's positions are), else where wsys did
+            let (fx0, fy0, fx1, fy1) = win.rect().unwrap_or((screen.x0, screen.y0, screen.x0 + 400, screen.y0 + 300));
+            let (w, h) = match attrs.inner_size {
+                Some(size) => {
+                    let (w, h): (u32, u32) = size.to_physical::<u32>(scale).into();
+                    (w as i32 + 2 * b, h as i32 + 2 * b)
+                },
+                None => (fx1 - fx0, fy1 - fy0),
+            };
+            let (x, y) = match attrs.position {
+                Some(pos) => pos.to_physical::<i32>(scale).into(),
+                None => (fx0, fy0),
+            };
+            if let Err(e) = win.set_rect(x, y, x + w, y + h) {
+                tracing::warn!("plan9: the window's place: {e}");
             }
-            if let Some(pos) = attrs.position {
-                let (x, y): (i32, i32) = pos.to_physical::<i32>(p9win::scale()).into();
-                wctl(&format!("move -minx {x} -miny {y}"));
+            // the user's close asks the program (CloseRequested)
+            if attrs.platform_specific.ask_close != Some(false) {
+                let _ = win.ask_close(true);
+            }
+            if attrs.fullscreen.is_some() {
+                fullscreen = win.wctl("fullscreen").is_ok();
             }
         }
         draw.attach().map_err(os)?;
         let content = draw.content();
         if !attrs.title.is_empty() {
-            let _ = p9win::set_label(&attrs.title);
+            let _ = win.set_label(&attrs.title);
         }
 
         let feed = shared.clone();
-        let inputs = Inputs::start(move |input| feed.poke(|q| q.inputs.push_back(input)))
+        let inputs = Inputs::start_in(win.dir(), move |input| feed.poke(|q| q.inputs.push_back((id, input))))
             .map_err(os)?;
         let st = Arc::new(WinState {
+            id,
+            win,
             draw: Mutex::new(draw),
             inputs,
             content: Mutex::new(content),
             cursor: Mutex::new(CursorShape::Arrow),
             cursor_visible: AtomicBool::new(true),
             grab: Mutex::new(CursorGrabMode::None),
-            focused: AtomicBool::new(true),
+            focused: AtomicBool::new(first || attrs.active),
             hidden: AtomicBool::new(false),
             invisible: AtomicBool::new(false),
             restore: Mutex::new(restore),
             fullscreen: AtomicBool::new(fullscreen),
-            scale: Mutex::new(p9win::scale()),
+            scale: Mutex::new(scale),
         });
-        *shared.win.lock().unwrap() = Some(st.clone());
+        shared.wins.lock().unwrap().insert(id, st.clone());
         let w = Window { shared: shared.clone(), st };
         w.set_cursor(attrs.cursor.clone());
         if attrs.maximized && !fullscreen {
@@ -128,15 +181,31 @@ impl Window {
         }
         if !attrs.visible {
             w.set_visible(false);
+        } else if !first {
+            // a window of the clone file comes on the screen with its first
+            // picture or top: drawn through draw(3) (softbuffer) it has none
+            if let Err(e) = w.st.win.show() {
+                tracing::warn!("plan9: the window shown: {e}");
+            }
         }
-        if attrs.active {
-            wctl("current");
+        if attrs.active && first {
+            w.wctl("current");
         }
         shared.poke(|q| {
-            q.created = true;
-            q.redraw = true;
+            q.created.push(id);
+            q.redraw(id);
         });
         Ok(w)
+    }
+
+    /// a message to the window's wctl
+    fn wctl(&self, msg: &str) {
+        wctl_in(&self.st.win, msg);
+    }
+
+    /// its number in wsys (0: the process's window)
+    pub(crate) fn wsys_window(&self) -> u32 {
+        if self.st.win.is_process() { 0 } else { self.st.win.id() }
     }
 
     pub(crate) fn maybe_queue_on_main(&self, f: impl FnOnce(&Self) + Send + 'static) {
@@ -161,7 +230,7 @@ impl Window {
 
     #[inline]
     pub fn id(&self) -> WindowId {
-        THE_WINDOW
+        self.st.id
     }
 
     #[inline]
@@ -188,7 +257,7 @@ impl Window {
 
     #[inline]
     pub fn request_redraw(&self) {
-        self.shared.poke(|q| q.redraw = true);
+        self.shared.poke(|q| q.redraw(self.st.id));
     }
 
     #[inline]
@@ -212,7 +281,7 @@ impl Window {
     #[inline]
     pub fn set_outer_position(&self, position: Position) {
         let (x, y): (i32, i32) = position.to_physical::<i32>(self.scale_factor()).into();
-        wctl(&format!("move -minx {x} -miny {y}"));
+        self.wctl(&format!("move -minx {x} -miny {y}"));
         self.st.relook();
     }
 
@@ -226,7 +295,7 @@ impl Window {
     pub fn request_inner_size(&self, size: Size) -> Option<PhysicalSize<u32>> {
         let (w, h): (u32, u32) = size.to_physical::<u32>(self.scale_factor()).into();
         let b = self.border();
-        wctl(&format!("resize -dx {} -dy {}", w as i32 + 2 * b, h as i32 + 2 * b));
+        self.wctl(&format!("resize -dx {} -dy {}", w as i32 + 2 * b, h as i32 + 2 * b));
         // the window system's answer comes as a resize the event loop sees
         None
     }
@@ -245,12 +314,12 @@ impl Window {
 
     #[inline]
     pub fn title(&self) -> String {
-        p9win::label()
+        std::fs::read_to_string(self.st.win.path("label")).unwrap_or_default()
     }
 
     #[inline]
     pub fn set_title(&self, title: &str) {
-        let _ = p9win::set_label(title);
+        let _ = self.st.win.set_label(title);
     }
 
     #[inline]
@@ -262,7 +331,7 @@ impl Window {
     #[inline]
     pub fn set_visible(&self, visible: bool) {
         self.st.invisible.store(!visible, Ordering::Relaxed);
-        wctl(if visible { "unhide" } else { "hide" });
+        self.wctl(if visible { "unhide" } else { "hide" });
     }
 
     #[inline]
@@ -289,7 +358,7 @@ impl Window {
     #[inline]
     pub fn set_minimized(&self, minimized: bool) {
         // the window system's hide: what its menu does
-        wctl(if minimized { "hide" } else { "unhide" });
+        self.wctl(if minimized { "hide" } else { "unhide" });
         self.st.hidden.store(minimized, Ordering::Relaxed);
     }
 
@@ -304,10 +373,10 @@ impl Window {
         if maximized && restore.is_none() {
             let s = self.screen();
             *restore = Some(self.content().inset(-self.border()));
-            wctl(&format!("resize -r {} {} {} {}", s.x0, s.y0, s.x1, s.y1));
+            self.wctl(&format!("resize -r {} {} {} {}", s.x0, s.y0, s.x1, s.y1));
         } else if !maximized {
             if let Some(r) = restore.take() {
-                wctl(&format!("resize -r {} {} {} {}", r.x0, r.y0, r.x1, r.y1));
+                self.wctl(&format!("resize -r {} {} {} {}", r.x0, r.y0, r.x1, r.y1));
             }
         }
         drop(restore);
@@ -325,19 +394,19 @@ impl Window {
         let full = self.st.fullscreen.load(Ordering::Relaxed);
         if monitor.is_some() {
             // wsys' fullscreen, else rio's way: the border outside the screen
-            if !full && p9win::wctl("fullscreen").is_err() {
+            if !full && self.st.win.wctl("fullscreen").is_err() {
                 let (s, b) = (self.screen(), self.border());
                 if restore.is_none() {
                     *restore = Some(self.content().inset(-b));
                 }
-                wctl(&format!("resize -r {} {} {} {}", s.x0 - b, s.y0 - b, s.x1 + b, s.y1 + b));
+                self.wctl(&format!("resize -r {} {} {} {}", s.x0 - b, s.y0 - b, s.x1 + b, s.y1 + b));
             }
             self.st.fullscreen.store(true, Ordering::Relaxed);
         } else if let Some(r) = restore.take() {
-            wctl(&format!("resize -r {} {} {} {}", r.x0, r.y0, r.x1, r.y1));
+            self.wctl(&format!("resize -r {} {} {} {}", r.x0, r.y0, r.x1, r.y1));
             self.st.fullscreen.store(false, Ordering::Relaxed);
         } else if full {
-            wctl("unfullscreen");
+            self.wctl("unfullscreen");
             self.st.fullscreen.store(false, Ordering::Relaxed);
         }
         drop(restore);
@@ -374,7 +443,7 @@ impl Window {
 
     #[inline]
     pub fn focus_window(&self) {
-        wctl("current");
+        self.wctl("current");
     }
 
     #[inline]
@@ -454,7 +523,7 @@ impl Window {
     #[cfg(feature = "rwh_06")]
     #[inline]
     pub fn raw_window_handle_rwh_06(&self) -> Result<rwh_06::RawWindowHandle, rwh_06::HandleError> {
-        Ok(rwh_06::RawWindowHandle::Plan9(rwh_06::Plan9WindowHandle::new()))
+        Ok(rwh_06::RawWindowHandle::Plan9(rwh_06::Plan9WindowHandle::with_window(self.wsys_window())))
     }
 
     #[cfg(feature = "rwh_06")]
@@ -491,7 +560,13 @@ impl Window {
 
 impl Drop for Window {
     fn drop(&mut self) {
-        self.shared.poke(|q| q.destroyed = true);
+        // a window of the clone file goes with its WinState: out of the loop's
+        // map now, the clone file closed when this last Arc goes (the loop
+        // says Destroyed in its next round)
+        let (id, dir) = (self.st.id, self.st.win.dir().to_string());
+        p9win::cursor::forget(&dir);
+        self.shared.wins.lock().unwrap().remove(&id);
+        self.shared.poke(|q| q.destroyed.push(id));
     }
 }
 

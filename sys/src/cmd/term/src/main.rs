@@ -524,6 +524,8 @@ fn main() {
                 }
                 Ev::End => end = true,
                 Ev::In(Input::Closed) => end = true,
+                // (a window of wsys' clone only: term has the process's)
+                Ev::In(Input::CloseRequested) => end = true,
                 Ev::In(Input::Mouse { x, y, buttons, resized }) => {
                     if resized {
                         if let Err(e) = t.draw.attach() {

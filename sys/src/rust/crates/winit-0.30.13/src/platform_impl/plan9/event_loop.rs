@@ -1,10 +1,12 @@
 //! 9front: the event loop of winit's plan9 backend. The readers of p9win
-//! (threads) put what they read into a queue; the loop takes it out and makes
-//! winit's events of it, and waits on the queue (a condition variable) for
-//! more, for a user event, a redraw or the time.
+//! (threads, each window's) put what they read into a queue, with the
+//! window's id; the loop takes it out and makes winit's events of it, and
+//! waits on the queue (a condition variable) for more, for a user event, a
+//! redraw or the time. The first window is the process's (its namespace's
+//! /dev); under wsys more are made through its clone file (window.rs).
 
 use std::cell::Cell;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex};
@@ -38,22 +40,32 @@ use super::{
 /// key, then the character as a message of its own)
 const CHARWAIT: Duration = Duration::from_millis(30);
 
-pub(super) const THE_WINDOW: WindowId = WindowId(1);
-
-/// what the readers and the window put in for the loop
+/// what the readers and the windows put in for the loop, by window
 #[derive(Default)]
 pub(super) struct Queue {
-    pub inputs: VecDeque<Input>,
+    pub inputs: VecDeque<(WindowId, Input)>,
     pub wake: bool,
-    pub redraw: bool,
-    pub created: bool,
-    pub destroyed: bool,
+    pub redraw: Vec<WindowId>,
+    pub created: Vec<WindowId>,
+    pub destroyed: Vec<WindowId>,
+}
+
+impl Queue {
+    pub fn redraw(&mut self, id: WindowId) {
+        if !self.redraw.contains(&id) {
+            self.redraw.push(id);
+        }
+    }
+
+    fn idle(&self) -> bool {
+        self.inputs.is_empty() && !self.wake && self.redraw.is_empty() && self.created.is_empty() && self.destroyed.is_empty()
+    }
 }
 
 pub(super) struct Shared {
     pub queue: Mutex<Queue>,
     pub cv: Condvar,
-    pub win: Mutex<Option<Arc<WinState>>>,
+    pub wins: Mutex<HashMap<WindowId, Arc<WinState>>>,
 }
 
 impl Shared {
@@ -72,6 +84,9 @@ pub(super) enum CursorShape {
 }
 
 pub(super) struct WinState {
+    pub id: WindowId,
+    /// the window in wsys (or the process's): its directory, its clone file
+    pub win: p9win::Window,
     pub draw: Mutex<Draw>,
     pub inputs: Inputs,
     pub content: Mutex<Rect>,
@@ -94,12 +109,13 @@ pub(super) struct WinState {
 impl WinState {
     /// the cursor shown now: none, the program's, the arrow
     pub fn show_cursor(&self) {
+        let dir = self.win.dir();
         let r = if !self.cursor_visible.load(Ordering::Relaxed) {
-            p9win::cursor::set(Some(&p9win::cursor::HIDDEN))
+            p9win::cursor::set_in(dir, Some(&p9win::cursor::HIDDEN))
         } else {
             match &*self.cursor.lock().unwrap() {
-                CursorShape::Arrow => p9win::cursor::set(None),
-                CursorShape::Shape(c) => p9win::cursor::set(Some(c)),
+                CursorShape::Arrow => p9win::cursor::set_in(dir, None),
+                CursorShape::Shape(c) => p9win::cursor::set_in(dir, Some(c)),
             }
         };
         if let Err(e) = r {
@@ -115,7 +131,7 @@ impl WinState {
         }
         let c = d.content();
         *self.content.lock().unwrap() = c;
-        *self.scale.lock().unwrap() = p9win::scale();
+        *self.scale.lock().unwrap() = self.win.dpi() as f64 / 96.0;
         c
     }
 }
@@ -272,19 +288,20 @@ pub struct EventLoop<T: 'static> {
     window_target: event_loop::ActiveEventLoop,
     user_events_sender: mpsc::Sender<T>,
     user_events_receiver: mpsc::Receiver<T>,
-    st: State,
+    st: HashMap<WindowId, State>,
     start_cause: StartCause,
     started: bool, // pump_events: Init sent
 }
 
 type Handler<'a, T> = dyn FnMut(event::Event<T>) + 'a;
 
-fn window_event<T>(h: &mut Handler<'_, T>, e: event::WindowEvent) {
-    h(event::Event::WindowEvent { window_id: RootWindowId(THE_WINDOW), event: e });
+fn window_event<T>(h: &mut Handler<'_, T>, id: WindowId, e: event::WindowEvent) {
+    h(event::Event::WindowEvent { window_id: RootWindowId(id), event: e });
 }
 
 fn key_event<T>(
     h: &mut Handler<'_, T>,
+    id: WindowId,
     base: char,
     pressed: bool,
     typed: Option<char>,
@@ -308,7 +325,7 @@ fn key_event<T>(
         Some(NamedKey::Tab) if pressed => Some(SmolStr::new("\t")),
         _ => text,
     };
-    window_event(h, event::WindowEvent::KeyboardInput {
+    window_event(h, id, event::WindowEvent::KeyboardInput {
         device_id: event::DeviceId(DeviceId),
         event: event::KeyEvent {
             logical_key,
@@ -337,14 +354,14 @@ impl<T: 'static> EventLoop<T> {
                     shared: Arc::new(Shared {
                         queue: Mutex::new(Queue::default()),
                         cv: Condvar::new(),
-                        win: Mutex::new(None),
+                        wins: Mutex::new(HashMap::new()),
                     }),
                 },
                 _marker: PhantomData,
             },
             user_events_sender,
             user_events_receiver,
-            st: State::default(),
+            st: HashMap::new(),
             start_cause: StartCause::Init,
             started: false,
         })
@@ -363,32 +380,32 @@ impl<T: 'static> EventLoop<T> {
         if scale != st.scale {
             st.scale = scale;
             let size = Arc::new(Mutex::new(PhysicalSize::new(c.dx().max(0) as u32, c.dy().max(0) as u32)));
-            window_event(h, event::WindowEvent::ScaleFactorChanged {
+            window_event(h, win.id, event::WindowEvent::ScaleFactorChanged {
                 scale_factor: scale,
                 inner_size_writer: event::InnerSizeWriter::new(Arc::downgrade(&size)),
             });
         }
         if c.dx() != old.dx() || c.dy() != old.dy() {
-            window_event(h, event::WindowEvent::Resized(
+            window_event(h, win.id, event::WindowEvent::Resized(
                 (c.dx().max(0) as u32, c.dy().max(0) as u32).into(),
             ));
         }
         if let Some((theme, text)) = super::window::desktop_theme() {
             if st.theme.as_deref().is_some_and(|t| t != text) {
-                window_event(h, event::WindowEvent::ThemeChanged(theme));
+                window_event(h, win.id, event::WindowEvent::ThemeChanged(theme));
             }
             st.theme = Some(text);
         }
-        shared.poke(|q| q.redraw = true);
+        shared.poke(|q| q.redraw(win.id));
         if c.x0 != old.x0 || c.y0 != old.y0 {
-            window_event(h, event::WindowEvent::Moved((c.x0, c.y0).into()));
+            window_event(h, win.id, event::WindowEvent::Moved((c.x0, c.y0).into()));
         }
     }
 
     /// the key press that waited for its character, without one
-    fn flush_pending(st: &mut State, h: &mut Handler<'_, T>) {
+    fn flush_pending(id: WindowId, st: &mut State, h: &mut Handler<'_, T>) {
         if let Some((key, _)) = st.pending.take() {
-            key_event(h, key, true, None, false);
+            key_event(h, id, key, true, None, false);
         }
     }
 
@@ -400,7 +417,7 @@ impl<T: 'static> EventLoop<T> {
         shared: &Shared,
     ) {
         if !matches!(input, Input::Char(_)) {
-            Self::flush_pending(st, h);
+            Self::flush_pending(win.id, st, h);
         }
         match input {
             Input::Mouse { x, y, buttons, resized } => {
@@ -412,7 +429,7 @@ impl<T: 'static> EventLoop<T> {
                 if inside != st.inside {
                     st.inside = inside;
                     let device_id = event::DeviceId(DeviceId);
-                    window_event(h, if inside {
+                    window_event(h, win.id, if inside {
                         event::WindowEvent::CursorEntered { device_id }
                     } else {
                         event::WindowEvent::CursorLeft { device_id }
@@ -441,7 +458,7 @@ impl<T: 'static> EventLoop<T> {
                         });
                     }
                     st.last = Some((x, y));
-                    window_event(h, event::WindowEvent::CursorMoved {
+                    window_event(h, win.id, event::WindowEvent::CursorMoved {
                         device_id: event::DeviceId(DeviceId),
                         position: ((x - c.x0) as f64, (y - c.y0) as f64).into(),
                     });
@@ -453,7 +470,7 @@ impl<T: 'static> EventLoop<T> {
                     (4, event::MouseButton::Right),
                 ] {
                     if changed & bit != 0 {
-                        window_event(h, event::WindowEvent::MouseInput {
+                        window_event(h, win.id, event::WindowEvent::MouseInput {
                             device_id: event::DeviceId(DeviceId),
                             state: element_state(buttons & bit != 0),
                             button,
@@ -463,7 +480,7 @@ impl<T: 'static> EventLoop<T> {
                 // buttons 4 and 5: the wheel, one step each press
                 for (bit, dy) in [(8, 1.0), (16, -1.0)] {
                     if changed & bit != 0 && buttons & bit != 0 {
-                        window_event(h, event::WindowEvent::MouseWheel {
+                        window_event(h, win.id, event::WindowEvent::MouseWheel {
                             device_id: event::DeviceId(DeviceId),
                             delta: event::MouseScrollDelta::LineDelta(0.0, dy),
                             phase: event::TouchPhase::Moved,
@@ -476,7 +493,7 @@ impl<T: 'static> EventLoop<T> {
                 let mods = st.modifiers();
                 let old = std::mem::take(&mut st.keys);
                 for &key in old.iter().filter(|key| !now.contains(key)) {
-                    key_event(h, key, false, None, false);
+                    key_event(h, win.id, key, false, None, false);
                     if st.held == Some(key) {
                         st.held = None;
                     }
@@ -485,29 +502,29 @@ impl<T: 'static> EventLoop<T> {
                 for &key in now.iter().filter(|key| !old.contains(key)) {
                     st.keys.push(key);
                     if types(key) {
-                        Self::flush_pending(st, h);
+                        Self::flush_pending(win.id, st, h);
                         st.pending = Some((key, Instant::now()));
                         st.held = Some(key);
                     } else {
-                        key_event(h, key, true, None, false);
+                        key_event(h, win.id, key, true, None, false);
                     }
                 }
                 let m = st.modifiers();
                 if m != mods {
-                    window_event(h, event::WindowEvent::ModifiersChanged(m));
+                    window_event(h, win.id, event::WindowEvent::ModifiersChanged(m));
                 }
             },
             Input::Char(c) => {
                 if let Some((key, _)) = st.pending.take() {
-                    key_event(h, key, true, Some(c), false);
+                    key_event(h, win.id, key, true, Some(c), false);
                 } else if let Some(key) = st.held {
                     // a key held down: kbdfs repeats its character
-                    key_event(h, key, true, Some(c), true);
+                    key_event(h, win.id, key, true, Some(c), true);
                 } else if text(c) {
                     // composed (kbdfs' Alt sequences): a character without a key of its own
                     let s: SmolStr = c.encode_utf8(&mut [0u8; 4]).into();
                     for pressed in [true, false] {
-                        window_event(h, event::WindowEvent::KeyboardInput {
+                        window_event(h, win.id, event::WindowEvent::KeyboardInput {
                             device_id: event::DeviceId(DeviceId),
                             event: event::KeyEvent {
                                 logical_key: Key::Character(s.clone()),
@@ -531,8 +548,8 @@ impl<T: 'static> EventLoop<T> {
                 } else if keycode(c).1.is_some() {
                     // a key's character without the key (written to /dev/kbdin:
                     // vncs, a test): Enter, Tab, Backspace, ... pressed and let go
-                    key_event(h, c, true, Some(c), false);
-                    key_event(h, c, false, None, false);
+                    key_event(h, win.id, c, true, Some(c), false);
+                    key_event(h, win.id, c, false, None, false);
                 }
             },
             Input::Wctl(line) => {
@@ -540,16 +557,16 @@ impl<T: 'static> EventLoop<T> {
                 Self::relook(win, st, h, shared);
                 let focused = line.contains("current") && !line.contains("notcurrent");
                 if focused != win.focused.swap(focused, Ordering::Relaxed) {
-                    window_event(h, event::WindowEvent::Focused(focused));
+                    window_event(h, win.id, event::WindowEvent::Focused(focused));
                 }
                 let hidden = line.contains("hidden");
                 if hidden != win.hidden.swap(hidden, Ordering::Relaxed)
                     && !win.invisible.load(Ordering::Relaxed)
                 {
-                    window_event(h, event::WindowEvent::Occluded(hidden));
+                    window_event(h, win.id, event::WindowEvent::Occluded(hidden));
                 }
             },
-            Input::Closed => window_event(h, event::WindowEvent::CloseRequested),
+            Input::Closed | Input::CloseRequested => window_event(h, win.id, event::WindowEvent::CloseRequested),
         }
     }
 
@@ -621,30 +638,41 @@ impl<T: 'static> EventLoop<T> {
                 std::mem::take(&mut q.destroyed),
             )
         };
-        let win = shared.win.lock().unwrap().clone();
-        if let Some(win) = &win {
-            if created {
-                // the first size and place
-                *st = State::default();
-                st.content = *win.content.lock().unwrap();
-                st.scale = *win.scale.lock().unwrap();
-                let c = st.content;
-                window_event(&mut h, event::WindowEvent::Resized(
-                    (c.dx().max(0) as u32, c.dy().max(0) as u32).into(),
-                ));
-                window_event(&mut h, event::WindowEvent::Moved((c.x0, c.y0).into()));
-                window_event(&mut h, event::WindowEvent::Focused(true));
-            }
-            for input in inputs {
-                Self::input(win, st, input, &mut h, &shared);
-            }
-            if matches!(st.pending, Some((_, t)) if t.elapsed() >= CHARWAIT) {
-                Self::flush_pending(st, &mut h);
+        // each window looked up when it is wanted, not held over the round: one
+        // the program drops goes then (its clone file closed), not after
+        let lookup = |id: &WindowId| shared.wins.lock().unwrap().get(id).cloned();
+        for id in created {
+            let Some(win) = lookup(&id) else { continue };
+            // the first size and place
+            let mut ws = State::default();
+            ws.content = *win.content.lock().unwrap();
+            ws.scale = *win.scale.lock().unwrap();
+            let c = ws.content;
+            st.insert(id, ws);
+            window_event(&mut h, id, event::WindowEvent::Resized(
+                (c.dx().max(0) as u32, c.dy().max(0) as u32).into(),
+            ));
+            window_event(&mut h, id, event::WindowEvent::Moved((c.x0, c.y0).into()));
+            if win.focused.load(Ordering::Relaxed) {
+                window_event(&mut h, id, event::WindowEvent::Focused(true));
             }
         }
-        if destroyed {
-            window_event(&mut h, event::WindowEvent::Destroyed);
-            *shared.win.lock().unwrap() = None;
+        for (id, input) in inputs {
+            // (what a window's readers said after it was dropped: nobody's)
+            if let (Some(win), Some(ws)) = (lookup(&id), st.get_mut(&id)) {
+                Self::input(&win, ws, input, &mut h, &shared);
+            }
+        }
+        for (id, ws) in st.iter_mut() {
+            if matches!(ws.pending, Some((_, t)) if t.elapsed() >= CHARWAIT) {
+                Self::flush_pending(*id, ws, &mut h);
+            }
+        }
+        for id in destroyed {
+            if st.remove(&id).is_some() {
+                window_event(&mut h, id, event::WindowEvent::Destroyed);
+            }
+            shared.wins.lock().unwrap().remove(&id);
         }
 
         while let Ok(event) = self.user_events_receiver.try_recv() {
@@ -652,8 +680,10 @@ impl<T: 'static> EventLoop<T> {
         }
 
         let redraw = std::mem::take(&mut shared.queue.lock().unwrap().redraw);
-        if redraw && shared.win.lock().unwrap().is_some() {
-            window_event(&mut h, event::WindowEvent::RedrawRequested);
+        for id in redraw {
+            if shared.wins.lock().unwrap().contains_key(&id) {
+                window_event(&mut h, id, event::WindowEvent::RedrawRequested);
+            }
         }
 
         h(event::Event::AboutToWait);
@@ -673,8 +703,9 @@ impl<T: 'static> EventLoop<T> {
             ControlFlow::WaitUntil(instant) => Some(instant),
         };
         // a key press waiting for its character: not longer than that
-        let mut until = match (requested_resume, self.st.pending) {
-            (r, Some((_, t))) => Some(r.map_or(t + CHARWAIT, |r| r.min(t + CHARWAIT))),
+        let pending = self.st.values().filter_map(|w| w.pending.map(|(_, t)| t)).min();
+        let mut until = match (requested_resume, pending) {
+            (r, Some(t)) => Some(r.map_or(t + CHARWAIT, |r| r.min(t + CHARWAIT))),
             (r, None) => r,
         };
         if let Some(l) = limit.and_then(|l| start.checked_add(l)) {
@@ -683,7 +714,7 @@ impl<T: 'static> EventLoop<T> {
 
         let mut q = shared.queue.lock().unwrap();
         let mut timed_out = false;
-        while q.inputs.is_empty() && !q.wake && !q.redraw && !q.created && !q.destroyed {
+        while q.idle() {
             match until {
                 None => q = shared.cv.wait(q).unwrap(),
                 Some(until) => {

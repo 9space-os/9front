@@ -50,11 +50,25 @@ extern int plan9_dmabuf_token(int fd, char *buf, int n);	/* plan9/lib/dmabuf.c *
 
 enum { Wsysbufs = 32 };	/* wsys' buffers a window (wsys(4): 0 to 31) */
 /*
- * a swapchain's buffers in wsys: numbers 0-15 or 16-31, the other half from the
- * swapchain before (an app makes the new one before it destroys the old,
- * whose unbuffers must not hit the new one's)
+ * What the WSI knows of one window of the process in wsys (its surface's
+ * name: NULL, the process's window; a path, another window's directory,
+ * plan9win.h): its swapchains' buffers in wsys, numbers 0-15 or 16-31, the
+ * other half from the swapchain before (an app makes the new one before it
+ * destroys the old, whose unbuffers must not hit the new one's); the
+ * swapchains that have them (chains, by half); wsys' word overlay; whether
+ * a thread reads the window's events.
  */
-static int wsys_half;
+struct wsi_plan9_swapchain;
+struct wsys_win {
+   char dir[128];   /* "" for the process's window */
+   bool used;
+   int half;
+   struct wsi_plan9_swapchain *chains[2];
+   int overlay;     /* -1 not heard yet */
+   int events_on;
+};
+enum { Wsyswins = 16 };
+static struct wsys_win wsys_wins[Wsyswins];
 
 struct wsi_plan9 {
    struct wsi_interface base;
@@ -343,6 +357,7 @@ struct wsi_plan9_swapchain {
    int shown;        /* the image on the display, kept busy; -1 none */
    bool overlay;     /* in wsys, the images in VRAM for its overlay plane: no copy, no view */
    uint32_t bufbase; /* its buffers' numbers in wsys: bufbase + image */
+   struct wsys_win *ww; /* its window's (wsys != -1) */
    uint32_t ignored; /* presents since VK_SUBOPTIMAL_KHR off the overlay plane */
    uint32_t next;
    mtx_t lock;       /* busy, next */
@@ -402,7 +417,7 @@ plan9_free(struct wsi_plan9_swapchain *chain, uint32_t i)
 
 /*
  * The swapchains whose images wsys has, by the half of wsys' numbers they
- * have (wsys_half): its events give them back ("b n": wsys no longer reads
+ * have (their window's half, struct wsys_win): its events give them back ("b n": wsys no longer reads
  * buffer n, a frame with a newer one is on the display).  Lock order:
  * wsys_chains_lock, then a chain's lock.
  */
@@ -418,7 +433,6 @@ wsysdebug(void)
    }
    return wsys_debug;
 }
-static struct wsi_plan9_swapchain *wsys_chains[2];
 static once_flag wsys_chains_once = ONCE_FLAG_INIT;
 
 static void
@@ -440,9 +454,38 @@ wsys_giveback(struct wsi_plan9_swapchain *chain)
    cnd_broadcast(&chain->freed);
 }
 
-/* wsys' event "b n" */
+/* the window of a surface's name: its entry, made now (NULL: none free) */
+static struct wsys_win *
+wsys_window(const char *name)
+{
+   const char *dir = name != NULL && name[0] == '/' ? name : "";
+   struct wsys_win *w, *free = NULL;
+
+   call_once(&wsys_chains_once, wsys_chains_init);
+   mtx_lock(&wsys_chains_lock);
+   for (int i = 0; i < Wsyswins; i++) {
+      w = &wsys_wins[i];
+      if (w->used && strcmp(w->dir, dir) == 0)
+         goto Found;
+      /* one with no swapchain and no reader is free again (a window gone) */
+      if (free == NULL && (!w->used || (!w->chains[0] && !w->chains[1] && !p_atomic_read(&w->events_on))))
+         free = w;
+   }
+   w = free;
+   if (w != NULL) {
+      memset(w, 0, sizeof *w);
+      w->used = true;
+      w->overlay = -1;
+      snprintf(w->dir, sizeof w->dir, "%s", dir);
+   }
+Found:
+   mtx_unlock(&wsys_chains_lock);
+   return w;
+}
+
+/* wsys' event "b n" of window ww */
 static void
-wsys_released(uint32_t n)
+wsys_released(struct wsys_win *ww, uint32_t n)
 {
    uint32_t h = n / (Wsysbufs / 2), i = n % (Wsysbufs / 2);
 
@@ -450,7 +493,7 @@ wsys_released(uint32_t n)
       return;
    call_once(&wsys_chains_once, wsys_chains_init);
    mtx_lock(&wsys_chains_lock);
-   struct wsi_plan9_swapchain *chain = wsys_chains[h];
+   struct wsi_plan9_swapchain *chain = ww->chains[h];
    if (wsysdebug())
       fprintf(stderr, "wsi plan9: b %u: %s%s\n", n, chain ? "" : "no swapchain",
               chain && i < chain->base.image_count && !chain->images[i].inwsys ? "not wsys'" : "");
@@ -466,17 +509,23 @@ wsys_released(uint32_t n)
    mtx_unlock(&wsys_chains_lock);
 }
 
-/* wsys' events are gone (wsys, or the window): nothing comes back any more */
+/* wsys' events of window ww are gone (wsys, or the window): nothing comes
+ * back any more; ww NULL: every window's (wsys gone) */
 static void
-wsys_gone(void)
+wsys_gone(struct wsys_win *ww)
 {
    call_once(&wsys_chains_once, wsys_chains_init);
    mtx_lock(&wsys_chains_lock);
-   for (int h = 0; h < 2; h++) {
-      if (wsys_chains[h] != NULL) {
-         mtx_lock(&wsys_chains[h]->lock);
-         wsys_giveback(wsys_chains[h]);
-         mtx_unlock(&wsys_chains[h]->lock);
+   for (int i = 0; i < Wsyswins; i++) {
+      struct wsys_win *w = &wsys_wins[i];
+      if (!w->used || (ww != NULL && w != ww))
+         continue;
+      for (int h = 0; h < 2; h++) {
+         if (w->chains[h] != NULL) {
+            mtx_lock(&w->chains[h]->lock);
+            wsys_giveback(w->chains[h]);
+            mtx_unlock(&w->chains[h]->lock);
+         }
       }
    }
    mtx_unlock(&wsys_chains_lock);
@@ -573,53 +622,50 @@ wsi_plan9_swapchain_acquire_next_image(struct wsi_swapchain *wsi_chain,
 }
 
 /*
- * wsys' word for this process's window (wsys(4) event "overlay 0|1"):
+ * wsys' word for a window (wsys(4) event "overlay 0|1", ww->overlay):
  * whether its frames may go on the display's overlay plane, -1 not heard
- * yet.  A thread reads the window's events; a swapchain made then has its
- * images in VRAM (1, variant b: the display shows them as they are) or
- * where wsys reads them (0); when the word changes, present says
- * VK_SUBOPTIMAL_KHR and the app makes a new swapchain.
+ * yet.  A thread reads the window's events (ww->events_on: one a window; it
+ * ends with the window or its wsys, a swapchain there again starts
+ * another); a swapchain made then has its images in VRAM (1, variant b:
+ * the display shows them as they are) or where wsys reads them (0); when
+ * the word changes, present says VK_SUBOPTIMAL_KHR and the app makes a new
+ * swapchain.
  */
-static int wsys_overlay = -1;
-/* the events' reader runs (1): one for the window; it ends with the window's wsys,
- * and a swapchain in the next one starts another */
-static int wsys_events_on;
-
 static void *
 wsys_events(void *arg)
 {
+   struct wsys_win *ww = arg;
    char buf[1024];
    int fd, n;
 
-   (void)arg;
-   if ((fd = plan9win_wsysevents()) < 0) {
-      p_atomic_set(&wsys_events_on, 0);
+   if ((fd = plan9win_wsysevents(ww->dir[0] ? ww->dir : NULL)) < 0) {
+      p_atomic_set(&ww->events_on, 0);
       return NULL;
    }
    while ((n = plan9win_wsysread(fd, buf, sizeof buf - 1)) > 0) {
       buf[n] = 0;
       for (char *l = buf; l != NULL && *l; l = strchr(l, '\n') ? strchr(l, '\n') + 1 : NULL) {
          if (strncmp(l, "overlay ", 8) == 0)
-            p_atomic_set(&wsys_overlay, atoi(l + 8) != 0);
+            p_atomic_set(&ww->overlay, atoi(l + 8) != 0);
          else if (l[0] == 'b' && l[1] == ' ')
-            wsys_released(strtoul(l + 2, NULL, 10));
+            wsys_released(ww, strtoul(l + 2, NULL, 10));
       }
    }
    plan9win_wsysclose(fd);
-   wsys_gone();
-   p_atomic_set(&wsys_events_on, 0);
+   wsys_gone(ww);
+   p_atomic_set(&ww->events_on, 0);
    return NULL;
 }
 
 static void
-wsys_events_start(void)
+wsys_events_start(struct wsys_win *ww)
 {
    pthread_t t;
 
-   if (pthread_create(&t, NULL, wsys_events, NULL) == 0)
+   if (pthread_create(&t, NULL, wsys_events, ww) == 0)
       pthread_detach(t);
    else
-      p_atomic_set(&wsys_events_on, 0);
+      p_atomic_set(&ww->events_on, 0);
 }
 
 /* wsys lets go of the buffers; frames by copy from now on */
@@ -639,8 +685,8 @@ wsys_off(struct wsi_plan9_swapchain *chain)
    call_once(&wsys_chains_once, wsys_chains_init);
    mtx_lock(&wsys_chains_lock);
    for (int h = 0; h < 2; h++)
-      if (wsys_chains[h] == chain)
-         wsys_chains[h] = NULL;
+      if (chain->ww != NULL && chain->ww->chains[h] == chain)
+         chain->ww->chains[h] = NULL;
    mtx_lock(&chain->lock);
    wsys_giveback(chain);
    mtx_unlock(&chain->lock);
@@ -749,7 +795,7 @@ wsi_plan9_swapchain_queue_present(struct wsi_swapchain *wsi_chain,
           * else (Intel: no VRAM) the plane shows these as they are, and a new
           * swapchain would get the same: new ones again and again, a flicker
           */
-         int ov = p_atomic_read(&wsys_overlay);
+         int ov = p_atomic_read(&chain->ww->overlay);
          bool vram = chain->base.wsi->plan9_scanout_device_local;
          if (ov >= 0 && (ov == 1) != chain->overlay && (vram || chain->overlay) && chain->status == VK_SUCCESS) {
             if (chain->stats)
@@ -783,7 +829,7 @@ wsi_plan9_swapchain_queue_present(struct wsi_swapchain *wsi_chain,
          if (chain->stats)
             fprintf(stderr, "wsi plan9: wsys gone, %s\n", again == 0 ?
                     "the window in the next one: a new swapchain" : "no next one came: surface lost");
-         wsys_gone();
+         wsys_gone(NULL);
          plan9_free(chain, image_index);
          chain->status = again == 0 ? VK_ERROR_OUT_OF_DATE_KHR : VK_ERROR_SURFACE_LOST_KHR;
          return chain->status;
@@ -893,7 +939,9 @@ wsi_plan9_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
    uint32_t num_images = MAX2(pCreateInfo->minImageCount, plan9_min_images(surface, wsi_device));
    /* in a window of wsys the buffers go there: exportable (dma-buf) */
    int wsys = -1;
-   if (!scanout && !(copy && atoi(copy)) && !wsi_device->sw && num_images <= Wsysbufs / 2)
+   struct wsys_win *ww = NULL;
+   if (!scanout && !(copy && atoi(copy)) && !wsi_device->sw && num_images <= Wsysbufs / 2 &&
+       (ww = wsys_window(surface->windowName)) != NULL)
       wsys = plan9win_wsys(surface->windowName);
    size_t size = sizeof(*chain) + num_images * sizeof(chain->images[0]);
    chain = vk_zalloc(pAllocator, size, 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
@@ -903,8 +951,9 @@ wsi_plan9_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
       return VK_ERROR_OUT_OF_HOST_MEMORY;
    }
    chain->wsys = wsys;
+   chain->ww = ww;
    if (wsys >= 0)
-      chain->bufbase = __atomic_xor_fetch(&wsys_half, Wsysbufs / 2, __ATOMIC_SEQ_CST);
+      chain->bufbase = __atomic_xor_fetch(&ww->half, Wsysbufs / 2, __ATOMIC_SEQ_CST);
 
    /* rendered by the device, blitted into host memory for draw(3) */
    struct wsi_cpu_image_params cpu_params = {
@@ -943,9 +992,9 @@ wsi_plan9_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
                          struct wsi_image *) = chain->base.image_info.create_mem;
    uint32_t (*plain_type)(const struct wsi_device *, uint32_t) = chain->base.image_info.select_blit_dst_memory_type;
    if (wsys >= 0) {
-      if (p_atomic_cmpxchg(&wsys_events_on, 0, 1) == 0)
-         wsys_events_start();
-      if (p_atomic_read(&wsys_overlay) == 1 && wsi_device->plan9_scanout_device_local) {
+      if (p_atomic_cmpxchg(&ww->events_on, 0, 1) == 0)
+         wsys_events_start(ww);
+      if (p_atomic_read(&ww->overlay) == 1 && wsi_device->plan9_scanout_device_local) {
          /* on wsys' overlay plane: in VRAM, exportable, the display shows them as they are */
          chain->overlay = true;
          chain->base.image_info.select_blit_dst_memory_type = wsi_plan9_select_overlay_memory_type;
@@ -1011,7 +1060,7 @@ wsi_plan9_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
       /* its events give the images back from now on */
       call_once(&wsys_chains_once, wsys_chains_init);
       mtx_lock(&wsys_chains_lock);
-      wsys_chains[chain->bufbase / (Wsysbufs / 2)] = chain;
+      chain->ww->chains[chain->bufbase / (Wsysbufs / 2)] = chain;
       mtx_unlock(&wsys_chains_lock);
    }
    if (chain->stats && wsys >= 0)

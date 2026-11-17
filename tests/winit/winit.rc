@@ -16,6 +16,9 @@ run winittest /tmp/winit.log
 waitfor /tmp/winit.log '^winittest: exit'
 run eguitest /tmp/egui.log
 waitfor /tmp/egui.log '^eguitest: exit'
+# one program's three windows: its own, a modal dialog and a popup (wsys' clone)
+run multiwin /tmp/multiwin.log
+waitfor /tmp/multiwin.log '^multiwin: exit'
 if(test -x /tests/icedtest){
 	run icedtest /tmp/iced.log
 	waitfor /tmp/iced.log '^icedtest: exit'
@@ -53,7 +56,7 @@ if(test -x /tests/icedtest){
 echo >/tmp/icede.ready
 if(test -x /tests/icedtest)
 	waitfor /tmp/icede.log '^icedtest: exit'
-cat /tmp/winit.log /tmp/egui.log /tmp/iced.log
+cat /tmp/winit.log /tmp/egui.log /tmp/multiwin.log /tmp/iced.log
 cat /tmp/eframetest.log /tmp/eframetestsw.log >[2]/dev/null
 grep '^event' /tmp/winite.log
 grep '^(event|clicks|button)' /tmp/eguie.log

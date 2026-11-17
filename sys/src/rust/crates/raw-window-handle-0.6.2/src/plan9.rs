@@ -35,15 +35,20 @@ impl DisplayHandle<'static> {
     }
 }
 
-/// Raw window handle for 9front: the process's window.
+/// Raw window handle for 9front: one of the process's windows.
 ///
-/// A process of rio or wsys has one window, the one its name space's
-/// `/dev/winname` names (the screen without a window system); the handle
-/// stands for it. Vulkan's `VK_PLAN9_surface` and EGL's plan9 platform take
-/// the same window.
+/// A process of rio or wsys has its window, the one its name space's
+/// `/dev/winname` names (the screen without a window system): `window` 0.
+/// Under wsys it may have more (wsys(4)'s `clone`: dialogs, popups, a second
+/// main window), each a directory `/dev/wsys/n` with its files: `window` n.
+/// Vulkan's `VK_PLAN9_surface` and EGL's plan9 platform take the same window
+/// (its `winname`, in that directory).
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Plan9WindowHandle {}
+pub struct Plan9WindowHandle {
+    /// 0: the process's window (`/dev`); n: wsys' window n (`/dev/wsys/n`)
+    pub window: u32,
+}
 
 impl Plan9WindowHandle {
     /// Create a new handle to the process's window.
@@ -55,6 +60,11 @@ impl Plan9WindowHandle {
     /// let handle = Plan9WindowHandle::new();
     /// ```
     pub fn new() -> Self {
-        Self {}
+        Self { window: 0 }
+    }
+
+    /// A handle to wsys' window n of the process (0: the process's window).
+    pub fn with_window(window: u32) -> Self {
+        Self { window }
     }
 }
