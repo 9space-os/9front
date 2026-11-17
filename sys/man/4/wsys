@@ -584,6 +584,25 @@ its header has the rectangle), with what the overlay plane shows over it
 (a window's buffer in VRAM through gpu(4)'s
 .BR readback ).
 .TP
+.IB n /clone
+As
+.BR clone ,
+the window made a dialog or popup of window
+.I n
+(its parent): it stays above
+.IR n ,
+moves with it (by as much as
+.I n
+moves), is hidden and shown with it, and goes when it goes;
+Mod4+Tab passes it (it comes with
+.IR n ).
+A program in a window finds it as
+.BR /dev/clone :
+the windows of one program (its dialogs, its menus as windows of their own,
+a second main window as a dialog of none, see
+.B parent
+below) all from its namespace.
+.TP
 .IB n /dpi
 The scale as dots per inch, round(96×scale), for
 .IR graphics (2)'s
@@ -804,13 +823,47 @@ shown, it takes the focus with
 .BI label " text
 .TP
 .B delete
+.TP
+.BI parent " p\fR|\fP-
+makes the window a dialog or popup of window
+.I p
+(as made by
+.IB p /cloneR),
+or of none.
+.TP
+.BR modal " [" 0|1 ]
+while the window is shown, a press of a button in its parent's content
+raises the window and gives it the focus instead (the parent's border and
+title bar still move and size it, the dialog along), and Mod4+Tab to the
+parent gives the focus to it.
+.TP
+.BR askclose " [" 0|1 ]
+the user's Delete (the title bar's
+.BR x ,
+button 3's menu) only sends the event
+.BR close :
+the client deletes the window (closes its clone file, or
+.BR delete ),
+or keeps it (a dialog asks whether to save first).
+.B wctl
+and
+.B ctl
+.B delete
+still delete it at once.
 .RE
 .TP
 .IB n /event
 Reading blocks until there are events; each is a line:
 .BI m " x y buttons msec
 (the mouse, in the window's coordinates, while it is over the window or a button is held,
-and once when it has left it),
+and once when it has left it; also over a window without the focus while
+no button is held, there on its
+.B event
+file alone (its
+.B mouse
+file is
+.IR rio 's:
+the focused window's), for hover and tooltips in a program's other windows),
 .BI k " rune
 (a key, the rune in hexadecimal),
 .BI r " w h
@@ -829,7 +882,10 @@ may keep it until another one is shown),
 .I b
 released),
 .BI overlay " 0|1
-(whether its buffers may go on the overlay plane).
+(whether its buffers may go on the overlay plane),
+.B close
+(the user asked to delete the window,
+.BR askclose ).
 Programs skip events they do not know.
 .PP
 .I Wsys

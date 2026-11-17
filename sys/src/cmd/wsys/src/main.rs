@@ -267,6 +267,7 @@ enum Kind {
     Theme, // the theme: its text; lines written change it (theme.rs)
     Wsys,  // a window's wsys/: all the windows (rio's /dev/wsys: winwatch)
     WinDir(u32),
+    WinClone(u32), // a window's clone: a window of the same client, that one its parent
     File(u32, F),
     // wsys' own devdraw (-d): draw/, draw/new, draw/n/ (a client in devdraw's
     // slot n), its files (devdraw's types: colormap, ctl, data, refresh)
@@ -287,6 +288,9 @@ struct FidState {
     seen: u64,        // wctl: the window's state last read (0: none yet)
     snap: Option<Vec<u8>>, // screen, window: the image (6) as it was at the first read
     chan: Option<drawcore::Chan>, // a file of wsys' devdraw, open
+    // an event file open: its own queue, every reader gets every event (a
+    // program's window toolkit and its Vulkan WSI read the same window's)
+    evq: Option<VecDeque<String>>,
 }
 
 /// A client's buffer, a segment of wsys's (every thread has it: std's threads
@@ -348,6 +352,10 @@ struct Win {
     full: Option<(Rect, i32, i32)>, // wctl's fullscreen: the frame, border and title bar it had
     mapped: bool, // made by clone: off the screen (hidden) until its first present
     nofocus: bool, // a popup that leaves the focus where it is (a tooltip)
+    parent: Option<u32>, // a dialog's or popup's window: it moves, stacks, hides and goes with that one
+    modal: bool,         // ctl modal: its parent takes no clicks while it is shown (they bring it up)
+    askclose: bool,      // ctl askclose: Delete (title bar, menu) sends close, the client deletes it
+    hiddenby: bool,      // hidden with its parent, shown again with it
     slot: usize,
     bufs: HashMap<u32, Buf>,
     img: u32,   // what a client of buffers presented, x8r8g8b8, the window's size
@@ -797,6 +805,7 @@ struct Wsys {
     sweepr: Option<Rect>,        // the sweep's outline (over the GPU windows)
     barheld: Option<u32>,        // a button went down on this bar: the mouse is its until all are up
     mlast: Option<u32>,          // the window the last mouse event went to
+    hlast: Option<u32>,          // the window without the focus the pointer was over (its event file's m)
 }
 
 fn qid(k: Kind) -> Qid {
@@ -809,6 +818,7 @@ fn qid(k: Kind) -> Qid {
         Kind::Theme => (0, 8),
         Kind::Wsys => (ninep::QTDIR, 9),
         Kind::WinDir(n) => (ninep::QTDIR, (n as u64) << 8 | 0x10),
+        Kind::WinClone(n) => (0, (n as u64) << 8 | 0x11),
         Kind::File(n, f) => (0, (n as u64) << 8 | (0x20 + f as u64)),
         Kind::Draw => (ninep::QTDIR, 2),
         Kind::RootWinname => (0, 4),
@@ -852,7 +862,7 @@ impl Wsys {
     fn dir(&self, k: Kind) -> Dir {
         let (name, mode) = match k {
             Kind::Root => ("/".to_string(), ninep::DMDIR | 0o555),
-            Kind::Clone => ("clone".to_string(), 0o666),
+            Kind::Clone | Kind::WinClone(_) => ("clone".to_string(), 0o666),
             Kind::Screen => ("screen".to_string(), 0o444),
             Kind::RootWctl => ("wctl".to_string(), 0o222),
             Kind::Stack => ("stack".to_string(), 0o444),
@@ -877,7 +887,7 @@ impl Wsys {
 
     fn exists(&self, k: Kind) -> bool {
         match k {
-            Kind::WinDir(n) | Kind::File(n, _) => self.wins.contains_key(&n),
+            Kind::WinDir(n) | Kind::WinClone(n) | Kind::File(n, _) => self.wins.contains_key(&n),
             Kind::DrawCl(sl) | Kind::DrawF(sl, _) => drawcore::clientid(sl).is_some_and(|id| id > 0),
             _ => true,
         }
@@ -905,6 +915,9 @@ impl Wsys {
                 }
                 if name == "wsys" {
                     return Some(Kind::Wsys);
+                }
+                if name == "clone" {
+                    return Some(Kind::WinClone(n));
                 }
                 if name == "draw" && self.core.is_some() {
                     return Some(Kind::Draw);
@@ -952,6 +965,7 @@ impl Wsys {
             }
             Kind::WinDir(n) => {
                 let mut v: Vec<Kind> = WINFILES.iter().map(|w| Kind::File(n, w.0)).collect();
+                v.push(Kind::WinClone(n));
                 v.push(Kind::Wsys);
                 if self.core.is_some() {
                     v.push(Kind::Draw);
@@ -997,7 +1011,7 @@ impl Wsys {
                 w.pinned = false;
             }
         }
-        self.fids.insert(fid, FidState { kind, open: false, dirpos: 0, win, owns: false, raw: false, seen: 0, snap: None, chan: None });
+        self.fids.insert(fid, FidState { kind, open: false, dirpos: 0, win, owns: false, raw: false, seen: 0, snap: None, chan: None, evq: None });
     }
 
     /// the reply, or None when it comes later (a read that waits)
@@ -1110,23 +1124,33 @@ impl Wsys {
                     Kind::RootWctl if reading => return e("permission denied"),
                     Kind::File(_, F::Event | F::Winid | F::Winname | F::Window | F::Screen | F::Dpi) if writing => return e("permission denied"),
                     Kind::File(_, F::Consctl) if reading => return e("permission denied"),
-                    Kind::Clone => match self.newwin(&Opts::default(), false) {
+                    Kind::Clone | Kind::WinClone(_) => match self.newwin(&Opts::default(), false) {
                         Ok(n) => {
                             let f = self.fids.get_mut(&fid).unwrap();
                             (f.owns, f.win) = (true, Some(n));
-                            self.wins.get_mut(&n).unwrap().refs += 1;
+                            let w = self.wins.get_mut(&n).unwrap();
+                            w.refs += 1;
+                            // a window's clone: that window its parent (dialogs, popups)
+                            if let Kind::WinClone(p) = k {
+                                w.parent = Some(p);
+                            }
                             Kind::File(n, F::Ctl)
                         }
                         Err(err) => return e(&format!("new window: {err}")),
                     },
                     k => k,
                 };
+                let mut evq = None;
                 match k {
                     Kind::File(n, F::Kbd) => self.wins.get_mut(&n).unwrap().kbdopen += 1,
                     Kind::File(n, F::Mouse) => self.wins.get_mut(&n).unwrap().mouseopen += 1,
+                    // the events so far (made before anyone read them: the first
+                    // r, f) to the first reader, those after to every reader
+                    Kind::File(n, F::Event) => evq = Some(std::mem::take(&mut self.wins.get_mut(&n).unwrap().events)),
                     _ => {}
                 }
                 let f = self.fids.get_mut(&fid).unwrap();
+                f.evq = evq;
                 f.kind = k;
                 f.open = true;
                 Some(R::new(113, tag).qid(qid(k)).u32(self.msize - ninep::IOHDRSZ).done())
@@ -1578,23 +1602,26 @@ impl Wsys {
     fn take(&mut self, fid: u32, n: u32, f: F, count: u32) -> Option<Vec<u8>> {
         let (mx, my, ms, focus) = (self.mx, self.my, self.ms, self.focus);
         let seen = self.fids.get(&fid).map(|f| f.seen).unwrap_or(0);
+        if f == F::Event {
+            self.wins.get(&n)?;
+            let q = self.fids.get_mut(&fid)?.evq.as_mut()?;
+            if q.is_empty() {
+                return None;
+            }
+            let mut out = String::new();
+            while let Some(l) = q.front() {
+                if !out.is_empty() && out.len() + l.len() > count as usize {
+                    break;
+                }
+                out.push_str(l);
+                q.pop_front();
+            }
+            out.truncate(count as usize);
+            return Some(out.into_bytes());
+        }
         let w = self.wins.get_mut(&n)?;
         match f {
-            F::Event => {
-                if w.events.is_empty() {
-                    return None;
-                }
-                let mut out = String::new();
-                while let Some(l) = w.events.front() {
-                    if !out.is_empty() && out.len() + l.len() > count as usize {
-                        break;
-                    }
-                    out.push_str(l);
-                    w.events.pop_front();
-                }
-                out.truncate(count as usize);
-                Some(out.into_bytes())
-            }
+            F::Event => None,
             F::Mouse => {
                 if w.resized {
                     w.resized = false;
@@ -1684,10 +1711,26 @@ impl Wsys {
             eprintln!("wsys: window {n}: {line}");
         }
         let Some(w) = self.wins.get_mut(&n) else { return };
-        if w.events.len() >= MAXEVENTS {
-            w.events.pop_front();
+        let line = line + "\n";
+        let mut readers = 0;
+        for f in self.fids.values_mut() {
+            if let (Kind::File(m, F::Event), Some(q)) = (f.kind, f.evq.as_mut()) {
+                if m == n {
+                    if q.len() >= MAXEVENTS {
+                        q.pop_front();
+                    }
+                    q.push_back(line.clone());
+                    readers += 1;
+                }
+            }
         }
-        w.events.push_back(line + "\n");
+        if readers == 0 {
+            // none open: kept for the first one
+            if w.events.len() >= MAXEVENTS {
+                w.events.pop_front();
+            }
+            w.events.push_back(line);
+        }
         self.wake(n);
     }
 
@@ -1729,7 +1772,7 @@ impl Wsys {
         self.nextwin = n;
         self.slots[slot] = true;
         self.wins.insert(n, Win {
-            r, border: bw, title: t, unmax: None, bar: false, menuout: None, full: None, tlayer: None, mapped: text, nofocus: false, slot, bufs: HashMap::new(), img, layer, name, refs: 0, pinned: false, pid: o.pid,
+            r, border: bw, title: t, unmax: None, bar: false, menuout: None, full: None, tlayer: None, mapped: text, nofocus: false, parent: None, modal: false, askclose: false, hiddenby: false, slot, bufs: HashMap::new(), img, layer, name, refs: 0, pinned: false, pid: o.pid,
             label: String::new(), wdir: o.cd.clone().unwrap_or_default(), text: String::new(), partial: vec![],
             events: VecDeque::new(), raw: false, line: String::new(), cons: VecDeque::new(), eof: false,
             kbd: VecDeque::new(), kbdopen: 0, mouseopen: 0, mouse: VecDeque::new(), resized: false,
@@ -1754,6 +1797,10 @@ impl Wsys {
 
     /// window n goes; hangup: its note group gets the note (a delete by wctl)
     fn delwin(&mut self, n: u32, hangup: bool) {
+        // its dialogs and popups first (their clients' reads say window deleted)
+        for c in self.family(n).into_iter().rev() {
+            self.delwin(c, false);
+        }
         let Some(w) = self.wins.remove(&n) else { return };
         if let Some(c) = &self.comp {
             for (&b, buf) in &w.bufs {
@@ -1845,14 +1892,54 @@ impl Wsys {
         3 * portion(y, f.y0, f.y1) + portion(x, f.x0, f.x1)
     }
 
+    /// window n's dialogs and popups and theirs (parent), in stacking order
+    fn family(&self, n: u32) -> Vec<u32> {
+        let mut v = vec![];
+        let mut i = 0;
+        let mut q = vec![n];
+        while i < q.len() {
+            let p = q[i];
+            q.extend(self.z.iter().copied().filter(|c| self.wins.get(c).is_some_and(|w| w.parent == Some(p))));
+            i += 1;
+        }
+        q.remove(0);
+        for &c in &self.z {
+            if q.contains(&c) {
+                v.push(c);
+            }
+        }
+        v
+    }
+
+    /// a modal dialog of window n (or of one of its dialogs) on the screen,
+    /// the one on top: it takes what goes to n
+    fn modalof(&self, n: u32) -> Option<u32> {
+        self.family(n).into_iter().rev().find(|c| {
+            let w = &self.wins[c];
+            w.modal && w.mapped && !w.hidden
+        })
+    }
+
     fn restack(&mut self, n: u32, top: bool) {
-        self.z.retain(|&i| i != n);
+        // its dialogs and popups go with it, above it
+        let fam = self.family(n);
+        self.z.retain(|&i| i != n && !fam.contains(&i));
         if top {
             self.z.push(n);
+            self.z.extend(&fam);
         } else {
-            self.z.insert(0, n);
+            let mut v = vec![n];
+            v.extend(&fam);
+            self.z.splice(0..0, v);
         }
-        let mut l = self.wins[&n].layers();
+        // draw(3)'s t: the first listed ends in front, each next one behind it
+        // (to the bottom: the first at the very back, each next in front of
+        // it): its dialogs and popups in front of it either way
+        let mut l: Vec<u32> = if top {
+            fam.iter().rev().flat_map(|i| self.wins[i].layers()).chain(self.wins[&n].layers()).collect()
+        } else {
+            self.wins[&n].layers().into_iter().chain(fam.iter().flat_map(|i| self.wins[i].layers())).collect()
+        };
         // (a window in fullscreen on top: the bars below it)
         if top && !self.wins[&n].bar && self.wins[&n].full.is_none() {
             // the bars above it again
@@ -2192,6 +2279,42 @@ impl Wsys {
             }
             "delete" => {
                 self.delwin(n, true);
+                Ok(())
+            }
+            "parent" => {
+                // parent n: a dialog or popup of window n (moves, stacks, hides and
+                // goes with it); parent -: none
+                let p = match f.next() {
+                    Some("-") => None,
+                    Some(v) => {
+                        let p: u32 = v.parse().map_err(|_| "usage: parent n|-")?;
+                        if !self.wins.contains_key(&p) || p == n || self.family(n).contains(&p) {
+                            return Err("bad parent".into());
+                        }
+                        Some(p)
+                    }
+                    None => return Err("usage: parent n|-".into()),
+                };
+                self.wins.get_mut(&n).unwrap().parent = p;
+                if let Some(p) = p {
+                    if self.wins[&n].mapped {
+                        self.restack(p, true);
+                    }
+                }
+                Ok(())
+            }
+            "modal" | "askclose" => {
+                let on = match f.next() {
+                    None | Some("1") => true,
+                    Some("0") => false,
+                    Some(_) => return Err(format!("usage: {cmd} [0|1]")),
+                };
+                let w = self.wins.get_mut(&n).unwrap();
+                if cmd == "modal" {
+                    w.modal = on;
+                } else {
+                    w.askclose = on;
+                }
                 Ok(())
             }
             _ => Err(format!("unknown ctl message: {cmd}")),
@@ -2678,6 +2801,17 @@ impl Wsys {
             self.origins(n);
         }
         self.changed(n);
+        // its dialogs and popups keep their place relative to it; moved after
+        // it (devdraw brings a window it moves to the front: they stay in
+        // front of it, in their order)
+        let (dx, dy) = (r.x0 - old.x0, r.y0 - old.y0);
+        if dx != 0 || dy != 0 {
+            let kids: Vec<u32> = self.z.iter().copied().filter(|c| self.wins[c].parent == Some(n)).collect();
+            for c in kids {
+                let k = self.wins[&c].r;
+                let _ = self.reframe(c, Rect::new(k.x0 + dx, k.y0 + dy, k.x1 + dx, k.y1 + dy), false);
+            }
+        }
         Ok(())
     }
 
@@ -2954,9 +3088,20 @@ impl Wsys {
 
     /// a title bar's button let go on: x deletes (as button 3's Delete), max
     /// fills the screen or gives the frame back, min hides (as Hide)
+    /// the user deletes window n (title bar's x, button 3's Delete): its client
+    /// asked to be asked (ctl askclose): an event close, it deletes the window
+    /// (or not: a dialog asks whether to save); else it goes
+    fn closereq(&mut self, n: u32) {
+        if self.wins.get(&n).is_some_and(|w| w.askclose) {
+            self.event(n, "close".into());
+        } else {
+            self.delwin(n, true);
+        }
+    }
+
     fn titleop(&mut self, n: u32, op: TitleOp) {
         match op {
-            TitleOp::Delete => self.delwin(n, true),
+            TitleOp::Delete => self.closereq(n),
             TitleOp::Hide => self.hide(n, true),
             TitleOp::Max => self.maximize(n),
         }
@@ -3751,6 +3896,15 @@ impl Wsys {
             self.barheld = hit;
         }
         if pressed {
+            // a window with a modal dialog shown takes no click in its content:
+            // the dialog comes up with the focus (its border and title bar stay
+            // wsys': it can still be moved, the dialog with it)
+            if let Some(m) = hit.filter(|n| !self.wins[n].bar && self.wins[n].r.contains(x, y)).and_then(|n| self.modalof(n)) {
+                self.raise(self.wins[&m].parent.unwrap_or(m));
+                self.setfocus(Some(m));
+                self.buttons = b;
+                return;
+            }
             if let Some(n) = hit.filter(|n| !self.wins[n].bar) {
                 if self.focus != Some(n) {
                     self.setfocus(Some(n));
@@ -3855,6 +4009,27 @@ impl Wsys {
             }
         }
         self.mlast = target;
+        // the pointer over a window without the focus, no button held: m events
+        // on that window's event file only (Wayland's pointer focus: hover, a
+        // tooltip in another window of the client); its mouse file is rio's,
+        // the focused window's alone
+        let hover = hit.filter(|h| {
+            let w = &self.wins[h];
+            !held && Some(*h) != target && !w.bar && w.mapped && !w.hidden && w.r.contains(x, y)
+        });
+        if let Some(o) = self.hlast.filter(|o| Some(*o) != hover && Some(*o) != target && self.wins.contains_key(o)) {
+            if self.wins[&o].inside {
+                let r = self.wins[&o].r;
+                self.event(o, format!("m {} {} {} {}", x - r.x0, y - r.y0, b, ms));
+                self.wins.get_mut(&o).unwrap().inside = false;
+            }
+        }
+        self.hlast = hover;
+        if let Some(h) = hover {
+            let r = self.wins[&h].r;
+            self.event(h, format!("m {} {} {} {}", x - r.x0, y - r.y0, b, ms));
+            self.wins.get_mut(&h).unwrap().inside = true;
+        }
         if let Some(n) = target {
             let r = self.wins[&n].r;
             let w = &self.wins[&n];
@@ -4019,7 +4194,7 @@ impl Wsys {
                 let orig = self.wins[&n].r;
                 self.drag = Some(Drag { win: n, kind: DragKind::Move, x0: x, y0: y, orig, cur: orig });
             }
-            (Op3::Delete, Some(n)) => self.delwin(n, true),
+            (Op3::Delete, Some(n)) => self.closereq(n),
             (Op3::Hide, Some(n)) => self.hide(n, true),
             _ => {}
         }
@@ -4049,7 +4224,19 @@ impl Wsys {
             return;
         }
         w.hidden = off;
+        w.hiddenby = false;
         self.origins(n);
+        // its dialogs and popups with it: hidden with it, back with it (those it hid)
+        let kids: Vec<u32> = self.z.iter().copied().filter(|c| self.wins[c].parent == Some(n)).collect();
+        for c in kids {
+            let k = &self.wins[&c];
+            if off && !k.hidden && k.mapped {
+                self.show(c, true, false);
+                self.wins.get_mut(&c).unwrap().hiddenby = true;
+            } else if !off && k.hidden && k.hiddenby {
+                self.show(c, false, false);
+            }
+        }
         if off {
             if self.focus == Some(n) {
                 let next = self.z.iter().rev().copied().find(|i| !self.wins[i].hidden && !self.wins[i].bar);
@@ -4098,7 +4285,8 @@ impl Wsys {
     /// Mod4+Tab: the bottom visible window up and current (through all of them
     /// in turn); back: the current one down, the top one current
     fn nextwin(&mut self, back: bool) {
-        let vis: Vec<u32> = self.z.iter().copied().filter(|n| !self.wins[n].hidden && !self.wins[n].bar).collect();
+        // (a dialog or popup comes with its window, not by itself)
+        let vis: Vec<u32> = self.z.iter().copied().filter(|n| !self.wins[n].hidden && !self.wins[n].bar && self.wins[n].parent.is_none()).collect();
         if vis.len() < 2 {
             return;
         }
@@ -4106,12 +4294,14 @@ impl Wsys {
             if let Some(c) = self.focus {
                 self.restack(c, false);
             }
-            *self.z.iter().rev().find(|n| !self.wins[*n].hidden && !self.wins[*n].bar).unwrap()
+            *self.z.iter().rev().find(|n| !self.wins[*n].hidden && !self.wins[*n].bar && self.wins[*n].parent.is_none()).unwrap()
         } else {
             vis[0]
         };
         self.raise(n);
-        self.setfocus(Some(n));
+        // a modal dialog of it takes the focus
+        let f = self.modalof(n).unwrap_or(n);
+        self.setfocus(Some(f));
     }
 
     /// kbd(3) messages to the focused window: all of them to its kbd file when
@@ -5206,6 +5396,7 @@ fn main() {
         sweepr: None,
         barheld: None,
         mlast: None,
+        hlast: None,
         tabstop: std::env::var("tabstop").ok().and_then(|t| t.trim().parse().ok()).filter(|&t: &i32| t > 0).unwrap_or(4),
         // rio's snarf, when wsys runs in a window of rio
         parentsnarf: std::fs::metadata("/dev/snarf").is_ok() && std::fs::metadata("/dev/wctl").is_ok(),

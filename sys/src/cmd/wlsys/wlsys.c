@@ -649,9 +649,11 @@ main(int argc, char **argv)
 	argv += optind;
 	/*
 	 * in a window of wsys /mnt/wsys is that window ($wsys names the
-	 * connection): a name space of wlsys' own with wsys' tree there
+	 * connection): a name space of wlsys' own with wsys' tree there (its
+	 * stack file is the tree's alone: a window has a clone file too, which
+	 * makes dialogs of it)
 	 */
-	if(access("/mnt/wsys/clone", 0) < 0 && (s = getenv("wsys")) != NULL && *s != 0){
+	if(access("/mnt/wsys/stack", 0) < 0 && (s = getenv("wsys")) != NULL && *s != 0){
 		int fd;
 
 		if(_RFORK(RFNAMEG) < 0 || (fd = open(s, O_RDWR)) < 0 ||

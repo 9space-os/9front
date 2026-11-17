@@ -173,16 +173,17 @@ ctl(Win *w, char *fmt, ...)
 		fail("ctl %s: %r", buf);
 }
 
+/* a window by the clone file at path (a window's clone: that window its parent) */
 static Win*
-newwin(void)
+clonewin(char *path)
 {
 	Win *w;
 	char buf[64];
 
 	w = mallocz(sizeof *w, 1);
 	w->evp = w->eve = w->evbuf;
-	if((w->ctl = open("/mnt/wsys/clone", ORDWR)) < 0)
-		fail("open clone: %r");
+	if((w->ctl = open(path, ORDWR)) < 0)
+		fail("open %s: %r", path);
 	readctl(w);
 	if(nwins < nelem(wins))
 		wins[nwins++] = w;
@@ -190,6 +191,12 @@ newwin(void)
 	if((w->ev = open(buf, OREAD)) < 0)
 		fail("open %s: %r", buf);
 	return w;
+}
+
+static Win*
+newwin(void)
+{
+	return clonewin("/mnt/wsys/clone");
 }
 
 static void
@@ -461,6 +468,7 @@ main(void)
 	char *l, *f[6];
 	Rectangle r;
 	int fd;
+	char buf[256];
 
 	atnotify(onnote, 1);
 	if((d = initdisplay(nil, nil, nil)) == nil)
@@ -596,8 +604,11 @@ main(void)
 	present(a, 0, nil);
 	want(P(120, 140), Yellow, "a's buffer 0 again");
 
-	/* b gone with its clone fid; its range is given again */
+	/* b gone with its clone fid; its range is given again (its buffer's
+	 * segment detached here too: the range is the next window's) */
 	close(b->ctl);
+	segdetach(b->buf[0].px);
+	b->buf[0].px = nil;
 	want(P(400, 300), Bg, "background where b was");
 	want(P(120, 140), Yellow, "a stays");
 	c = newwin();
@@ -625,6 +636,70 @@ main(void)
 	print("ok a swept by the mouse: %R\n", a->r);
 	want(P(220, 190), Yellow, "a swept keeps its picture");
 	want(P(450, 280), 0xffffff, "a swept: white beyond it");
+
+	/*
+	 * a dialog of a: a's clone file makes it, a its parent; modal, a click on
+	 * a brings it up and leaves the focus with it; it moves with a; the
+	 * pointer over a (without the focus) gives a m events on its event file
+	 */
+	{
+		Win *dlg, *p, *q;
+		char path[64];
+		int moved;
+
+		snprint(path, sizeof path, "/mnt/wsys/%d/clone", a->id);
+		dlg = clonewin(path);
+		ctlrect(dlg, R(250, 180, 350, 240));
+		event(dlg, 'r');
+		readctl(dlg);
+		ctl(dlg, "modal");
+		ctl(dlg, "askclose");
+		mkbuf(dlg, 0, 100, 60, dlg->base, 1);
+		fill(&dlg->buf[0], Rect(0, 0, 100, 60), Blue);
+		present(dlg, 0, nil);
+		want(P(300, 210), Blue, "a's dialog over a");
+		readctl(dlg);
+		if(!dlg->focus)
+			fail("the dialog has no focus after its first present");
+		print("ok a's dialog %d by %s: shown, with the focus\n", dlg->id, path);
+		/* modal: a click on a leaves the focus with the dialog */
+		click(P(200, 280));
+		sleep(200);
+		readctl(dlg);
+		readctl(a);
+		if(!dlg->focus || a->focus)
+			fail("modal: a click on a took the focus (a %d, dialog %d)", a->focus, dlg->focus);
+		print("ok modal: a click on a leaves the focus with its dialog\n");
+		/* the pointer over a, which has not the focus: m events for a */
+		moveto(P(220, 280));
+		moveto(P(222, 282));
+		l = event(a, 'm');
+		if(tokenize(l, f, nelem(f)) < 4 || atoi(f[3]) != 0)
+			fail("a: no hover m event: %s", l);
+		print("ok the pointer over a without the focus: %s\n", l);
+		/* a moved (button 3 on its border): the dialog with it */
+		drag(P(300, 128), P(280, 118), 4);
+		sleep(300);
+		readctl(a);
+		readctl(dlg);
+		moved = eqrect(dlg->r, rectaddpt(R(250, 180, 350, 240), subpt(a->r.min, R(180, 130, 0, 0).min)));
+		if(!moved)
+			fail("the dialog at %R, a at %R: did not move with a", dlg->r, a->r);
+		print("ok the dialog moved with a: %R\n", dlg->r);
+		want(addpt(dlg->r.min, Pt(50, 30)), Blue, "the dialog where it moved");
+		ctl(dlg, "delete");
+		/* a parent closed: its dialog goes with it (reads say window deleted) */
+		p = newwin();
+		snprint(path, sizeof path, "/mnt/wsys/%d/clone", p->id);
+		q = clonewin(path);
+		close(p->ctl);
+		alarm(5000);
+		if(read(q->ev, buf, sizeof buf) > 0)
+			fail("the parent gone: its dialog still gives events");
+		alarm(0);
+		print("ok the parent gone, its dialog too: %r\n");
+		close(q->ctl);
+	}
 
 	if(leftover())
 		fail("segments left in #g");
