@@ -87,8 +87,12 @@ fn confignet{
 	} 
 }
 
+# GCC port branch: fsport= in plan9.ini, the file server's port (default
+# 564), for a root an unprivileged server serves (not in 9front)
 fn connecttcp{
-	while(! ~ $#fs 0 && ! srv -q tcp!$fs(1)^!564 boot)
+	if(~ $#fsport 0)
+		fsport=564
+	while(! ~ $#fs 0 && ! srv -q tcp!$fs(1)^!$fsport boot)
 		fs=$fs(2-);
 	fs=$fs(1)
 }
