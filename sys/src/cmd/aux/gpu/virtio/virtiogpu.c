@@ -137,15 +137,15 @@ enum {
 	Oslots = 0x4000,
 	Slotsz = 0x2000,	/* request, then response */
 	Dmasize = 0x40000,
-	Dmava = 0x30000000,
 
-	/* fixed #g segments for contexts and guest blobs */
-	Ctxva = 0x40000000,
-	Ctxvastep = 0x200000,
+	/*
+	 * fixed #g segments for contexts and guest blobs, where the kernel
+	 * puts them (segment(3) "va 0 len fixed": its shared region, away
+	 * from every client's heap; they were at 1 GB and up, where a venus
+	 * program's heap ended)
+	 */
 	Ctxsegsz = 0x100000,
 	Nvctx = 64,
-	Blobva = 0x50000000,
-	Blobvaend = 0x7f000000,
 
 	Fbmin = 1920*1200*4,	/* framebuffer at least this big */
 };
@@ -280,7 +280,6 @@ static int edidlen;
 static Vctx *vctxs[Nvctx];	/* under gpufs.c's ctxlock */
 static File *capdir;
 static Hole *holes;
-static uintptr blobva = Blobva;
 
 static Mode stdmodes[] = {
 	640, 480,
@@ -503,10 +502,11 @@ segmode(char *name, ulong perm)
 
 /*
  * a fixed (physically contiguous) #g segment: create it unless it
- * exists, return its physical address.
+ * exists, return its physical address, and its address in *va if va
+ * is not nil (the kernel's choice).
  */
 static uvlong
-fixedseg(char *name, uintptr va, ulong size, int perm)
+fixedseg(char *name, ulong size, int perm, uintptr *va)
 {
 	char buf[256], path[64], *f[6];
 	int fd, n;
@@ -522,7 +522,7 @@ fixedseg(char *name, uintptr va, ulong size, int perm)
 	snprint(path, sizeof path, "#g/%s/ctl", name);
 	if((fd = open(path, ORDWR)) < 0)
 		return 0;
-	fprint(fd, "va %#p %#lux fixed", va, size);	/* fails if it exists */
+	fprint(fd, "va 0 %#lux fixed", size);	/* fails if it exists */
 	n = pread(fd, buf, sizeof buf-1, 0);
 	close(fd);
 	if(n <= 0)
@@ -532,6 +532,8 @@ fixedseg(char *name, uintptr va, ulong size, int perm)
 		werrstr("%s: not a fixed segment: %s", name, buf);
 		return 0;
 	}
+	if(va != nil)
+		*va = strtoull(f[1], nil, 0);
 	return strtoull(f[4], nil, 0);
 }
 
@@ -548,7 +550,7 @@ rmseg(char *name)
 static void
 dmainit(void)
 {
-	if((dmapa = fixedseg("gpu0dma", Dmava, Dmasize, 0700)) == 0)
+	if((dmapa = fixedseg("gpu0dma", Dmasize, 0700, nil)) == 0)
 		sysfatal("#g/gpu0dma: %r");
 	dma = segattach(0, "gpu0dma", nil, 0);
 	if(dma == (uchar*)-1)
@@ -1274,18 +1276,12 @@ blobcreate(Vctx *c, int mem, int flags, uvlong blobid, uvlong size)
 	r->size = size;
 	n = 0;
 	if(mem == Blobguest || mem == Blobhost3dguest){
-		if(blobva + size > Blobvaend){
-			free(r);
-			return "out of guest blob address space";
-		}
 		snprint(r->seg, sizeof r->seg, "gpu0blob%d", r->id);
-		r->segva = blobva;
-		if((r->segpa = fixedseg(r->seg, r->segva, size, 0770)) == 0){
+		if((r->segpa = fixedseg(r->seg, size, 0770, &r->segva)) == 0){
 			rmseg(r->seg);
 			free(r);
 			return "no contiguous memory for the blob";
 		}
-		blobva += (size + Ctxvastep-1) & ~(uintptr)(Ctxvastep-1);
 		n = 1;
 	}
 	p = ctxhdr(rq, Rescreateblob, c->id);
@@ -1639,8 +1635,7 @@ ctxnew(char *uid, int *id, char **reply)
 	memset(c, 0, sizeof *c);
 	c->id = i+1;
 	snprint(c->seg, sizeof c->seg, "gpu0ctx%d", c->id);
-	c->segva = Ctxva + i*Ctxvastep;
-	if((c->segpa = fixedseg(c->seg, c->segva, Ctxsegsz, 0770)) == 0){
+	if((c->segpa = fixedseg(c->seg, Ctxsegsz, 0770, &c->segva)) == 0){
 		rmseg(c->seg);
 		free(c);
 		return nil;

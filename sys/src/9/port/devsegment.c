@@ -980,7 +980,7 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 {
 	Cmdbuf *cb;
 	Globalseg *g;
-	uintptr va, top, len;
+	uintptr va, top, len, chosen;
 
 	if(c->qid.type == QTDIR)
 		error(Eperm);
@@ -1021,6 +1021,26 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 				poperror();
 				return n;
 			}
+			/*
+			 * 9front-ng: "va 0 len fixed" (sticky, phys, alias): the
+			 * kernel chooses as well, a range of the shared region,
+			 * away from every program's heap (a driver's segments
+			 * its clients attach: aux/virtiogpu's had fixed places
+			 * at 1 GB, where a venus program's heap ended)
+			 */
+			chosen = 0;
+			if(va == 0){
+				if(len == 0 || len > SEGMAXSIZE)
+					error(Ebadarg);
+				len = PGROUND(len);
+				if((va = srangealloc(len)) == 0)
+					error(Enovmem);
+				chosen = va;
+				if(waserror()){
+					srangeset(chosen, nil);
+					nexterror();
+				}
+			}
 			top = PGROUND(va + len);
 			va = va&~(BY2PG-1);
 			if(va == 0 || top > USTKTOP || top <= va)
@@ -1029,7 +1049,7 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 			 * 9front-ng: the shared region is the kernel's to give
 			 * ("va 0 len"): its addresses stay unique
 			 */
-			if(va < SHAREDTOP && top > SHAREDBASE)
+			if(chosen == 0 && va < SHAREDTOP && top > SHAREDBASE)
 				error("in the shared region");
 			len = top - va;
 			if(len > SEGMAXSIZE)
@@ -1155,6 +1175,10 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 				g->alias = 1;
 			} else
 				g->Segio.s = newseg(SG_SHARED, va, len/BY2PG);
+			if(chosen != 0){
+				poperror();
+				srangeset(chosen, g->Segio.s);
+			}
 		} else if(cb->nf == 1 && strcmp(cb->f[0], "pager") == 0){
 			/* 9front-ng: a pager queue (above) */
 			if(!iseve())

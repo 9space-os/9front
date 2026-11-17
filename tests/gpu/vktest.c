@@ -5,7 +5,8 @@
  * no loader: everything from vk_icdGetInstanceProcAddr) and the
  * virtio-gpu driver of gpu(4). Creates an instance and a device,
  * fills a host visible buffer on the GPU (vkCmdFillBuffer) and reads
- * it back. Prints "ok ..." / "FAIL ..." lines and a summary.
+ * it back; a heap past 1 GB meanwhile (aux/virtiogpu's segments
+ * out of its way). Prints "ok ..." / "FAIL ..." lines and a summary.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -311,6 +312,34 @@ main(void)
 			FAIL("buffer -> image -> buffer: word %u is %#x, want %#x", i, p2[i], i*2654435761u);
 		else
 			OK("vkCmdCopyBufferToImage and back: 128x128");
+	}
+	{
+		/*
+		 * the heap past 1 GB with the device open: aux/virtiogpu put
+		 * venus' context segment there, where every venus program's
+		 * heap ended (Servo ran out at 0.9 GB); now where the kernel
+		 * chooses.  Only the ends of each block are touched: address
+		 * space, not memory (the guest has 1 GB)
+		 */
+		enum { Blk = 64*1024*1024, Nblk = 24 };
+		char *blk[Nblk];
+		unsigned long long top = 0;
+		int n;
+
+		for(n = 0; n < Nblk; n++){
+			if((blk[n] = malloc(Blk)) == NULL)
+				break;
+			blk[n][0] = 1;
+			blk[n][Blk-1] = 1;
+			if((unsigned long long)(uintptr_t)blk[n] + Blk > top)
+				top = (unsigned long long)(uintptr_t)blk[n] + Blk;
+		}
+		if(n == Nblk)
+			OK("a heap of %d MB with the device open, up to %#llx", Nblk*64, top);
+		else
+			FAIL("the heap ends with the device open: malloc failed after %d MB (up to %#llx)", n*64, top);
+		while(n-- > 0)
+			free(blk[n]);
 	}
 	vkDeviceWaitIdle(dev);
 	vkDestroyDevice(dev, NULL);

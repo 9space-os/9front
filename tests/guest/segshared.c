@@ -41,9 +41,9 @@ fail(char *fmt, ...)
 	nfail++;
 }
 
-/* a segment of len bytes, its address chosen by the kernel; 0 on failure */
+/* a segment of len bytes and type ("": shared), its address chosen by the kernel; 0 on failure */
 static uintptr
-mkseg(char *name, ulong len)
+mktseg(char *name, ulong len, char *type)
 {
 	char path[64], buf[128], *f[4];
 	int fd, n;
@@ -60,8 +60,8 @@ mkseg(char *name, ulong len)
 		fail("open %s: %r", path);
 		return 0;
 	}
-	if(fprint(fd, "va 0 %lud", len) < 0){
-		fail("%s: va 0 %lud: %r", name, len);
+	if(fprint(fd, "va 0 %lud%s", len, type) < 0){
+		fail("%s: va 0 %lud%s: %r", name, len, type);
 		close(fd);
 		return 0;
 	}
@@ -77,6 +77,12 @@ mkseg(char *name, ulong len)
 		return 0;
 	}
 	return strtoull(f[1], nil, 0);
+}
+
+static uintptr
+mkseg(char *name, ulong len)
+{
+	return mktseg(name, len, "");
 }
 
 static void
@@ -177,6 +183,26 @@ main(void)
 			ok("segattach chose %#p, outside the region", v);
 		segdetach(v);
 	}
+
+	/*
+	 * a fixed segment (a driver's DMA memory its clients attach,
+	 * aux/virtiogpu's) where the kernel puts it: in the region too, in
+	 * a range of its own, not at a place that ends a program's heap
+	 */
+	e = nil;
+	c = mktseg("segshared.f", 64*1024, " fixed");
+	if(c == 0)
+		e = "no address";
+	else if(c+64*1024 <= b && c+64*1024 <= a)
+		e = "below the region";
+	else if((c < a+Len && a < c+64*1024) || (c < b+4096 && b < c+64*1024))
+		e = "overlaps another range";
+	if(e == nil)
+		ok("a fixed segment at the kernel's address %#p, in the region", c);
+	else
+		fail("fixed segment, va 0: %s (%#p; the others %#p %#p)", e, c, a, b);
+	if(c != 0)
+		rmseg("segshared.f");
 
 	/* removed and detached everywhere: the range is free again */
 	segdetach(pa);
