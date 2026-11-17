@@ -308,7 +308,7 @@ advancepacket(Pack *p)
 	return p->next;
 }
 
-long sync;
+int sync;	/* GCC port: int, a semacquire(2) semaphore (was long) */
 
 void
 timing()

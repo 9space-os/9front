@@ -7,13 +7,13 @@ semacquire, tsemacquire, semrelease - user level semaphores
 .B #include <libc.h>
 .PP
 .B
-int semacquire(long *addr, int block);
+int semacquire(int *addr, int block);
 .PP
 .B
-int tsemacquire(long *addr, ulong ms);
+int tsemacquire(int *addr, ulong ms);
 .PP
 .B
-long semrelease(long *addr, long count);
+long semrelease(int *addr, long count);
 .SH DESCRIPTION
 .IR Semacquire ,
 .IR tsemacquire ,
@@ -33,6 +33,15 @@ or
 .PP
 The semaphore's value is the integer pointed at by
 .IR addr .
+It has 32 bits
+(9space: an
+.BR int ;
+9front's
+.B long
+is 32 bits too, gcc's on amd64 and arm64 64; see
+.B Aint
+in
+.IR atomic (2)).
 .I Semacquire
 atomically waits until the semaphore has a positive value
 and then decrements that value.

@@ -926,13 +926,13 @@ hexdump(void *a, int n)
 		fprint(2, "%s\n", s1);
 }
 
-extern int cas(long *p, long ov, long nv);
+extern int cas(int *p, int ov, int nv);	/* GCC port: int, libc's 32-bit cas on the semaphores (was long) */
 
 void*
 fs_recv(Queue *q, int)
 {
 	void *a;
-	long v;
+	int v;	/* GCC port: int, as Queue.count */
 
 	v = q->count;
 	if(v == 0 || cas(&q->count, v, v-1) == 0)
@@ -949,7 +949,7 @@ fs_recv(Queue *q, int)
 void
 fs_send(Queue *q, void *a)
 {
-	long v;
+	int v;	/* GCC port: int, as Queue.count */
 
 	v = q->avail;
 	if(v == 0 || cas(&q->avail, v, v-1) == 0)
