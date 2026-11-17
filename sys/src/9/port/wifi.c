@@ -785,8 +785,8 @@ sendauth(Wifi *wifi, Wnode *bss)
 
 /*
  * 9space: the radio's capability elements the access point offers too
- * (HT, VHT, HE), then WMM's information element where it has WMM: QoS
- * data from then on (bss->qos).  As OpenBSD's ieee80211_get_assoc_req
+ * (HT, VHT, HE), then WMM's information element where it has WMM and
+ * the radio sends QoS data (wifi->wmm): QoS data from then on (bss->qos).  As OpenBSD's ieee80211_get_assoc_req
  * adds them (ieee80211_add_htcaps, ieee80211_add_wme_info); the radio
  * says what it has, wifi.c only what the access point offers.
  */
@@ -818,7 +818,7 @@ putcaps(Wifi *wifi, Wnode *bss, uchar *p)
 			p += 2+c[1];
 		}
 	}
-	if(bss->wmm){
+	if(bss->wmm && wifi->wmm){
 		/* WMM information element, version 1, no U-APSD */
 		*p++ = 221;
 		*p++ = 7;

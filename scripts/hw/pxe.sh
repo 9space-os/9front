@@ -37,6 +37,7 @@
 #	HOSTIP	this host's address on it (default: IFACE's)
 #	UFS_PORT	the root's port (5650)
 #	PXE_DIR	the work dir (default $CLI_DIR/pxe)
+#	DNSMASQ	the dnsmasq in the printed command (default: dnsmasq)
 #	KARGS	more plan9.ini lines, space separated
 #	QEMU	1: the same in QEMU instead (OVMF, QEMU's own DHCP and TFTP,
 #		the root through guestfwd; no dnsmasq): a rehearsal; the
@@ -137,6 +138,16 @@ GO=$GO_DIR/go/bin/go
 GOOS=plan9 GOARCH=amd64 CGO_ENABLED=0 GOCACHE=$P/gocache \
 	"$GO" build -C "$MCP_DIR" -o "$X/amd64/bin/9front-mcp" . || die "9front-mcp did not build"
 cp "$MCP_DIR/deny.example" "$X/sys/lib/mcp/deny"
+# tests/hw's categories, run over MCP (rc /sys/lib/hwtest/cat/<step>.rc);
+# not disk (it reads the internal disks) and not hangme
+mkdir -p "$X/sys/lib/hwtest/cat" "$X/tests"
+for c in "$ROOT"/tests/hw/cat/*; do
+	case $c in */disk.rc|*/hangme.*) continue ;; esac
+	cp "$c" "$X/sys/lib/hwtest/cat/"
+done
+(cd "$ROOT/tests/hw" && env PLAN9="$ROOT" ARCH=amd64 CC=gcc "$ROOT/sys/src/cmd/build/build.exe" build.json) \
+	> "$P/hwbuild.log" 2>&1 || die "tests/hw did not build ($P/hwbuild.log)"
+cp "$ROOT/tests/hw/root/tests/hwfreq" "$X/tests/"
 # drawterm's way in, for testing (scripts/hw/termcpu.rc)
 mkdir -p "$X/rc/bin"
 cp "$ROOT/scripts/hw/termcpu.rc" "$X/rc/bin/termcpu"
@@ -276,9 +287,25 @@ PY
 	exit 0
 fi
 
+# dnsmasq up to 2.93 (fixed after it: its commit cdbfb97, "Fix logic error
+# in TFTP caching") may send a transfer's first block from the transfer
+# before when the new one gets its memory: 9bootpxe (BIOS), which asks for
+# the kernel right after plan9.ini and without TFTP options, then reads
+# plan9.ini's text as the kernel ("bad magic"). UEFI's TFTP asks with
+# options (the OACK clears that cache) and is not hit.
+# DNSMASQ: the dnsmasq to run, e.g. one built from its git (2.93-38 and
+# later have the fix; git describe's 2.93-N-g...)
+DNSMASQ=${DNSMASQ:-dnsmasq}
+dv=$("$DNSMASQ" --version 2>/dev/null | sed -n '1s/^Dnsmasq version \([0-9.]*\)\(-\([0-9]*\)\)\{0,1\}.*/\1 \3/ip')
+read -r dvr dvn <<< "$dv"
+if [ -n "$dvr" ] && [ "$(printf '%s\n2.93\n' "$dvr" | sort -V | tail -1)" = 2.93 ] \
+&& ! { [ "$dvr" = 2.93 ] && [ "${dvn:-0}" -ge 38 ]; }; then
+	echo "pxe: dnsmasq $dvr${dvn:+-$dvn}: BIOS machines (9bootpxe) may get plan9.ini as the kernel's first block" >&2
+	echo "pxe: (dnsmasq's TFTP cache, fixed after 2.93: cdbfb97; DNSMASQ= one with it); UEFI machines are fine" >&2
+fi
 cat <<EOF
 pxe: run in another terminal (as root: ports 67, 69, 4011):
-	sudo dnsmasq --no-daemon --conf-file=$P/dnsmasq.conf
+	sudo $DNSMASQ --no-daemon --conf-file=$P/dnsmasq.conf
 then let $MAC boot from the network (UEFI IPv4).
 pxe: or boot it from a USB stick (wired network still needed):
 	sudo dd if=$S of=/dev/sdX bs=4M conv=fsync status=progress

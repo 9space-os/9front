@@ -136,6 +136,15 @@ struct Wifi
 	int	ncaps;
 
 	/*
+	 * 9space: the driver's radio sends QoS data (WMM, 802.11e): wifi.c
+	 * then offers WMM in the association where the access point has
+	 * it, and its data frames are QoS data. Without (iwl, wpi,
+	 * rt2860: their firmware's stations are not QoS ones) plain data,
+	 * as 9front
+	 */
+	int	wmm;
+
+	/*
 	 * 9space: the driver's radio answers aggregates with block acks
 	 * (ba): wifi.c then agrees to the access point's ADDBA requests
 	 * and holds the frames until they are in order (rxba, per TID),

@@ -137,6 +137,7 @@ wlanattach(Ether *edev)
 			memmove(ctlr->wifi->caps, ctlr->caps, ctlr->ncaps);
 			ctlr->wifi->ncaps = ctlr->ncaps;
 			ctlr->wifi->ba = 1;	/* the radio answers aggregates (aux/rtw89: its firmware) */
+			ctlr->wifi->wmm = 1;	/* and sends the QoS data wifi.c makes */
 		}
 		for(i = 0; i < edev->ISAConf.nopt; i++)
 			wificfg(ctlr->wifi, edev->ISAConf.opt[i]);

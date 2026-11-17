@@ -8,7 +8,8 @@
  * the writes through the pager segment land on those pages of the
  * framebuffer; a fault with no page to come kills the process; a removed
  * queue ends the pager's read; segment(3)'s table grows past 1024 global
- * segments.  Without gpu0bar0: skipped.
+ * segments.  Without gpu0bar0, or where gpu0 is not QEMU's VGA (a real
+ * GPU's BAR 0: registers): skipped.
  * Prints "ok ..." / "FAIL ..." lines and a summary.
  */
 #include <u.h>
@@ -66,6 +67,23 @@ ctl(char *seg, char *fmt, ...)
 	return r;
 }
 
+/* is the first GPU QEMU's standard VGA, whose BAR 0 is its framebuffer? */
+static int
+qemuvga(void)
+{
+	char buf[512];
+	int fd, n;
+
+	if((fd = open("#G/0/ctl", OREAD)) < 0)
+		return 0;
+	n = read(fd, buf, sizeof buf-1);
+	close(fd);
+	if(n <= 0)
+		return 0;
+	buf[n] = 0;
+	return strstr(buf, "id 1234/1111\n") != nil;
+}
+
 static int
 mkseg(char *name)
 {
@@ -121,6 +139,15 @@ main(void)
 	/* devgpu makes its BARs' segments when it is attached */
 	if((w = open("#G", OREAD)) >= 0)
 		close(w);
+	/*
+	 * the test writes into BAR 0: only where that is QEMU's VGA
+	 * framebuffer (1234/1111); a real GPU's BAR 0 are its registers,
+	 * likely in a driver's hands (aux/i915 on an Intel machine)
+	 */
+	if(!qemuvga()){
+		print("ok skipped: gpu0 is not QEMU's VGA (its BAR 0 is no framebuffer)\nsegpager: all passed\n");
+		exits(nil);
+	}
 	if((fb = segattach(0, "gpu0bar0", nil, N*4096)) == (void*)-1){
 		print("ok skipped: no gpu0bar0 (%r)\nsegpager: all passed\n");
 		exits(nil);
