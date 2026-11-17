@@ -150,6 +150,7 @@ extern int lapiceoi(int);
 extern void lapicerror(Ureg*, void*);
 extern void lapicicr(uvlong);
 extern void lapicipi(int);	/* NIX */
+extern void lapicipiirq(int, int);	/* NIX: an IPI on a vector of its own (pmc(3)) */
 extern void lapictimeroff(void);	/* NIX */
 extern void lapicinit(Apic*);
 extern void lapicintroff(void);

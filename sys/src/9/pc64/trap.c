@@ -541,7 +541,7 @@ void
 acidle(void)
 {
 	if(m->cpuidcx & Monitor)
-		mwait((void*)&m->PMach.icc->fn);
+		mwait(&m->PMach.icc->fn);
 }
 
 Ureg*

@@ -361,7 +361,8 @@ static void
 savagewaitidle(VGAscr *scr)
 {
 	long x;
-	ulong *statw, mask, goal;
+	ulong mask, goal;
+	volatile ulong *statw;	/* GCC port: volatile, device registers */
 
 	switch(scr->id){
 	case SAVAGE4:
@@ -369,7 +370,7 @@ savagewaitidle(VGAscr *scr)
 	case PROSAVAGEK:
 	case PROSAVAGE8:
 		/* wait for engine idle and FIFO empty */
-		statw = (ulong*)((uchar*)scr->mmio+AltStatus0);
+		statw = (volatile ulong*)((volatile uchar*)scr->mmio+AltStatus0);	/* GCC port: volatile, device registers */
 		mask = CBEMask | Ge2Idle;
 		goal = Ge2Idle;
 		break;
@@ -380,7 +381,7 @@ savagewaitidle(VGAscr *scr)
 	case SAVAGEIXMV:
 	case SAVAGEMXMV:
 		/* wait for engine idle and FIFO empty */
-		statw = (ulong*)((uchar*)scr->mmio+XStatus0);
+		statw = (volatile ulong*)((volatile uchar*)scr->mmio+XStatus0);	/* GCC port: volatile, device registers */
 		mask = CBEMaskA | Ge2IdleA;
 		goal = Ge2IdleA;
 		break;
@@ -403,19 +404,19 @@ savagewaitidle(VGAscr *scr)
 static int
 savagefill(VGAscr *scr, Rectangle r, ulong sval)
 {
-	uchar *mmio;
+	volatile uchar *mmio;	/* GCC port: volatile, device registers */
 
-	mmio = (uchar*)scr->mmio;
+	mmio = (volatile uchar*)scr->mmio;	/* GCC port: volatile, device registers */
 
-	*(ulong*)(mmio+FgColor) = sval;
-	*(ulong*)(mmio+BgColor) = sval;
-	*(ulong*)(mmio+BgMix) = SrcFg|MixNew;
-	*(ulong*)(mmio+FgMix) = SrcFg|MixNew;
-	*(ushort*)(mmio+RectY) = r.min.y;
-	*(ushort*)(mmio+RectX) = r.min.x;
-	*(ushort*)(mmio+Width) = Dx(r)-1;
-	*(ushort*)(mmio+Height) = Dy(r)-1;
-	*(ulong*)(mmio+DrawCmd) = CmdMagic | DoDraw | CmdFill | DrawRight | DrawDown;
+	*(volatile ulong*)(mmio+FgColor) = sval;	/* GCC port: volatile, device registers */
+	*(volatile ulong*)(mmio+BgColor) = sval;	/* GCC port: volatile, device registers */
+	*(volatile ulong*)(mmio+BgMix) = SrcFg|MixNew;	/* GCC port: volatile, device registers */
+	*(volatile ulong*)(mmio+FgMix) = SrcFg|MixNew;	/* GCC port: volatile, device registers */
+	*(volatile ushort*)(mmio+RectY) = r.min.y;	/* GCC port: volatile, device registers */
+	*(volatile ushort*)(mmio+RectX) = r.min.x;	/* GCC port: volatile, device registers */
+	*(volatile ushort*)(mmio+Width) = Dx(r)-1;	/* GCC port: volatile, device registers */
+	*(volatile ushort*)(mmio+Height) = Dy(r)-1;	/* GCC port: volatile, device registers */
+	*(volatile ulong*)(mmio+DrawCmd) = CmdMagic | DoDraw | CmdFill | DrawRight | DrawDown;	/* GCC port: volatile, device registers */
 	savagewaitidle(scr);
 	return 1;
 }
@@ -423,7 +424,7 @@ savagefill(VGAscr *scr, Rectangle r, ulong sval)
 static int
 savagescroll(VGAscr *scr, Rectangle r, Rectangle sr)
 {
-	uchar *mmio;
+	volatile uchar *mmio;	/* GCC port: volatile, device registers */
 	ulong cmd;
 	Point dp, sp;
 
@@ -447,17 +448,17 @@ savagescroll(VGAscr *scr, Rectangle r, Rectangle sr)
 		sp.y = sr.max.y-1;
 	}
 
-	mmio = (uchar*)scr->mmio;
+	mmio = (volatile uchar*)scr->mmio;	/* GCC port: volatile, device registers */
 
-	*(ushort*)(mmio+SourceX) = sp.x;
-	*(ushort*)(mmio+SourceY) = sp.y;
-	*(ushort*)(mmio+DestX) = dp.x;
-	*(ushort*)(mmio+DestY) = dp.y;
-	*(ushort*)(mmio+Width) = Dx(r)-1;
-	*(ushort*)(mmio+Height) = Dy(r)-1;
-	*(ulong*)(mmio+BgMix) = SrcDisp|MixNew;
-	*(ulong*)(mmio+FgMix) = SrcDisp|MixNew;
-	*(ulong*)(mmio+DrawCmd) = cmd;
+	*(volatile ushort*)(mmio+SourceX) = sp.x;	/* GCC port: volatile, device registers */
+	*(volatile ushort*)(mmio+SourceY) = sp.y;	/* GCC port: volatile, device registers */
+	*(volatile ushort*)(mmio+DestX) = dp.x;	/* GCC port: volatile, device registers */
+	*(volatile ushort*)(mmio+DestY) = dp.y;	/* GCC port: volatile, device registers */
+	*(volatile ushort*)(mmio+Width) = Dx(r)-1;	/* GCC port: volatile, device registers */
+	*(volatile ushort*)(mmio+Height) = Dy(r)-1;	/* GCC port: volatile, device registers */
+	*(volatile ulong*)(mmio+BgMix) = SrcDisp|MixNew;	/* GCC port: volatile, device registers */
+	*(volatile ulong*)(mmio+FgMix) = SrcDisp|MixNew;	/* GCC port: volatile, device registers */
+	*(volatile ulong*)(mmio+DrawCmd) = cmd;	/* GCC port: volatile, device registers */
 	savagewaitidle(scr);
 	return 1;
 }
@@ -490,7 +491,7 @@ savageblank(VGAscr*, int blank)
 void
 savageinit(VGAscr *scr)
 {
-	uchar *mmio;
+	volatile uchar *mmio;	/* GCC port: volatile, device registers */
 	ulong bd;
 
 	/* if you add chip IDs here be sure to update savagewaitidle */
@@ -508,34 +509,34 @@ savageinit(VGAscr *scr)
 		return;
 	}
 
-	mmio = (uchar*)scr->mmio;
+	mmio = (volatile uchar*)scr->mmio;	/* GCC port: volatile, device registers */
 	if(mmio == nil) {
 		print("savageinit: no mmio\n");
 		return;
 	}
 
 	/* 2D graphics engine software reset */
-	*(ushort*)(mmio+SubsystemCtl) = GeSoftReset;
+	*(volatile ushort*)(mmio+SubsystemCtl) = GeSoftReset;	/* GCC port: volatile, device registers */
 	delay(2);
-	*(ushort*)(mmio+SubsystemCtl) = 0;
+	*(volatile ushort*)(mmio+SubsystemCtl) = 0;	/* GCC port: volatile, device registers */
 	savagewaitidle(scr);
 
 	/* disable BCI as much as possible */
-	*(ushort*)(mmio+CobPtr) &= ~CobBciEna;
-	*(ushort*)(mmio+GBD2) &= ~GBDBciEna;
+	*(volatile ushort*)(mmio+CobPtr) &= ~CobBciEna;	/* GCC port: volatile, device registers */
+	*(volatile ushort*)(mmio+GBD2) &= ~GBDBciEna;	/* GCC port: volatile, device registers */
 	savagewaitidle(scr);
 
 	/* enable 32-bit writes, disable clipping */
-	*(ushort*)(mmio+MfMiscCtl) = MfMiscMagic|W32Ena|ClipDis;
+	*(volatile ushort*)(mmio+MfMiscCtl) = MfMiscMagic|W32Ena|ClipDis;	/* GCC port: volatile, device registers */
 	savagewaitidle(scr);
 
 	/* enable all read, write planes */
-	*(ulong*)(mmio+BitplaneRmask) = ~0;
-	*(ulong*)(mmio+BitplaneWmask) = ~0;
+	*(volatile ulong*)(mmio+BitplaneRmask) = ~0;	/* GCC port: volatile, device registers */
+	*(volatile ulong*)(mmio+BitplaneWmask) = ~0;	/* GCC port: volatile, device registers */
 	savagewaitidle(scr);
 
 	/* turn on linear access, 2D engine */
-	*(ulong*)(mmio+AdvFunCtl) |= GeEna|LaEna;
+	*(volatile ulong*)(mmio+AdvFunCtl) |= GeEna|LaEna;	/* GCC port: volatile, device registers */
 	savagewaitidle(scr);
 
 	/* set bitmap descriptors */
@@ -543,14 +544,14 @@ savageinit(VGAscr *scr)
 		(scr->width<<StrideShift) | BlockWriteDis
 		| BDS64;
 
-	*(ulong*)(mmio+GBD1) = 0;
-	*(ulong*)(mmio+GBD2) = bd;
+	*(volatile ulong*)(mmio+GBD1) = 0;	/* GCC port: volatile, device registers */
+	*(volatile ulong*)(mmio+GBD2) = bd;	/* GCC port: volatile, device registers */
 
-	*(ulong*)(mmio+PBD1) = 0;
-	*(ulong*)(mmio+PBD2) = bd;
+	*(volatile ulong*)(mmio+PBD1) = 0;	/* GCC port: volatile, device registers */
+	*(volatile ulong*)(mmio+PBD2) = bd;	/* GCC port: volatile, device registers */
 
-	*(ulong*)(mmio+SBD1) = 0;
-	*(ulong*)(mmio+SBD2) = bd;
+	*(volatile ulong*)(mmio+SBD1) = 0;	/* GCC port: volatile, device registers */
+	*(volatile ulong*)(mmio+SBD2) = bd;	/* GCC port: volatile, device registers */
 
 	/*
 	 * For some reason, the GBD needs to get programmed twice,
@@ -559,9 +560,9 @@ savageinit(VGAscr *scr)
 	 * I would like to better understand the ugliness
 	 * going on here.
 	 */
-	*(ulong*)(mmio+GBD1) = 0;
-	*(ulong*)(mmio+GBD2) = bd;
-	*(ushort*)(mmio+GBD2+2) = bd>>16;
+	*(volatile ulong*)(mmio+GBD1) = 0;	/* GCC port: volatile, device registers */
+	*(volatile ulong*)(mmio+GBD2) = bd;	/* GCC port: volatile, device registers */
+	*(volatile ushort*)(mmio+GBD2+2) = bd>>16;	/* GCC port: volatile, device registers */
 	savagewaitidle(scr);
 
 	scr->fill = savagefill;

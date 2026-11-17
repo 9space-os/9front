@@ -549,7 +549,7 @@ struct Ctlr {
 
 	u32int ie;
 
-	u32int *nic;
+	volatile u32int *nic;	/* GCC port: volatile, device registers */
 	uchar *kwpage;
 
 	/* assigned sta ids in hardware sta table or -1 if unassigned */
@@ -723,7 +723,7 @@ static char *cmd(Ctlr *ctlr, uint code, uchar *data, int size);
 
 #define csr32r(c, r)	(*((c)->nic+((r)/4)))
 #define csr32w(c, r, v)	(*((c)->nic+((r)/4)) = (v))
-#define csr8w(c, r, v)	(*(((uchar*)(c)->nic)+(r)) = (v))
+#define csr8w(c, r, v)	(*(((volatile uchar*)(c)->nic)+(r)) = (v))	/* GCC port: volatile, device registers */
 
 static uint
 get16(uchar *p){
@@ -4440,7 +4440,7 @@ iwlpci(void)
 	pdev = nil;
 	while(pdev = pcimatch(pdev, 0x8086, 0)) {
 		Ctlr *ctlr;
-		void *mem;
+		volatile void *mem;	/* GCC port: volatile, device registers */
 		
 		if(pdev->ccrb != 2 || pdev->ccru != 0x80)
 			continue;

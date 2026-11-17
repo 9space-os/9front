@@ -568,6 +568,12 @@ typedef struct Aptr
 	void *v;
 } Aptr;
 
+/* GCC port: 32 bits (a long has 64 under gcc), a semacquire(2) semaphore's word (port/atomicint.c) */
+typedef struct Aint
+{
+	int v;
+} Aint;
+
 extern	long	agetl(Along *);
 extern	vlong	agetv(Avlong *);
 extern	void*	agetp(Aptr *);
@@ -582,6 +588,11 @@ extern	vlong	aincv(Avlong *, vlong);
 extern	int	acasl(Along *, long, long);
 extern	int	acasv(Avlong *, vlong, vlong);
 extern	int	acasp(Aptr *, void*, void*);
+
+extern	int	ageti(Aint *);	/* GCC port: Aint */
+extern	int	aswapi(Aint *, int);
+extern	int	ainci(Aint *, int);
+extern	int	acasi(Aint *, int, int);
 
 extern	void	coherence(void);
 
@@ -811,11 +822,11 @@ extern	void*	segbrk(void*, void*);
 extern	int	segdetach(void*);
 extern	int	segflush(void*, ulong);
 extern	int	segfree(void*, ulong);
-extern	int	semacquire(long*, int);
-extern	long	semrelease(long*, long);
+extern	int	semacquire(int*, int);	/* GCC port: int*, the kernel's 32 bits (was long*: 64 bits under gcc) */
+extern	long	semrelease(int*, long);
 extern	int	sleep(long);
 extern	int	stat(char*, uchar*, int);
-extern	int	tsemacquire(long*, ulong);
+extern	int	tsemacquire(int*, ulong);
 extern	void	upsem(int*);			/* NIX: optimistic semaphores, upsem(2) */
 extern	int	downsem(int*, int);		/* NIX */
 extern	int	altsems(int*[], int);		/* NIX */

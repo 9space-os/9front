@@ -27,7 +27,7 @@ enum {
 
 static struct {
 	Lock;
-	u32int	*mmio;
+	volatile u32int	*mmio;	/* GCC port: volatile, device registers */
 	uvlong	last;
 	uvlong	freq;
 } hpet;

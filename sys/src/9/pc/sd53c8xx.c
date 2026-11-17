@@ -51,8 +51,8 @@ static int idebug = 0;
 /*******************************/
 
 #define DMASEG(x) PCIWADDR(x)
-#define legetl(x) (*(ulong*)(x))
-#define lesetl(x,v) (*(ulong*)(x) = (v))
+#define legetl(x) (*(volatile ulong*)(x))	/* GCC port: volatile, device registers */
+#define lesetl(x,v) (*(volatile ulong*)(x) = (v))	/* GCC port: volatile, device registers */
 #define swabl(a,b,c)
 #define DMASEG_TO_PADDR(x) ((uintptr)(x)-PCIWINDOW)
 #define DMASEG_TO_KADDR(x) KADDR(DMASEG_TO_PADDR(x))
@@ -280,9 +280,9 @@ typedef struct Controller {
 	uchar feature;			/* requested features */
 	int running;			/* is the script processor running? */
 	int ssm;			/* single step mode */
-	Ncr *n;				/* pointer to registers */
+	volatile Ncr *n;				/* pointer to registers */	/* GCC port: volatile, device registers */
 	Variant *v;			/* pointer to variant type */
-	ulong *script;			/* where the real script is */
+	volatile ulong *script;			/* where the real script is */	/* GCC port: volatile, the chip's SCRIPTS RAM or memory it fetches from */
 	ulong scriptpa;			/* where the real script is */
 	Pcidev* pcidev;
 	SDev*	sdev;
@@ -480,7 +480,7 @@ static void
 dumpncrregs(Controller *c, int intr)
 {
 	int i;
-	Ncr *n = c->n;
+	volatile Ncr *n = c->n;	/* GCC port: volatile, device registers */
 	int depth = c->v->registers / 4;
 
 	if (intr) {
@@ -493,10 +493,10 @@ dumpncrregs(Controller *c, int intr)
 		int j;
 		for (j = 0; j < 4; j++) {
 			int k = j * depth + i;
-			uchar *p;
+			volatile uchar *p;	/* GCC port: volatile, device registers */
 
 			/* display little-endian to make 32-bit values readable */
-			p = (uchar*)n+k*4;
+			p = (volatile uchar*)n+k*4;	/* GCC port: volatile, device registers */
 			if (intr) {
 				IPRINT(" %.2x%.2x%.2x%.2x %.2x %.2x", p[3], p[2], p[1], p[0], k * 4, (k * 4) + 0x80);
 			}
@@ -818,7 +818,7 @@ ncrcontinue(Controller *c)
 static void
 softreset(Controller *c)
 {
-	Ncr *n = c->n;
+	volatile Ncr *n = c->n;	/* GCC port: volatile, device registers */
 
 	n->istat = Srst;		/* software reset */
 	n->istat = 0;
@@ -881,7 +881,7 @@ msgsm(Dsa *dsa, Controller *c, int msg, int *cont, int *wakeme)
 	int scf, xferp;
 	int len;
 
-	Ncr *n = c->n;
+	volatile Ncr *n = c->n;	/* GCC port: volatile, device registers */
 
 	switch (c->s[dsa->target]) {
 	case SyncInit:
@@ -1056,7 +1056,7 @@ calcblockdma(Dsa *d, ulong base, ulong count)
 }
 
 static ulong
-read_mismatch_recover(Controller *c, Ncr *n, Dsa *dsa)
+read_mismatch_recover(Controller *c, volatile Ncr *n, Dsa *dsa)	/* GCC port: volatile, device registers */
 {
 	ulong dbc;
 	uchar dfifo = n->dfifo;
@@ -1099,7 +1099,7 @@ read_mismatch_recover(Controller *c, Ncr *n, Dsa *dsa)
 }
 
 static ulong
-write_mismatch_recover(Controller *c, Ncr *n, Dsa *dsa)
+write_mismatch_recover(Controller *c, volatile Ncr *n, Dsa *dsa)	/* GCC port: volatile, device registers */
 {
 	ulong dbc;
 	uchar dfifo = n->dfifo;
@@ -1164,7 +1164,7 @@ sd53c8xxinterrupt(Ureg *ur, void *a)
 	Dsa *dsa;
 	ulong dsapa;
 	Controller *c = a;
-	Ncr *n = c->n;
+	volatile Ncr *n = c->n;	/* GCC port: volatile, device registers */
 
 	USED(ur);
 	if (DEBUG(1)) {
@@ -1511,7 +1511,7 @@ sd53c8xxinterrupt(Ureg *ur, void *a)
 				cont = -2;
 				break;
 			case A_SIR_NOTIFY_DUMP_NEXT_CODE: {
-				ulong *dsp = &c->script[(legetl(n->dsp)-c->scriptpa)/4];
+				volatile ulong *dsp = &c->script[(legetl(n->dsp)-c->scriptpa)/4];	/* GCC port: volatile, device registers */
 				int x;
 				IPRINT(PRINTPREFIX "code at %lux", (ulong)(dsp - c->script));
 				for (x = 0; x < 6; x++) {
@@ -1554,7 +1554,8 @@ sd53c8xxinterrupt(Ureg *ur, void *a)
 		}
 		/*else*/ if (dstat & Iid) {
 			int i, target, lun;
-			ulong addr, dbc, *v;
+			ulong addr, dbc;
+			volatile ulong *v;	/* GCC port: volatile, the chip's SCRIPTS RAM */
 			
 			addr = legetl(n->dsp);
 			if(dsa){
@@ -2027,7 +2028,8 @@ na_fixup(Controller *c, ulong pa_reg,
 {
 	int p;
 	int v;
-	ulong *script, pa_script;
+	volatile ulong *script;	/* GCC port: volatile, device registers */
+	ulong pa_script;
 	ulong lw, lv;	/* GCC port: &lv is a ulong* (32 bits), unsigned long is 64 */
 
 	script = c->script;
@@ -2081,8 +2083,8 @@ sd53c8xxpnp(void)
 	Controller *ctlr;
 	SDev *sdev, *head, *tail;
 	uvlong regpa, scriptpa;
-	ulong *script;
-	void *regva, *scriptva;
+	volatile ulong *script;	/* GCC port: volatile, device registers */
+	volatile void *regva, *scriptva;	/* GCC port: volatile, device registers */
 
 	if(cp = getconf("*maxsd53c8xx"))
 		nctlr = strtoul(cp, 0, 0);
@@ -2181,7 +2183,7 @@ buggery:
 		ctlr->n = regva;
 		ctlr->v = v;
 		ctlr->script = script;
-		memmove(ctlr->script, na_script, sizeof(na_script));
+		memmovetoio(ctlr->script, na_script, sizeof(na_script));	/* GCC port: the chip's SCRIPTS RAM */
 
 		/*
 		 * Because we don't yet have an abstraction for the

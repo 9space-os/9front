@@ -375,7 +375,7 @@ void
 ehcirun(Ctlr *ctlr, int on)
 {
 	int i;
-	Eopio *opio;
+	volatile Eopio *opio;	/* GCC port: volatile, device registers */
 
 	ddprint("ehci %#p %s\n", ctlr->capio, on ? "starting" : "halting");
 	opio = ctlr->opio;
@@ -1121,7 +1121,7 @@ dump(Hci *hp)
 	char *s, *se;
 	char buf[128];
 	Ctlr *ctlr;
-	Eopio *opio;
+	volatile Eopio *opio;	/* GCC port: volatile, device registers */
 	Isoio *iso;
 	Qh *qh;
 
@@ -1535,7 +1535,7 @@ qhinterrupt(Ctlr *ctlr, Qh *qh)
 static int
 ctlrinterrupt(Ctlr *ctlr)
 {
-	Eopio *opio;
+	volatile Eopio *opio;	/* GCC port: volatile, device registers */
 	Isoio *iso;
 	ulong sts;
 	Qh *qh;
@@ -1638,7 +1638,7 @@ interrupt(Ureg*, void* a)
 static void
 portlend(Ctlr *ctlr, int port, char *ss)
 {
-	Eopio *opio;
+	volatile Eopio *opio;	/* GCC port: volatile, device registers */
 	int s;
 
 	opio = ctlr->opio;
@@ -1652,7 +1652,7 @@ static void
 portpower(Hci *hp, int port, int on)
 {
 	Ctlr *ctlr;
-	Eopio *opio;
+	volatile Eopio *opio;	/* GCC port: volatile, device registers */
 	int s;
 
 	ctlr = hp->Hciimpl.aux;
@@ -1671,7 +1671,7 @@ static void
 portenable(Hci *hp, int port, int on)
 {
 	Ctlr *ctlr;
-	Eopio *opio;
+	volatile Eopio *opio;	/* GCC port: volatile, device registers */
 	int s;
 
 	ctlr = hp->Hciimpl.aux;
@@ -1693,7 +1693,7 @@ portenable(Hci *hp, int port, int on)
 static void
 portreset(Hci *hp, int port, int on)
 {
-	Eopio *opio;
+	volatile Eopio *opio;	/* GCC port: volatile, device registers */
 	Ctlr *ctlr;
 
 	ctlr = hp->Hciimpl.aux;
@@ -1710,7 +1710,7 @@ static int
 portstatus(Hci *hp, int port)
 {
 	int s, r;
-	Eopio *opio;
+	volatile Eopio *opio;	/* GCC port: volatile, device registers */
 	Ctlr *ctlr;
 
 	ctlr = hp->Hciimpl.aux;
@@ -3199,7 +3199,7 @@ void
 ehcimeminit(Ctlr *ctlr)
 {
 	int i, frsize;
-	Eopio *opio;
+	volatile Eopio *opio;	/* GCC port: volatile, device registers */
 
 	if(ctlr->tdalloc == nil)
 		ctlr->tdalloc = xspanalloc;
@@ -3233,7 +3233,7 @@ static void
 init(Hci *hp)
 {
 	Ctlr *ctlr;
-	Eopio *opio;
+	volatile Eopio *opio;	/* GCC port: volatile, device registers */
 
 	hp->highspeed = 1;
 	ctlr = hp->Hciimpl.aux;

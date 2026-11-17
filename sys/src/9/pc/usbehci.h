@@ -173,8 +173,8 @@ struct Ctlr
 	Ctlr*	next;
 	uvlong	base;
 	Pcidev*	pcidev;
-	Ecapio*	capio;		/* Capability i/o regs */
-	Eopio*	opio;		/* Operational i/o regs */
+	volatile Ecapio*	capio;		/* Capability i/o regs */	/* GCC port: volatile, device registers */
+	volatile Eopio*	opio;		/* Operational i/o regs */
 
 	void*	(*tdalloc)(ulong,int,ulong);
 	void*	(*dmaalloc)(ulong);

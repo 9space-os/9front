@@ -282,6 +282,18 @@ testatomic(void)
 	else	/* 386: long is 32 bits under gcc -m32 too */
 		check("aincl/agetl/acasl on 32-bit long", aincl(&a, 2) == -3 && agetl(&a) == -3
 			&& acasl(&a, -3, 1L<<30) && a.v == 1L<<30, "v=%lld", (vlong)a.v);
+
+	/* Aint: 32 bits on every arch (a semaphore's word) */
+	{
+		Aint i;
+
+		i.v = -5;
+		check("Aint is 32 bits", sizeof i.v == 4, "%d", (int)sizeof i.v);
+		check("ainci/ageti", ainci(&i, 2) == -3 && ageti(&i) == -3, "v=%d", i.v);
+		check("acasi swaps when equal, not else", acasi(&i, -3, 1<<30) && i.v == 1<<30
+			&& !acasi(&i, 5, 7) && i.v == 1<<30, "v=%d", i.v);
+		check("aswapi gives the old value", aswapi(&i, 9) == 1<<30 && i.v == 9, "v=%d", i.v);
+	}
 }
 
 static uchar bigbss[0x100000+4];	/* like aux/realemu's memory[] */
@@ -384,7 +396,8 @@ testrendez(void)
  * user semaphores are 32 bits in the kernel (the Plan 9 ABI's long);
  * gcc's 64-bit long holds the value in its low half
  */
-static long sem;
+static int sem;	/* a semaphore: 32 bits (semacquire(2)) */
+static Aint asem;
 
 static void
 testsem(void)
@@ -394,10 +407,10 @@ testsem(void)
 
 	sem = 0;
 	r = semrelease(&sem, 2);
-	check("semrelease returns the new value", r == 2 && sem == 2, "%ld %ld", r, sem);
+	check("semrelease returns the new value", r == 2 && sem == 2, "%ld %d", r, sem);
 	n = semacquire(&sem, 0) + semacquire(&sem, 0);
-	check("semacquire twice", n == 2 && sem == 0, "%d %ld", n, sem);
-	check("non-blocking semacquire on 0", semacquire(&sem, 0) == 0 && sem == 0, "%ld", sem);
+	check("semacquire twice", n == 2 && sem == 0, "%d %d", n, sem);
+	check("non-blocking semacquire on 0", semacquire(&sem, 0) == 0 && sem == 0, "%d", sem);
 	check("tsemacquire times out", tsemacquire(&sem, 50) == 0, nil);
 	switch(rfork(RFPROC|RFMEM|RFNOWAIT)){
 	case 0:
@@ -406,7 +419,27 @@ testsem(void)
 		exits(nil);
 	}
 	n = semacquire(&sem, 1);
-	check("blocking semacquire woken by another proc", n == 1 && sem == 0, "%d %ld", n, sem);
+	check("blocking semacquire woken by another proc", n == 1 && sem == 0, "%d %d", n, sem);
+
+	/* gefs' and cwfs' channels: a fast path with acasi on the word the
+	 * kernel's semaphore calls change (Aint, 32 bits as theirs) */
+	asem.v = 0;
+	switch(rfork(RFPROC|RFMEM|RFNOWAIT)){
+	case 0:
+		for(n = 0; n < 1000; n++)
+			semrelease(&asem.v, 1);
+		exits(nil);
+	}
+	r = 0;
+	for(n = 0; n < 1000; n++){
+		int v;
+
+		v = ageti(&asem);
+		if(v == 0 || !acasi(&asem, v, v-1))
+			semacquire(&asem.v, 1);
+		r++;
+	}
+	check("acasi and semacquire on one Aint (1000 releases taken)", r == 1000 && ageti(&asem) == 0, "%ld %d", r, ageti(&asem));
 }
 
 static void

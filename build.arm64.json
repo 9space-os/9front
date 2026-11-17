@@ -296,6 +296,7 @@
 			"/sys/src/cmd/spell/cmds.arm64.json",
 			"/sys/src/cmd/spin/cmds.arm64.json",
 			"/sys/src/cmd/spred/cmds.arm64.json",
+			"/sys/src/cmd/syscall/cmds.arm64.json",
 			"/sys/src/cmd/tapefs/cmds.arm64.json",
 			"/sys/src/cmd/tbl/cmds.arm64.json",
 			"/sys/src/cmd/tc/cmds.arm64.json",

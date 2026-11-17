@@ -1455,8 +1455,14 @@ namec(char *aname, int amode, int omode, ulong perm)
 			nexterror();
 		}
 		m = nil;
-		if(!nomount)
-			domount(&c, &m, &path);
+		if(!nomount){
+			/* GCC port: path is volatile for waserror (setjmp): domount sets a plain copy (it raises no error after setting it) */
+			Path *np;
+
+			np = path;
+			domount(&c, &m, &np);
+			path = np;
+		}
 		if(waserror()){
 			putmhead(m);
 			nexterror();
@@ -1579,9 +1585,13 @@ namec(char *aname, int amode, int omode, ulong perm)
 		m = nil;
 		cnew = nil;	/* is this assignment necessary? */
 		if(!waserror()){	/* try create */
-			if(!nomount && findmount(&cnew, &m, c->type, c->dev, c->qid))
+			Chan *nc;	/* GCC port: cnew is volatile for waserror (setjmp): findmount sets a plain copy */
+
+			nc = nil;
+			if(!nomount && findmount(&nc, &m, c->type, c->dev, c->qid)){
+				cnew = nc;
 				cnew = createdir(cnew, m);
-			else{
+			}else{
 				cnew = c;
 				incref(&cnew->Ref);
 			}

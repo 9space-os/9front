@@ -479,7 +479,7 @@ fixnames(void *dot, void *arg)
 }
 
 static uvlong
-getle(uchar *p, int len)
+getle(volatile uchar *p, int len)	/* GCC port: volatile, Region.va */
 {
 	uvlong v;
 	int i;
@@ -491,7 +491,7 @@ getle(uchar *p, int len)
 }
 
 static void
-putle(uchar *p, int len, uvlong v)
+putle(volatile uchar *p, int len, uvlong v)	/* GCC port: volatile, Region.va */
 {
 	int i;
 
@@ -505,7 +505,8 @@ static uvlong
 rwreg(void *reg, int off, int len, uvlong v, int write)
 {
 	Interp save;
-	uchar buf[8], *p;
+	uchar buf[8];
+	volatile uchar *p;	/* GCC port: volatile, Region.va (buf otherwise) */
 	Region *r;
 
 	save = interp;	/* save, in case we reenter the interpreter */
@@ -554,13 +555,13 @@ rwreg(void *reg, int off, int len, uvlong v, int write)
 					r->off, off, len, v);
 			putle(p, len, v);
 			if(r->write != nil){
-				if((*r->write)(r, p, len, off) != len)
+				if((*r->write)(r, (uchar*)p, len, off) != len)	/* GCC port: p is buf here (no va) */
 					break;
 			} else if(p == buf)
 				break;
 		} else {
 			if(r->read != nil){
-				if((*r->read)(r, p, len, off) != len)
+				if((*r->read)(r, (uchar*)p, len, off) != len)	/* GCC port: p is buf here (no va) */
 					break;
 			} else if(p == buf)
 				break;

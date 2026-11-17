@@ -352,7 +352,7 @@ typedef struct Ctlr {
 	int	eepromsz;		/* address size in bits */
 	ushort*	eeprom;
 
-	int*	nic;
+	volatile int*	nic;	/* GCC port: volatile, device registers */
 	int	cfg;
 	int	imr;
 
@@ -1113,7 +1113,7 @@ print("cfg %8.8uX pcicfg %8.8uX\n", ctlr->cfg, pcicfgr32(ctlr->pcidev, PciPCR));
 static void
 dp83820pci(void)
 {
-	void *mem;
+	volatile void *mem;	/* GCC port: volatile, device registers */
 	Pcidev *p;
 	Ctlr *ctlr;
 

@@ -33,7 +33,8 @@ static void
 tdfxenable(VGAscr* scr)
 {
 	Pcidev *p;
-	int i, *mmio;
+	int i;
+	volatile int *mmio;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio)
 		return;
@@ -58,7 +59,7 @@ tdfxenable(VGAscr* scr)
 	 * 8 of them.
 	 * Use the last 1KB of the framebuffer.
 	 */
-	mmio = (void*)((uchar*)scr->mmio+dramInit0);
+	mmio = (volatile void*)((volatile uchar*)scr->mmio+dramInit0);	/* GCC port: volatile, device registers */
 	if(*(mmio+1) & 0x40000000)
 		i = 16*1024*1024;
 	else{
@@ -77,11 +78,11 @@ tdfxenable(VGAscr* scr)
 static void
 tdfxcurdisable(VGAscr* scr)
 {
-	Cursor3dfx *cursor3dfx;
+	volatile Cursor3dfx *cursor3dfx;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return;
-	cursor3dfx = (void*)((uchar*)scr->mmio+hwCur);
+	cursor3dfx = (volatile void*)((volatile uchar*)scr->mmio+hwCur);	/* GCC port: volatile, device registers */
 	cursor3dfx->vidProcCfg &= ~0x08000000;
 }
 
@@ -90,11 +91,11 @@ tdfxcurload(VGAscr* scr, Cursor* curs)
 {
 	int y;
 	uchar *p;
-	Cursor3dfx *cursor3dfx;
+	volatile Cursor3dfx *cursor3dfx;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return;
-	cursor3dfx = (void*)((uchar*)scr->mmio+hwCur);
+	cursor3dfx = (volatile void*)((volatile uchar*)scr->mmio+hwCur);	/* GCC port: volatile, device registers */
 
 	/*
 	 * Disable the cursor then load the new image in
@@ -134,11 +135,11 @@ tdfxcurload(VGAscr* scr, Cursor* curs)
 static int
 tdfxcurmove(VGAscr* scr, Point p)
 {
-	Cursor3dfx *cursor3dfx;
+	volatile Cursor3dfx *cursor3dfx;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return 1;
-	cursor3dfx = (void*)((uchar*)scr->mmio+hwCur);
+	cursor3dfx = (volatile void*)((volatile uchar*)scr->mmio+hwCur);	/* GCC port: volatile, device registers */
 
 	cursor3dfx->hwCurLoc = ((p.y+scr->offset.y)<<16)|(p.x+scr->offset.x);
 
@@ -148,12 +149,12 @@ tdfxcurmove(VGAscr* scr, Point p)
 static void
 tdfxcurenable(VGAscr* scr)
 {
-	Cursor3dfx *cursor3dfx;
+	volatile Cursor3dfx *cursor3dfx;	/* GCC port: volatile, device registers */
 
 	tdfxenable(scr);
 	if(scr->mmio == 0)
 		return;
-	cursor3dfx = (void*)((uchar*)scr->mmio+hwCur);
+	cursor3dfx = (volatile void*)((volatile uchar*)scr->mmio+hwCur);	/* GCC port: volatile, device registers */
 
 	/*
 	 * Cursor colours.

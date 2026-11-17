@@ -14,10 +14,11 @@
 #include "screen.h"
 
 static uintptr
-igfxcuralloc(Pcidev *pci, void *mmio, int apsize)
+igfxcuralloc(Pcidev *pci, volatile void *mmio, int apsize)	/* GCC port: volatile, device registers */
 {
 	int n;
-	u32int pa, *buf, *p, *e;
+	u32int pa, *buf;
+	volatile u32int *p, *e;	/* GCC port: volatile, device registers */
 
 	buf = mallocalign(64*64*4, BY2PG, 0, 0);
 	if(buf == nil){
@@ -25,11 +26,11 @@ igfxcuralloc(Pcidev *pci, void *mmio, int apsize)
 		return 0;
 	}
 	n = (apsize > 128*MB ? 128*1024 : apsize/1024) / 4 - 4;
-	p = (u32int*)((uchar*)mmio + pci->mem[0].size/2) + n;
-	*(u32int*)((uchar*)mmio + 0x2170) = 0;	/* flush write buffers */
+	p = (volatile u32int*)((volatile uchar*)mmio + pci->mem[0].size/2) + n;	/* GCC port: volatile, device registers */
+	*(volatile u32int*)((volatile uchar*)mmio + 0x2170) = 0;	/* flush write buffers */	/* GCC port: volatile, device registers */
 	for(e=p+4, pa=PADDR(buf); p<e; p++, pa+=1<<12)
 		*p = pa | 1;
-	*(u32int*)((uchar*)mmio + 0x2170) = 0;	/* flush write buffers */
+	*(volatile u32int*)((volatile uchar*)mmio + 0x2170) = 0;	/* flush write buffers */	/* GCC port: volatile, device registers */
 	return (uintptr)n << 12;
 }
 
@@ -140,7 +141,7 @@ enum {
 	NPIPE = 4,
 };
 
-static u32int*
+static volatile u32int*	/* GCC port: volatile, device registers */
 igfxcurregs(VGAscr* scr, int pipe)
 {
 	u32int o;
@@ -180,14 +181,14 @@ igfxcurregs(VGAscr* scr, int pipe)
 		if(pipe > 0)
 			return nil;
 	}
-	return (u32int*)((uchar*)scr->mmio + (0x70080 + o));
+	return (volatile u32int*)((volatile uchar*)scr->mmio + (0x70080 + o));	/* GCC port: volatile, device registers */
 }
 
 static int
 igfxcurmove(VGAscr* scr, Point p)
 {
 	int i, x, y;
-	u32int *r;
+	volatile u32int *r;	/* GCC port: volatile, device registers */
 
 	for(i=0; i<NPIPE; i++){
 		if((r = igfxcurregs(scr, i)) != nil){
@@ -204,7 +205,7 @@ igfxcurmove(VGAscr* scr, Point p)
 static void
 igfxcurenable(VGAscr* scr)
 {
-	u32int *r;
+	volatile u32int *r;	/* GCC port: volatile, device registers */
 	int i;
 
 	igfxenable(scr);
@@ -222,7 +223,7 @@ igfxcurenable(VGAscr* scr)
 static void
 igfxcurdisable(VGAscr* scr)
 {
-	u32int *r;
+	volatile u32int *r;	/* GCC port: volatile, device registers */
 	int i;
 
 	for(i=0; i<NPIPE; i++){

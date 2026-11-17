@@ -108,27 +108,32 @@ work(Nixpctl *pctl)
 	return pctl->cmd == NCdie || q->qr != q->qw;
 }
 
-/* make the call nc, reply in nr */
+/*
+ * make the call nc, reply in nr: both in the process' queue (volatile,
+ * the process changes it); scall and tag read once, the arguments a
+ * user address dosyscall checks and copies itself, as the trap's are;
+ * the reply made here and written whole
+ */
 static void
-nixsyscall(Nixcall *nc, Nixret *nr)
+nixsyscall(volatile Nixcall *nc, volatile Nixret *nr)
 {
+	Nixret r;
 	uintptr ret;
 	int scall;
-	void *tag;
 
 	scall = nc->scall;
-	tag = nc->tag;
+	r.tag = nc->tag;
 	if(!allowed(scall)){
 		ret = -1;
 		kstrcpy(up->syserrstr, "system call not allowed in a call queue", ERRMAX);
 	} else
-		dosyscall(scall, (Sargs*)nc->arg, &ret);
-	nr->tag = tag;
-	nr->sret = (vlong)(intptr)ret;
+		dosyscall(scall, (Sargs*)(uintptr)nc->arg, &ret);
+	r.sret = (vlong)(intptr)ret;
 	if(ret == (uintptr)-1)
-		kstrcpy(nr->err, up->syserrstr, sizeof nr->err);
+		kstrcpy(r.err, up->syserrstr, sizeof r.err);
 	else
-		nr->err[0] = 0;
+		r.err[0] = 0;
+	*nr = r;
 }
 
 /*
@@ -227,7 +232,7 @@ nixkproc(void *a)
 		nixsyncseg(pctl->p, pctl->pid);
 		while(q->qr != q->qw){
 			coherence();
-			nixsyscall((Nixcall*)&q->q[q->qr], (Nixret*)&q->r[q->rw]);
+			nixsyscall(&q->q[q->qr], &q->r[q->rw]);
 			coherence();
 			/*
 			 * validaddr posts "sys: bad address" to the caller,

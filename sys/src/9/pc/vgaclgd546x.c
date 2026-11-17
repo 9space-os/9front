@@ -54,11 +54,11 @@ clgd546xenable(VGAscr* scr)
 static void
 clgd546xcurdisable(VGAscr* scr)
 {
-	Cursor546x *cursor546x;
+	volatile Cursor546x *cursor546x;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == nil)
 		return;
-	cursor546x = (Cursor546x*)((uchar*)scr->mmio+CursorMMIO);
+	cursor546x = (volatile Cursor546x*)((volatile uchar*)scr->mmio+CursorMMIO);	/* GCC port: volatile, device registers */
 	cursor546x->enable = 0;
 }
 
@@ -67,11 +67,11 @@ clgd546xcurload(VGAscr* scr, Cursor* curs)
 {
 	int c, i, m, y;
 	uchar *p;
-	Cursor546x *cursor546x;
+	volatile Cursor546x *cursor546x;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return;
-	cursor546x = (Cursor546x*)((uchar*)scr->mmio+CursorMMIO);
+	cursor546x = (volatile Cursor546x*)((volatile uchar*)scr->mmio+CursorMMIO);	/* GCC port: volatile, device registers */
 
 	/*
 	 * Disable the cursor then change only the bits
@@ -123,11 +123,11 @@ static int
 clgd546xcurmove(VGAscr* scr, Point p)
 {
 	int x, xo, y, yo;
-	Cursor546x *cursor546x;
+	volatile Cursor546x *cursor546x;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return 1;
-	cursor546x = (Cursor546x*)((uchar*)scr->mmio+CursorMMIO);
+	cursor546x = (volatile Cursor546x*)((volatile uchar*)scr->mmio+CursorMMIO);	/* GCC port: volatile, device registers */
 
 	if((x = p.x+scr->offset.x) < 0){
 		xo = -x;
@@ -152,19 +152,19 @@ clgd546xcurmove(VGAscr* scr, Point p)
 static void
 clgd546xcurenable(VGAscr* scr)
 {
-	uchar *p;
-	Cursor546x *cursor546x;
+	volatile uchar *p;	/* GCC port: volatile, device registers */
+	volatile Cursor546x *cursor546x;	/* GCC port: volatile, device registers */
 
 	clgd546xenable(scr);
 	if(scr->mmio == 0)
 		return;
-	cursor546x = (Cursor546x*)((uchar*)scr->mmio+CursorMMIO);
+	cursor546x = (volatile Cursor546x*)((volatile uchar*)scr->mmio+CursorMMIO);	/* GCC port: volatile, device registers */
 
 	/*
 	 * Cursor colours.
 	 * Can't call setcolor here as cursor is already locked.
 	 */
-	p = (uchar*)scr->mmio+PaletteState;
+	p = (volatile uchar*)scr->mmio+PaletteState;	/* GCC port: volatile, device registers */
 	*p |= 0x08;
 	vgao(PaddrW, 0x00);
 	vgao(Pdata, Pwhite);

@@ -158,7 +158,7 @@ mmukmap(uintptr va, uintptr pa, usize size)
 	return va + off;
 }
 
-void*
+volatile void*	/* GCC port: volatile (fns.h) */
 vmap(uvlong pa, vlong size)
 {
 	static uintptr base = VMAP;
@@ -172,7 +172,7 @@ vmap(uvlong pa, vlong size)
 }
 
 void
-vunmap(void *, vlong)
+vunmap(volatile void *, vlong)	/* GCC port: volatile, as vmap */
 {
 }
 

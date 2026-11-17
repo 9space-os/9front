@@ -181,7 +181,7 @@ screenaperture(VGAscr *scr, int size, int align)
 	if(pa == -1)
 		return -1;
 	scr->paddr = pa;
-	scr->vaddr = vmap(pa, size);
+	scr->vaddr = vmapmem(pa, size);	/* GCC port: memory, not registers (vmapmem) */
 	if(scr->vaddr == nil)
 		return -1;
 	scr->apsize = size;
@@ -579,7 +579,7 @@ vgalinearaddr0(VGAscr *scr, uvlong paddr, vlong size)
 	 */
 	if(nsize > 64*MB)
 		nsize = 64*MB;
-	scr->vaddr = vmap(npaddr, nsize);
+	scr->vaddr = vmapmem(npaddr, nsize);	/* GCC port: memory, not registers (vmapmem) */
 	if(scr->vaddr == nil)
 		return "cannot map vga frame buffer";
 

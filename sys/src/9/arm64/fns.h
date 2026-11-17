@@ -73,8 +73,8 @@ extern KMap *kmap(Page*);
 extern void kunmap(KMap*);
 extern uintptr mmukmap(uintptr, uintptr, usize);
 extern void kmapram(uintptr, uintptr);
-extern void* vmap(uvlong, vlong);
-extern void vunmap(void*, vlong);
+extern volatile void* vmap(uvlong, vlong); /* GCC port: volatile, device registers (gcc may narrow, merge or drop plain accesses); memory mapped by it casts */
+extern void vunmap(volatile void*, vlong);	/* GCC port: volatile, as vmap */
 extern void mmu1init(void);
 extern void putasid(Proc*);
 

@@ -126,8 +126,8 @@ typedef struct Tx Tx;
  */
 struct Chip
 {
-	Arb	*arb;
-	Edma	*edma;
+	volatile Arb	*arb;	/* GCC port: volatile, device registers */
+	volatile Edma	*edma;
 };
 
 struct Drive
@@ -139,8 +139,8 @@ struct Drive
 	char	name[10];
 	Sfis;
 
-	Bridge	*bridge;
-	Edma	*edma;
+	volatile Bridge	*bridge;	/* GCC port: volatile, device registers */
+	volatile Edma	*edma;	/* GCC port: volatile, device registers */
 	Chip	*chip;
 	int	chipx;
 
@@ -184,8 +184,8 @@ struct Ctlr
 	SDev	*sdev;
 	Pcidev	*pcidev;
 
-	uchar	*mmio;
-	ulong	*lmmio;
+	volatile uchar	*mmio;	/* GCC port: volatile, device registers */
+	volatile ulong	*lmmio;
 	Chip	chip[2];
 	int	nchip;
 	Drive	drive[NCtlrdrv];
@@ -371,7 +371,7 @@ freesrb(Srb *p)
 }
 
 static int
-satawait(uchar *p, uchar mask, uchar v, int ms)
+satawait(volatile uchar *p, uchar mask, uchar v, int ms)	/* GCC port: volatile, device registers */
 {
 	int i;
 
@@ -382,7 +382,7 @@ satawait(uchar *p, uchar mask, uchar v, int ms)
 
 /* unmask in the pci registers err done */
 static void
-portswitch(ulong *mmio, int port, uint coal, uint on)
+portswitch(volatile ulong *mmio, int port, uint coal, uint on)	/* GCC port: volatile, device registers */
 {
 	ulong m;
 
@@ -487,7 +487,7 @@ edmacleanout(Drive *d)
 static int
 edmadisable(Drive *d, int reset)
 {
-	Edma *e;
+	volatile Edma *e;	/* GCC port: volatile, device registers */
 
 	e = d->edma;
 	if(!reset && (e->ctl & eEnEDMA) == 0)
@@ -498,7 +498,7 @@ edmadisable(Drive *d, int reset)
 		e->ctl = eAtaRst;
 	microdelay(25);
 	e->ctl = 0;
-	if (satawait((uchar *)&e->ctl, eEnEDMA, 0, 3*1000) == 0){
+	if (satawait((volatile uchar*)&e->ctl, eEnEDMA, 0, 3*1000) == 0){	/* GCC port: volatile, device registers */
 		print("%s: eEnEDMA never cleared on reset\n", dnam(d));
 		return -1;
 	}
@@ -566,7 +566,7 @@ configdrive(Ctlr *ctlr, Drive *d, SDunit *unit)
 static int
 edmaenable(Drive *d)
 {
-	Edma *edma;
+	volatile Edma *edma;	/* GCC port: volatile, device registers */
 
 	dprint("%s: enabledrive..", dnam(d));
 
@@ -623,7 +623,7 @@ disabledrive(Drive *d)
 static int
 setudmamode(Drive *d, uchar mode)
 {
-	Edma *edma;
+	volatile Edma *edma;	/* GCC port: volatile, device registers */
 
 	dprint("%s: setudmamode %d\n", dnam(d), mode);
 	edma = d->edma;
@@ -653,7 +653,7 @@ identifydrive(Drive *d)
 	char *s;
 	int i;
 	ushort *id;
-	Edma *edma;
+	volatile Edma *edma;	/* GCC port: volatile, device registers */
 	SDunit *u;
 
 	dprint("%s: identifydrive\n", dnam(d));
@@ -785,7 +785,7 @@ updatedrive(Drive *d)
 {
 	int x;
 	ulong cause;
-	Edma *edma;
+	volatile Edma *edma;	/* GCC port: volatile, device registers */
 	char buf[32+4+1];
 
 	edma = d->edma;
@@ -904,7 +904,7 @@ static void
 startsrb(Drive *d, Srb *srb)
 {
 	int i;
-	Edma *edma;
+	volatile Edma *edma;	/* GCC port: volatile, device registers */
 	Prd *prd;
 	Tx *tx;
 
@@ -946,7 +946,7 @@ enum{
 static void
 completesrb(Drive *d)
 {
-	Edma *edma;
+	volatile Edma *edma;	/* GCC port: volatile, device registers */
 	Rx *rx;
 	Srb *srb;
 
@@ -993,7 +993,7 @@ mv50interrupt(Ureg*, void *v)
 {
 	int i;
 	ulong cause, tk0, m;
-	Arb *a;
+	volatile Arb *a;	/* GCC port: volatile, device registers */
 	Ctlr *ctlr;
 	Drive *drive;
 	static uint st;
@@ -1035,7 +1035,7 @@ enum{
 static void
 hangck(Drive *d)
 {
-	Edma *e;
+	volatile Edma *e;	/* GCC port: volatile, device registers */
 
 	e = d->edma;
 	if(d->nsrb > 0
@@ -1132,8 +1132,9 @@ static SDev*
 mv50pnp(void)
 {
 	int i, nunit;
-	ulong n, *mem;
-	uchar *base;
+	ulong n;
+	volatile ulong *mem;	/* GCC port: volatile, device registers */
+	volatile uchar *base;	/* GCC port: volatile, device registers */
 	uvlong io;
 	Ctlr *ctlr;
 	Drive *d;
@@ -1174,7 +1175,7 @@ mv50pnp(void)
 			((p->did&0xf000)==0x6000? "II": "I"),
 			(p->did&1? "": "out"));
 		io = p->mem[0].bar & ~0xF;
-		mem = (ulong*)vmap(io, p->mem[0].size);
+		mem = (volatile ulong*)vmap(io, p->mem[0].size);	/* GCC port: volatile, device registers */
 		if(mem == nil){
 			print("sdmv50xx: can't map %llux\n", io);
 			continue;
@@ -1205,14 +1206,14 @@ mv50pnp(void)
 		ctlr->tbdf = p->tbdf;
 		ctlr->pcidev = p;
 		ctlr->lmmio = mem;
-		ctlr->mmio = (uchar*)mem;
+		ctlr->mmio = (volatile uchar*)mem;	/* GCC port: volatile, device registers */
 		ctlr->nchip = (nunit+3)/4;
 		ctlr->ndrive = nunit;
 		ctlr->enabled = 0;
 		for(i = 0; i < ctlr->nchip; i++){
 			base = ctlr->mmio+0x20000+0x10000*i;
-			ctlr->chip[i].arb = (Arb*)base;
-			ctlr->chip[i].edma = (Edma*)(base + 0x2000);
+			ctlr->chip[i].arb = (volatile Arb*)base;	/* GCC port: volatile, device registers */
+			ctlr->chip[i].edma = (volatile Edma*)(base + 0x2000);	/* GCC port: volatile, device registers */
 		}
 		for (i = 0; i < nunit; i++) {
 			d = &ctlr->drive[i];
@@ -1422,14 +1423,14 @@ static Regs regsedma[] =
 };
 
 static char*
-rdregs(char *p, char *e, void *base, Regs *r, int n, char *prefix)
+rdregs(char *p, char *e, volatile void *base, Regs *r, int n, char *prefix)	/* GCC port: volatile, device registers */
 {
 	int i;
 
 	for(i=0; i<n; i++)
 		p = seprint(p, e, "%s%s%-19s %.8ux\n",
 			prefix ? prefix : "", prefix ? ": " : "",
-			r[i].name, *(u32int*)((uchar*)base+r[i].offset));
+			r[i].name, *(volatile u32int*)((volatile uchar*)base+r[i].offset));	/* GCC port: volatile, device registers */
 	return p;
 }
 
@@ -1599,7 +1600,7 @@ mv50rio(SDreq *r)
 }
 
 static void
-mkrfis(SDreq *r, Drive *d, Edma *e)
+mkrfis(SDreq *r, Drive *d, volatile Edma *e)	/* GCC port: volatile, device registers */
 {
 	uchar *u;
 
@@ -1634,7 +1635,7 @@ piocmd(SDreq *r, Drive *d)
 {
 	uchar *p, *c;
 	int n, nsec, i, err;
-	Edma *e;
+	volatile Edma *e;	/* GCC port: volatile, device registers */
 	SDunit *u;
 
 	u = r->unit;

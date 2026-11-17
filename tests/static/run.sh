@@ -138,4 +138,28 @@ rcsyntax(){
 }
 check "rc scripts (scripts/build/rc, scripts/guest/boot, tests/hw) parse" rcsyntax
 
+# 8. device registers: the kernels keep vmap's volatile wherever a
+#    register's pointer goes (also through a cast, which the build's
+#    -Werror=discarded-qualifiers does not see), and gcc narrows no
+#    volatile load of a register (mmio32r where it would). Both compile
+#    the kernels' sources: skipped before a build (generated files)
+mmio(){
+	local r
+	python3 scripts/check/$1; r=$?
+	[ $r = 2 ] && return 77
+	return $r
+}
+for c in find-dropped-volatile.py find-narrow-mmio.py; do
+	mmio $c >"$TMPD/$c.out" 2>&1; r=$?
+	case $c in
+	find-dropped-volatile.py) what="kernels: no device register pointer loses volatile (vmap, scripts/check/$c)" ;;
+	*) what="kernels: no volatile register load narrowed by gcc (scripts/check/$c)" ;;
+	esac
+	if [ $r = 77 ]; then
+		skip "$what" "no build yet"
+	else
+		check "$what" test $r = 0 || sed 's/^/       /' "$TMPD/$c.out" | head -20
+	fi
+done
+
 done_tests

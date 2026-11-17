@@ -58,7 +58,7 @@ bios32locate(void)
 		return -1;
 	VFLAG("sdh @ %#p, entry %#ux\n", sdh, l32get(sdh->physaddr));
 
-	bios32entry = vmap(l32get(sdh->physaddr), 4096+1);
+	bios32entry = vmapmem(l32get(sdh->physaddr), 4096+1);	/* GCC port: memory, not registers (vmapmem) */
 	VFLAG("entry @ %#p\n", bios32entry);
 	ptr = UPTR2INT(bios32entry);
 	bios32ptr[0] = ptr & 0xffff;
@@ -105,7 +105,7 @@ bios32open(char* id)
 
 	if((si = malloc(sizeof(BIOS32si))) == nil)
 		return nil;
-	if((si->base = vmap(ci.ebx, ci.ecx)) == nil){
+	if((si->base = vmapmem(ci.ebx, ci.ecx)) == nil){	/* GCC port: the BIOS service, memory: not volatile */
 		free(si);
 		return nil;
 	}
