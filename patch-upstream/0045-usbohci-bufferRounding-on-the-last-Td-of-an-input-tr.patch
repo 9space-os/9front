@@ -1,0 +1,46 @@
+From 27476e3bee00d8332bba0912c22cdf184b35f353 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Tue, 17 Nov 2026 10:49:52 +0100
+Subject: [PATCH 45/45] usbohci: bufferRounding on the last Td of an input
+ transfer: a short last packet ends it
+
+Under QEMU's pci-ohci no device was ever attached ("no data from device",
+then "too many attaches"): the configuration descriptor is read with more
+bytes asked for than the device has. Without the R bit QEMU marks such a
+Td "data underrun" and leaves cbp unchanged (real controllers advance it),
+which qhinterrupt took for 0 bytes. With R the controller reports the bytes
+in cbp and the endpoint is not halted, as FreeBSD, OpenBSD and Linux set
+it. Only on the last Td: a short packet before it still stops the endpoint.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/pc/usbohci.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/sys/src/9/pc/usbohci.c b/sys/src/9/pc/usbohci.c
+index 934aa0d03..cb42efce9 100644
+--- a/sys/src/9/pc/usbohci.c
++++ b/sys/src/9/pc/usbohci.c
+@@ -1524,6 +1524,19 @@ epio(Ep *ep, Qio *io, void *a, long count, int mustlock)
+ 	if(td0 == nil || ltd == nil || td0 == ltd)
+ 		panic("epio: no td");
+ 	td->last = 1;
++	/*
++	 * a short last packet in is the end of the transfer, not an
++	 * error: with bufferRounding the controller says how far it
++	 * got (cbp) and the endpoint goes on.  Without it QEMU's OHCI
++	 * retires the Td with "data underrun" and cbp as it was, which
++	 * qhinterrupt took for no data at all: a device's descriptors,
++	 * shorter than asked for, came back empty ("no data from
++	 * device") and nothing was attached.  Only the last Td: a short
++	 * packet before it must stop the endpoint, not run on into
++	 * the next buffer.
++	 */
++	if(io->tok == Tdtokin)
++		td->ctrl |= Tdround;
+ 	if(debug > 2 || ep->debug > 2)
+ 		dumptds(td0, "put td", ep->ttype == Tiso);
+ 	iunlock(ctlr);
+-- 
+2.56.0
+

@@ -1,7 +1,7 @@
 From 614864a8ee2ba8d7fcffca6f01efb237cea6803c Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sun, 15 Nov 2026 00:52:17 +0100
-Subject: [PATCH 35/44] kbmap: the maps sorted by name
+Subject: [PATCH 35/45] kbmap: the maps sorted by name
 
 kbmap listed /sys/lib/kbmap in the order its file server reads the
 directory: alphabetical from hjfs and cwfs, any order from others

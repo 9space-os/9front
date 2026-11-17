@@ -1,7 +1,7 @@
 From 54b8788290a91f44a7baac416237b194ba8114bf Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sat, 31 Oct 2026 10:38:59 +0100
-Subject: [PATCH 13/44] ape: arm64 Ureg in the kernel's layout
+Subject: [PATCH 13/45] ape: arm64 Ureg in the kernel's layout
 
 /arm64/include/ape/ureg.h had r29 and sp in a union and type, psr, pc
 after r30, where the kernel's /arm64/include/ureg.h has r29, r30, sp,

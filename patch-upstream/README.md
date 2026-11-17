@@ -30,7 +30,8 @@ On 9front: `git/import` takes the files as they are.
 All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 `82ddeb288`, 2026-11-10, at `00d3043a2`, 2026-11-12, and at `eb49f1f87`,
 2026-11-12); 0032 to 0034 on them at `eb49f1f87` (2026-11-14); all 38 at
-`6ae667969` (2026-11-15), 0039 to 0044 on them there (2026-11-16). Each
+`6ae667969` (2026-11-15), 0039 to 0044 on them there (2026-11-16), 0045
+on them there (2026-11-17). Each
 applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
@@ -110,6 +111,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0042 | postscript: the functions declared (atof, malloc, error's arguments wrong on a 64-bit machine) | bug fix |
 | 0043 | compress, expr, antiword, spin: the functions they call declared (compress's utime) | bug fix |
 | 0044 | news, zuke, pool, dma, doom, eqn, troff: no variable both changed and read without a sequence point | bug fix |
+| 0045 | usbohci: bufferRounding on the last Td of an input transfer: a short last packet ends it | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -657,6 +659,21 @@ fill pattern's offset with `lp` before or after its `++`), `pc/dma`
 explicit. Found by: a build with `-Wsequence-point` (the gcc branch now
 builds with `-Werror=sequence-point`). Not done: compiled with 9front's
 own compilers.
+
+### 0045 usbohci: bufferRounding on the last Td of an input transfer: a short last packet ends it
+
+Under QEMU's `pci-ohci` no USB device was ever attached ("no data from
+device", then "too many attaches"), with 9front's own release as well:
+the configuration descriptor is read asking for more bytes than the
+device has. Without the R (bufferRounding) bit QEMU retires such a Td
+with "data underrun" and leaves CBP as it was (real controllers advance
+it), which `qhinterrupt` took for 0 bytes. With R the controller reports
+the bytes through CBP and does not halt the endpoint; FreeBSD, OpenBSD
+and Linux set it. Only on the last Td of an input transfer: a short
+packet before it still stops the endpoint. Found and shown by the gcc
+branch's `tests/usb` (a stick on OHCI: root hub, `/dev/sdU*`, sector 0
+read back; now passes on xHCI, EHCI, UHCI and OHCI). Not done: compiled
+with 9front's own compilers.
 
 ## Not included
 
