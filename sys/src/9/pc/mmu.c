@@ -511,7 +511,7 @@ static void pdbunmap(ulong*, ulong, int);
 /*
  * Add a device mapping to the vmap range.
  */
-void*
+volatile void*	/* GCC port: volatile (fns.h) */
 vmap(uvlong pa, vlong size)
 {
 	vlong osize;
@@ -544,6 +544,16 @@ vmap(uvlong pa, vlong size)
 	USED(osize);
 //	print("  vmap %#.8lux %lld => %#.8lux\n", pa+o, osize, va+o);
 	return (void*)(va + o);
+}
+
+/*
+ * GCC port: vmap for memory, not device registers (ACPI and MP tables,
+ * the BIOS, frame buffers): a plain pointer, as 9front's vmap gave
+ */
+void*
+vmapmem(uvlong pa, vlong size)
+{
+	return (void*)(uintptr)vmap(pa, size);
 }
 
 static int
@@ -603,7 +613,7 @@ vmapalloc(ulong size)
  * the call need not be interlocked with vmap.
  */
 void
-vunmap(void *v, vlong size)
+vunmap(volatile void *v, vlong size)	/* GCC port: volatile, as vmap */
 {
 	ulong va, o;
 	

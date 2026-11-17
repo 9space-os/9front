@@ -297,7 +297,7 @@ struct Ctlr
 
 	int	ctlrno;
 
-	ushort	*mmb;
+	volatile ushort	*mmb;	/* GCC port: volatile, device registers */
 	/* for PCI-based devices */
 	Ctlr	*next;
 	int	active;

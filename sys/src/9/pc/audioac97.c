@@ -51,8 +51,8 @@ struct Ctlr {
 
 	ulong port;
 	ulong mixport;
-	uchar *mmreg;
-	uchar *mmmix;
+	volatile uchar *mmreg;	/* GCC port: volatile, device registers */
+	volatile uchar *mmmix;	/* GCC port: volatile, device registers */
 	int ismmio;
 
 	Ring inring, micring, outring;
@@ -196,28 +196,28 @@ writering(Ring *r, uchar *p, long n)
 static uchar
 csr8r(Ctlr *c, int r){
 	if(c->ismmio)
-		return *(uchar*)(c->mmreg+r);		
+		return *(volatile uchar*)(c->mmreg+r);			/* GCC port: volatile, device registers */
 	return inb(c->port+r);
 }
 
 static ushort
 csr16r(Ctlr *c, int r){
 	if(c->ismmio)
-		return *(ushort*)(c->mmreg+r);		
+		return *(volatile ushort*)(c->mmreg+r);			/* GCC port: volatile, device registers */
 	return ins(c->port+r);
 }
 
 static ulong
 csr32r(Ctlr *c, int r){
 	if(c->ismmio)
-		return *(ulong*)(c->mmreg+r);		
+		return *(volatile ulong*)(c->mmreg+r);			/* GCC port: volatile, device registers */
 	return inl(c->port+r);
 }
 
 static void
 csr8w(Ctlr *c, int r, uchar v){
 	if(c->ismmio)
-		*(uchar*)(c->mmreg+r) = v;
+		*(volatile uchar*)(c->mmreg+r) = v;	/* GCC port: volatile, device registers */
 	else
 		outb(c->port+r, (int)v);
 }
@@ -225,7 +225,7 @@ csr8w(Ctlr *c, int r, uchar v){
 static void
 csr16w(Ctlr *c, int r, ushort v){
 	if(c->ismmio)
-		*(ushort*)(c->mmreg+r) = v;
+		*(volatile ushort*)(c->mmreg+r) = v;	/* GCC port: volatile, device registers */
 	else
 		outs(c->port+r, v);
 }
@@ -233,7 +233,7 @@ csr16w(Ctlr *c, int r, ushort v){
 static void
 csr32w(Ctlr *c, int r, ulong v){
 	if(c->ismmio)
-		*(ulong*)(c->mmreg+r) = v;
+		*(volatile ulong*)(c->mmreg+r) = v;	/* GCC port: volatile, device registers */
 	else
 		outl(c->port+r, v);
 }
@@ -264,7 +264,7 @@ ac97mixw(Audio *adev, int port, ushort val)
 	ac97waitcodec(adev);
 	ctlr = adev->ctlr;
 	if(ctlr->ismmio)
-		*(ushort*)(ctlr->mmmix+port) = val;
+		*(volatile ushort*)(ctlr->mmmix+port) = val;	/* GCC port: volatile, device registers */
 	else
 		outs(ctlr->mixport+port, val);
 }
@@ -276,7 +276,7 @@ ac97mixr(Audio *adev, int port)
 	ac97waitcodec(adev);
 	ctlr = adev->ctlr;
 	if(ctlr->ismmio)
-		return *(ushort*)(ctlr->mmmix+port);
+		return *(volatile ushort*)(ctlr->mmmix+port);	/* GCC port: volatile, device registers */
 	return ins(ctlr->mixport+port);
 }
 

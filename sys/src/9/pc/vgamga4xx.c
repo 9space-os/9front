@@ -81,13 +81,13 @@ enum {
 static void
 mgawrite8(VGAscr *scr, int index, uchar val)
 {
-	((uchar*)scr->mmio)[index] = val;
+	((volatile uchar*)scr->mmio)[index] = val;	/* GCC port: volatile, device registers */
 }
 
 static uchar
 mgaread8(VGAscr *scr, int index)
 {
-	return ((uchar*)scr->mmio)[index];
+	return ((volatile uchar*)scr->mmio)[index];	/* GCC port: volatile, device registers */
 }
 
 static uchar
@@ -151,7 +151,7 @@ mga4xxenable(VGAscr* scr)
 			k = (2*i+1)*MB;
 			p[k] = 0;
 			p[k] = i+1;
-			*((uchar*)scr->mmio + CACHEFLUSH) = 0;
+			*((volatile uchar*)scr->mmio + CACHEFLUSH) = 0;	/* GCC port: volatile, device registers */
 			x[i] = p[k];
  		}
 		for(i = 1; i < n; i++)
@@ -180,12 +180,12 @@ enum{
 static void
 dac4xxdisable(VGAscr *scr)
 {
-	uchar *dac4xx;
+	volatile uchar *dac4xx;	/* GCC port: volatile, device registers */
 	
 	if(scr->mmio == 0)
 		return;
 
-	dac4xx = (uchar*)scr->mmio+0x3C00;
+	dac4xx = (volatile uchar*)scr->mmio+0x3C00;	/* GCC port: volatile, device registers */
 	
 	*(dac4xx+Index) = Icctl;
 	*(dac4xx+Data) = 0x00;
@@ -196,12 +196,12 @@ dac4xxload(VGAscr *scr, Cursor *curs)
 {
 	int y;
 	uchar *p;
-	uchar *dac4xx;
+	volatile uchar *dac4xx;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return;
 
-	dac4xx = (uchar*)scr->mmio+0x3C00;
+	dac4xx = (volatile uchar*)scr->mmio+0x3C00;	/* GCC port: volatile, device registers */
 	
 	dac4xxdisable(scr);
 
@@ -236,12 +236,12 @@ static int
 dac4xxmove(VGAscr *scr, Point p)
 {
 	int x, y;
-	uchar *dac4xx;
+	volatile uchar *dac4xx;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return 1;
 
-	dac4xx = (uchar*)scr->mmio + 0x3C00;
+	dac4xx = (volatile uchar*)scr->mmio + 0x3C00;	/* GCC port: volatile, device registers */
 
 	x = p.x + scr->offset.x;
 	y = p.y + scr->offset.y;
@@ -258,12 +258,12 @@ dac4xxmove(VGAscr *scr, Point p)
 static void
 dac4xxenable(VGAscr *scr)
 {
-	uchar *dac4xx;
+	volatile uchar *dac4xx;	/* GCC port: volatile, device registers */
 	ulong storage;
 	
 	if(scr->mmio == 0)
 		return;
-	dac4xx = (uchar*)scr->mmio+0x3C00;
+	dac4xx = (volatile uchar*)scr->mmio+0x3C00;	/* GCC port: volatile, device registers */
 
 	dac4xxdisable(scr);
 
@@ -316,7 +316,7 @@ static void
 mga4xxblank(VGAscr *scr, int blank)
 {
 	char *cp;
-	uchar *mga;
+	volatile uchar *mga;	/* GCC port: volatile, device registers */
 	uchar seq1, crtcext1;
 	
 	/* blank = 0 -> turn screen on */
@@ -324,7 +324,7 @@ mga4xxblank(VGAscr *scr, int blank)
 
 	if(scr->mmio == 0)
 		return;
-	mga = (uchar*)scr->mmio;	
+	mga = (volatile uchar*)scr->mmio;		/* GCC port: volatile, device registers */
 
 	if(blank == 0){
 		seq1 = 0x00;
@@ -353,19 +353,19 @@ mga4xxblank(VGAscr *scr, int blank)
 }
 
 static void
-mgawrite32(uchar *mga, ulong reg, ulong val)
+mgawrite32(volatile uchar *mga, ulong reg, ulong val)	/* GCC port: volatile, device registers */
 {
-	*((ulong*)(&mga[reg])) = val;
+	*((volatile ulong*)(&mga[reg])) = val;	/* GCC port: volatile, device registers */
 }
 
 static ulong
-mgaread32(uchar *mga, ulong reg)
+mgaread32(volatile uchar *mga, ulong reg)	/* GCC port: volatile, device registers */
 {
 	return *((volatile ulong*)(&mga[reg]));	/* GCC port: volatile, gcc keeps the value of a load in a loop (kencc reloads) */
 }
 
 static void
-mga_fifo(uchar *mga, uchar n)
+mga_fifo(volatile uchar *mga, uchar n)	/* GCC port: volatile, device registers */
 {
 	ulong t;
 
@@ -380,11 +380,11 @@ mga_fifo(uchar *mga, uchar n)
 static int
 mga4xxfill(VGAscr *scr, Rectangle r, ulong color)
 {
-	uchar *mga;
+	volatile uchar *mga;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return 0;
-	mga = (uchar*)scr->mmio;
+	mga = (volatile uchar*)scr->mmio;	/* GCC port: volatile, device registers */
 
 	mga_fifo(mga, 7);
 	mgawrite32(mga, DWGCTL, 0);
@@ -404,14 +404,14 @@ mga4xxfill(VGAscr *scr, Rectangle r, ulong color)
 static int
 mga4xxscroll(VGAscr *scr, Rectangle dr, Rectangle sr)
 {
-	uchar * mga;
+	volatile uchar * mga;	/* GCC port: volatile, device registers */
  	int width, height;
 	ulong start, end, sgn;
 	Point sp, dp;
  
 	if(scr->mmio == 0)
 		return 0;
-	mga = (uchar*)scr->mmio;
+	mga = (volatile uchar*)scr->mmio;	/* GCC port: volatile, device registers */
 
 	assert(Dx(sr) == Dx(dr) && Dy(sr) == Dy(dr));
 
@@ -459,12 +459,12 @@ mga4xxscroll(VGAscr *scr, Rectangle dr, Rectangle sr)
 static void
 mga4xxdrawinit(VGAscr *scr)
 {
-	uchar *mga;
+	volatile uchar *mga;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return;
 
-	mga = (uchar*)scr->mmio;
+	mga = (volatile uchar*)scr->mmio;	/* GCC port: volatile, device registers */
 
 	mgawrite32(mga, SRCORG, 0);
 	mgawrite32(mga, DSTORG, 0);

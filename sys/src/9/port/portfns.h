@@ -463,3 +463,39 @@ long		lcycles(void);
 #pragma varargck argpos iprint	1
 #pragma	varargck argpos	panic	1
 #pragma varargck argpos pprint	1
+
+/*
+ * GCC port: block copies to and from a device's memory (a card's RAM,
+ * firmware), mapped volatile by vmap: through memmove and memset as 9front
+ * copies them (calls: -fno-builtin keeps register accesses on either side
+ * in their place), the device pointer's volatile dropped here, by name.
+ */
+static inline void
+memmovetoio(volatile void *d, void *s, long n)
+{
+	memmove((void*)(uintptr)d, s, n);
+}
+
+static inline void
+memmovefromio(void *d, volatile void *s, long n)
+{
+	memmove(d, (void*)(uintptr)s, n);
+}
+
+static inline void
+memsetio(volatile void *d, int c, long n)
+{
+	memset((void*)(uintptr)d, c, n);
+}
+
+/*
+ * GCC port: a 32-bit device register read gcc cannot narrow. It turns
+ * some volatile loads under a mask (mmio[R] & 0xFF stored into a field)
+ * into byte loads; an atomic load is one access of the object's width.
+ * scripts/check/find-narrow-mmio.py finds the loads that need it.
+ */
+static inline u32int
+mmio32r(volatile u32int *p)
+{
+	return __atomic_load_n(p, __ATOMIC_RELAXED);
+}

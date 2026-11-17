@@ -1,10 +1,9 @@
 /* GCC port: GAS translation of atomic.s; %ecx/%edx instead of %ebx (callee-saved) */
 
 /* get variants */
-.globl ageti
 .globl agetl
 .globl agetp
-ageti:
+/* GCC port: no ageti here (9front's atomic.s has it): port/atomicint.c's, Aint's on every arch */
 agetl:
 agetp:
 	movl	4(%esp), %eax		/* p */

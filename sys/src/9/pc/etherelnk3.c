@@ -427,7 +427,7 @@ typedef struct Ctlr {
 	int	upenabled;
 	int	dnenabled;
 	uvlong	cbfnpa;			/* CardBus functions */
-	ulong*	cbfn;
+	volatile ulong*	cbfn;	/* GCC port: volatile, device registers */
 } Ctlr;
 
 static Ctlr* ctlrhead;
@@ -562,7 +562,7 @@ multicast(void* arg, uchar *addr, int on)
 
 /* On the 575B and C, interrupts need to be acknowledged in CardBus memory space */
 static void
-intrackcb(ulong *cbfn)
+intrackcb(volatile ulong *cbfn)	/* GCC port: volatile, device registers */
 {
 	cbfn[1] = 0x8000;
 }

@@ -385,8 +385,8 @@ enum {					/* Tdesc status */
 };
 
 typedef struct {
-	u16int	*reg;
-	u32int	*reg32;
+	volatile u16int	*reg;	/* GCC port: volatile, device registers */
+	volatile u32int	*reg32;
 	uint	base;
 	uint	lim;
 } Flash;
@@ -510,7 +510,7 @@ struct Ctlr {
 
 	Bpool	pool;
 
-	u32int	*nic;
+	volatile u32int	*nic;	/* GCC port: volatile, device registers */
 	Lock	imlock;
 	int	im;			/* interrupt mask */
 
@@ -1831,7 +1831,7 @@ fload(Ctlr *c)
 {
 	int data, r, adr;
 	u16int sum;
-	void *va;
+	volatile void *va;	/* GCC port: volatile, device registers */
 	Flash f;
 
 	memset(c->eeprom, 0xFF, sizeof(c->eeprom));

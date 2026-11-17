@@ -1,6 +1,7 @@
 #include "u.h"
 #include "../port/lib.h"
 #include "mem.h"
+/* GCC port: the accessors' casts volatile, as Vio.mem (device registers) */
 #include "dat.h"
 #include "fns.h"
 #include "io.h"
@@ -15,7 +16,7 @@ vin8(Vio *r, int p)
 	if(r->type == Vio_port)
 		return inb(r->port+p);
 	else
-		return *(u8int *)(r->mem+p);
+		return *(volatile u8int*)(r->mem+p);
 }
 
 
@@ -25,7 +26,7 @@ vin16(Vio *r, int p)
 	if(r->type == Vio_port)
 		return ins(r->port+p);
 	else 
-		return *(u16int *)(r->mem+p);
+		return *(volatile u16int*)(r->mem+p);
 }
 
 u32int
@@ -34,7 +35,7 @@ vin32(Vio *r, int p)
 	if(r->type == Vio_port)
 		return inl(r->port+p);
 	else
-		return *(u32int *)((uchar *)r->mem+p);
+		return *(volatile u32int*)(r->mem+p);
 }
 
 u64int
@@ -46,7 +47,7 @@ vin64(Vio *r, int p)
 		v |= (u64int)inl(r->port+p+4) << 32;
 	}
 	else
-		v = *(u64int*)(r->mem+p);
+		v = *(volatile u64int*)(r->mem+p);
 	return v;
 }
 
@@ -56,7 +57,7 @@ vout8(Vio *r, int p, u8int v)
 	if(r->type == Vio_port)
 		outb(r->port+p, v);
 	else
-		*(u8int *)(r->mem+p) = v;
+		*(volatile u8int*)(r->mem+p) = v;
 }
 
 void
@@ -65,7 +66,7 @@ vout16(Vio *r, int p, u16int v)
 	if(r->type == Vio_port)
 		outs(r->port+p, v);
 	else
-		*(u16int *)(r->mem+p) = v;
+		*(volatile u16int*)(r->mem+p) = v;
 }
 
 void
@@ -74,7 +75,7 @@ vout32(Vio *r, int p, u32int v)
 	if(r->type == Vio_port)
 		outl(r->port+p, v);
 	else
-		*(u32int *)(r->mem+p) = v;
+		*(volatile u32int*)(r->mem+p) = v;
 }
 
 void
@@ -85,7 +86,7 @@ vout64(Vio *r, int p, u64int v)
 		outl(r->port+p+4, v >> 32);
 	}
 	else
-		*(u64int *)(r->mem+p) = v;
+		*(volatile u64int*)(r->mem+p) = v;
 }
 
 void

@@ -415,12 +415,12 @@ xhcihandoff(Xhci *ctlr)
 	if((r = xecp(ctlr, 1, nil)) == nil)
 		return;
 	if((r[0] & (1<<16)) != 0 && getconf("*noxhcihandoff") == nil){
-		*((uchar*)r + 3) |= 1;
+		*((volatile uchar*)r + 3) |= 1;	/* GCC port: volatile, device registers */
 		for(i = 5000; (r[0] & (1<<16)) != 0 && i>=0; i--)
 			delay(1);
 		/* clear BIOS ownership in case of timeout */
 		if(i < 0) {
-			*((uchar*)r + 2) &= ~1;
+			*((volatile uchar*)r + 2) &= ~1;	/* GCC port: volatile, device registers */
 			print("usbxhci %llux: timeout: in handoff\n", ctlr->base);
 		}
 	}
@@ -513,7 +513,7 @@ xhciinit(Hci *hp)
 
 	ctlr->nscratch = (ctlr->Xhci.mmio[HCSPARAMS2] >> 27) & 0x1F | ((ctlr->Xhci.mmio[HCSPARAMS2] >> 21) & 0x1F)<<5;
 	ctlr->nintrs = (ctlr->Xhci.mmio[HCSPARAMS1] >> 8) & 0x7FF;
-	ctlr->nslots = (ctlr->Xhci.mmio[HCSPARAMS1] >> 0) & 0xFF;
+	ctlr->nslots = (mmio32r(&ctlr->Xhci.mmio[HCSPARAMS1]) >> 0) & 0xFF;	/* GCC port: mmio32r, gcc read the low byte alone (find-narrow-mmio.py) */
 	hp->nports = (ctlr->Xhci.mmio[HCSPARAMS1] >> 24) & 0xFF;
 
 if(0)	print("usbxhci %llux: csz=%d pagesize=%d nscratch=%d nintrs=%d nslots=%d nports=%d\n", ctlr->Xhci.base,
@@ -536,7 +536,12 @@ if(0)	print("usbxhci %llux: csz=%d pagesize=%d nscratch=%d nintrs=%d nslots=%d n
 				break;
 			pp = &ctlr->port[i-1];
 			pp->proto = x[0]>>16;
-			memmove(pp->spec, &x[1], 4);
+			{
+				u32int s;	/* GCC port: the register read once, 32 bits (x is volatile) */
+
+				s = x[1];
+				memmove(pp->spec, &s, 4);
+			}
 			if(memcmp(pp->spec, "USB ", 4) == 0 && pp->proto >= 0x0300)
 				hp->superspeed |= 1<<(i-1);
 			i++;

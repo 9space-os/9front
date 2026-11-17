@@ -356,7 +356,7 @@ struct Ctlr {
 	Pcidev *pdev;
 	u32int  pdevfunc;
 	u64int  port;
-	u32int *portmmio;
+	volatile u32int *portmmio;	/* GCC port: volatile, device registers */
 
 	Mii *mii;
 

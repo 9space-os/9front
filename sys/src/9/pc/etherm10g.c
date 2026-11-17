@@ -121,7 +121,7 @@ typedef struct {
 
 typedef struct {
 	QLock;
-	Send	*lanai;		/* tx ring (cksum+len in lanai memory) */
+	volatile Send	*lanai;		/* tx ring (cksum+len in lanai memory) */	/* GCC port: volatile, device registers */
 	Send	*host;		/* tx ring (data in our memory) */
 	Block	**bring;
 //	uchar	*wcfifo;	/* what the heck is a w/c fifo? */
@@ -139,7 +139,7 @@ typedef struct {
 typedef struct {
 	Bpool	pool;
 
-	ulong	*lanai;		/* rx ring; we have no permanent host shadow */
+	volatile ulong	*lanai;		/* rx ring; we have no permanent host shadow */	/* GCC port: volatile, device registers */
 	Block	**host;		/* called "info" in myricom driver */
 //	uchar	*wcfifo;	/* cmd submission fifo */
 	uint	m;
@@ -194,11 +194,11 @@ typedef struct Ctlr {
 	uchar	ra[Eaddrlen];
 
 	int	ramsz;
-	uchar	*ram;
+	volatile uchar	*ram;	/* GCC port: volatile, device registers */
 
-	ulong	*irqack;
-	ulong	*irqdeass;
-	ulong	*coal;
+	volatile ulong	*irqack;	/* GCC port: volatile, device registers */
+	volatile ulong	*irqdeass;
+	volatile ulong	*coal;
 
 	char	eprom[Epromsz];
 	ulong	serial;		/* unit serial number */
@@ -366,7 +366,7 @@ pbit32(ulong i)
 }
 
 static ulong
-gbit32(uchar i[4])
+gbit32(volatile uchar i[4])	/* GCC port: volatile, it reads the card's RAM */
 {
 	ulong j;
 
@@ -412,7 +412,7 @@ cmd(Ctlr *c, int type, uvlong data)
 	buf[5] = c->cprt;
 	prepcmd(buf, 6);
 	coherence();
-	memmove(c->ram + Cmdoff, buf, sizeof buf);
+	memmovetoio(c->ram + Cmdoff, buf, sizeof buf);	/* GCC port: the card's RAM */
 
 	if(waserror())
 		nexterror();
@@ -450,7 +450,7 @@ maccmd(Ctlr *c, int type, uchar *m)
 	buf[5] = c->cprt;
 	prepcmd(buf, 6);
 	coherence();
-	memmove(c->ram + Cmdoff, buf, sizeof buf);
+	memmovetoio(c->ram + Cmdoff, buf, sizeof buf);	/* GCC port: the card's RAM */
 
 	if(waserror())
 		nexterror();
@@ -492,7 +492,7 @@ dmatestcmd(Ctlr *c, int type, uvlong addr, int len)
 	buf[5] = c->cprt;
 	prepcmd(buf, 6);
 	coherence();
-	memmove(c->ram + Cmdoff, buf, sizeof buf);
+	memmovetoio(c->ram + Cmdoff, buf, sizeof buf);	/* GCC port: the card's RAM */
 
 	if(waserror())
 		nexterror();
@@ -524,7 +524,7 @@ rdmacmd(Ctlr *c, int on)
 	buf[4] = c->cprt;
 	buf[5] = on;
 	prepcmd(buf, 6);
-	memmove(c->ram + Rdmaoff, buf, sizeof buf);
+	memmovetoio(c->ram + Rdmaoff, buf, sizeof buf);	/* GCC port: the card's RAM */
 
 	if(waserror())
 		nexterror();
@@ -541,7 +541,8 @@ rdmacmd(Ctlr *c, int on)
 static int
 loadfw(Ctlr *c, int *align)
 {
-	ulong *f, *s, sz;
+	ulong *f, sz;
+	volatile ulong *s;	/* GCC port: volatile, device registers */
 	int i;
 
 	if((*align = whichfw(c->pcidev)) == 4*KiB){
@@ -552,7 +553,7 @@ loadfw(Ctlr *c, int *align)
 		sz = sizeof fw2k;
 	}
 
-	s = (ulong*)(c->ram + Fwoffset);
+	s = (volatile ulong*)(c->ram + Fwoffset);	/* GCC port: volatile, device registers */
 	for(i = 0; i < sz / 4; i++)
 		s[i] = f[i];
 	return sz & ~3;
@@ -582,7 +583,7 @@ bootfw(Ctlr *c)
 	buf[6] = 0;
 	prepcmd(buf, 7);
 	coherence();
-	memmove(c->ram + Fwsubmt, buf, sizeof buf);
+	memmovetoio(c->ram + Fwsubmt, buf, sizeof buf);	/* GCC port: the card's RAM */
 
 	for(i = 0; i < 20; i++){
 		if(cmd->i[0] == Noconf)
@@ -652,7 +653,7 @@ static int
 chkfw(Ctlr *c)
 {
 	ulong off, type;
-	Fwhdr *h;
+	volatile Fwhdr *h;	/* GCC port: volatile, device registers */
 
 	off = gbit32(c->ram+0x3c);
 	dprint("firmware %lux\n", off);
@@ -660,7 +661,7 @@ chkfw(Ctlr *c)
 		print("!m10g: bad firmware %lux\n", off);
 		return -1;
 	}
-	h = (Fwhdr*)(c->ram + off);
+	h = (volatile Fwhdr*)(c->ram + off);	/* GCC port: volatile, device registers */
 	type = gbit32(h->type);
 	dprint("\t" "type	%s\n", fwtype(type));
 	dprint("\t" "vers	%s\n", h->version);
@@ -688,11 +689,11 @@ reset(Ether *e, Ctlr *c)
 
 	cmd(c, CSintrqsz, c->done.n * sizeof *c->done.entry);
 	cmd(c, CSintrqdma, c->done.busaddr);
-	c->irqack =   (ulong*)(c->ram + cmd(c, CGirqackoff, 0));
+	c->irqack =   (volatile ulong*)(c->ram + cmd(c, CGirqackoff, 0));	/* GCC port: volatile, device registers */
 	/* required only if we're not doing msi? */
-	c->irqdeass = (ulong*)(c->ram + cmd(c, CGirqdeassoff, 0));
+	c->irqdeass = (volatile ulong*)(c->ram + cmd(c, CGirqdeassoff, 0));	/* GCC port: volatile, device registers */
 	/* this is the driver default, why fiddle with this? */
-	c->coal = (ulong*)(c->ram + cmd(c, CGcoaloff, 0));
+	c->coal = (volatile ulong*)(c->ram + cmd(c, CGcoaloff, 0));	/* GCC port: volatile, device registers */
 	*c->coal = pbit32(25);
 
 	dprint("dma stats:\n");
@@ -734,7 +735,7 @@ static int
 setmem(Pcidev *p, Ctlr *c)
 {
 	uvlong raddr;
-	void *mem;
+	volatile void *mem;	/* GCC port: volatile, device registers */
 	Done *d;
 	ulong i;
 
@@ -768,7 +769,7 @@ setmem(Pcidev *p, Ctlr *c)
 	memset(c->stats, 0, sizeof *c->stats);
 	c->statsprt = PCIWADDR(c->stats);
 
-	memmove(c->eprom, c->ram + c->ramsz - Epromsz, Epromsz-2);
+	memmovefromio(c->eprom, c->ram + c->ramsz - Epromsz, Epromsz-2);	/* GCC port: the card's RAM */
 	return setpcie(p) || parseeprom(c);
 }
 
@@ -799,7 +800,7 @@ replenish(Rx *rx)
 			buf[i*2+1] = pbit32(pa);
 			rx->host[idx+i] = b;
 		}
-		memmove(rx->lanai + 2*idx, buf, sizeof(buf));
+		memmovetoio(rx->lanai + 2*idx, buf, sizeof(buf));	/* GCC port: the card's RAM */
 		coherence();
 		rx->cnt += 8;
 		e -= 8;
@@ -843,7 +844,7 @@ open0(Ether *e, Ctlr *c)
 	int entries;
 
 	entries = cmd(c, CGsendrgsz, 0) / sizeof *c->tx.lanai;
-	c->tx.lanai = (Send*)(c->ram + cmd(c, CGsendoff, 0));
+	c->tx.lanai = (volatile Send*)(c->ram + cmd(c, CGsendoff, 0));	/* GCC port: volatile, device registers */
 	c->tx.host  = emalign(entries * sizeof *c->tx.host);
 	c->tx.bring = emalign(entries * sizeof *c->tx.bring);
 	c->tx.n = entries;
@@ -853,7 +854,7 @@ open0(Ether *e, Ctlr *c)
 	c->sm.pool.size = 128;
 	c->sm.pool.align = BY2PG;
 	cmd(c, CSsmallsz, c->sm.pool.size);
-	c->sm.lanai = (ulong*)(c->ram + cmd(c, CGsmallrxoff, 0));
+	c->sm.lanai = (volatile ulong*)(c->ram + cmd(c, CGsmallrxoff, 0));	/* GCC port: volatile, device registers */
 	c->sm.n = entries;
 	c->sm.m = entries-1;
 	c->sm.host = emalign(entries * sizeof *c->sm.host);
@@ -861,7 +862,7 @@ open0(Ether *e, Ctlr *c)
 	c->bg.pool.size = nextpow(2 + e->maxmtu);	/* 2-byte alignment pad */
 	c->bg.pool.align = BY2PG;
 	cmd(c, CSbigsz, c->bg.pool.size);
-	c->bg.lanai = (ulong*)(c->ram + cmd(c, CGbigrxoff, 0));
+	c->bg.lanai = (volatile ulong*)(c->ram + cmd(c, CGbigrxoff, 0));	/* GCC port: volatile, device registers */
 	c->bg.n = entries;
 	c->bg.m = entries-1;
 	c->bg.host = emalign(entries * sizeof *c->bg.host);
@@ -1023,7 +1024,8 @@ txproc(void *v)
 static void
 submittx(Tx *tx, int n)
 {
-	Send *l, *h;
+	volatile Send *l;	/* GCC port: volatile, the card's RAM */
+	Send *h;
 	int i0, i, m;
 
 	m = tx->m;
@@ -1031,7 +1033,7 @@ submittx(Tx *tx, int n)
 	l = tx->lanai;
 	h = tx->host;
 	for(i = n-1; i >= 0; i--)
-		memmove(l+(i + i0 & m), h+(i + i0 & m), sizeof *h);
+		memmovetoio(l+(i + i0 & m), h+(i + i0 & m), sizeof *h);	/* GCC port: the card's RAM */
 	tx->i += n;
 //	coherence();
 }
@@ -1244,7 +1246,7 @@ m10gifstat(void *arg, char *p, char *e)
 		c->tx.cnt, c->tx.n, c->tx.i,
 		c->sm.cnt, c->sm.i, c->sm.n,
 		c->bg.cnt, c->bg.i, c->bg.n,
-		c->tx.segsz, gbit32((uchar*)c->coal));
+		c->tx.segsz, gbit32((volatile uchar*)c->coal));	/* GCC port: volatile, device registers */
 }
 
 //static void

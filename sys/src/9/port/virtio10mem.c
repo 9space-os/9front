@@ -13,7 +13,7 @@ u8int
 vin8(Vio *r, int p)
 {
 	assert(r->type == Vio_mem);
-	return *(u8int *)(r->mem+p);
+	return *(volatile u8int*)(r->mem+p);	/* GCC port: volatile, device registers */
 }
 
 
@@ -21,21 +21,21 @@ u16int
 vin16(Vio *r, int p)
 {
 	assert(r->type == Vio_mem);
-	return *(u16int *)(r->mem+p);
+	return *(volatile u16int*)(r->mem+p);	/* GCC port: volatile, device registers */
 }
 
 u32int
 vin32(Vio *r, int p)
 {
 	assert(r->type == Vio_mem);
-	return *(u32int *)(r->mem+p);
+	return *(volatile u32int*)(r->mem+p);	/* GCC port: volatile, device registers */
 }
 
 u64int
 vin64(Vio *r, int p)
 {
 	assert(r->type == Vio_mem);
-	return *(u64int*)(r->mem+p);
+	return *(volatile u64int*)(r->mem+p);	/* GCC port: volatile, device registers */
 	
 }
 
@@ -43,28 +43,28 @@ void
 vout8(Vio *r, int p, u8int v)
 {
 	assert(r->type == Vio_mem);
-	*(uchar *)(r->mem+p) = v;
+	*(volatile uchar*)(r->mem+p) = v;	/* GCC port: volatile, device registers */
 }
 
 void
 vout16(Vio *r, int p, u16int v)
 {
 	assert(r->type == Vio_mem);
-	*(u16int *)(r->mem+p) = v;
+	*(volatile u16int*)(r->mem+p) = v;	/* GCC port: volatile, device registers */
 }
 
 void
 vout32(Vio *r, int p, u32int v)
 {
 	assert(r->type == Vio_mem);
-	*(u32int *)(r->mem+p) = v;
+	*(volatile u32int*)(r->mem+p) = v;	/* GCC port: volatile, device registers */
 }
 
 void
 vout64(Vio *r, int p, u64int v)
 {
 	assert(r->type == Vio_mem);
-	*(u64int *)(r->mem+p) = v;
+	*(volatile u64int*)(r->mem+p) = v;	/* GCC port: volatile, device registers */
 }
 
 void

@@ -18,10 +18,10 @@ struct Intvec {
 	void *a;
 };
 
-static uchar *ecam;
+static volatile uchar *ecam;	/* GCC port: volatile, device registers */
 static Intvec vec[32];
 
-static void*
+static volatile void*	/* GCC port: volatile, the ECAM is device registers */
 cfgaddr(int tbdf, int rno)
 {
 	return ecam + (BUSBNO(tbdf)<<20 | BUSDNO(tbdf)<<15 | BUSFNO(tbdf)<<12) + rno;
@@ -30,7 +30,7 @@ cfgaddr(int tbdf, int rno)
 int
 pcicfgrw32(int tbdf, int rno, int data, int read)
 {
-	u32int *p;
+	volatile u32int *p;	/* GCC port: volatile, device registers */
 
 	if((p = cfgaddr(tbdf, rno & ~3)) != nil){
 		if(read)
@@ -46,7 +46,7 @@ pcicfgrw32(int tbdf, int rno, int data, int read)
 int
 pcicfgrw16(int tbdf, int rno, int data, int read)
 {
-	u16int *p;
+	volatile u16int *p;	/* GCC port: volatile, device registers */
 
 	if((p = cfgaddr(tbdf, rno & ~1)) != nil){
 		if(read)
@@ -62,7 +62,7 @@ pcicfgrw16(int tbdf, int rno, int data, int read)
 int
 pcicfgrw8(int tbdf, int rno, int data, int read)
 {
-	u8int *p;
+	volatile u8int *p;	/* GCC port: volatile, device registers */
 
 	if((p = cfgaddr(tbdf, rno)) != nil){
 		if(read)

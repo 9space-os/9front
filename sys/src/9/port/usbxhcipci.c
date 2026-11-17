@@ -26,7 +26,7 @@ scanpci(void)
 	u64int io, iosize;
 	Xhci *ctlr;
 	Pcidev *p;
-	u32int *mmio; 
+	volatile u32int *mmio; 	/* GCC port: volatile, device registers */
 
 	if(already)
 		return;

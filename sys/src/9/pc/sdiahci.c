@@ -114,7 +114,7 @@ typedef struct {
 	Ctlr	*ctlr;
 	SDunit	*unit;
 	char	name[10];
-	Aport	*port;
+	volatile Aport	*port;	/* GCC port: volatile, device registers */
 	Aportm	portm;
 	Aportc	portc;	/* redundant ptr to port and portm. */
 	Ledport;
@@ -156,9 +156,9 @@ struct Ctlr {
 	SDev	*sdev;
 	Pcidev	*pci;
 
-	uchar	*mmio;
-	ulong	*lmmio;
-	Ahba	*hba;
+	volatile uchar	*mmio;	/* GCC port: volatile, device registers */
+	volatile ulong	*lmmio;	/* GCC port: volatile, device registers */
+	volatile Ahba	*hba;
 	Aenc;
 	uint	enctype;
 
@@ -221,7 +221,7 @@ preg(uchar *reg, int n)
 }
 
 static void
-dreg(char *s, Aport *p)
+dreg(char *s, volatile Aport *p)	/* GCC port: volatile, device registers */
 {
 	dprint("%stask=%lux; cmd=%lux; ci=%lux; is=%lux\n",
 		s, p->task, p->cmd, p->ci, p->isr);
@@ -237,7 +237,7 @@ esleep(int ms)
 }
 
 typedef struct {
-	Aport	*p;
+	volatile Aport	*p;	/* GCC port: volatile, device registers */
 	int	i;
 } Asleep;
 
@@ -262,7 +262,7 @@ aesleep(Aportm *m, Asleep *a, int ms)
 static int
 ahciwait(Aportc *c, int ms)
 {
-	Aport *p;
+	volatile Aport *p;	/* GCC port: volatile, device registers */
 	Asleep as;
 
 	p = c->p;
@@ -358,8 +358,9 @@ asleep(int ms)
 static void
 ahciportreset(Aportc *c, uint mode)
 {
-	ulong *cmd, i;
-	Aport *p;
+	volatile ulong *cmd;	/* GCC port: volatile, device registers */
+	ulong i;
+	volatile Aport *p;	/* GCC port: volatile, device registers */
 
 	p = c->p;
 	cmd = &p->cmd;
@@ -436,9 +437,10 @@ ahciidentify(Aportc *pc, ushort *id, uint *ss, char *d)
 }
 
 static int
-ahciquiet(Aport *a)
+ahciquiet(volatile Aport *a)	/* GCC port: volatile, device registers */
 {
-	ulong *p, i;
+	volatile ulong *p;	/* GCC port: volatile, device registers */
+	ulong i;
 
 	p = &a->cmd;
 	*p &= ~Ast;
@@ -503,9 +505,10 @@ ahcicomreset(Aportc *pc)
 }
 
 static int
-ahciidle(Aport *port)
+ahciidle(volatile Aport *port)	/* GCC port: volatile, device registers */
 {
-	ulong *p, i, r;
+	volatile ulong *p;	/* GCC port: volatile, device registers */
+	ulong i, r;
 
 	p = &port->cmd;
 	if((*p & Arun) == 0)
@@ -584,7 +587,7 @@ static void
 ahciwakeup(Aportc *c, uint mode)
 {
 	ushort s;
-	Aport *p;
+	volatile Aport *p;	/* GCC port: volatile, device registers */
 
 	p = c->p;
 	s = p->sstatus;
@@ -599,11 +602,11 @@ ahciwakeup(Aportc *c, uint mode)
 }
 
 static int
-ahciconfigdrive(Ahba *h, Aportc *c, int mode)
+ahciconfigdrive(volatile Ahba *h, Aportc *c, int mode)	/* GCC port: volatile, device registers */
 {
 	uvlong pa;
 	Aportm *m;
-	Aport *p;
+	volatile Aport *p;	/* GCC port: volatile, device registers */
 	int i;
 
 	p = c->p;
@@ -663,14 +666,14 @@ ahciconfigdrive(Ahba *h, Aportc *c, int mode)
 }
 
 static int
-ahcienable(Ahba *h)
+ahcienable(volatile Ahba *h)	/* GCC port: volatile, device registers */
 {
 	h->ghc |= Hie;
 	return 0;
 }
 
 static int
-ahcidisable(Ahba *h)
+ahcidisable(volatile Ahba *h)	/* GCC port: volatile, device registers */
 {
 	h->ghc &= ~Hie;
 	return 0;
@@ -692,9 +695,9 @@ static int
 ahciconf(Ctlr *c)
 {
 	uint u;
-	Ahba *h;
+	volatile Ahba *h;	/* GCC port: volatile, device registers */
 
-	h = c->hba = (Ahba*)c->mmio;
+	h = c->hba = (volatile Ahba*)c->mmio;	/* GCC port: volatile, device registers */
 	u = h->cap;
 
 	if((u & Ham) == 0)
@@ -704,7 +707,7 @@ ahciconf(Ctlr *c)
 }
 
 static int
-ahcihandoff(Ahba *h)
+ahcihandoff(volatile Ahba *h)	/* GCC port: volatile, device registers */
 {
 	int wait;
 
@@ -783,7 +786,7 @@ identify(Drive *d)
 }
 
 static void
-clearci(Aport *p)
+clearci(volatile Aport *p)	/* GCC port: volatile, device registers */
 {
 	if(p->cmd & Ast){
 		p->cmd &= ~Ast;
@@ -801,7 +804,7 @@ static void
 updatedrive(Drive *d)
 {
 	ulong f, cause, serr, s0, pr, ewake;
-	Aport *p;
+	volatile Aport *p;	/* GCC port: volatile, device registers */
 	static ulong last;
 
 	pr = 1;
@@ -933,7 +936,7 @@ static void
 resetdisk(Drive *d)
 {
 	uint state, det, stat;
-	Aport *p;
+	volatile Aport *p;	/* GCC port: volatile, device registers */
 
 	p = d->port;
 	det = p->sctl & 7;
@@ -1219,7 +1222,7 @@ iainterrupt(Ureg *u, void *a)
 static int
 ahciencreset(Ctlr *c)
 {
-	Ahba *h;
+	volatile Ahba *h;	/* GCC port: volatile, device registers */
 	int i;
 
 	if(c->enctype == Eesb)
@@ -1303,7 +1306,7 @@ ledstate(Ledport *p, uint seq)
 static int
 blink(Drive *d, ulong t)
 {
-	Ahba *h;
+	volatile Ahba *h;	/* GCC port: volatile, device registers */
 	Ctlr *c;
 	Aledmsg msg;
 
@@ -1328,7 +1331,7 @@ blink(Drive *d, ulong t)
 		msg.led[1] = d->Ledport.ledbits>>8;
 		msg.pm = 0;
 		msg.hba = d->driveno;
-		memmove(c->Aenc.enctx, &msg, sizeof msg);
+		memmovetoio(c->Aenc.enctx, &msg, sizeof msg);	/* GCC port: the HBA's enclosure message buffer */
 		break;
 	}
 	h->emctl |= Tmsg;
@@ -1676,7 +1679,7 @@ static int
 io(Drive *d, uint proto, int to, int interrupt)
 {
 	uint task, flag, stat, rv;
-	Aport *p;
+	volatile Aport *p;	/* GCC port: volatile, device registers */
 	Asleep as;
 
 	switch(waitready(d)){
@@ -2017,7 +2020,7 @@ static int
 esbenc(Ctlr *c)
 {
 	c->Aenc.encsz = 1;
-	c->Aenc.enctx = (ulong*)(c->mmio + 0xa0);
+	c->Aenc.enctx = (volatile ulong*)(c->mmio + 0xa0);	/* GCC port: volatile, device registers */
 	c->enctype = Eesb;
 	c->Aenc.enctx[0] = 0;
 	return 0;
@@ -2026,8 +2029,9 @@ esbenc(Ctlr *c)
 static int
 ahciencinit(Ctlr *c)
 {
-	ulong type, sz, o, *bar;
-	Ahba *h;
+	ulong type, sz, o;
+	volatile ulong *bar;	/* GCC port: volatile, device registers */
+	volatile Ahba *h;	/* GCC port: volatile, device registers */
 
 	h = c->hba;
 	if(c->type == Tesb)
@@ -2191,7 +2195,7 @@ iapnp(void)
 			print("%s: can't map %llux\n", Tname(c), io);
 			continue;
 		}
-		c->lmmio = (ulong*)c->mmio;
+		c->lmmio = (volatile ulong*)c->mmio;	/* GCC port: volatile, device registers */
 		c->pci = p;
 		c->type = type;
 
@@ -2201,7 +2205,7 @@ iapnp(void)
 		c->sdev = s;
 
 		pcienable(p);
-		ahcihandoff((Ahba*)c->mmio);
+		ahcihandoff((volatile Ahba*)c->mmio);	/* GCC port: volatile, device registers */
 		if(p->vid == 0x8086)
 			iasetupahci(c);
 		nunit = ahciconf(c);
@@ -2227,7 +2231,7 @@ iapnp(void)
 			io = 0x100 + 0x80*i;
 			if((io + 0x80) > p->mem[Abar].size)
 				continue;
-			d->port = (Aport*)(c->mmio + io);
+			d->port = (volatile Aport*)(c->mmio + io);	/* GCC port: volatile, device registers */
 			d->portc.p = d->port;
 			d->portc.m = &d->portm;
 			d->driveno = n++;
@@ -2289,7 +2293,7 @@ static char*
 iarctl(SDunit *u, char *p, char *e)
 {
 	char buf[32];
-	Aport *o;
+	volatile Aport *o;	/* GCC port: volatile, device registers */
 	Ctlr *c;
 	Drive *d;
 
@@ -2463,7 +2467,7 @@ iartopctl(SDev *s, char *p, char *e)
 {
 	char pr[25];
 	ulong cap;
-	Ahba *h;
+	volatile Ahba *h;	/* GCC port: volatile, device registers */
 	Ctlr *c;
 
 	c = s->ctlr;

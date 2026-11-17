@@ -36,45 +36,45 @@ enum {
  */
 
 static void
-OUTREG8(ulong *mmio, ulong offset, uchar val)
+OUTREG8(volatile ulong *mmio, ulong offset, uchar val)	/* GCC port: volatile, device registers */
 {
-	*((volatile uchar*)((uchar*)mmio + offset)) = val;
+	*((volatile uchar*)((volatile uchar*)mmio + offset)) = val;	/* GCC port: volatile, device registers */
 }
 
 static void
-OUTREG(ulong *mmio, ulong offset, ulong val)
+OUTREG(volatile ulong *mmio, ulong offset, ulong val)	/* GCC port: volatile, device registers */
 {
-	*((volatile ulong*)((uchar*)mmio + offset)) = val;
+	*((volatile ulong*)((volatile uchar*)mmio + offset)) = val;	/* GCC port: volatile, device registers */
 }
 
 static ulong
-INREG(ulong *mmio, ulong offset)
+INREG(volatile ulong *mmio, ulong offset)	/* GCC port: volatile, device registers */
 {
-	return *((volatile ulong*)((uchar*)mmio + offset));
+	return *((volatile ulong*)((volatile uchar*)mmio + offset));	/* GCC port: volatile, device registers */
 }
 
 static void
-OUTREGP(ulong *mmio, ulong offset, ulong val, ulong mask)
+OUTREGP(volatile ulong *mmio, ulong offset, ulong val, ulong mask)	/* GCC port: volatile, device registers */
 {
 	OUTREG(mmio, offset, (INREG(mmio, offset) & mask) | val);
 }
 
 static void
-OUTPLL(ulong *mmio, ulong offset, ulong val)
+OUTPLL(volatile ulong *mmio, ulong offset, ulong val)	/* GCC port: volatile, device registers */
 {
 	OUTREG8(mmio, CLOCK_CNTL_INDEX, (offset & 0x3f) | PLL_WR_EN);
 	OUTREG(mmio, CLOCK_CNTL_DATA, val);
 }
 
 static ulong
-INPLL(ulong *mmio, ulong offset)
+INPLL(volatile ulong *mmio, ulong offset)	/* GCC port: volatile, device registers */
 {
 	OUTREG8(mmio, CLOCK_CNTL_INDEX, offset & 0x3f);
 	return INREG(mmio, CLOCK_CNTL_DATA);
 }
 
 static void
-OUTPLLP(ulong *mmio, ulong offset, ulong val, ulong mask)
+OUTPLLP(volatile ulong *mmio, ulong offset, ulong val, ulong mask)	/* GCC port: volatile, device registers */
 {
 	OUTPLL(mmio, offset, (INPLL(mmio, offset) & mask) | val);
 }

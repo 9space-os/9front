@@ -68,7 +68,8 @@ csr_ack(Ctlr *ctlr, int ev)
 static void
 csr_inss(Ctlr *ctlr, int reg, void *dat, int ndat)
 {
-	ushort *rp, *wp;
+	volatile ushort *rp;	/* GCC port: volatile, device registers */
+	ushort *wp;
 
 	if(ctlr->mmb){
 		rp = &ctlr->mmb[reg];
@@ -82,7 +83,8 @@ csr_inss(Ctlr *ctlr, int reg, void *dat, int ndat)
 static void
 csr_outss(Ctlr *ctlr, int reg, void *dat, int ndat)
 {
-	ushort *rp, *wp;
+	ushort *rp;
+	volatile ushort *wp;	/* GCC port: volatile, device registers */
 
 	if(ctlr->mmb){
 		rp = dat;

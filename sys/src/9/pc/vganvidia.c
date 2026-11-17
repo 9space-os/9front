@@ -71,7 +71,7 @@ enum {
 #define SKIPS 8
 
 static struct {
-	ulong	*dmabase;
+	volatile ulong	*dmabase;	/* GCC port: volatile, the command buffer the card fetches after a register write */
 	int	dmacurrent;
 	int	dmaput;
 	int	dmafree;
@@ -82,7 +82,7 @@ static void
 nvidiaenable(VGAscr* scr)
 {
 	Pcidev *p;
-	ulong *q;
+	volatile ulong *q;	/* GCC port: volatile, device registers */
 	int tmp;
 
 	if(scr->mmio)
@@ -104,7 +104,7 @@ nvidiaenable(VGAscr* scr)
 	switch (scr->id & 0x0ff0) {
 	case 0x0020:
 	case 0x00A0:
-		q = (void*)((uchar*)scr->mmio + Pfb);
+		q = (volatile void*)((volatile uchar*)scr->mmio + Pfb);	/* GCC port: volatile, device registers */
 		tmp = *q;
 		if (tmp & 0x0100) {
 			scr->storage = ((tmp >> 12) & 0x0F) * 1024 + 1024 * 2;
@@ -127,7 +127,7 @@ nvidiaenable(VGAscr* scr)
 		scr->storage = (((tmp >> 4) & 127) + 1) * 1024 * 1024;
 		break;
 	default:
-		q = (void*)((uchar*)scr->mmio + Pfb + 0x020C);
+		q = (volatile void*)((volatile uchar*)scr->mmio + Pfb + 0x020C);	/* GCC port: volatile, device registers */
 		tmp = (*q >> 20) & 0xFFF;
 		if (tmp == 0)
 			tmp = 16;
@@ -154,7 +154,7 @@ nvidiacurdisable(VGAscr* scr)
 static void
 nvidiacurload(VGAscr* scr, Cursor* curs)
 {
-	ulong*	p;
+	volatile ulong*	p;	/* GCC port: volatile, device registers */
 	int	i,j;
 	ushort	c,s;
 	ulong	tmp;
@@ -167,7 +167,7 @@ nvidiacurload(VGAscr* scr, Cursor* curs)
 	switch (scr->id & 0x0ff0) {
 	case 0x0020:
 	case 0x00A0:
-		p = (void*)((uchar*)scr->mmio + Pramin + 0x1E00 * 4);
+		p = (volatile void*)((volatile uchar*)scr->mmio + Pramin + 0x1E00 * 4);	/* GCC port: volatile, device registers */
 		break;
 	default:
 		/*
@@ -214,12 +214,12 @@ nvidiacurload(VGAscr* scr, Cursor* curs)
 static int
 nvidiacurmove(VGAscr* scr, Point p)
 {
-	ulong*	cursorpos;
+	volatile ulong*	cursorpos;	/* GCC port: volatile, device registers */
 
 	if(scr->mmio == 0)
 		return 1;
 
-	cursorpos = (void*)((uchar*)scr->mmio + hwCurPos);
+	cursorpos = (volatile void*)((volatile uchar*)scr->mmio + hwCurPos);	/* GCC port: volatile, device registers */
 	*cursorpos = ((p.y+scr->offset.y)<<16)|((p.x+scr->offset.x) & 0xFFFF);
 
 	return 0;
@@ -244,12 +244,12 @@ void
 writeput(VGAscr *scr, int data)
 {
 	uchar	*p, scratch;
-	ulong	*fifo;
+	volatile ulong	*fifo;	/* GCC port: volatile, device registers */
 
 	outb(0x3D0,0);
 	p = scr->vaddr;
 	scratch = *p;
-	fifo = (void*)((uchar*)scr->mmio + Fifo);
+	fifo = (volatile void*)((volatile uchar*)scr->mmio + Fifo);	/* GCC port: volatile, device registers */
 	fifo[0x10] = (data << 2);
 	USED(scratch);
 }
@@ -259,7 +259,7 @@ readget(VGAscr *scr)
 {
 	volatile ulong	*fifo;	/* GCC port: volatile, gcc keeps the value of a load in a loop (kencc reloads) */
 
-	fifo = (void*)((uchar*)scr->mmio + Fifo);
+	fifo = (volatile void*)((volatile uchar*)scr->mmio + Fifo);	/* GCC port: volatile, device registers */
 	return (fifo[0x0011] >> 2);
 }
 
@@ -323,7 +323,7 @@ waitforidle(VGAscr *scr)
 	volatile ulong*	pgraph;	/* GCC port: volatile, gcc keeps the value of a load in a loop (kencc reloads) */
 	int x;
 
-	pgraph = (void*)((uchar*)scr->mmio + Pgraph);
+	pgraph = (volatile void*)((volatile uchar*)scr->mmio + Pgraph);	/* GCC port: volatile, device registers */
 
 	x = 0;
 	while((readget(scr) != nv.dmaput) && x++ < 1000000)
@@ -356,7 +356,7 @@ nvresetgraphics(VGAscr *scr)
 		if(scr->storage <= scr->apsize)
 			nv.dmabase = (ulong*)((uchar*)scr->vaddr + scr->storage - 128*1024);
 		else{
-			nv.dmabase = (void*)vmap(scr->paddr + scr->storage - 128*1024, 128*1024);
+			nv.dmabase = (volatile void*)vmap(scr->paddr + scr->storage - 128*1024, 128*1024);	/* GCC port: volatile, device registers */
 			if(nv.dmabase == 0){
 				print("vmap nvidia dma failed\n");
 				return -1;
