@@ -30,9 +30,9 @@
 #   under name where the driver wants another (iwlwifi-7265-17.ucode.zst
 #   iwm-7265-17: etheriwl's)
 #   $PXE_DIR/wlan.conf ("SSID: name" and "PWD: passphrase" lines), if there:
-#   the machine joins that WLAN at boot (its WPA key in factotum, aux/wpa,
-#   ip/ipconfig on the first wlan interface; termrc.local, after the wired
-#   network the root comes over)
+#   the machine joins that WLAN at boot: a known network of wlan(8)
+#   (/usr/glenda/lib/wlan), which termrc's wlan auto joins after the wired
+#   network the root comes over
 #   env:	IFACE	the LAN interface (default: the one of the default route)
 #	HOSTIP	this host's address on it (default: IFACE's)
 #	UFS_PORT	the root's port (5650)
@@ -217,44 +217,18 @@ if [ "${MCP:-1}" = 1 ]; then
 } </dev/null >/dev/null >[2]/dev/null &
 EOF2
 fi
-# the WLAN of wlan.conf: rc quoting ('' for '), factotum's (a value in ''),
-# after the wired network (the root's: its subnet route stays the first)
+# the WLAN of wlan.conf: a known network of wlan(8) (/usr/glenda/lib/wlan,
+# essid<tab>passphrase), joined by termrc's wlan auto after the wired network
+# (the root's: its subnet route stays the first)
 if [ -s "$P/wlan.conf" ]; then
 	ssid=$(sed -n 's/^SSID: *//p' "$P/wlan.conf")
 	pwd=$(sed -n 's/^PWD: *//p' "$P/wlan.conf")
 	[ -n "$ssid" ] && [ -n "$pwd" ] || die "$P/wlan.conf: no SSID: or PWD: line"
-	fq(){ printf "'%s'" "$(printf %s "$1" | sed "s/'/''/g")"; }	# factotum's quoting
-	key="key proto=wpapsk essid=$(fq "$ssid") !password=$(fq "$pwd")"
-	rq(){ printf "'%s'" "$(printf %s "$1" | sed "s/'/''/g")"; }	# rc's
-	mkdir -p "$X/rc/bin"
-	cat >> "$X/rc/bin/termrc.local" <<EOF2
-# scripts/hw/pxe.sh: the WLAN of \$PXE_DIR/wlan.conf, once the wired network is up
-@{
-	rfork s
-	n=0
-	while(! test -e /net/dns && test \$n -lt 120){
-		sleep 1
-		n=\`{echo \$n+1 | hoc}
-	}
-	# the boot binds only the interface it came over ('#l0'): the
-	# others' devices into /net first (a wlan device loads its
-	# firmware at that first use, from the root, which is there now)
-	wlan=()
-	for(i in 0 1 2 3 4 5 6 7)
-		if(test -e '#l'\$i/ether\$i){
-			test -e /net/ether\$i || bind -a '#l'\$i /net
-			if(~ \$#wlan 0 && grep -s '^essid:' /net/ether\$i/ifstats)
-				wlan=/net/ether\$i
-		}
-	if(~ \$#wlan 0){
-		echo 'wlan: no wlan interface' >/tmp/wlan.log
-		exit
-	}
-	echo $(rq "$key") >/mnt/factotum/ctl
-	aux/wpa -s $(rq "$ssid") \$wlan >/tmp/wlan.log >[2=1] && ip/ipconfig ether \$wlan >>/tmp/wlan.log >[2=1]
-	cat \$wlan/ifstats >>/tmp/wlan.log
-} </dev/null >/dev/null >[2]/dev/null &
-EOF2
+	printf '%s\t%s\n' "$ssid" "$pwd" > "$X/usr/glenda/lib/wlan"
+	# readable by all: ufs serves the root's files as harvey's, and glenda
+	# reads it (wlan(8) keeps it 600 where glenda owns it); the root is
+	# the host's anyway
+	chmod 644 "$X/usr/glenda/lib/wlan"
 fi
 
 echo "pxe: the root in $P/ufsroot"

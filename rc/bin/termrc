@@ -78,6 +78,11 @@ if(test -r /net/ipselftab){
 if(! test -e /net/dns)
 	ndb/dns -r
 
+# 9space: wlan(8): the strongest known wireless network in range
+# ($home/lib/wlan), in the background; wlan=off in plan9.ini leaves it
+if(! ~ $wlan off && test -r /usr/$user/lib/wlan)
+	@{rfork s; home=/usr/$user; wlan auto} </dev/null >/dev/null >[2=1] &
+
 if(! ~ $terminal *vx32*){
 	# start timesync if it isn't running and we weren't told not to
 	if(! ps|grep -s timesync)
