@@ -28,6 +28,28 @@ represents the number of bytes buffered for output.
 .B Audioctl
 is driver specific control file and left undocumented here.
 .PP
+9space: the HDA driver (PC) takes
+.BI pin " n"
+and
+.BI inpin " n"
+(the output's and the input's pin, see
+.BR audiostat ),
+and
+.B "jack auto"
+or
+.BR "jack off" :
+on a machine with a speaker and a headphone jack that senses a plug
+(a laptop), the output goes to the headphones while something is
+plugged in and back to the speaker without, the volume along with it
+(checked twice a second);
+.B pin
+turns that off, as a choice by hand.
+.B Audiostat
+then has a line
+.BR jack ,
+whether it switches, the jack's and the speaker's pin and whether
+something is plugged in.
+.PP
 .B Audiostat
 is a read only status file. The first line has a length of 32 bytes
 including the newline and starts with the string
