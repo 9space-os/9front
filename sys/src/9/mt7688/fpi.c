@@ -1,6 +1,8 @@
 /*
  * Floating Point Interpreter.
- * shamelessly stolen from an original by ark.
+ * From Plan 9 from Bell Labs' ARM kernels, after an original by ark.
+ * Copyright © 2021 Plan 9 Foundation, Copyright © 20XX 9front authors;
+ * MIT, /lib/legal/mit.
  *
  * NB: the Internal arguments to fpisub and fpidiv are reversed from
  * what you might naively expect: they compute y-x and y/x, respectively.
