@@ -121,6 +121,12 @@ the touchpad of
 .B synaptic
 on or off (the TrackPoint stays).
 .TP
+.B "tap\fI on/off\fP"
+whether a tap on the touchpad of
+.B synaptic
+(a touch shorter than 180 ms that hardly moved) clicks: button 1 with
+one finger, 3 with two, 2 with three; on by default (9space).
+.TP
 .B "accelerated\fI [n]\fP"
 turns on mouse acceleration.
 .I N

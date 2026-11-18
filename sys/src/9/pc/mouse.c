@@ -62,6 +62,7 @@ enum
 	CMtouchpad,
 	CMsynaptic,
 	CMmidscroll,
+	CMtap,
 };
 
 static Cmdtab mousectlmsg[] =
@@ -78,6 +79,7 @@ static Cmdtab mousectlmsg[] =
 	CMtouchpad,		"touchpad",		2,
 	CMsynaptic,		"synaptic",		1,
 	CMmidscroll,		"midscroll",		2,
+	CMtap,			"tap",			2,
 };
 
 /*
@@ -264,6 +266,8 @@ enum {
 	Synpalm		= 13,	/* a width this wide is a palm */
 	Syndiv		= 6,	/* pad units per pointer unit */
 	Synscroll	= 70,	/* pad units of two fingers per wheel click */
+	Syntapms	= 180,	/* a touch this short, */
+	Syntapmove	= 60,	/* this still (pad units), is a tap */
 };
 
 static struct {
@@ -273,6 +277,9 @@ static struct {
 	int	remx, remy, acc;	/* motion and scroll not yet sent */
 	int	click;		/* the pad's click: the buttons it became */
 	int	stick;		/* the TrackPoint's buttons wired to the pad */
+	int	notap;		/* ctl tap off */
+	ulong	touchms;	/* this touch's start */
+	int	touchx, touchy, touchmax, touchmoved, touchclicked;
 } syn;
 
 static int
@@ -392,6 +399,32 @@ synpacket(uchar *p, int shift)
 	else if(!click)
 		syn.click = 0;
 	buttons |= syn.click | syn.stick;
+
+	/*
+	 * a tap: a short touch that hardly moved and did not press the
+	 * pad clicks as the press would (the most fingers it had)
+	 */
+	if(fingers > 0 && syn.fingers == 0){
+		syn.touchms = ms;
+		syn.touchx = x;
+		syn.touchy = y;
+		syn.touchmax = fingers;
+		syn.touchmoved = 0;
+		syn.touchclicked = 0;
+	} else if(fingers > 0){
+		if(fingers > syn.touchmax)
+			syn.touchmax = fingers;
+		if(abs(x - syn.touchx) + abs(y - syn.touchy) > Syntapmove)
+			syn.touchmoved = 1;
+	}
+	if(syn.click)
+		syn.touchclicked = 1;
+	if(fingers == 0 && syn.fingers > 0 && !syn.notap
+	&& !syn.touchmoved && !syn.touchclicked && ms - syn.touchms < Syntapms){
+		click = syn.touchmax >= 3 ? 2 : syn.touchmax == 2 ? 4 : 1;
+		mousetrack(0, 0, buttons | click, ms);
+		mousetrack(0, 0, buttons, ms);
+	}
 
 	dx = dy = 0;
 	if(fingers != syn.fingers){
@@ -712,6 +745,14 @@ mousectl(Cmdbuf *cb)
 			if(synaptic==1)
 				disabletouch = 0;
 		}else
+			cmderror(cb, "bad mouse control message");
+		break;
+	case CMtap:
+		if(strcmp(cb->f[1], "on") == 0)
+			syn.notap = 0;
+		else if(strcmp(cb->f[1], "off") == 0)
+			syn.notap = 1;
+		else
 			cmderror(cb, "bad mouse control message");
 		break;
 	case CMmidscroll:
