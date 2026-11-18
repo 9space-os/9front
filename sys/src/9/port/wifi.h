@@ -160,6 +160,15 @@ struct Wifi
 	 */
 	int	ba;
 	int	baproc;
+	/*
+	 * 9space: the radio sends aggregates too (batx: wifi.c asks for
+	 * a block ack agreement of its own, TID 0); baagree, where set, is
+	 * called when one of the access point's is agreed (on) or ended,
+	 * for the driver to have the radio answer with block acks; it
+	 * returns -1 to decline
+	 */
+	int	batx;
+	int	(*baagree)(Wifi*, int tid, int ssn, int win, int on);
 	ulong	replays;	/* frames CCMP's (TKIP's) replay check dropped */
 
 	/*

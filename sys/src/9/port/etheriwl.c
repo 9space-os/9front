@@ -2676,6 +2676,72 @@ setsmartfifo(Ctlr *ctlr, int state, Wnode *bss)
 	return cmd(ctlr, CmdSfCfg, c, p - c);
 }
 
+/*
+ * 9space: a block ack agreement of the access point's (it sends us
+ * aggregates): the firmware answers them for this TID from ssn on, as
+ * OpenBSD's iwm_sta_rx_agg: ADD_STA modifying the station
+ * (IWM_STA_MODIFY_ADD_BA_TID 1<<3, ..._REMOVE_BA_TID 1<<4); wifi.c
+ * puts the frames in order
+ */
+static char*
+setstationba(Ctlr *ctlr, int tid, int ssn, int win, int on)
+{
+	uchar c[Tcmdsize], *p;
+
+	if(ctlr->family < 7000 || ctlr->bss.id < 0)
+		return "no station";
+	memset(p = c, 0, sizeof(c));
+	*p++ = 1;			/* control: modify */
+	p++;				/* awake_acs */
+	p += 2;				/* tid_disable_tx (not modified) */
+	put32(p, ctlr->macid);
+	p += 4;
+	memmove(p, ctlr->bssid, 6);
+	p += 8;
+	*p++ = ctlr->bss.id;		/* sta id */
+	*p++ = on? 1<<3: 1<<4;		/* modify mask: add or remove a BA TID */
+	p += 2;				/* reserved */
+	p += 4;				/* station_flags */
+	p += 4;				/* station_flags_mask: none changed */
+	*p++ = on? tid: 0;		/* add_immediate_ba_tid */
+	*p++ = on? 0: tid;		/* remove_immediate_ba_tid */
+	put16(p, on? ssn: 0);		/* add_immediate_ba_ssn */
+	p += 2;
+	p += 2;				/* sleep_tx_count */
+	p++;				/* sleep state flags */
+	p++;				/* station_type */
+	p += 2;				/* assoc id */
+	p += 2;				/* beamform flags */
+	p += 4;				/* tfd_queue_mask (not modified) */
+	if(ctlr->fw->api[0] & UcodeApiSta){
+		put16(p, on? win: 0);	/* rx_ba_window */
+		p += 2;
+		p++;			/* sp_length */
+		p++;			/* uapsd_acs */
+	}
+	return cmd(ctlr, 24, c, p - c);
+}
+
+static int
+iwlrxba(Wifi *wifi, int tid, int ssn, int win, int on)
+{
+	Ctlr *ctlr;
+	char *err;
+
+	ctlr = wifi->ether->ctlr;
+	qlock(&ctlr->QLock);
+	err = ctlr->ht.on? setstationba(ctlr, tid, ssn, win, on): "no HT";
+	qunlock(&ctlr->QLock);
+	if(err != nil){
+		if(wifi->debug)
+			print("#l%d: block ack tid %d %s: %s\n", wifi->ether->ctlrno, tid, on? "on": "off", err);
+		return -1;
+	}
+	if(wifi->debug)
+		print("#l%d: block ack tid %d ssn %d window %d %s\n", wifi->ether->ctlrno, tid, ssn, win, on? "on": "off");
+	return 0;
+}
+
 static char*
 sethtlq(Ctlr *ctlr)
 {
@@ -3178,13 +3244,13 @@ setmacpowermode(Ctlr *ctlr, Wnode *bss)
 
 	/*
 	 * flags: 1 power save allowed, 2 power management by the rest of
-	 * these parameters. 9space: with 1 alone the firmware dozed after
-	 * every frame and the access point held our frames until the
-	 * next beacon (round trips of up to 100 ms, ~2 Mbit/s); now it
-	 * stays awake while data flows, for the rx/tx data timeouts
-	 * (iwm's IWM_DEFAULT_PS_RX_DATA_TIMEOUT, ..._TX_..., 100 ms)
+	 * these parameters (with the rx/tx data timeouts below, iwm's
+	 * IWM_DEFAULT_PS_*_DATA_TIMEOUT). 9space: 1 alone by default, as
+	 * iwm: with 2 the radio dozed 100 ms after the last frame and
+	 * sparse traffic (a ping every 200 ms, keystrokes) waited for the
+	 * next beacon; ctl "pm N" sets them
 	 */
-	put16(p, ctlr->prom ? 0 : ctlr->pmflags >= 0 ? ctlr->pmflags : 1|2);	// flags
+	put16(p, ctlr->prom ? 0 : ctlr->pmflags >= 0 ? ctlr->pmflags : 1);	// flags
 	p += 2;
 	/* a value below 25 seconds results in weird behavior */
 	dtim = bss ? 3*bss->dtimperiod*bss->ival : 0;
@@ -4594,8 +4660,12 @@ iwlattach(Ether *edev)
 			 * its firmware pads QoS headers it receives
 			 * (IWM_RX_MPDU_MFLG2_PAD), which mqrx does not take off
 			 */
-			if(ctlr->family >= 7000 && !ctlr->mqrx)
+			if(ctlr->family >= 7000 && !ctlr->mqrx){
 				htcaps(ctlr);
+				/* 9space: the access point's aggregates, answered by the firmware (iwlrxba) */
+				ctlr->wifi->ba = 1;
+				ctlr->wifi->baagree = iwlrxba;
+			}
 			/* 9space: 2.4 and 5 GHz where the NVM enables it (wifi.c only listens on DFS channels) */
 			if(ctlr->family >= 7000 && ctlr->rfcfg.band5)
 				ctlr->wifi->scan = wifiscan5g;

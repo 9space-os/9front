@@ -408,6 +408,30 @@ wifiiq(Wifi *wifi, Block *b)
 	if(!wifi->ba || BLEN(b) < WIFIHDRSIZE)
 		goto pass;
 	w = (Wifipkt*)b->rp;
+	/*
+	 * a block ack request (control, subtype 8; 802.11-2020 9.3.1.7):
+	 * the window of its TID moves to its starting sequence number,
+	 * the frames before go on (as net80211's ieee80211_recv_bar)
+	 */
+	if(w->fc[0] == 0x84){
+		if(BLEN(b) >= 20 && (wn = wifi->bss) != nil && memcmp(w->a2, wn->bssid, Eaddrlen) == 0){
+			tid = b->rp[17]>>4 & 15;
+			seq = (b->rp[18] | b->rp[19]<<8) >> 4;
+			ba = &wifi->rxba[tid];
+			out = nil;
+			l = &out;
+			lock(&wifi->balock);
+			if(ba->on && (d = seqdiff(seq, ba->head)) < 2048){
+				l = baadvance(ba, d, l);
+				l = bainorder(ba, l);
+			}
+			*l = nil;
+			unlock(&wifi->balock);
+			barelease(wifi, out);
+		}
+		freeb(b);
+		return;
+	}
 	if((w->fc[0] & 0x8c) != 0x88 || (w->fc[1] & 3) != 0x02 || (w->a1[0] & 1) != 0)
 		goto pass;
 	hdrlen = wifihdrlen(w);
@@ -500,6 +524,9 @@ recvba(Wifi *wifi, Wnode *wn, uchar *d, int len)
 		if(size == 0 || size > Nba)
 			size = Nba;
 		st = wifi->ba && wn->qos && (param & 2) != 0 ? 0 : 37;
+		/* 9space: the driver's radio answers with block acks (etheriwl) */
+		if(st == 0 && wifi->baagree != nil && (*wifi->baagree)(wifi, tid, (d[7] | d[8]<<8) >> 4, size, 1) < 0)
+			st = 37;
 		if(st == 0){
 			ba = &wifi->rxba[tid];
 			baoff(wifi, tid);
@@ -544,9 +571,11 @@ recvba(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			return;
 		param = d[2] | d[3]<<8;
 		tid = param>>12 & 15;
-		if(param & (1<<11))
+		if(param & (1<<11)){
 			baoff(wifi, tid);	/* the access point's, our receiving */
-		else
+			if(wifi->baagree != nil)
+				(*wifi->baagree)(wifi, tid, 0, 0, 0);
+		} else
 			wn->txba &= ~(1<<tid);
 		break;
 	}
@@ -563,7 +592,7 @@ sendaddba(Wifi *wifi, Wnode *wn)
 	uchar r[9];
 	int param;
 
-	if(!wifi->ba || !wn->qos || !wn->ht)
+	if(!wifi->ba || !wifi->batx || !wn->qos || !wn->ht)
 		return;
 	r[0] = 3;
 	r[1] = 0;	/* ADDBA request */
