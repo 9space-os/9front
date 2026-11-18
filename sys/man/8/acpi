@@ -259,6 +259,13 @@ even (the maximum times
 without one the
 firmware's
 .RB ( /dev/backlight ).
+When the lid closes it darkens the panels (their brightness kept) and
+sets the processors' clock to
+.B low
+.RI ( pstate (8));
+when it opens it puts both back.
+The machine does not sleep: there is no suspend.
+The lid is 9space's addition.
 .IR termrc (8)
 starts both where there are events.
 .SH SOURCE
@@ -268,7 +275,9 @@ starts both where there are events.
 .SH SEE ALSO
 .IR reform (1),
 .IR arch (3),
-.IR gpu (4)
+.IR gpu (4),
+.IR pstate (8),
+.IR batteryguard (8)
 .SH BUGS
 ACPI itself.
 .PP

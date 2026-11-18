@@ -9,12 +9,28 @@
  * are looked for at each key: one started later is found.  Without one
  * that has a backlight, aux/acpi's (/dev/backlight: the firmware's
  * levels, _BCM) is taken.
+ * 9space: the lid (lid closed, lid open): closed, the panels dark and the
+ * processors' clock low (pstate(8)); open, both as they were.  No
+ * suspend yet; the machine runs on.
  *	aux/acpikeys [-f events]
  */
 #include <u.h>
 #include <libc.h>
 
 static char *evfile = "/dev/acpievents";
+
+/* what closing the lid changed, to be put back when it opens */
+enum {
+	Nsaved	= 16,
+};
+static struct {
+	char	path[256];
+	long	val;
+} saved[Nsaved];
+static int nsaved;
+static char cursrv[32];	/* the GPU driver's srv mounted on /mnt now: two have the same paths there */
+static int lidclosed;
+static char pspolicy[16];	/* pstate's policy before, "" if none */
 
 enum {
 	Nstep	= 16,
@@ -86,6 +102,46 @@ step(char *path, int dir)
 	return 0;
 }
 
+/*
+ * the lid closed (dir -1): the backlight path saved and dark;
+ * opened (dir 1): as saved; 0, or -1 if it is none
+ */
+static int
+lidlight(char *path, int dir)
+{
+	char buf[64], key[256], *f[3];
+	int fd, n, i;
+
+	snprint(key, sizeof key, "%s:%s", cursrv, path);
+	if((fd = open(path, ORDWR)) < 0)
+		return -1;
+	n = pread(fd, buf, sizeof buf - 1, 0);
+	if(n <= 0 || (buf[n] = 0, tokenize(buf, f, nelem(f))) != 2){
+		close(fd);
+		return -1;
+	}
+	if(dir < 0){
+		if(nsaved < Nsaved){
+			snprint(saved[nsaved].path, sizeof saved[nsaved].path, "%s", key);
+			saved[nsaved].val = strtol(f[0], nil, 0);
+			nsaved++;
+			if(fprint(fd, "0") < 0)
+				fprint(2, "acpikeys: %s: %r\n", path);
+		}
+	} else {
+		for(i = 0; i < nsaved; i++)
+			if(strcmp(saved[i].path, key) == 0){
+				if(fprint(fd, "%ld", saved[i].val) < 0)
+					fprint(2, "acpikeys: %s: %r\n", path);
+				break;
+			}
+	}
+	close(fd);
+	return 0;
+}
+
+static int (*lightfn)(char*, int) = step;
+
 /* each panel's backlight below root (a gpu(4) tree) moved; how many */
 static int
 backlights(char *root, int dir)
@@ -108,7 +164,7 @@ backlights(char *root, int dir)
 		close(fd);
 		for(j = 0; j < no; j++){
 			snprint(path, sizeof path, "%s/gpu/%s/outputs/%s/backlight", root, g[i].name, o[j].name);
-			if(step(path, dir) == 0)
+			if(lightfn(path, dir) == 0)
 				nb++;
 		}
 		free(o);
@@ -140,7 +196,9 @@ gpubacklights(int dir)
 			close(fd);
 			continue;
 		}
+		snprint(cursrv, sizeof cursrv, "%s", d[i].name);
 		nb += backlights("/mnt", dir);
+		cursrv[0] = 0;
 		unmount(nil, "/mnt");
 	}
 	free(d);
@@ -153,6 +211,65 @@ brightness(int dir)
 {
 	if(gpubacklights(dir) == 0)
 		step("/dev/backlight", dir);
+}
+
+/*
+ * pstate(8)'s policy: closed, the old one saved and low; open, the old
+ * one again.  Its /srv/pstate, mounted for the while: it may have come
+ * after this process's namespace was made.
+ */
+static void
+lidclock(int closed)
+{
+	char buf[256], *p, *e;
+	int fd, n;
+
+	if((fd = open("/srv/pstate", ORDWR)) < 0)
+		return;
+	if(mount(fd, -1, "/mnt", MREPL, "") < 0){
+		close(fd);
+		return;
+	}
+	if((fd = open("/mnt/pstate", ORDWR)) >= 0){
+		if(closed){
+			pspolicy[0] = 0;
+			n = pread(fd, buf, sizeof buf - 1, 0);
+			if(n > 0){
+				buf[n] = 0;
+				if((p = strstr(buf, "policy ")) != nil){
+					p += 7;
+					if((e = strchr(p, '\n')) != nil)
+						*e = 0;
+					snprint(pspolicy, sizeof pspolicy, "%s", p);
+				}
+			}
+			fprint(fd, "low");
+		} else if(pspolicy[0] != 0)
+			fprint(fd, "%s", pspolicy);
+		close(fd);
+	}
+	unmount(nil, "/mnt");
+}
+
+/* the lid: the panels' backlights and the clock, as above */
+static void
+lid(int closed)
+{
+	if(closed == lidclosed)
+		return;
+	lidclosed = closed;
+	lightfn = lidlight;
+	if(closed){
+		nsaved = 0;
+		if(gpubacklights(-1) == 0)
+			lidlight("/dev/backlight", -1);
+	} else {
+		if(gpubacklights(1) == 0)
+			lidlight("/dev/backlight", 1);
+		nsaved = 0;
+	}
+	lightfn = step;
+	lidclock(closed);
 }
 
 static void
@@ -185,7 +302,13 @@ main(int argc, char **argv)
 		buf[n] = 0;
 		nl = getfields(buf, l, nelem(l), 1, "\n");
 		for(i = 0; i < nl; i++){
-			if(tokenize(l[i], f, nelem(f)) != 2 || strcmp(f[0], "key") != 0)
+			if(tokenize(l[i], f, nelem(f)) != 2)
+				continue;
+			if(strcmp(f[0], "lid") == 0){
+				lid(strcmp(f[1], "closed") == 0);
+				continue;
+			}
+			if(strcmp(f[0], "key") != 0 || lidclosed)
 				continue;
 			if(strcmp(f[1], "brightnessup") == 0)
 				brightness(1);
