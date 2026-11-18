@@ -225,10 +225,7 @@ if [ -s "$P/wlan.conf" ]; then
 	pwd=$(sed -n 's/^PWD: *//p' "$P/wlan.conf")
 	[ -n "$ssid" ] && [ -n "$pwd" ] || die "$P/wlan.conf: no SSID: or PWD: line"
 	printf '%s\t%s\n' "$ssid" "$pwd" > "$X/usr/glenda/lib/wlan"
-	# readable by all: ufs serves the root's files as harvey's, and glenda
-	# reads it (wlan(8) keeps it 600 where glenda owns it); the root is
-	# the host's anyway
-	chmod 644 "$X/usr/glenda/lib/wlan"
+	chmod 600 "$X/usr/glenda/lib/wlan"	# glenda's: ufs -user=glenda below
 fi
 
 echo "pxe: the root in $P/ufsroot"
@@ -259,7 +256,7 @@ log-facility=-
 EOF
 
 if [ "${QEMU:-0}" = 1 ]; then
-	"$UFS" -root="$P/ufsroot" -addr="127.0.0.1:$UFS_PORT" > "$P/ufs.log" 2>&1 &
+	"$UFS" -root="$P/ufsroot" -user=glenda -addr="127.0.0.1:$UFS_PORT" > "$P/ufs.log" 2>&1 &
 	ufspid=$!
 	trap 'kill $ufspid $qpid 2>/dev/null' EXIT
 	cp /usr/share/edk2/x64/OVMF_VARS.4m.fd "$P/vars.fd"
@@ -308,4 +305,5 @@ pxe: or boot it from a USB stick (wired network still needed):
 	sudo dd if=$S of=/dev/sdX bs=4M conv=fsync status=progress
 pxe: ufs serves the root on $HOSTIP:$UFS_PORT (Ctrl-C ends it)
 EOF
-exec "$UFS" -root="$P/ufsroot" -addr="$HOSTIP:$UFS_PORT"
+# the root's files glenda's, the machine's user (ufs' default owner is harvey)
+exec "$UFS" -root="$P/ufsroot" -user=glenda -addr="$HOSTIP:$UFS_PORT"
