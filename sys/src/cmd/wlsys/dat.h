@@ -134,6 +134,9 @@ struct Surface {
 	struct wl_resource	*xdgsurf;
 	struct wl_resource	*toplevel;
 	struct wl_resource	*deco;	/* its zxdg_toplevel_decoration_v1 */
+	struct wl_resource	*dialog;	/* its xdg_dialog_v1 (dialog.c) */
+	Surface	*tparent;	/* a toplevel's parent (set_parent): its window wsys' parent */
+	int	modal;		/* xdg_dialog_v1's set_modal: wsys' modal */
 	struct wl_resource	*popup;	/* an xdg_popup's: of parent, placed by pos */
 	Surface	*parent;
 	Pos	pos;
@@ -247,6 +250,9 @@ void	show(Surface*);
 void	unshow(Surface*);
 void	unbuffer(Buffer*);
 void	winlabel(Win*, char*);
+void	winrelate(Surface*);
+void	winorphans(Surface*);
+void	dialoginit(void);
 
 /* seat.c */
 void	seatinit(void);

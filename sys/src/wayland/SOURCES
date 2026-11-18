@@ -3,7 +3,8 @@
 # them (client, server: the shared part, libwayland-private, in each; egl:
 # libwayland-egl, wl_egl_window; cursor: libwayland-cursor), and the protocols
 # wayland-scanner makes code for (core: the release's; xdg-shell,
-# linux-dmabuf, xdg-decoration: wayland-protocols'); the scanner itself runs on the host,
+# linux-dmabuf, xdg-decoration, viewporter, fractional-scale, xdg-dialog:
+# wayland-protocols'); the scanner itself runs on the host,
 # its output is checked in
 client src/wayland-client.c
 server src/wayland-server.c
@@ -22,3 +23,4 @@ protocol unstable/linux-dmabuf/linux-dmabuf-unstable-v1.xml
 protocol unstable/xdg-decoration/xdg-decoration-unstable-v1.xml
 protocol stable/viewporter/viewporter.xml
 protocol staging/fractional-scale/fractional-scale-v1.xml
+protocol staging/xdg-dialog/xdg-dialog-v1.xml

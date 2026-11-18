@@ -148,6 +148,11 @@ event(Win *w, char *l)
 	case 'f':
 		focus(w, atoi(l+1));
 		break;
+	case 'c':
+		/* the user's Delete (askclose): the client decides */
+		if(strcmp(l, "close") == 0 && w->s != NULL)
+			toplevelclose(w->s);
+		break;
 	case 's':
 		/*
 		 * on the display (composed on the GPU, on the overlay plane,
@@ -288,6 +293,9 @@ mkwin(Surface *s, int bw, int bh)
 	}
 	if(s->title != NULL)
 		winlabel(w, s->title);
+	/* the user's Delete asks the client (xdg_toplevel.close), which may keep it */
+	if(s->toplevel != NULL)
+		ctlmsg(w, "askclose");
 	w->evsrc = wl_event_loop_add_fd(loop, w->ev, WL_EVENT_READABLE, onevent, w);
 	w->kbdsrc = wl_event_loop_add_fd(loop, w->kbd, WL_EVENT_READABLE, onkbd, w);
 	if(w->evsrc == NULL || w->kbdsrc == NULL)
@@ -446,6 +454,7 @@ show(Surface *s)
 			return;
 		}
 		s->win = w;
+		winrelate(s);
 		sendenter(s);
 	}
 	if(w->gone){
@@ -515,6 +524,45 @@ show(Surface *s)
 		released(w, i);
 }
 
+/*
+ * a surface's window in wsys a dialog or popup of its parent's (a toplevel's
+ * set_parent, a popup's parent): above it, moving and hidden with it; modal
+ * (xdg_dialog_v1) as the client says
+ */
+void
+winrelate(Surface *s)
+{
+	Surface *p;
+
+	if(s->win == NULL)
+		return;
+	p = s->popup != NULL ? s->parent : s->tparent;
+	if(p != NULL && p->win != NULL)
+		ctlmsg(s->win, "parent %d", p->win->id);
+	else
+		ctlmsg(s->win, "parent -");
+	if(s->toplevel != NULL)
+		ctlmsg(s->win, s->modal ? "modal 1" : "modal 0");
+}
+
+/*
+ * s's window goes: its toplevel children no longer its dialogs (wsys would
+ * delete them with it; Wayland's stay, of none) and none of them points to
+ * s; its popups are forgotten (popupforget)
+ */
+void
+winorphans(Surface *s)
+{
+	Surface *t;
+
+	wl_list_for_each(t, &surfaces, link){
+		if(t->tparent != s)
+			continue;
+		if(t->win != NULL)
+			ctlmsg(t->win, "parent -");
+	}
+}
+
 /* the surface's window goes (no buffer, the toplevel destroyed) */
 void
 unshow(Surface *s)
@@ -524,6 +572,7 @@ unshow(Surface *s)
 
 	if((w = s->win) == NULL)
 		return;
+	winorphans(s);
 	s->win = NULL;
 	for(i = 0; i < Nslot; i++)
 		if(w->slot[i] != NULL)

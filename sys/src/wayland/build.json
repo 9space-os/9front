@@ -23,7 +23,8 @@
 			"gen/linux-dmabuf-unstable-v1-protocol.c",
 			"gen/xdg-decoration-unstable-v1-protocol.c",
 			"gen/viewporter-protocol.c",
-			"gen/fractional-scale-v1-protocol.c"
+			"gen/fractional-scale-v1-protocol.c",
+			"gen/xdg-dialog-v1-protocol.c"
 		]
 	},
 	{
@@ -52,7 +53,8 @@
 			"gen/linux-dmabuf-unstable-v1-protocol.c",
 			"gen/xdg-decoration-unstable-v1-protocol.c",
 			"gen/viewporter-protocol.c",
-			"gen/fractional-scale-v1-protocol.c"
+			"gen/fractional-scale-v1-protocol.c",
+			"gen/xdg-dialog-v1-protocol.c"
 		]
 	},
 	{

@@ -38,6 +38,7 @@
 #include <wayland-client.h>
 #include <xdg-shell-client-protocol.h>
 #include <xdg-decoration-unstable-v1-client-protocol.h>
+#include <xdg-dialog-v1-client-protocol.h>
 #include <signal.h>
 
 enum {
@@ -74,6 +75,7 @@ static struct wl_surface *kfocus;	/* the surface with the keyboard */
 static int deactivated;			/* configures without activated */
 
 static struct zxdg_decoration_manager_v1 *decomgr;
+static struct xdg_wm_dialog_v1 *dialogmgr;
 static uint32_t decomode;
 static int decoconfigured;
 
@@ -361,6 +363,8 @@ global(void *data, struct wl_registry *reg, uint32_t name, const char *iface, ui
 		xdg_wm_base_add_listener(wm, &wmlistener, NULL);
 	}else if(strcmp(iface, zxdg_decoration_manager_v1_interface.name) == 0)
 		decomgr = wl_registry_bind(reg, name, &zxdg_decoration_manager_v1_interface, 1);
+	else if(strcmp(iface, xdg_wm_dialog_v1_interface.name) == 0)
+		dialogmgr = wl_registry_bind(reg, name, &xdg_wm_dialog_v1_interface, 1);
 	else if(strcmp(iface, wl_subcompositor_interface.name) == 0)
 		subcomp = wl_registry_bind(reg, name, &wl_subcompositor_interface, 1);
 	else if(strcmp(iface, wl_data_device_manager_interface.name) == 0)
@@ -1376,6 +1380,96 @@ main(void)
 	wl_buffer_destroy(sw);
 	wl_buffer_destroy(sg);
 	wl_shm_pool_destroy(spool);
+
+	/*
+	 * a modal dialog of ours (set_parent, xdg_dialog_v1's set_modal): a
+	 * window of its own in wsys, above ours; a click in ours brings it up
+	 * (ours gets no press); ours moved, it moves with it
+	 */
+	check("xdg_wm_dialog_v1 there", dialogmgr != NULL, NULL);
+	if(dialogmgr != NULL){
+		struct wl_surface *ds;
+		struct xdg_surface *dxs;
+		struct xdg_toplevel *dtop;
+		struct xdg_dialog_v1 *dlg;
+		struct wl_shm_pool *dpool;
+		struct wl_buffer *db;
+		uint32_t *dpx;
+		int did, dx0, dy0, dx1, dy1, ox0, oy0, ox1, oy1, nx0, ny0, nx1, ny1;
+		(void)nx0; (void)ny0; (void)nx1; (void)ny1;
+		char dpath[64];
+
+		ds = wl_compositor_create_surface(comp);
+		dxs = xdg_wm_base_get_xdg_surface(wm, ds);
+		xdg_surface_add_listener(dxs, &popxslistener, NULL);
+		dtop = xdg_surface_get_toplevel(dxs);
+		xdg_toplevel_set_title(dtop, "wlclient-dialog");
+		xdg_toplevel_set_parent(dtop, top);
+		dlg = xdg_wm_dialog_v1_get_xdg_dialog(dialogmgr, dtop);
+		xdg_dialog_v1_set_modal(dlg);
+		popconf = 0;
+		wl_surface_commit(ds);
+		check("the dialog configured", waitfor(&popconf), NULL);
+		xdg_surface_ack_configure(dxs, popserial);
+		if((dpx = mkpool(80*60*4, &dpool)) == NULL)
+			return 1;
+		fill(dpx, 80*60, Blue);
+		db = wl_shm_pool_create_buffer(dpool, 0, 80, 60, 320, WL_SHM_FORMAT_XRGB8888);
+		wl_surface_attach(ds, db, 0, 0);
+		wl_surface_damage_buffer(ds, 0, 0, 80, 60);
+		wl_surface_commit(ds);
+		wl_display_roundtrip(d);
+		usleep(300*1000);
+		findwin();
+		ok = labelled("wlclient-dialog", &did, &dx0, &dy0, &dx1, &dy1) == 0;
+		check("the dialog: a window of its own", ok && did != winid, "%d %d", did, winid);
+		/* over ours, away from the edges */
+		snprintf(dpath, sizeof dpath, "/mnt/wsys/%d/ctl", did);
+		snprintf(buf, sizeof buf, "rect %d %d %d %d", wx0 + 20, wy0 + 20, wx0 + 100, wy0 + 80);
+		writefile(dpath, buf, strlen(buf));
+		usleep(200*1000);
+		labelled("wlclient-dialog", &did, &dx0, &dy0, &dx1, &dy1);
+		/* modal: a click in ours, not under the dialog */
+		j = pressed;
+		mouse(wx1 - 20, wy1 - 20, 0);
+		usleep(50*1000);
+		mouse(wx1 - 20, wy1 - 20, 1);
+		usleep(50*1000);
+		mouse(wx1 - 20, wy1 - 20, 0);
+		usleep(200*1000);
+		wl_display_roundtrip(d);
+		check("modal: ours gets no press", pressed == j, "%d presses", pressed - j);
+		if(readfile(dpath, buf, sizeof buf) < 0)
+			buf[0] = 0;
+		{
+			char *f[12];
+			int nf;
+			char *q;
+
+			nf = 0;
+			for(q = strtok(buf, " \n"); q != NULL && nf < 12; q = strtok(NULL, " \n"))
+				f[nf++] = q;
+			check("modal: the dialog has the focus", nf == 10 && atoi(f[9]) == 1, "%d fields", nf);
+		}
+		/* ours moved by 30 30: the dialog with it */
+		labelled("wlclient", &i, &ox0, &oy0, &ox1, &oy1);
+		snprintf(buf, sizeof buf, "rect %d %d %d %d", ox0 + 30, oy0 + 30, ox1 + 30, oy1 + 30);
+		winctl(buf);
+		usleep(300*1000);
+		labelled("wlclient", &i, &nx0, &ny0, &nx1, &ny1);
+		labelled("wlclient-dialog", &did, &ox0, &oy0, &ox1, &oy1);
+		check("the dialog moved with ours", ox0 - dx0 == 30 && oy0 - dy0 == 30, "%d,%d -> %d,%d", dx0, dy0, ox0, oy0);
+		findwin();
+		xdg_dialog_v1_destroy(dlg);
+		xdg_toplevel_destroy(dtop);
+		xdg_surface_destroy(dxs);
+		wl_surface_destroy(ds);
+		wl_buffer_destroy(db);
+		wl_shm_pool_destroy(dpool);
+		wl_display_roundtrip(d);
+		usleep(200*1000);
+		check("the dialog gone with its toplevel", labelled("wlclient-dialog", &did, &dx0, &dy0, &dx1, &dy1) < 0, NULL);
+	}
 
 	/* deleted in wsys: close */
 	check("delete to the window's ctl", winctl("delete") == 0, "%s", strerror(errno));

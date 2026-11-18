@@ -435,6 +435,13 @@ surfdestroyres(struct wl_resource *r)
 	s = ssurface(r);
 	scalegone(s);
 	popupforget(s);
+	/* its toplevels' parent: none now (set_parent's) */
+	{
+		Surface *t;
+		wl_list_for_each(t, &surfaces, link)
+			if(t->tparent == s)
+				t->tparent = NULL;
+	}
 	dragsurfacegone(s);
 	subgone(s);
 	unshow(s);
@@ -697,6 +704,7 @@ main(int argc, char **argv)
 	datainit();
 	xdginit();
 	decoinit();
+	dialoginit();
 	scaleinit();
 	dprint("%s, screen %dx%d, scale %g\n", name, screenw, screenh, wscale);
 

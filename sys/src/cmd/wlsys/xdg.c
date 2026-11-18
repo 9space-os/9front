@@ -478,10 +478,24 @@ topleveldestroyres(struct wl_resource *r)
 	s->committed = 0;
 }
 
+/* a toplevel of another (a dialog): wsys keeps its window above that one's */
 static void
 toplevelparent(struct wl_client *c, struct wl_resource *r, struct wl_resource *parent)
 {
-	(void)c; (void)r; (void)parent;
+	Surface *s, *p;
+
+	(void)c;
+	if((s = tsurface(r)) == NULL)
+		return;
+	p = parent != NULL ? tsurface(parent) : NULL;
+	/* not itself, nor one of its own dialogs (a loop) */
+	for(Surface *q = p; q != NULL; q = q->tparent)
+		if(q == s){
+			wl_resource_post_error(r, XDG_TOPLEVEL_ERROR_INVALID_PARENT, "a parent of its own");
+			return;
+		}
+	s->tparent = p;
+	winrelate(s);
 }
 
 static void
