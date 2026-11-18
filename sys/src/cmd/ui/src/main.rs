@@ -25,6 +25,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::num::NonZeroU32;
 use std::sync::{mpsc, Arc};
 
+use winit::platform::plan9::WindowAttributesExtPlan9;
+use winit::raw_window_handle::HasWindowHandle;
 use masonry::app::{RenderRoot, RenderRootOptions, RenderRootSignal, VisualLayerKind, WindowSizePolicy};
 use masonry::core::{CollectionWidget, ErasedAction, LayerType, NewWidget, TextEvent, Widget, WidgetId, WindowEvent};
 use masonry::peniko::Blob;
@@ -339,11 +341,12 @@ fn build(sc: &Scene, id: &str, ids: &mut Ids) -> NewWidget<dyn Widget> {
                 Some("end") => CrossAxisAlignment::End,
                 _ => CrossAxisAlignment::Start,
             });
-            for c in &n.children {
+            let kids = laid(sc, id);
+            for c in &kids {
                 let child = build(sc, c, ids);
                 f = f.with(child, flex(sc, c));
             }
-            ids.shown.insert(id.to_string(), n.children.clone());
+            ids.shown.insert(id.to_string(), kids);
             // gap: between the children (Masonry's Gap), else the theme's
             match len(n.num("gap")) {
                 Some(g) => NewWidget::new(f).with_props(Gap::new(g)).erased(),
@@ -478,6 +481,15 @@ fn build(sc: &Scene, id: &str, ids: &mut Ids) -> NewWidget<dyn Widget> {
             let page = n.num("page").map_or(0, |p| p.max(0.0) as usize).min(count - 1);
             NewWidget::new(Pagination::new(count).active_page(page)).erased()
         }
+        // a window's contents, as a box's (its window is App's: a Gui)
+        Kind::Window => {
+            ids.shown.insert(id.to_string(), n.children.clone());
+            let b = match n.children.first() {
+                Some(c) => SizedBox::new(build(sc, c, ids)),
+                None => SizedBox::empty(),
+            };
+            NewWidget::new(b).erased()
+        }
         Kind::Box => {
             ids.shown.insert(id.to_string(), n.children.clone());
             let mut b = match n.children.first() {
@@ -497,6 +509,29 @@ fn build(sc: &Scene, id: &str, ids: &mut Ids) -> NewWidget<dyn Widget> {
     ids.node.insert(w.id(), id.to_string());
     ids.widget.insert(id.to_string(), w.id());
     w
+}
+
+/// the children a node lays out: the root's without its windows (they are
+/// windows of their own)
+fn laid(sc: &Scene, id: &str) -> Vec<String> {
+    let n = &sc.nodes[id];
+    if id != ROOT {
+        return n.children.clone();
+    }
+    n.children.iter().filter(|c| sc.nodes.get(*c).is_none_or(|k| k.kind != Kind::Window)).cloned().collect()
+}
+
+/// the window a node shows in: the window node it is in, or the root's
+fn owner(sc: &Scene, id: &str) -> String {
+    let mut p = Some(id.to_string());
+    while let Some(i) = p {
+        match sc.nodes.get(&i) {
+            Some(n) if n.kind == Kind::Window => return i,
+            Some(n) => p = n.parent.clone(),
+            None => break,
+        }
+    }
+    ROOT.to_string()
 }
 
 /// a child's share of its row or column (0: as big as it is)
@@ -543,12 +578,12 @@ fn keep(old: &[String], new: &[String], created: &BTreeSet<String>) -> (Vec<bool
  * focus, the text being edited, a scroll's place), the others go, the new
  * ones are made (a node moved is made again in its new place).
  */
-fn sync(root: &mut RenderRoot, sc: &Scene, ids: &mut Ids, created: &BTreeSet<String>) {
-    let mut todo = vec![ROOT.to_string()];
+fn sync(root: &mut RenderRoot, sc: &Scene, ids: &mut Ids, created: &BTreeSet<String>, start: &str) {
+    let mut todo = vec![start.to_string()];
     while let Some(p) = todo.pop() {
         let (Some(n), Some(&wid)) = (sc.nodes.get(&p), ids.widget.get(&p)) else { continue };
         let old = ids.shown.get(&p).cloned().unwrap_or_default();
-        let new = n.children.clone();
+        let new = laid(sc, &p);
         if n.kind == Kind::List {
             // its children with widgets: those whose place has another node made again
             let act = ids.active.get(&p).cloned().unwrap_or_default();
@@ -623,7 +658,7 @@ fn sync(root: &mut RenderRoot, sc: &Scene, ids: &mut Ids, created: &BTreeSet<Str
                     Portal::set_child(&mut w.downcast::<Portal<dyn Widget>>(), inner);
                 }
             }
-            Kind::Box => {
+            Kind::Box | Kind::Window => {
                 if !kn.first().copied().unwrap_or(old.is_empty()) {
                     let mut b = w.downcast::<SizedBox>();
                     match new.first() {
@@ -667,16 +702,19 @@ fn sync(root: &mut RenderRoot, sc: &Scene, ids: &mut Ids, created: &BTreeSet<Str
             }
         }
     }
-    // the nodes gone: their widgets with them
+    // the nodes gone: their widgets with them (the root's sync: all windows')
+    if start != ROOT {
+        return;
+    }
     ids.widget.retain(|id, _| sc.nodes.contains_key(id));
     ids.shown.retain(|id, _| sc.nodes.contains_key(id));
     ids.node.retain(|_, id| sc.nodes.contains_key(id));
 }
 
-/// the root's contents: the scene, with some room around it
-fn content(sc: &Scene, ids: &mut Ids) -> NewWidget<dyn Widget> {
-    *ids = Ids::default();
-    let root = build(sc, ROOT, ids);
+/// a window's contents (the root's: the scene but its windows), with some
+/// room around it
+fn content(sc: &Scene, ids: &mut Ids, node: &str) -> NewWidget<dyn Widget> {
+    let root = build(sc, node, ids);
     NewWidget::new(SizedBox::new(root))
         .with_props(Padding::all(Length::px(8.0)))
         .erased()
@@ -757,12 +795,18 @@ impl Painter {
     }
 }
 
+/// a window: the root's (the process's) or a window node's
 struct Gui {
+    node: String, // ROOT, or the window node's id
     window: Arc<Window>,
     painter: Painter,
     root: RenderRoot,
     reducer: WindowEventReducer,
     background: masonry::peniko::Color, // the frame's, the theme's window colour (look.rs)
+    pointer: (f64, f64),                 // where the pointer is in the window
+    b3at: Option<(f64, f64)>,            // button 3 pressed there: a click plumbs (as acme)
+    wheel: (f64, f64),                   // the wheel's pixels not given to the widgets yet
+    layers: Vec<(WidgetId, &'static str)>, // Masonry's layers open (a select's list, a tooltip): their roots, kinds
 }
 
 /// a property moving to its new value (animate), from as shown when it changed
@@ -808,22 +852,137 @@ struct App {
     shownv: HashMap<(String, &'static str), f64>, // the animated properties as the widgets show them
     fs: Fs,
     out: Arc<Fd>, // to the clients
-    gui: Option<Gui>,
+    guis: Vec<Gui>, // the root's window first, then the window nodes'
     ids: Ids,
-    signals: mpsc::Receiver<RenderRootSignal>,
-    signal_tx: mpsc::Sender<RenderRootSignal>,
+    signals: mpsc::Receiver<(String, RenderRootSignal)>, // by the window's node
+    signal_tx: mpsc::Sender<(String, RenderRootSignal)>,
     srv: String,
     cpu: bool,   // -p: on the processor
     debug: bool, // $UIDEBUG: the window's events and Masonry's signals on stderr
-    pointer: (f64, f64),             // where the pointer is in the window
-    b3at: Option<(f64, f64)>,        // button 3 pressed there: a click plumbs (as acme)
     lastframe: Option<std::time::Instant>, // the last frame of something moving (Masonry's AnimFrame: the time since)
     due: Option<std::time::Instant>,       // the next frame of something moving, not before then (FRAME)
-    wheel: (f64, f64),                     // the wheel's pixels not given to the widgets yet
-    layers: Vec<(WidgetId, &'static str)>, // Masonry's layers open (a select's list, a tooltip): their roots, kinds
 }
 
 impl App {
+    /// the window of the node the root's or a window node's id is
+    fn gui(&mut self, node: &str) -> Option<&mut Gui> {
+        self.guis.iter_mut().find(|g| g.node == node)
+    }
+
+    /// the window node id shows in
+    fn gui_of(&mut self, id: &str) -> Option<&mut Gui> {
+        let o = owner(&self.fs.scene, id);
+        self.gui(&o)
+    }
+
+    /// a window for window node (or the root): its winit window, Masonry's root
+    fn make_gui(&mut self, el: &ActiveEventLoop, node: &str) -> Option<Gui> {
+        let mut attrs = Window::default_attributes();
+        if node == ROOT {
+            attrs = attrs.with_title(self.fs.scene.title.clone());
+        } else {
+            let n = self.fs.scene.nodes.get(node)?;
+            let w = n.num("width").unwrap_or(400.0);
+            let h = n.num("height").unwrap_or(300.0);
+            attrs = attrs.with_title(n.prop("title").unwrap_or(node).to_string()).with_inner_size(winit::dpi::LogicalSize::new(w, h));
+            if let (Some(x), Some(y)) = (n.num("x"), n.num("y")) {
+                attrs = attrs.with_position(winit::dpi::LogicalPosition::new(x, y));
+            }
+            // a dialog (modal: its window takes no clicks) or popup of the root's
+            // window, else a window of its own
+            let role = n.prop("role").unwrap_or("window");
+            if role == "dialog" || role == "popup" {
+                if let Some(rw) = self.guis.iter().find(|g| g.node == ROOT).and_then(|g| g.window.window_handle().ok()).map(|h| h.as_raw()) {
+                    attrs = unsafe { attrs.with_parent_window(Some(rw)) };
+                }
+            }
+            if role == "popup" {
+                attrs = attrs.with_decorations(false);
+            }
+            attrs = attrs.with_modal(n.num("modal").unwrap_or(0.0) != 0.0);
+        }
+        let window = match el.create_window(attrs) {
+            Ok(w) => Arc::new(w),
+            Err(e) => {
+                eprintln!("ui: window {node}: {e}");
+                if node != ROOT {
+                    self.event(format!("close {node}"));
+                }
+                return None;
+            }
+        };
+        let (painter, renderer) = Painter::new(&window, self.cpu);
+        if node == ROOT {
+            self.fs.renderer = renderer;
+        }
+        let size = window.inner_size();
+        let tx = self.signal_tx.clone();
+        let tag = node.to_string();
+        // the desktop's theme: colours (look.rs), the UI font
+        let theme = desk::theme::current();
+        let palette = look::Palette::from_theme(&theme);
+        let mut fonts = fonts(&theme.uifont).into_iter();
+        let first = fonts.next();
+        if first.is_none() && node == ROOT {
+            eprintln!("ui: no fonts in /lib/font/ttf: no text");
+        }
+        if node == ROOT {
+            self.ids = Ids::default();
+        }
+        let mut root = RenderRoot::new(
+            content(&self.fs.scene, &mut self.ids, node),
+            move |s| {
+                let _ = tx.send((tag.clone(), s));
+            },
+            RenderRootOptions {
+                default_properties: Arc::new(look::property_set(&palette)),
+                use_system_fonts: false,
+                size_policy: WindowSizePolicy::User,
+                size,
+                scale_factor: window.scale_factor(),
+                test_font: first.map(|b| Blob::new(Arc::new(b))),
+            },
+        );
+        for b in fonts {
+            root.register_fonts(Blob::new(Arc::new(b)));
+        }
+        if node == ROOT {
+            self.fs.size = (size.width, size.height);
+        }
+        Some(Gui {
+            node: node.to_string(),
+            window,
+            painter,
+            root,
+            reducer: WindowEventReducer::default(),
+            background: palette.background,
+            pointer: (0.0, 0.0),
+            b3at: None,
+            wheel: (0.0, 0.0),
+            layers: Vec::new(),
+        })
+    }
+
+    /// the windows as the scene has them: one made for each window node new,
+    /// gone with its node
+    fn windows(&mut self, el: &ActiveEventLoop) {
+        if self.guis.is_empty() {
+            return; // (the root's first: resumed)
+        }
+        let sc = &self.fs.scene;
+        let want: Vec<String> = sc.nodes[ROOT].children.iter().filter(|c| sc.nodes.get(*c).is_some_and(|n| n.kind == Kind::Window)).cloned().collect();
+        self.guis.retain(|g| g.node == ROOT || want.contains(&g.node));
+        for w in want {
+            if self.guis.iter().any(|g| g.node == w) {
+                continue;
+            }
+            if let Some(g) = self.make_gui(el, &w) {
+                g.window.request_redraw();
+                self.guis.push(g);
+            }
+        }
+    }
+
     fn send(&self, msgs: Vec<Vec<u8>>) {
         for m in msgs {
             if self.out.write1(&m).is_err() {
@@ -838,15 +997,19 @@ impl App {
     }
 
     /// what the clients changed, into the widgets
-    fn apply_changes(&mut self) {
+    fn apply_changes(&mut self, el: &ActiveEventLoop) {
         let changes = std::mem::take(&mut self.fs.changes);
-        let Some(g) = self.gui.as_mut() else { return };
+        if self.guis.is_empty() {
+            return;
+        }
         let mut structure = false;
         let mut created = BTreeSet::new();
         let mut props = Vec::new();
         for ch in changes {
             if let Some(t) = &ch.title {
-                g.window.set_title(t);
+                if let Some(g) = self.gui(ROOT) {
+                    g.window.set_title(t);
+                }
             }
             structure |= ch.structure;
             created.extend(ch.created);
@@ -874,9 +1037,15 @@ impl App {
                 }
             }
         }
-        // the shape first: the nodes made have their properties already
+        // the shape first: the nodes made have their properties already; the
+        // windows as the window nodes are (made, gone), then each one's widgets
         if structure {
-            sync(&mut g.root, &self.fs.scene, &mut self.ids, &created);
+            self.windows(el);
+            let (sc, ids) = (&self.fs.scene, &mut self.ids);
+            for g in self.guis.iter_mut() {
+                sync(&mut g.root, sc, ids, &created, &g.node.clone());
+            }
+            // (the root's sync dropped the nodes gone; the windows' ids stay)
         }
         {
             // what the new nodes show: where their animations start from
@@ -896,6 +1065,14 @@ impl App {
                     continue;
                 }
                 let Some(n) = self.fs.scene.nodes.get(&id) else { continue };
+                if n.kind == Kind::Window {
+                    // its title; the rest when it is made
+                    let t = n.prop("title").unwrap_or(&id).to_string();
+                    if let Some(g) = self.gui(&id) {
+                        g.window.set_title(&t);
+                    }
+                    continue;
+                }
                 let Some(&wid) = self.ids.widget.get(&id) else { continue };
                 let text = n.prop("text").unwrap_or("").to_string();
                 let (kind, mut n) = (n.kind, n.clone());
@@ -917,6 +1094,8 @@ impl App {
                         }
                     }
                 }
+                let o = owner(&self.fs.scene, &id);
+                let Some(g) = self.guis.iter_mut().find(|g| g.node == o) else { continue };
                 g.root.edit_widget(wid, |mut w| {
                     restyle(&mut w, &n);
                     match kind {
@@ -1073,19 +1252,21 @@ impl App {
                         Pagination::set_page_count(&mut pg, count);
                         Pagination::set_active_page(&mut pg, n.num("page").map_or(0, |p| p.max(0.0) as usize).min(count - 1));
                     }
-                    Kind::Scroll | Kind::List | Kind::Divider | Kind::Spinner | Kind::RadioGroup => {}
+                    Kind::Scroll | Kind::List | Kind::Divider | Kind::Spinner | Kind::RadioGroup | Kind::Window => {}
                     }
                 });
             }
         }
-        g.window.request_redraw();
+        for g in &self.guis {
+            g.window.request_redraw();
+        }
     }
 
     /// what the widgets did: events for the clients, the scene kept as it is shown
     fn signals(&mut self, el: &ActiveEventLoop) {
-        while let Ok(s) = self.signals.try_recv() {
+        while let Ok((node, s)) = self.signals.try_recv() {
             if self.debug {
-                eprintln!("ui: signal {s:?}");
+                eprintln!("ui: signal {node} {s:?}");
             }
             match s {
                 RenderRootSignal::Action(a, wid) => self.action(a, wid),
@@ -1093,13 +1274,13 @@ impl App {
                 // the last one is drawn with the next (else each frame asked at once)
                 RenderRootSignal::RequestRedraw if self.lastframe.is_some() => self.another(),
                 RenderRootSignal::RequestRedraw => {
-                    if let Some(g) = &self.gui {
+                    if let Some(g) = self.guis.iter().find(|g| g.node == node) {
                         g.window.request_redraw();
                     }
                 }
                 RenderRootSignal::RequestAnimFrame => self.another(),
                 RenderRootSignal::SetCursor(c) => {
-                    if let Some(g) = &self.gui {
+                    if let Some(g) = self.guis.iter().find(|g| g.node == node) {
                         g.window.set_cursor(c);
                     }
                 }
@@ -1107,7 +1288,7 @@ impl App {
                     let _ = p9win::set_snarf(&s);
                 }
                 RenderRootSignal::SetTitle(t) => {
-                    if let Some(g) = &self.gui {
+                    if let Some(g) = self.guis.iter().find(|g| g.node == node) {
                         g.window.set_title(&t);
                     }
                 }
@@ -1116,26 +1297,26 @@ impl App {
                 // them, else they never come (they are drawn as the window's
                 // overlays, paint below)
                 RenderRootSignal::NewLayer(kind, root, pos) => {
-                    if let Some(g) = &mut self.gui {
+                    if let Some(g) = self.guis.iter_mut().find(|g| g.node == node) {
                         let k = match kind {
                             LayerType::Selector { .. } => "select",
                             LayerType::Tooltip(_) => "tooltip",
                             _ => "other",
                         };
-                        self.layers.push((root.id(), k));
+                        g.layers.push((root.id(), k));
                         g.root.add_layer(root, pos);
                         g.window.request_redraw();
                     }
                 }
                 RenderRootSignal::RemoveLayer(id) => {
-                    self.layers.retain(|l| l.0 != id);
-                    if let Some(g) = &mut self.gui {
+                    if let Some(g) = self.guis.iter_mut().find(|g| g.node == node) {
+                        g.layers.retain(|l| l.0 != id);
                         g.root.remove_layer(id);
                         g.window.request_redraw();
                     }
                 }
                 RenderRootSignal::RepositionLayer(id, pos) => {
-                    if let Some(g) = &mut self.gui {
+                    if let Some(g) = self.guis.iter_mut().find(|g| g.node == node) {
                         g.root.reposition_layer(id, pos);
                         g.window.request_redraw();
                     }
@@ -1150,7 +1331,8 @@ impl App {
     fn fetch(&mut self, id: &str, wid: WidgetId, a: ErasedAction) {
         let Ok(a) = a.downcast::<VirtualScrollAction>() else { return };
         let VirtualScrollAction::Fetch(f) = *a else { return };
-        let Some(g) = self.gui.as_mut() else { return };
+        let o = owner(&self.fs.scene, id);
+        let Some(g) = self.guis.iter_mut().find(|g| g.node == o) else { return };
         let (sc, ids) = (&self.fs.scene, &mut self.ids);
         let Some(n) = sc.nodes.get(id) else { return };
         let children = n.children.clone();
@@ -1194,15 +1376,19 @@ impl App {
             let on = a.downcast::<CheckboxToggled>().unwrap().0;
             set(&mut self.fs, "checked", if on { "1" } else { "0" }.to_string());
             // Masonry leaves the box to its owner: shown as the scene says
-            if let (Some(g), Some(&w)) = (self.gui.as_mut(), self.ids.widget.get(&id)) {
-                g.root.edit_widget(w, |mut w| Checkbox::set_checked(&mut w.downcast::<Checkbox>(), on));
+            if let Some(&w) = self.ids.widget.get(&id) {
+                if let Some(g) = self.gui_of(&id) {
+                    g.root.edit_widget(w, |mut w| Checkbox::set_checked(&mut w.downcast::<Checkbox>(), on));
+                }
             }
             self.event(format!("check {id} {}", on as u8));
         } else if a.is::<SwitchToggled>() {
             let on = a.downcast::<SwitchToggled>().unwrap().0;
             set(&mut self.fs, "checked", if on { "1" } else { "0" }.to_string());
-            if let (Some(g), Some(&w)) = (self.gui.as_mut(), self.ids.widget.get(&id)) {
-                g.root.edit_widget(w, |mut w| Switch::set_on(&mut w.downcast::<Switch>(), on));
+            if let Some(&w) = self.ids.widget.get(&id) {
+                if let Some(g) = self.gui_of(&id) {
+                    g.root.edit_widget(w, |mut w| Switch::set_on(&mut w.downcast::<Switch>(), on));
+                }
             }
             self.event(format!("check {id} {}", on as u8));
         } else if a.is::<SelectionChanged>() {
@@ -1243,8 +1429,10 @@ impl App {
                 if let Some(n) = self.fs.scene.nodes.get_mut(r) {
                     n.props.insert("checked".to_string(), if on { "1" } else { "0" }.to_string());
                 }
-                if let (Some(g), Some(&w)) = (self.gui.as_mut(), self.ids.widget.get(r)) {
-                    g.root.edit_widget(w, |mut w| RadioButton::set_checked(&mut w.downcast::<RadioButton>(), on));
+                if let Some(&w) = self.ids.widget.get(r) {
+                    if let Some(g) = self.gui_of(r) {
+                        g.root.edit_widget(w, |mut w| RadioButton::set_checked(&mut w.downcast::<RadioButton>(), on));
+                    }
                 }
             }
             self.event(format!("radio {id}"));
@@ -1270,7 +1458,6 @@ impl App {
 
     /// the animations a frame on; the done ones end where they were going
     fn tick(&mut self) {
-        let Some(g) = self.gui.as_mut() else { return };
         let mut done = Vec::new();
         for ((id, k), a) in &self.anims {
             let (Some(n), Some(&wid)) = (self.fs.scene.nodes.get(id), self.ids.widget.get(id)) else {
@@ -1280,7 +1467,10 @@ impl App {
             let t = a.start.elapsed().as_secs_f64() / a.secs;
             let v = if t >= 1.0 { a.to } else { a.from + (a.to - a.from) * ease(a) };
             let kind = n.kind;
-            g.root.edit_widget(wid, |w| setnum(w, kind, k, v));
+            let o = owner(&self.fs.scene, id);
+            if let Some(g) = self.guis.iter_mut().find(|g| g.node == o) {
+                g.root.edit_widget(wid, |w| setnum(w, kind, k, v));
+            }
             self.shownv.insert((id.clone(), *k), v);
             if t >= 1.0 {
                 done.push((id.clone(), *k));
@@ -1291,15 +1481,16 @@ impl App {
         }
     }
 
-    fn redraw(&mut self) {
+    /// window gi's frame (the frame paces what moves in all windows)
+    fn redraw(&mut self, gi: usize) {
         self.tick();
-        let Some(g) = self.gui.as_mut() else { return };
+        let Some(g) = self.guis.get_mut(gi) else { return };
         let size = g.window.inner_size();
         let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else {
             return;
         };
         // the wheel's part for this frame, at the pointer (as the wheel's event)
-        let (wx, wy) = self.wheel;
+        let (wx, wy) = g.wheel;
         if wx != 0.0 || wy != 0.0 {
             // a part of what is left, whole pixels, at least one; the last bit as it is
             let part = |v: f64| match v {
@@ -1310,7 +1501,7 @@ impl App {
                 },
             };
             let (px, py) = (part(wx), part(wy));
-            self.wheel = (wx - px, wy - py);
+            g.wheel = (wx - px, wy - py);
             let ev = WinitWindowEvent::MouseWheel {
                 device_id: winit::event::DeviceId::dummy(),
                 delta: winit::event::MouseScrollDelta::PixelDelta(winit::dpi::PhysicalPosition::new(px, py)),
@@ -1342,11 +1533,14 @@ impl App {
         g.painter.paint(frame);
         self.fs.frames += 1;
         // something moving: another frame, a FRAME after this one began
-        let moving = !self.anims.is_empty() || g.root.needs_anim() || self.wheel != (0.0, 0.0);
+        let moving = !self.anims.is_empty() || g.root.needs_anim() || g.wheel != (0.0, 0.0);
         self.lastframe = moving.then_some(now);
         // where each node is now, for nodes/id/rect: in the window's pixels
         // (Masonry's are logical: times the scale)
-        self.fs.rects.clear();
+        // (each window its nodes': those of this window anew, the other windows' kept)
+        let sc = &self.fs.scene;
+        let node = g.node.clone();
+        self.fs.rects.retain(|id, _| sc.nodes.contains_key(id) && owner(sc, id) != node);
         for (id, wid) in &self.ids.widget {
             if let Some(w) = g.root.get_widget(*wid) {
                 let b = w.ctx().bounding_box();
@@ -1354,9 +1548,12 @@ impl App {
                 self.fs.rects.insert(id.clone(), [px(b.x0), px(b.y0), px(b.x1), px(b.y1)]);
             }
         }
-        // the layers open and their items (a select's options), where they are
-        self.fs.layers.clear();
-        for (n, (lid, kind)) in self.layers.iter().enumerate() {
+        // the layers open and their items (a select's options), where they are:
+        // the root's window's
+        if g.node == ROOT {
+            self.fs.layers.clear();
+        }
+        for (n, (lid, kind)) in g.layers.iter().enumerate().filter(|_| g.node == ROOT) {
             let Some(w) = g.root.get_widget(*lid) else { continue };
             let px = |v: f64| (v * scale).round() as i32;
             let b = w.ctx().bounding_box();
@@ -1381,48 +1578,16 @@ impl App {
 
 impl ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, el: &ActiveEventLoop) {
-        if self.gui.is_some() {
+        if !self.guis.is_empty() {
             return;
         }
-        let window = match el.create_window(Window::default_attributes().with_title(self.fs.scene.title.clone())) {
-            Ok(w) => Arc::new(w),
-            Err(e) => {
-                eprintln!("ui: window: {e}");
-                el.exit();
-                return;
-            }
+        let Some(g) = self.make_gui(el, ROOT) else {
+            el.exit();
+            return;
         };
-        let (painter, renderer) = Painter::new(&window, self.cpu);
-        self.fs.renderer = renderer;
-        let size = window.inner_size();
-        let tx = self.signal_tx.clone();
-        // the desktop's theme: colours (look.rs), the UI font
-        let theme = desk::theme::current();
-        let palette = look::Palette::from_theme(&theme);
-        let mut fonts = fonts(&theme.uifont).into_iter();
-        let first = fonts.next();
-        if first.is_none() {
-            eprintln!("ui: no fonts in /lib/font/ttf: no text");
-        }
-        let mut root = RenderRoot::new(
-            content(&self.fs.scene, &mut self.ids),
-            move |s| {
-                let _ = tx.send(s);
-            },
-            RenderRootOptions {
-                default_properties: Arc::new(look::property_set(&palette)),
-                use_system_fonts: false,
-                size_policy: WindowSizePolicy::User,
-                size,
-                scale_factor: window.scale_factor(),
-                test_font: first.map(|b| Blob::new(Arc::new(b))),
-            },
-        );
-        for b in fonts {
-            root.register_fonts(Blob::new(Arc::new(b)));
-        }
-        self.fs.size = (size.width, size.height);
-        self.gui = Some(Gui { window, painter, root, reducer: WindowEventReducer::default(), background: palette.background });
+        self.guis.push(g);
+        // the window nodes there already
+        self.windows(el);
         println!("{}", self.srv);
     }
 
@@ -1431,7 +1596,7 @@ impl ApplicationHandler<UserEvent> for App {
         match self.due {
             Some(t) if std::time::Instant::now() >= t => {
                 self.due = None;
-                if let Some(g) = &self.gui {
+                for g in &self.guis {
                     g.window.request_redraw();
                 }
                 el.set_control_flow(ControlFlow::Wait);
@@ -1446,25 +1611,27 @@ impl ApplicationHandler<UserEvent> for App {
             UserEvent::NineP(m) => {
                 let r = self.fs.handle(&m);
                 self.send(r);
-                self.apply_changes();
+                self.apply_changes(el);
                 self.signals(el);
             }
             UserEvent::Hangup => {}
         }
     }
 
-    fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WinitWindowEvent) {
+    fn window_event(&mut self, el: &ActiveEventLoop, id: WindowId, event: WinitWindowEvent) {
         if self.debug && !matches!(event, WinitWindowEvent::RedrawRequested) {
-            eprintln!("ui: {event:?}");
+            eprintln!("ui: {id:?} {event:?}");
         }
-        let Some(g) = self.gui.as_mut() else { return };
+        let Some(gi) = self.guis.iter().position(|g| g.window.id() == id) else { return };
+        let main = gi == 0;
+        let g = &mut self.guis[gi];
         // the wheel's steps (lines) given to the widgets a part each frame (redraw)
         if let WinitWindowEvent::MouseWheel { delta: winit::event::MouseScrollDelta::LineDelta(x, y), .. } = event {
             // a line in physical pixels at the window system's scale (Masonry's
             // portal takes pixels as physical)
             let line = WHEELLINE * g.root.scale_factor();
-            self.wheel.0 += x as f64 * line;
-            self.wheel.1 += y as f64 * line;
+            g.wheel.0 += x as f64 * line;
+            g.wheel.1 += y as f64 * line;
             self.another();
             self.signals(el);
             return;
@@ -1498,22 +1665,26 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WinitWindowEvent::Resized(s) => {
                 g.root.handle_window_event(WindowEvent::Resize(PhysicalSize::new(s.width, s.height)));
-                self.fs.size = (s.width, s.height);
+                if main {
+                    self.fs.size = (s.width, s.height);
+                }
                 g.window.request_redraw();
             }
             WinitWindowEvent::Moved(p) => {
-                self.fs.origin = (p.x, p.y);
+                if main {
+                    self.fs.origin = (p.x, p.y);
+                }
             }
             WinitWindowEvent::CursorMoved { position, .. } => {
-                self.pointer = (position.x, position.y);
+                g.pointer = (position.x, position.y);
             }
             // a click of button 3 on text plumbs it, as acme: Masonry tells neither a
             // word nor a selection, so the label's or text box's text, all of it
             WinitWindowEvent::MouseInput { state, button: winit::event::MouseButton::Right, .. } => {
                 if state.is_pressed() {
-                    self.b3at = Some(self.pointer);
-                } else if let Some(at) = self.b3at.take() {
-                    if (at.0 - self.pointer.0).abs() < 3.0 && (at.1 - self.pointer.1).abs() < 3.0 {
+                    g.b3at = Some(g.pointer);
+                } else if let Some(at) = g.b3at.take() {
+                    if (at.0 - g.pointer.0).abs() < 3.0 && (at.1 - g.pointer.1).abs() < 3.0 {
                         // the pointer's physical pixels, Masonry's logical
                         let sc = g.root.scale_factor();
                         let text = textat(&g.root, (at.0 / sc, at.1 / sc));
@@ -1533,10 +1704,16 @@ impl ApplicationHandler<UserEvent> for App {
             WinitWindowEvent::Focused(f) => {
                 g.root.handle_text_event(TextEvent::WindowFocusChange(f));
             }
-            WinitWindowEvent::RedrawRequested => self.redraw(),
-            WinitWindowEvent::CloseRequested => {
+            WinitWindowEvent::RedrawRequested => self.redraw(gi),
+            // the root's window: ui ends; a window node's: its client is told
+            // (close id) and deletes the node, or keeps it (a dialog that asks)
+            WinitWindowEvent::CloseRequested if main => {
                 self.event("close".to_string());
                 el.exit();
+            }
+            WinitWindowEvent::CloseRequested => {
+                let n = g.node.clone();
+                self.event(format!("close {n}"));
             }
             _ => {}
         }
@@ -1629,19 +1806,15 @@ fn main() {
         shownv: HashMap::new(),
         fs: Fs::new(user.trim()),
         out: Arc::new(ours),
-        gui: None,
+        guis: Vec::new(),
         ids: Ids::default(),
         signals,
         signal_tx,
         srv: srv.clone(),
         cpu,
         debug: std::env::var_os("UIDEBUG").is_some(),
-        layers: Vec::new(),
-        pointer: (0.0, 0.0),
-        b3at: None,
         lastframe: None,
         due: None,
-        wheel: (0.0, 0.0),
     };
     let r = el.run_app(&mut app);
     if let Err(e) = r {

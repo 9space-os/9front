@@ -75,6 +75,9 @@ pub enum Kind {
     TextArea,
     VarLabel,
     Pages,
+    /// a window of its own (a dialog, a popup): a child of the root only, its
+    /// one child its contents; not in the root's window
+    Window,
 }
 
 impl Kind {
@@ -112,6 +115,7 @@ impl Kind {
             "textarea" => Kind::TextArea,
             "varlabel" => Kind::VarLabel,
             "pages" => Kind::Pages,
+            "window" => Kind::Window,
             _ => return None,
         })
     }
@@ -150,6 +154,7 @@ impl Kind {
             Kind::TextArea => "textarea",
             Kind::VarLabel => "varlabel",
             Kind::Pages => "pages",
+            Kind::Window => "window",
         }
     }
 
@@ -158,7 +163,7 @@ impl Kind {
         match self {
             Kind::Column | Kind::Row | Kind::List | Kind::Grid | Kind::ZStack | Kind::Stack => usize::MAX,
             Kind::Split => 2,
-            Kind::Scroll | Kind::Box | Kind::Align | Kind::Badged | Kind::Collapse | Kind::RadioGroup => 1,
+            Kind::Scroll | Kind::Box | Kind::Align | Kind::Badged | Kind::Collapse | Kind::RadioGroup | Kind::Window => 1,
             _ => 0,
         }
     }
@@ -251,6 +256,9 @@ impl Scene {
                     return Err(format!("{id} exists"));
                 }
                 let parent = f.get(2).copied().unwrap_or(ROOT);
+                if kind == Kind::Window && parent != ROOT {
+                    return Err("a window is a child of the root".into());
+                }
                 let index = match f.get(3) {
                     Some(n) => Some(n.parse::<usize>().map_err(|_| format!("bad index {n}"))?),
                     None => None,
@@ -330,6 +338,9 @@ impl Scene {
 
     fn attach(&mut self, id: &str, parent: &str, index: Option<usize>) -> Result<(), String> {
         let p = self.nodes.get(parent).ok_or_else(|| format!("no node {parent}"))?;
+        if self.nodes.get(id).is_some_and(|n| n.kind == Kind::Window) && parent != ROOT {
+            return Err("a window is a child of the root".into());
+        }
         if p.children.len() >= p.kind.holds() {
             return Err(format!("{parent} ({}) holds no more", p.kind.name()));
         }

@@ -90,10 +90,9 @@ check 'ctl: where the contents are' '104 104 492 342' $"o
 r=`{cat /mnt/ui/nodes/b/rect}
 if(~ $#r 4) ok 'nodes/b/rect:' $r
 if not fail no rect for b
-# the button: a click; the first click makes the window current (wsys keeps it,
-# as rio), the second is the button's
+# the button: one click (the window is current: wsys gives it the click)
 b=`{at b}
-{ m $b(1) $b(2) 0; m $b(1) $b(2) 1; m $b(1) $b(2) 0; m $b(1) $b(2) 1; m $b(1) $b(2) 0 } >/dev/mousein
+{ m $b(1) $b(2) 0; m $b(1) $b(2) 1; m $b(1) $b(2) 0 } >/dev/mousein
 waitfor /tmp/ev '^click b$'
 grep -s '^click b$' /tmp/ev && ok 'event: click b' || fail no click event: `{cat /tmp/ev}
 
@@ -231,6 +230,56 @@ if(~ $#it 7){
 }
 if not fail select: no item 2: $it
 echo kill >/proc/$evpid4/note
+
+# a window node: a modal dialog of ui's window, a window of wsys of its own
+# with a label in it; the node deleted, the window gone
+n0=`{wc -l </mnt/wsys/stack}
+echo 'new dlg window
+set dlg title a dialog
+set dlg role dialog
+set dlg modal 1
+set dlg width 200
+set dlg height 100
+new dl label dlg
+set dl text in the dialog' >/mnt/ui/ctl
+n=0
+while(test `{wc -l </mnt/wsys/stack} -le $n0 && test $n -lt 50){ sleep 0.1; n=`{echo $n+1 | hoc} }
+n1=`{wc -l </mnt/wsys/stack}
+check 'window node: a window more in wsys' `{echo $n0+1 | hoc} $n1
+top=`{tail -1 /mnt/wsys/stack}
+lab=`{cat /mnt/wsys/$top(1)^/label}
+check 'window node: its title' 'a dialog' $"lab
+n=0
+while(! hasrect dl && test $n -lt 50){ sleep 0.1; n=`{echo $n+1 | hoc} }
+if(hasrect dl) ok 'window node: its label laid out' `{cat /mnt/ui/nodes/dl/rect}
+if not fail 'window node: its label has no place'
+echo 'del dlg' >/mnt/ui/ctl
+n=0
+while(test `{wc -l </mnt/wsys/stack} -gt $n0 && test $n -lt 50){ sleep 0.1; n=`{echo $n+1 | hoc} }
+check 'window node deleted: its window gone' $n0 `{wc -l </mnt/wsys/stack}
+# ui's window takes clicks again (its dialog gone: the focus back to it; the
+# dialog's mouse file, opened in ui's name space, was its own): one click,
+# the first after the focus came back
+uiw=`{tail -1 /mnt/wsys/stack}
+st=`{dd -if /mnt/wsys/$uiw(1)^/wctl -bs 256 -count 1 -quiet 1}
+if(~ $st(5) current) ok 'the dialog gone: ui''s window current again'
+if not fail 'the dialog gone: ui''s window' $st
+echo 'clear
+new db button
+set db text after the dialog' >/mnt/ui/ctl
+sleep 0.5
+cat /mnt/ui/event >/tmp/ev5 &
+evpid5=$apid
+sleep 0.3
+p=`{at db}
+t0=`{date -n}
+{ m $p(1) $p(2) 0; m $p(1) $p(2) 1; m $p(1) $p(2) 0 } >/dev/mousein
+waitfor /tmp/ev5 '^click db$'
+t1=`{date -n}
+if(grep -s '^click db$' /tmp/ev5) ok 'after the dialog: ui takes a click, in' `{echo $t1-$t0 | hoc} s
+if not fail 'after the dialog: a click lost:' `{cat /tmp/ev5}
+echo kill >/proc/$evpid5/note
+echo 'del db' >/mnt/ui/ctl
 
 # a node's look: a label's background red, then blue in place (its widget stays)
 echo clear >/mnt/ui/ctl

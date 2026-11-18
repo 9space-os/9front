@@ -1468,12 +1468,38 @@ impl Wsys {
             drop(c); // devdraw lets go of what the client had (its windows go)
             self.drawwake();
         }
+        // the window a file is of (counts of open files: kbd, mouse, raw mode)
+        // and the one the fid holds (attached to it, or made by its clone): not
+        // the same for /dev/wsys/m/mouse opened in window n's name space
+        let file = match f.kind {
+            Kind::File(n, _) => Some(n),
+            _ => None,
+        };
         let Some(n) = f.win.or(match f.kind {
             Kind::File(n, _) | Kind::WinDir(n) => Some(n),
             _ => None,
         }) else {
             return;
         };
+        if let Some(fw) = file {
+            self.closed(fw, &f);
+        }
+        if f.win == Some(n) {
+            if f.owns {
+                self.delwin(n, false);
+                return;
+            }
+            if let Some(w) = self.wins.get_mut(&n) {
+                w.refs = w.refs.saturating_sub(1);
+                if w.refs == 0 && !w.pinned {
+                    self.delwin(n, false);
+                }
+            }
+        }
+    }
+
+    /// file f of window n closed: its counts, raw mode, a text window's text again
+    fn closed(&mut self, n: u32, f: &FidState) {
         if let Some(w) = self.wins.get_mut(&n) {
             if f.open {
                 match f.kind {
@@ -1488,18 +1514,6 @@ impl Wsys {
                     // the program let go of the window: its text again
                     self.paint(n, None);
                     self.drawtext(n);
-                }
-            }
-        }
-        if f.win == Some(n) {
-            if f.owns {
-                self.delwin(n, false);
-                return;
-            }
-            if let Some(w) = self.wins.get_mut(&n) {
-                w.refs = w.refs.saturating_sub(1);
-                if w.refs == 0 && !w.pinned {
-                    self.delwin(n, false);
                 }
             }
         }
@@ -1842,7 +1856,9 @@ impl Wsys {
         }
         if self.focus == Some(n) {
             self.focus = None;
-            let top = self.z.iter().rev().copied().find(|i| !self.wins[i].hidden && !self.wins[i].bar);
+            // a dialog's or popup's focus back to its window, else the top one's
+            let back = w.parent.filter(|p| self.wins.get(p).is_some_and(|pw| !pw.hidden));
+            let top = back.or_else(|| self.z.iter().rev().copied().find(|i| !self.wins[i].hidden && !self.wins[i].bar));
             self.setfocus(top);
         }
         let _ = self.d.flush();

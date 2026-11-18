@@ -87,7 +87,12 @@ Read: what the user did, a line each, from the open on:
 (a stepper),
 .BI page " id page
 (pages),
-.BR close .
+.B close
+(the user closes ui's window: it ends),
+.BI close " id
+(the user closes the window of window node
+.IR id :
+the client deletes the node, or keeps it, a dialog asking first).
 A read waits for one; a flush (an interrupt) ends the wait.
 .TP
 .B tree
@@ -271,7 +276,33 @@ milliseconds),
 .BR count ,
 the
 .B page
-shown from 0);
+shown from 0),
+.B window
+(a window of its own under
+.IR wsys (4),
+a child of the root only, its one child its contents:
+.B title
+(else its id),
+.B width
+and
+.B height
+(its contents', logical pixels; 400 by 300),
+.B x
+and
+.B y
+(where on the screen),
+.B role
+.RB ( window :
+one of its own;
+.BR dialog :
+a dialog of ui's window, above it, moving and hidden with it;
+.BR popup :
+a dialog without a border, a menu's or a tooltip's), and
+.B modal
+1 (a dialog that takes ui's window's clicks while it is there); made when
+the node is, gone with it; under
+.IR rio
+none: the node shows nothing);
 in
 .I parent
 (default
@@ -409,9 +440,21 @@ The window's events, Masonry's signals and what wgpu logs, on standard error.
 .IR rio (4),
 .IR acme (4)
 .SH BUGS
-One window an
-.IR ui .
-Deleting the window ends
+A window node's
+.BR width ,
+.BR height ,
+.BR x ,
+.B y
+and
+.B role
+count when it is made only.
+.BI nodes/ id /rect
+of a node in a window node is in that window's pixels;
+.B ctl
+and
+.B layers
+are ui's window's.
+Deleting ui's window ends
 .I ui
 with a note: the clients' reads of
 .B event
