@@ -2,8 +2,11 @@
 // GLFW 3.5 for 9front - www.glfw.org
 // SPDX-License-Identifier: Zlib
 //------------------------------------------------------------------------
-// The plan9 platform's window: the process's window of wsys or rio (the
-// screen without either).
+// The plan9 platform's windows: the first is the process's window of wsys
+// or rio (the screen without either); under wsys more of their own come
+// through its clone file (plan9_draw.c: libdraw's wsysopen), each with its
+// files in a directory that stays across wsys restarts; the user's Delete
+// asks (wsys' askclose: glfwWindowShouldClose).
 // - size, place, hidden: /dev/wctl (resize, move, hide, unhide, current);
 //   reading it says when the window changed, is current or hidden
 // - the mouse: /dev/mouse (m x y buttons msec; r when the window changed,
@@ -13,8 +16,8 @@
 // - the title: /dev/label; cursors: /dev/cursor (plan9_cursor.c)
 // - OpenGL and GLES: EGL's plan9 platform, the native window "" (this
 //   process's window); Vulkan: VK_PLAN9_surface
-// Readers of /dev/mouse, /dev/kbd and /dev/wctl are threads of their own;
-// the event functions take what they read.
+// Readers of each window's mouse, kbd and wctl (another's event too) are
+// threads of their own; the event functions take what they read.
 //========================================================================
 
 #include "internal.h"
@@ -44,30 +47,105 @@ static void push(const _GLFWeventPlan9* e)
     pthread_mutex_unlock(&_glfw.plan9.lock);
 }
 
+// another window's readers: its mouse's, kbd's, wctl's and event file's,
+// each a thread holding a reference; the window's end stops them (deleted
+// in wsys, their reads fail)
+typedef struct _GLFWreaderPlan9
+{
+    int             id;
+    char            dir[64];
+    char            srv[256];   // the wsys it is in ($wsys)
+    int             mousefd;
+    volatile int    stop;
+    int             refs;       // under _glfw.plan9.lock
+} _GLFWreaderPlan9;
+
+static _GLFWreaderPlan9* hold(_GLFWreaderPlan9* rd)
+{
+    pthread_mutex_lock(&_glfw.plan9.lock);
+    rd->refs++;
+    pthread_mutex_unlock(&_glfw.plan9.lock);
+    return rd;
+}
+
+static void letgo(_GLFWreaderPlan9* rd)
+{
+    int last;
+
+    pthread_mutex_lock(&_glfw.plan9.lock);
+    last = --rd->refs == 0;
+    pthread_mutex_unlock(&_glfw.plan9.lock);
+    if (last)
+    {
+        if (rd->mousefd >= 0)
+            close(rd->mousefd);
+        free(rd);
+    }
+}
+
+typedef struct
+{
+    int                 fd;
+    _GLFWreaderPlan9*   rd;     // NULL: the process's window
+} readerarg;
+
 static void* kbdreader(void* arg);
 static void* wctlreader(void* arg);
 
-// the keyboard's and wctl's readers, of the window's files now (their own descriptors)
-static void startreaders(void)
+static void start(void* (*f)(void*), int fd, _GLFWreaderPlan9* rd)
 {
+    readerarg* a;
     pthread_t t;
 
-    if (_glfw.plan9.kbdfd >= 0 &&
-        pthread_create(&t, NULL, kbdreader, (void*) (intptr_t) _glfw.plan9.kbdfd) == 0)
+    if (fd < 0)
+        return;
+    if (!(a = malloc(sizeof(*a))))
+    {
+        close(fd);
+        return;
+    }
+    a->fd = fd;
+    a->rd = rd ? hold(rd) : NULL;
+    if (pthread_create(&t, NULL, f, a) == 0)
         pthread_detach(t);
-    if (_glfw.plan9.wctlfd >= 0 &&
-        pthread_create(&t, NULL, wctlreader, (void*) (intptr_t) _glfw.plan9.wctlfd) == 0)
-        pthread_detach(t);
+    else
+    {
+        close(fd);
+        if (rd)
+            letgo(rd);
+        free(a);
+    }
 }
 
-// m x y buttons msec, 49 bytes a message; r: the window changed. When the
-// window's files fail and its wsys is gone, the window in the next one
-// (_glfwDrawAgainPlan9): A tells the main thread to reconnect; q the end.
+// the process's window's keyboard and wctl readers, of its files now (their own descriptors)
+static void startreaders(void)
+{
+    start(kbdreader, _glfw.plan9.kbdfd, NULL);
+    start(wctlreader, _glfw.plan9.wctlfd, NULL);
+}
+
+static GLFWbool mousemsg(const char* buf, _GLFWeventPlan9* e)
+{
+    char* p;
+
+    e->kind = buf[0];
+    if (e->kind != 'm' && e->kind != 'r')
+        return GLFW_FALSE;
+    p = (char*) buf + 1;
+    e->x = (int) strtol(p, &p, 10);
+    e->y = (int) strtol(p, &p, 10);
+    e->buttons = (int) strtol(p, &p, 10);
+    return GLFW_TRUE;
+}
+
+// the process's window: m x y buttons msec, 49 bytes a message; r: the
+// window changed. When the window's files fail and its wsys is gone, the
+// window in the next one (_glfwDrawAgainPlan9, the others with it): A tells
+// the main thread to reconnect; q the end.
 static void* mousereader(void* arg)
 {
     _GLFWeventPlan9 e;
     char buf[64];
-    char* p;
     int n, fd;
 
     (void) arg;
@@ -91,14 +169,8 @@ static void* mousereader(void* arg)
         }
         buf[n] = 0;
         memset(&e, 0, sizeof(e));
-        e.kind = buf[0];
-        if (e.kind != 'm' && e.kind != 'r')
-            continue;
-        p = buf + 1;
-        e.x = (int) strtol(p, &p, 10);
-        e.y = (int) strtol(p, &p, 10);
-        e.buttons = (int) strtol(p, &p, 10);
-        push(&e);
+        if (mousemsg(buf, &e))
+            push(&e);
     }
     memset(&e, 0, sizeof(e));
     e.kind = 'q';       // the window is gone
@@ -106,22 +178,138 @@ static void* mousereader(void* arg)
     return NULL;
 }
 
-// kbd(3): messages k, K, c and a UTF-8 string each, NUL after each; arg: the descriptor
-static void* kbdreader(void* arg)
+// another window gone with its wsys: made again in the next one at its
+// directory (by the process's window's reader); its mouse there once $wsys
+// names a wsys that runs; -1 when the window ended meanwhile or none came
+static int againat(_GLFWreaderPlan9* rd)
 {
-    _GLFWeventPlan9 e;
-    char buf[512];
-    int n, i, len, fd;
+    char path[96], now[256];
+    const char* e = getenv("wsyswait");
+    int fd, i, secs = e ? atoi(e) : 300;
+    struct timespec q = { 0, 250000000 };
 
-    fd = (int) (intptr_t) arg;
+    snprintf(path, sizeof(path), "%s/mouse", rd->dir);
+    for (i = 0;  secs <= 0 || i < secs * 4;  i++)
+    {
+        if (rd->stop)
+            return -1;
+        _glfwDrawWsysPlan9(now, sizeof(now));
+        if (strcmp(now, rd->srv) != 0 && !_glfwDrawWsysLostPlan9() && (fd = open(path, O_RDWR)) >= 0)
+        {
+            snprintf(rd->srv, sizeof(rd->srv), "%s", now);
+            return fd;
+        }
+        nanosleep(&q, NULL);
+    }
+    return -1;
+}
+
+// another window's mouse. Its files fail: deleted in its wsys (Delete twice:
+// wsys' askclose let it go), x; gone with its wsys, the window again in the
+// next one (againat), A
+static void* xmousereader(void* arg)
+{
+    _GLFWreaderPlan9* rd = arg;
+    _GLFWeventPlan9 e;
+    char buf[64], now[256];
+    int n, fd;
+
     for (;;)
     {
-        n = (int) read(fd, buf, sizeof(buf) - 1);
+        n = (int) read(rd->mousefd, buf, 49);
+        if (rd->stop)
+            break;
         if (n <= 0)
         {
-            close(fd);  // its own: no other reader gets its number meanwhile
-            break;
+            _glfwDrawWsysPlan9(now, sizeof(now));
+            if (!_glfwDrawWsysLostPlan9() && strcmp(now, rd->srv) == 0)
+            {
+                memset(&e, 0, sizeof(e));
+                e.kind = 'x';
+                e.win = rd->id;
+                push(&e);
+                break;
+            }
+            if ((fd = againat(rd)) < 0)
+                break;
+            close(rd->mousefd);
+            rd->mousefd = fd;
+            memset(&e, 0, sizeof(e));
+            e.kind = 'A';
+            e.win = rd->id;
+            push(&e);
+            continue;
         }
+        buf[n] = 0;
+        memset(&e, 0, sizeof(e));
+        if (mousemsg(buf, &e))
+        {
+            e.win = rd->id;
+            push(&e);
+        }
+    }
+    letgo(rd);
+    return NULL;
+}
+
+// another window's event file (wsys(4)): close, the user's Delete (askclose)
+static void* eventreader(void* arg)
+{
+    readerarg* a = arg;
+    _GLFWeventPlan9 e;
+    char buf[512], *l, *nl;
+    int n;
+
+    while ((n = (int) read(a->fd, buf, sizeof(buf) - 1)) > 0 && !a->rd->stop)
+    {
+        buf[n] = 0;
+        for (l = buf;  *l;  l = nl)
+        {
+            if ((nl = strchr(l, '\n')) != NULL)
+                *nl++ = 0;
+            else
+                nl = l + strlen(l);
+            if (strcmp(l, "close") == 0)
+            {
+                memset(&e, 0, sizeof(e));
+                e.kind = 'x';
+                e.win = a->rd->id;
+                push(&e);
+            }
+        }
+    }
+    close(a->fd);
+    letgo(a->rd);
+    free(a);
+    return NULL;
+}
+
+// another window's kbd, wctl and event readers (again, in a new wsys)
+static void startxreaders(_GLFWreaderPlan9* rd)
+{
+    char path[96];
+
+    snprintf(path, sizeof(path), "%s/kbd", rd->dir);
+    start(kbdreader, open(path, O_RDONLY), rd);
+    snprintf(path, sizeof(path), "%s/wctl", rd->dir);
+    start(wctlreader, open(path, O_RDONLY), rd);
+    snprintf(path, sizeof(path), "%s/event", rd->dir);
+    start(eventreader, open(path, O_RDONLY), rd);
+}
+
+// kbd(3): messages k, K, c and a UTF-8 string each, NUL after each
+static void* kbdreader(void* arg)
+{
+    readerarg* a = arg;
+    _GLFWeventPlan9 e;
+    char buf[512];
+    int n, i, len;
+
+    for (;;)
+    {
+        n = (int) read(a->fd, buf, sizeof(buf) - 1);
+        if (n <= 0 || (a->rd && a->rd->stop))
+            break;
         buf[n] = 0;
         for (i = 0;  i < n;  i += len + 1)
         {
@@ -130,42 +318,51 @@ static void* kbdreader(void* arg)
                 continue;
             memset(&e, 0, sizeof(e));
             e.kind = buf[i];
+            e.win = a->rd ? a->rd->id : 0;
             snprintf(e.text, sizeof(e.text), "%s", buf + i + 1);
             push(&e);
         }
     }
+    close(a->fd);  // its own: no other reader gets its number meanwhile
+    if (a->rd)
+        letgo(a->rd);
+    free(a);
     return NULL;
 }
 
-// wctl: a line when the window changed (place, current, hidden); arg: the descriptor
+// wctl: a line when the window changed (place, current, hidden)
 static void* wctlreader(void* arg)
 {
+    readerarg* a = arg;
     _GLFWeventPlan9 e;
-    int n, fd;
+    int n;
 
-    fd = (int) (intptr_t) arg;
     for (;;)
     {
         memset(&e, 0, sizeof(e));
-        n = (int) read(fd, e.text, sizeof(e.text) - 1);
-        if (n <= 0)
-        {
-            close(fd);
+        n = (int) read(a->fd, e.text, sizeof(e.text) - 1);
+        if (n <= 0 || (a->rd && a->rd->stop))
             break;
-        }
         e.kind = 'w';
+        e.win = a->rd ? a->rd->id : 0;
         push(&e);
     }
+    close(a->fd);
+    if (a->rd)
+        letgo(a->rd);
+    free(a);
     return NULL;
 }
 
-static void wctl(const char* fmt, ...)
+// a message to the window's wctl (rio(4): resize, move, hide, unhide, current)
+static void wctl(_GLFWwindow* window, const char* fmt, ...)
 {
-    char msg[128];
+    char msg[128], path[96];
     va_list arg;
     int fd, n;
 
-    if ((fd = open("/dev/wctl", O_WRONLY)) < 0)
+    snprintf(path, sizeof(path), "%s/wctl", _glfwDrawDirPlan9(window->plan9.d));
+    if ((fd = open(path, O_WRONLY)) < 0)
         return;     // no window system: the screen stays as it is
     va_start(arg, fmt);
     n = vsnprintf(msg, sizeof(msg), fmt, arg);
@@ -174,13 +371,32 @@ static void wctl(const char* fmt, ...)
     close(fd);
 }
 
+static void relook(_GLFWwindow* window);
+
+// the window's contents to x y, w by h: the process's window by its wctl
+// (with the border, rio's way), another by wsys' ctl rect (the contents)
+static void place(_GLFWwindow* window, int x, int y, int w, int h)
+{
+    const int b = window->plan9.border;
+    char msg[96];
+
+    if (_glfwDrawIsProcessPlan9(window->plan9.d))
+        wctl(window, "resize -r %d %d %d %d", x - b, y - b, x + w + b, y + h + b);
+    else
+    {
+        snprintf(msg, sizeof(msg), "rect %d %d %d %d", x, y, x + w, y + h);
+        _glfwDrawCtlPlan9(window->plan9.d, msg);
+    }
+    relook(window);
+}
+
 // where the window is now: GLFW hears of a new place or size
 static void relook(_GLFWwindow* window)
 {
     int x, y, w, h;
 
-    _glfwDrawAttachPlan9();
-    _glfwDrawRectPlan9(&x, &y, &w, &h, &_glfw.plan9.border);
+    _glfwDrawAttachPlan9(window->plan9.d);
+    _glfwDrawRectPlan9(window->plan9.d, &x, &y, &w, &h, &window->plan9.border);
     // another scale (wsys' dpi): the program is told
     if (_glfwDrawDpiPlan9() != _glfw.plan9.dpi)
     {
@@ -228,7 +444,7 @@ static void warp(_GLFWwindow* window, double x, double y)
     int n;
 
     n = snprintf(msg, sizeof(msg), "m%d %d", window->plan9.xpos + (int) x, window->plan9.ypos + (int) y);
-    write(_glfw.plan9.mousefd, msg, n);
+    write(window->plan9.rd ? window->plan9.rd->mousefd : _glfw.plan9.mousefd, msg, n);
     window->plan9.lastx = (int) x;
     window->plan9.lasty = (int) y;
 }
@@ -243,7 +459,7 @@ static void mouse(_GLFWwindow* window, const _GLFWeventPlan9* e)
     static const int button[3] = { GLFW_MOUSE_BUTTON_LEFT, GLFW_MOUSE_BUTTON_MIDDLE, GLFW_MOUSE_BUTTON_RIGHT };
     const int mods = _glfwModsPlan9();
     const double x = e->x - window->plan9.xpos, y = e->y - window->plan9.ypos;
-    const int changed = e->buttons ^ _glfw.plan9.buttons;
+    const int changed = e->buttons ^ window->plan9.buttons;
     GLFWbool in;
     int i;
 
@@ -283,7 +499,7 @@ static void mouse(_GLFWwindow* window, const _GLFWeventPlan9* e)
         _glfwInputScroll(window, 0, 1);
     if ((changed & 16) && (e->buttons & 16))
         _glfwInputScroll(window, 0, -1);
-    _glfw.plan9.buttons = e->buttons;
+    window->plan9.buttons = e->buttons;
 }
 
 static int utf8(const char** s)
@@ -363,17 +579,30 @@ static void wctlline(_GLFWwindow* window, const char* s)
     const GLFWbool hidden = strstr(s, "hidden") != NULL;
 
     relook(window);
-    if (focused != _glfw.plan9.focused)
+    if (focused != window->plan9.focused)
     {
-        _glfw.plan9.focused = focused;
+        window->plan9.focused = focused;
         _glfwInputWindowFocus(window, focused);
     }
-    if (hidden != _glfw.plan9.hidden)
+    if (hidden != window->plan9.hidden)
     {
-        _glfw.plan9.hidden = hidden;
+        window->plan9.hidden = hidden;
         window->plan9.iconified = hidden;
         _glfwInputWindowIconify(window, hidden);
     }
+}
+
+// the window of an event: by its id (it may be gone meanwhile)
+static _GLFWwindow* bywin(int id)
+{
+    _GLFWwindow* w;
+
+    for (w = _glfw.windowListHead;  w;  w = w->next)
+    {
+        if (w->plan9.d && w->plan9.id == id)
+            return w;
+    }
+    return NULL;
 }
 
 static void handle(_GLFWwindow* window, const _GLFWeventPlan9* e)
@@ -381,13 +610,34 @@ static void handle(_GLFWwindow* window, const _GLFWeventPlan9* e)
     const char* s;
     int c, mods;
 
+    if (!window || !window->plan9.d)
+        return;
     switch (e->kind)
     {
         case 'A':
-            // the window in a new wsys: draw(3) anew, everything drawn again
-            _glfwDrawReconnectPlan9();
-            relook(window);
-            _glfwInputWindowDamage(window);
+            if (e->win == 0)
+            {
+                // the windows in a new wsys: draw(3) anew, each drawn again
+                _GLFWwindow* w;
+
+                _glfwDrawReconnectPlan9();
+                for (w = _glfw.windowListHead;  w;  w = w->next)
+                {
+                    relook(w);
+                    _glfwInputWindowDamage(w);
+                }
+            }
+            else
+            {
+                // another window there again: its keyboard, wctl and events
+                // (its image: with the process's A)
+                startxreaders(window->plan9.rd);
+                relook(window);
+                _glfwInputWindowDamage(window);
+            }
+            break;
+        case 'x':
+            _glfwInputWindowCloseRequest(window);
             break;
         case 'r':
             relook(window);
@@ -416,18 +666,11 @@ static void handle(_GLFWwindow* window, const _GLFWeventPlan9* e)
     }
 }
 
-GLFWbool _glfwCreateWindowPlan9(_GLFWwindow* window,
-                                const _GLFWwndconfig* wndconfig,
-                                const _GLFWctxconfig* ctxconfig,
-                                const _GLFWfbconfig* fbconfig)
+// the process's window: the first one
+static GLFWbool processwindow(_GLFWwindow* window, const _GLFWwndconfig* wndconfig)
 {
     int x, y, w, h, b, sw, sh;
 
-    if (_glfw.plan9.window)
-    {
-        _glfwInputError(GLFW_PLATFORM_ERROR, "plan9: one window a process (its window of the window system)");
-        return GLFW_FALSE;
-    }
     if (_glfw.plan9.mousefd < 0 && (_glfw.plan9.mousefd = open("/dev/mouse", O_RDWR)) < 0)
     {
         _glfwInputError(GLFW_PLATFORM_ERROR, "plan9: /dev/mouse: %s", strerror(errno));
@@ -438,23 +681,101 @@ GLFWbool _glfwCreateWindowPlan9(_GLFWwindow* window,
     if (_glfw.plan9.wctlfd < 0)
         _glfw.plan9.wctlfd = open("/dev/wctl", O_RDONLY);
 
-    _glfwDrawAttachPlan9();
-    _glfwDrawRectPlan9(&x, &y, &w, &h, &b);
+    window->plan9.d = _glfwDrawProcessPlan9();
+    window->plan9.id = 0;
+    _glfwDrawAttachPlan9(window->plan9.d);
+    _glfwDrawRectPlan9(window->plan9.d, &x, &y, &w, &h, &b);
     if (window->monitor)
     {
         // the whole screen, the border outside it
         _glfwDrawScreenPlan9(&sw, &sh);
-        wctl("resize -r %d %d %d %d", -b, -b, sw + b, sh + b);
+        wctl(window, "resize -r %d %d %d %d", -b, -b, sw + b, sh + b);
     }
     else
-        wctl("resize -dx %d -dy %d", wndconfig->width + 2 * b, wndconfig->height + 2 * b);
-    _glfwDrawAttachPlan9();
-    _glfwDrawRectPlan9(&window->plan9.xpos, &window->plan9.ypos,
-                       &window->plan9.width, &window->plan9.height, &_glfw.plan9.border);
+        wctl(window, "resize -dx %d -dy %d", wndconfig->width + 2 * b, wndconfig->height + 2 * b);
+    _glfwDrawAttachPlan9(window->plan9.d);
+    _glfwDrawRectPlan9(window->plan9.d, &window->plan9.xpos, &window->plan9.ypos,
+                       &window->plan9.width, &window->plan9.height, &window->plan9.border);
+    _glfw.plan9.window = window;
+    if (!_glfw.plan9.readers)
+    {
+        _glfw.plan9.readers = GLFW_TRUE;
+        pthread_create(&_glfw.plan9.mousereader, NULL, mousereader, NULL);
+        startreaders();
+    }
+    return GLFW_TRUE;
+}
+
+// another window (wsys only): one of its own, asking before Delete closes it
+static GLFWbool otherwindow(_GLFWwindow* window, const _GLFWwndconfig* wndconfig)
+{
+    _GLFWreaderPlan9* rd;
+    _GLFWwindow* p = _glfw.plan9.window;
+    char msgs[128], path[96], why[128];
+    int x, y, w = wndconfig->width, h = wndconfig->height, sw, sh;
+
+    // where: GLFW's place if it has one, else over the process's window, or the screen's middle
+    _glfwDrawScreenPlan9(&sw, &sh);
+    if (wndconfig->xpos != GLFW_ANY_POSITION && wndconfig->ypos != GLFW_ANY_POSITION)
+        x = wndconfig->xpos, y = wndconfig->ypos;
+    else if (p)
+        x = p->plan9.xpos + (p->plan9.width - w) / 2, y = p->plan9.ypos + (p->plan9.height - h) / 2;
+    else
+        x = (sw - w) / 2, y = (sh - h) / 2;
+    if (window->monitor)
+        x = 0, y = 0, w = sw, h = sh;
+    snprintf(msgs, sizeof(msgs), "parent -\naskclose\nrect %d %d %d %d\n", x, y, x + w, y + h);
+    if (!(window->plan9.d = _glfwDrawOpenPlan9(msgs)))
+    {
+        _glfwDrawErrstrPlan9(why, sizeof(why));
+        _glfwInputError(GLFW_PLATFORM_ERROR, "plan9: no window of wsys' clone file (rio has one window a process): %s", why);
+        return GLFW_FALSE;
+    }
+    if (!(rd = calloc(1, sizeof(*rd))))
+    {
+        _glfwDrawCloseWinPlan9(window->plan9.d);
+        return GLFW_FALSE;
+    }
+    rd->id = window->plan9.id = ++_glfw.plan9.nextid;
+    snprintf(rd->dir, sizeof(rd->dir), "%s", _glfwDrawDirPlan9(window->plan9.d));
+    _glfwDrawWsysPlan9(rd->srv, sizeof(rd->srv));
+    rd->refs = 1;
+    snprintf(path, sizeof(path), "%s/mouse", rd->dir);
+    if ((rd->mousefd = open(path, O_RDWR)) < 0)
+    {
+        _glfwInputError(GLFW_PLATFORM_ERROR, "plan9: %s: %s", path, strerror(errno));
+        free(rd);
+        _glfwDrawCloseWinPlan9(window->plan9.d);
+        return GLFW_FALSE;
+    }
+    window->plan9.rd = rd;
+    if (window->monitor)
+        wctl(window, "fullscreen");
+    _glfwDrawAttachPlan9(window->plan9.d);
+    _glfwDrawRectPlan9(window->plan9.d, &window->plan9.xpos, &window->plan9.ypos,
+                       &window->plan9.width, &window->plan9.height, &window->plan9.border);
+    {
+        pthread_t t;
+
+        if (pthread_create(&t, NULL, xmousereader, hold(rd)) == 0)
+            pthread_detach(t);
+        else
+            letgo(rd);
+    }
+    startxreaders(rd);
+    return GLFW_TRUE;
+}
+
+GLFWbool _glfwCreateWindowPlan9(_GLFWwindow* window,
+                                const _GLFWwndconfig* wndconfig,
+                                const _GLFWctxconfig* ctxconfig,
+                                const _GLFWfbconfig* fbconfig)
+{
+    if (!(_glfw.plan9.window ? otherwindow(window, wndconfig) : processwindow(window, wndconfig)))
+        return GLFW_FALSE;
     window->plan9.visible = GLFW_TRUE;
     window->plan9.lastx = window->plan9.lasty = -1;
-    _glfw.plan9.window = window;
-    _glfw.plan9.focused = GLFW_TRUE;
+    window->plan9.focused = GLFW_TRUE;
     if (window->title)
         _glfwSetWindowTitlePlan9(window, window->title);
 
@@ -480,14 +801,8 @@ GLFWbool _glfwCreateWindowPlan9(_GLFWwindow* window,
             return GLFW_FALSE;
     }
 
-    if (!_glfw.plan9.readers)
-    {
-        _glfw.plan9.readers = GLFW_TRUE;
-        pthread_create(&_glfw.plan9.mousereader, NULL, mousereader, NULL);
-        startreaders();
-    }
     if (wndconfig->focused || window->monitor)
-        wctl("current");
+        wctl(window, "current");
     return GLFW_TRUE;
 }
 
@@ -497,14 +812,31 @@ void _glfwDestroyWindowPlan9(_GLFWwindow* window)
         window->context.destroy(window);
     if (_glfw.plan9.window == window)
         _glfw.plan9.window = NULL;     // the readers go with the process
+    if (window->plan9.rd)
+    {
+        // its readers stop: the window deleted (its clone file closed), their reads fail
+        window->plan9.rd->stop = 1;
+        _glfwDrawCloseWinPlan9(window->plan9.d);
+        letgo(window->plan9.rd);
+        window->plan9.rd = NULL;
+    }
+    window->plan9.d = NULL;
 }
 
 void _glfwSetWindowTitlePlan9(_GLFWwindow* window, const char* title)
 {
+    char path[96], msg[256];
     int fd;
 
-    (void) window;
-    if ((fd = open("/dev/label", O_WRONLY | O_TRUNC)) >= 0)
+    if (!_glfwDrawIsProcessPlan9(window->plan9.d))
+    {
+        // through ctl: kept for the next wsys
+        snprintf(msg, sizeof(msg), "label %s", title);
+        _glfwDrawCtlPlan9(window->plan9.d, msg);
+        return;
+    }
+    snprintf(path, sizeof(path), "%s/label", _glfwDrawDirPlan9(window->plan9.d));
+    if ((fd = open(path, O_WRONLY | O_TRUNC)) >= 0)
     {
         write(fd, title, strlen(title));
         close(fd);
@@ -525,17 +857,20 @@ void _glfwSetWindowMonitorPlan9(_GLFWwindow* window,
                                 int width, int height,
                                 int refreshRate)
 {
-    int sw, sh, b = _glfw.plan9.border;
+    int sw, sh, b = window->plan9.border;
 
     (void) refreshRate;
     _glfwInputWindowMonitor(window, monitor);
     if (monitor)
     {
         _glfwDrawScreenPlan9(&sw, &sh);
-        wctl("resize -r %d %d %d %d", -b, -b, sw + b, sh + b);
+        wctl(window, "resize -r %d %d %d %d", -b, -b, sw + b, sh + b);
     }
     else
-        wctl("resize -r %d %d %d %d", xpos - b, ypos - b, xpos + width + b, ypos + height + b);
+    {
+        place(window, xpos, ypos, width, height);
+        return;
+    }
     relook(window);
 }
 
@@ -549,8 +884,13 @@ void _glfwGetWindowPosPlan9(_GLFWwindow* window, int* xpos, int* ypos)
 
 void _glfwSetWindowPosPlan9(_GLFWwindow* window, int xpos, int ypos)
 {
-    wctl("move -minx %d -miny %d", xpos - _glfw.plan9.border, ypos - _glfw.plan9.border);
-    relook(window);
+    if (_glfwDrawIsProcessPlan9(window->plan9.d))
+    {
+        wctl(window, "move -minx %d -miny %d", xpos - window->plan9.border, ypos - window->plan9.border);
+        relook(window);
+    }
+    else
+        place(window, xpos, ypos, window->plan9.width, window->plan9.height);
 }
 
 void _glfwGetWindowSizePlan9(_GLFWwindow* window, int* width, int* height)
@@ -563,8 +903,13 @@ void _glfwGetWindowSizePlan9(_GLFWwindow* window, int* width, int* height)
 
 void _glfwSetWindowSizePlan9(_GLFWwindow* window, int width, int height)
 {
-    wctl("resize -dx %d -dy %d", width + 2 * _glfw.plan9.border, height + 2 * _glfw.plan9.border);
-    relook(window);
+    if (_glfwDrawIsProcessPlan9(window->plan9.d))
+    {
+        wctl(window, "resize -dx %d -dy %d", width + 2 * window->plan9.border, height + 2 * window->plan9.border);
+        relook(window);
+    }
+    else
+        place(window, window->plan9.xpos, window->plan9.ypos, width, height);
 }
 
 void _glfwSetWindowSizeLimitsPlan9(_GLFWwindow* window,
@@ -602,7 +947,7 @@ void _glfwGetWindowFrameSizePlan9(_GLFWwindow* window,
                                   int* left, int* top,
                                   int* right, int* bottom)
 {
-    const int b = window->monitor ? 0 : _glfw.plan9.border;
+    const int b = window->monitor ? 0 : window->plan9.border;
 
     if (left)
         *left = b;
@@ -626,8 +971,7 @@ void _glfwGetWindowContentScalePlan9(_GLFWwindow* window, float* xscale, float* 
 
 void _glfwIconifyWindowPlan9(_GLFWwindow* window)
 {
-    (void) window;
-    wctl("hide");
+    wctl(window, "hide");
 }
 
 void _glfwRestoreWindowPlan9(_GLFWwindow* window)
@@ -635,11 +979,11 @@ void _glfwRestoreWindowPlan9(_GLFWwindow* window)
     const int* r = window->plan9.restore;
 
     if (window->plan9.iconified)
-        wctl("unhide");
+        wctl(window, "unhide");
     else if (window->plan9.maximized)
     {
         window->plan9.maximized = GLFW_FALSE;
-        wctl("resize -r %d %d %d %d", r[0], r[1], r[2], r[3]);
+        wctl(window, "resize -r %d %d %d %d", r[0], r[1], r[2], r[3]);
         _glfwInputWindowMaximize(window, GLFW_FALSE);
         relook(window);
     }
@@ -648,7 +992,7 @@ void _glfwRestoreWindowPlan9(_GLFWwindow* window)
 void _glfwMaximizeWindowPlan9(_GLFWwindow* window)
 {
     int* r = window->plan9.restore;
-    const int b = _glfw.plan9.border;
+    const int b = window->plan9.border;
     int sw, sh;
 
     if (window->plan9.maximized)
@@ -658,7 +1002,7 @@ void _glfwMaximizeWindowPlan9(_GLFWwindow* window)
     r[2] = window->plan9.xpos + window->plan9.width + b;
     r[3] = window->plan9.ypos + window->plan9.height + b;
     _glfwDrawScreenPlan9(&sw, &sh);
-    wctl("resize -r 0 0 %d %d", sw, sh);
+    wctl(window, "resize -r 0 0 %d %d", sw, sh);
     window->plan9.maximized = GLFW_TRUE;
     _glfwInputWindowMaximize(window, GLFW_TRUE);
     relook(window);
@@ -730,7 +1074,7 @@ GLFWbool _glfwRawMouseMotionSupportedPlan9(void)
 void _glfwShowWindowPlan9(_GLFWwindow* window)
 {
     window->plan9.visible = GLFW_TRUE;
-    wctl("unhide");
+    wctl(window, "unhide");
 }
 
 void _glfwRequestWindowAttentionPlan9(_GLFWwindow* window)
@@ -741,19 +1085,17 @@ void _glfwRequestWindowAttentionPlan9(_GLFWwindow* window)
 void _glfwHideWindowPlan9(_GLFWwindow* window)
 {
     window->plan9.visible = GLFW_FALSE;
-    wctl("hide");
+    wctl(window, "hide");
 }
 
 void _glfwFocusWindowPlan9(_GLFWwindow* window)
 {
-    (void) window;
-    wctl("current");
+    wctl(window, "current");
 }
 
 GLFWbool _glfwWindowFocusedPlan9(_GLFWwindow* window)
 {
-    (void) window;
-    return _glfw.plan9.focused;
+    return window->plan9.focused;
 }
 
 GLFWbool _glfwWindowIconifiedPlan9(_GLFWwindow* window)
@@ -781,8 +1123,7 @@ void _glfwPollEventsPlan9(void)
         e = _glfw.plan9.events[_glfw.plan9.tail];
         _glfw.plan9.tail = (_glfw.plan9.tail + 1) % _GLFW_PLAN9_EVENTS;
         pthread_mutex_unlock(&_glfw.plan9.lock);
-        if (_glfw.plan9.window)
-            handle(_glfw.plan9.window, &e);
+        handle(e.win ? bywin(e.win) : _glfw.plan9.window, &e);
     }
 }
 
@@ -864,10 +1205,12 @@ EGLNativeDisplayType _glfwGetEGLNativeDisplayPlan9(void)
     return EGL_DEFAULT_DISPLAY;
 }
 
+// "": the process's window; another's directory
 EGLNativeWindowType _glfwGetEGLNativeWindowPlan9(_GLFWwindow* window)
 {
-    (void) window;
-    return (EGLNativeWindowType) "";    // "": this process's window
+    if (!window->plan9.d || _glfwDrawIsProcessPlan9(window->plan9.d))
+        return (EGLNativeWindowType) "";
+    return (EGLNativeWindowType) _glfwDrawDirPlan9(window->plan9.d);
 }
 
 void _glfwGetRequiredInstanceExtensionsPlan9(char** extensions)
@@ -897,7 +1240,6 @@ VkResult _glfwCreateWindowSurfacePlan9(VkInstance instance,
     VkPlan9SurfaceCreateInfoPLAN9 info;
     VkResult err;
 
-    (void) window;
     create = (PFN_vkCreatePlan9SurfacePLAN9) vkGetInstanceProcAddr(instance, "vkCreatePlan9SurfacePLAN9");
     if (!create)
     {
@@ -906,7 +1248,8 @@ VkResult _glfwCreateWindowSurfacePlan9(VkInstance instance,
     }
     memset(&info, 0, sizeof(info));
     info.sType = VK_STRUCTURE_TYPE_PLAN9_SURFACE_CREATE_INFO_PLAN9;
-    info.pWindowName = NULL;    // the process's window (/dev/winname), else the screen
+    // NULL: the process's window (/dev/winname, else the screen); another's directory
+    info.pWindowName = _glfwDrawIsProcessPlan9(window->plan9.d) ? NULL : _glfwDrawDirPlan9(window->plan9.d);
     err = create(instance, &info, allocator, surface);
     if (err)
     {

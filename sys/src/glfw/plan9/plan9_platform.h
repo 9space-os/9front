@@ -8,10 +8,13 @@
 // that the event functions empty; OpenGL and GLES through EGL's plan9
 // platform, Vulkan through VK_PLAN9_surface, both found by weak
 // references in the static libvulkan.a (plan9_module.c: no dlopen).
-// One window a process.
+// The first window is the process's; under wsys more of their own come
+// through its clone file (libdraw's wsysopen), each with its own files,
+// readers and surface.
 //========================================================================
 
 #include <pthread.h>
+#include "plan9_draw.h"
 #include <stdint.h>
 #include <time.h>
 
@@ -28,7 +31,7 @@ typedef struct VkPlan9SurfaceCreateInfoPLAN9
     VkStructureType sType;
     const void*     pNext;
     VkFlags         flags;
-    const char*     pWindowName;    // NULL: /dev/winname, else the screen
+    const char*     pWindowName;    // NULL: the process's window; a window's directory
 } VkPlan9SurfaceCreateInfoPLAN9;
 
 typedef VkResult (APIENTRY *PFN_vkCreatePlan9SurfacePLAN9)(VkInstance,const VkPlan9SurfaceCreateInfoPLAN9*,const VkAllocationCallbacks*,VkSurfaceKHR*);
@@ -36,7 +39,8 @@ typedef VkResult (APIENTRY *PFN_vkCreatePlan9SurfacePLAN9)(VkInstance,const VkPl
 // what the readers read, for the event functions
 typedef struct _GLFWeventPlan9
 {
-    char            kind;       // m mouse, r resized, k K c keyboard, w wctl, q the end
+    char            kind;       // m mouse, r resized, k K c keyboard, w wctl, A a new wsys, x closed (Delete), q the end
+    int             win;        // the window's id (window->plan9.id); 0: the process's
     int             x, y, buttons;
     char            text[128];  // k K c: UTF-8; w: wctl's line
 } _GLFWeventPlan9;
@@ -44,8 +48,16 @@ typedef struct _GLFWeventPlan9
 #define _GLFW_PLAN9_EVENTS  512
 #define _GLFW_PLAN9_KEYS    32
 
+struct _GLFWreaderPlan9;
+
 typedef struct _GLFWwindowPlan9
 {
+    int             id;                 // 0: the process's window; else its readers' tag
+    _GLFWdrawwinPlan9* d;               // its draw(3) side (plan9_draw.c)
+    struct _GLFWreaderPlan9* rd;        // another window's readers
+    int             buttons;
+    int             border;             // the window system's around the contents (rio's way)
+    GLFWbool        focused, hidden;
     int             xpos, ypos;         // the contents on the screen
     int             width, height;
     GLFWbool        visible;
@@ -70,7 +82,8 @@ typedef struct _GLFWcursorPlan9
 
 typedef struct _GLFWlibraryPlan9
 {
-    _GLFWwindow*    window;     // the one
+    _GLFWwindow*    window;     // the process's
+    int             nextid;     // another window's id
     int             mousefd, kbdfd, wctlfd, cursorfd;
     pthread_mutex_t lock;
     pthread_cond_t  cond;
@@ -78,16 +91,13 @@ typedef struct _GLFWlibraryPlan9
     int             head, tail;
     GLFWbool        wake;       // glfwPostEmptyEvent
     GLFWbool        readers;
-    int             buttons;
     uint32_t        keys[_GLFW_PLAN9_KEYS];     // down, as the last k/K said
     int             nkeys;
-    int             border;     // a window system's border around the contents
     int             dpi;        // its dots per inch (wsys' scale ×96): the content scale
     char*           clipboard;
     int             scancodes[GLFW_KEY_LAST + 1];   // a key's rune
     char            keyname[8];
     pthread_t       mousereader;    // keyboard's and wctl's: detached (startreaders)
-    GLFWbool        focused, hidden;
 } _GLFWlibraryPlan9;
 
 GLFWbool _glfwConnectPlan9(int platformID, _GLFWplatform* platform);
@@ -166,4 +176,3 @@ void _glfwGetRequiredInstanceExtensionsPlan9(char** extensions);
 GLFWbool _glfwGetPhysicalDevicePresentationSupportPlan9(VkInstance instance, VkPhysicalDevice device, uint32_t queuefamily);
 VkResult _glfwCreateWindowSurfacePlan9(VkInstance instance, _GLFWwindow* window, const VkAllocationCallbacks* allocator, VkSurfaceKHR* surface);
 
-#include "plan9_draw.h"

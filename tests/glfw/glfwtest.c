@@ -7,7 +7,9 @@
  * for, its title (/dev/label), place and border, resized; the clipboard
  * (/dev/snarf); key names; standard cursors and hidden ones (/dev/cursor,
  * read back where wsys gives it); waiting for events with a time and woken
- * by glfwPostEmptyEvent from another thread.  With a GPU (-g): an OpenGL
+ * by glfwPostEmptyEvent from another thread.  Under wsys a second window
+ * (its clone file: /mnt/drawwin.1, libdraw's wsysopen): its size and title,
+ * resized, deleted in wsys (glfwWindowShouldClose).  With a GPU (-g): an OpenGL
  * context (EGL, zink), a frame cleared green and read back; Vulkan's
  * extensions, an instance with them and a surface of the window
  * (VK_PLAN9_surface) the device can present to.
@@ -276,6 +278,73 @@ static void vulkan(void)
     destroyinstance(inst, NULL);
 }
 
+/* the whole of a small file, "" if none */
+static void readsmall(const char *path, char *buf, int n)
+{
+    int fd, m;
+
+    buf[0] = 0;
+    if ((fd = open(path, O_RDONLY)) < 0) {
+        return;
+    }
+    m = read(fd, buf, n - 1);
+    close(fd);
+    buf[m > 0 ? m : 0] = 0;
+}
+
+/* wsys only: a second window of its own; deleted in wsys, GLFW says it should close */
+static void secondwindow(void)
+{
+    GLFWwindow *two;
+    char buf[64];
+    int w, h, fd;
+    double t0;
+
+    if (access("/dev/clone", F_OK) < 0) {
+        OK("a second window: not under wsys (no /dev/clone)");
+        return;
+    }
+    if (!(two = glfwCreateWindow(200, 150, "glfwtwo", NULL, NULL))) {
+        FAIL("a second window");
+        return;
+    }
+    glfwGetWindowSize(two, &w, &h);
+    if (w == 200 && h == 150) {
+        OK("a second window %dx%d", w, h);
+    } else {
+        FAIL("a second window %dx%d, want 200x150", w, h);
+    }
+    readsmall("/mnt/drawwin.1/label", buf, sizeof buf);
+    if (strcmp(buf, "glfwtwo") == 0) {
+        OK("its title in its label");
+    } else {
+        FAIL("its label: %s", buf);
+    }
+    glfwSetWindowSize(two, 240, 160);
+    glfwGetWindowSize(two, &w, &h);
+    if (w == 240 && h == 160) {
+        OK("it resized to %dx%d", w, h);
+    } else {
+        FAIL("it resized to %dx%d, want 240x160", w, h);
+    }
+    if ((fd = open("/mnt/drawwin.1/ctl", O_WRONLY)) < 0 || write(fd, "delete", 6) != 6) {
+        FAIL("delete it in wsys");
+    }
+    if (fd >= 0) {
+        close(fd);
+    }
+    t0 = glfwGetTime();
+    while (!glfwWindowShouldClose(two) && glfwGetTime() - t0 < 5) {
+        glfwWaitEventsTimeout(0.1);
+    }
+    if (glfwWindowShouldClose(two)) {
+        OK("deleted in wsys: it should close");
+    } else {
+        FAIL("deleted in wsys, GLFW did not hear of it");
+    }
+    glfwDestroyWindow(two);
+}
+
 int main(int argc, char **argv)
 {
     GLFWwindow *win;
@@ -403,6 +472,9 @@ int main(int argc, char **argv)
         while (glfwGetTime() - t0 < evsecs && !glfwWindowShouldClose(win)) {
             glfwWaitEventsTimeout(0.1);
         }
+    }
+    if (evsecs == 0) {
+        secondwindow();
     }
     glfwDestroyWindow(win);
 

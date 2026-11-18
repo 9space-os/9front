@@ -126,8 +126,10 @@ p9draw_closewin(P9dwin *w)
 			*l = w->next;
 			break;
 		}
-	if(disp != nil)
+	if(disp != nil){
 		release(w);
+		flushimage(disp, 1);	/* its image let go at once: draw(3) keeps a window held */
+	}
 	wsysclose(w->ws);
 	free(w);
 }

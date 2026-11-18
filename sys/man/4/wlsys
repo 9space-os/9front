@@ -105,7 +105,21 @@ another size, once the client has acknowledged it, resizes the window.
 Deleting the window in
 .I wsys
 sends the toplevel
-.BR close .
+.B close
+(its
+.B askclose
+lets the client decide; a second Delete deletes it).
+A toplevel with a parent
+.RB ( set_parent )
+is a dialog of the parent's window
+.RB ( ctl 's
+.BR parent ):
+above it, moving, hidden and closed with it;
+.B xdg_wm_dialog_v1
+makes it modal
+.RB ( set_modal :
+the parent takes no clicks while it is shown), and a parent gone makes
+its dialogs windows of their own again.
 Maximizing, full screen and minimizing are not offered
 .RB ( wm_capabilities
 is empty).
@@ -384,8 +398,7 @@ One output; a subsurface beyond its root surface is cut off (the window is
 the root's size), a window holds 32 buffers (its surfaces'); cursors of two colours and 16 by 16 pixels, as
 .IR cursor (3)'s;
 only text in the clipboard, no primary selection; drags only between
-Wayland windows; popups do not follow a parent
-that moves (the click on its border dismisses them); dma-bufs without feedback
+Wayland windows; dma-bufs without feedback
 (version 4), modifiers or fences
 .RB ( linux-drm-syncobj :
 Mesa's Wayland WSI waits for its blit before it commits); transform is
