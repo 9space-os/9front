@@ -36,15 +36,24 @@ int	kmsout_screen(unsigned long long maxbytes, unsigned int *w, unsigned int *h,
  * an output's mode and place: "w x h [hz] [at x y]" or "off"; nil or
  * the error; the screen as it is after
  */
-const char	*kmsout_set(char *name, char *spec, unsigned long long maxbytes, unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff);
+/*
+ * the framebuffer devdraw draws in made bigger: need bytes at least; 0
+ * and *maxbytes its size, or -1 (no memory for it)
+ */
+typedef int	(*Kmsgrow)(unsigned long long need, unsigned long long *maxbytes);
+const char	*kmsout_set(char *name, char *spec, unsigned long long maxbytes, Kmsgrow grow, unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff);
 void	kmsout_free(char *s);	/* a string of kmsout's */
 /* the mouse cursor (vga hwgc gpu): its image (cursor.h's clr and set, 32 bytes each, the offset), where it is */
 int	kmsout_cursor_image(unsigned char *clr, unsigned char *set, int ox, int oy, int size);
 void	kmsout_cursor_move(int x, int y, int on);
 /* until a monitor may have come or gone (DRM's hotplug event after the one *seen): 0 or -EINTR */
 int	kmsout_hotplug_wait(unsigned int *seen);
-/* the layout after it: the newly connected on (right of the others), the gone off; nil or the error */
-const char	*kmsout_relayout(unsigned long long maxbytes, int *changed, unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff);
+/*
+ * the layout after it: the newly connected on (right of the others), the
+ * gone off; a layout bigger than the framebuffer grows it (grow), else
+ * the new monitor in the biggest of its modes that fits; nil or the error
+ */
+const char	*kmsout_relayout(unsigned long long maxbytes, Kmsgrow grow, int *changed, unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff);
 
 #ifndef __KERNEL__
 /* the Plan 9 side's (kmsscreen.c): the screen through BAR barno; an output's mode set */

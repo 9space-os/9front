@@ -12,11 +12,13 @@
  * that are on (kmsout.c: at the start every connected one, side by
  * side); writing an output's mode changes it, and devdraw's screen
  * changes size with it (vgactl size, as aux/vga -m does: rio follows).
- * #G's framebuffer is made once (the kernel's memory, never freed): for
- * as many monitors side by side as the display has pipes, each as big
- * as the biggest mode of those connected (1920x1080 at least), else
- * smaller (below).  A monitor connected later goes on right of the
- * others (hotplugproc), if the framebuffer is big enough.  The mouse
+ * #G's framebuffer (the kernel's memory) is as big as the layout: at
+ * the start the connected monitors side by side in their preferred
+ * modes.  A monitor connected later goes on right of the others
+ * (hotplugproc); when the layout does not fit, a bigger framebuffer is
+ * made (growfb) and the screen goes onto it, the old one freed; one
+ * gone gives a smaller one back.  Without the memory for a bigger one
+ * the new monitor gets the biggest of its modes that fits.  The mouse
  * cursor is the display's (vga hwgc gpu: the kernel passes it on in
  * #G/n/cursor, cursorproc puts it on the outputs' cursor planes); soft,
  * drawn by devdraw, if the kernel or the display cannot.
@@ -31,6 +33,9 @@ static char *gdir, *drv;
 static QLock scrlock;		/* the geometry, the copies */
 static uchar *fb;		/* #G's framebuffer: w x h x 4, stride w*4 */
 static ulong fbsize;
+static uchar *nextfb;		/* a new one (growfb, smaller): the screen goes onto it at newscreen */
+static ulong nextsize;
+enum { Shrinkslack = 8<<20 };	/* a framebuffer this much bigger than the screen is given back */
 static uchar *bar;		/* the aperture the processor writes the screen through */
 static uchar *vram;		/* the screen's object, through it */
 static int w, h;
@@ -89,10 +94,10 @@ outmodes(char *name, int *bw, int *bh, int *pw, int *ph)
 }
 
 /*
- * the framebuffer's sizes to try, biggest first: every pipe a monitor
- * of the biggest mode, the biggest layout of the connected outputs,
- * theirs side by side in the preferred modes (kmsout_screen's), the
- * first one's preferred mode; 0 if none is connected
+ * the framebuffer's sizes to try, biggest first (the first that can be
+ * made): the connected outputs side by side in their preferred modes
+ * (kmsout_screen's layout), the first one's preferred mode; 0 if none
+ * is connected.  A bigger layout later makes a bigger one (growfb)
  */
 static int
 fbsizes(uvlong *sz)
@@ -129,12 +134,10 @@ fbsizes(uvlong *sz)
 	if((uvlong)mw*sh*4 > sz[1])
 		sz[1] = (uvlong)mw*sh*4;
 	sz[2] = (uvlong)qw*qh*4;
-	bw = mw > 1920 ? mw : 1920;
-	bh = mh > 1080 ? mh : 1080;
-	sz[0] = (uvlong)kmsout_npipes()*bw*bh*4;
-	if(sz[0] < sz[1])
-		sz[0] = sz[1];
-	return 4;
+	USED(bw, bh, sw, sh, mw, mh);
+	sz[0] = sz[2];
+	sz[1] = sz[3];
+	return 2;
 }
 
 /* #G's framebuffer, size bytes at least: its segment, attached */
@@ -166,7 +169,7 @@ fbattach(ulong size)
 			p = segattach(0, f[3], nil, strtoul(f[2], nil, 0));
 			if(p == (void*)-1)
 				return nil;
-			fbsize = strtoul(f[2], nil, 0);
+			nextsize = strtoul(f[2], nil, 0);
 			return p;
 		}
 	}
@@ -285,6 +288,7 @@ screenstart(char *dir, char *name)
 			fb = fbattach(sz[i]);
 	if(fb == nil)
 		return -1;
+	fbsize = nextsize;
 	if((bar = p9_apwc(kmsout_aperture())) == nil){
 		werrstr("aperture %#llux write-combining: %r", kmsout_aperture());
 		return -1;
@@ -330,8 +334,23 @@ screenstart(char *dir, char *name)
 static void
 newscreen(uint uw, uint uh, uint up, unsigned long long off)
 {
+	char path[64];
+	uchar *old;
+	int fd;
+
 	vram = bar + off;
 	pitch = up;
+	old = nil;
+	if(nextfb != nil){
+		/* the kernel's screen onto the new framebuffer (gpufb), at its size below */
+		if(vgactl("type gpu") < 0)
+			fprint(2, "%s: vgactl type gpu: %r\n", drv);
+		old = fb;
+		fb = nextfb;
+		fbsize = nextsize;
+		nextfb = nil;
+		w = h = 0;
+	}
 	if(uw != w || uh != h){
 		w = uw;
 		h = uh;
@@ -341,6 +360,50 @@ newscreen(uint uw, uint uh, uint up, unsigned long long off)
 			fprint(2, "%s: screen %dx%d\n", drv, w, h);
 	}
 	copyrect(0, 0, w, h);
+	if(old != nil){
+		/* the old one: ours let go, the kernel frees it when no one has it */
+		segdetach(old);
+		snprint(path, sizeof path, "%s/ctl", gdir);
+		if((fd = open(path, OWRITE)) >= 0){
+			fprint(fd, "fbfree");
+			close(fd);
+		}
+		fprint(2, "%s: framebuffer %lud bytes\n", drv, fbsize);
+	}
+}
+
+/*
+ * kmsout's Kmsgrow: a framebuffer of need bytes for a layout that does
+ * not fit (newscreen puts the screen on it); scrlock held
+ */
+static int
+growfb(unsigned long long need, unsigned long long *max)
+{
+	uchar *p;
+
+	if(need >= 1ULL<<31 || (p = fbattach(need)) == nil){
+		fprint(2, "%s: no framebuffer of %llud bytes: %r\n", drv, need);
+		return -1;
+	}
+	if(nextfb != nil)
+		segdetach(nextfb);	/* one made before and not used */
+	nextfb = p;
+	*max = nextsize;
+	return 0;
+}
+
+/* a framebuffer much bigger than the screen w x h: a smaller one; scrlock held */
+static void
+shrinkfb(uint uw, uint uh, uint up, unsigned long long off)
+{
+	uvlong want;
+	uchar *p;
+
+	want = (uvlong)uw*uh*4;
+	if(fbsize <= want + Shrinkslack || (p = fbattach(want)) == nil)
+		return;
+	nextfb = p;
+	newscreen(uw, uh, up, off);
 }
 
 char*
@@ -353,15 +416,17 @@ screenset(char *name, char *spec)
 	if(bar == nil)
 		return "no screen of the driver's (-S)";
 	qlock(&scrlock);
-	e = kmsout_set(name, spec, fbsize, &uw, &uh, &up, &off);
+	e = kmsout_set(name, spec, fbsize, growfb, &uw, &uh, &up, &off);
 	newscreen(uw, uh, up, off);
+	if(e == nil)
+		shrinkfb(uw, uh, up, off);
 	qunlock(&scrlock);
 	return (char*)e;
 }
 
 /*
  * a monitor connected or gone (DRM's hotplug event): the layout after
- * it; while a client's picture is on the display, again each second
+ * it (a client's picture on the display goes: kmsout_relayout)
  */
 static void
 hotplugproc(void*)
@@ -375,16 +440,16 @@ hotplugproc(void*)
 	for(;;){
 		if(kmsout_hotplug_wait(&seen) < 0)
 			continue;
-		for(;;){
-			qlock(&scrlock);
-			e = kmsout_relayout(fbsize, &changed, &uw, &uh, &up, &off);
-			if(changed)
-				newscreen(uw, uh, up, off);
-			qunlock(&scrlock);
-			if(e == nil || strstr((char*)e, "picture") == nil)
-				break;
-			sleep(1000);
+		qlock(&scrlock);
+		e = kmsout_relayout(fbsize, growfb, &changed, &uw, &uh, &up, &off);
+		if(changed){
+			newscreen(uw, uh, up, off);
+			shrinkfb(uw, uh, up, off);
+		}else if(nextfb != nil){
+			segdetach(nextfb);	/* made for a layout that did not come */
+			nextfb = nil;
 		}
+		qunlock(&scrlock);
 		if(e != nil)
 			fprint(2, "%s: hotplug: %s\n", drv, e);
 	}

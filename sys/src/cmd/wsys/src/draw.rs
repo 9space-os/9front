@@ -325,10 +325,27 @@ impl Display {
     /// resized); the old one let go. False: not in a window (the screen), as it was
     pub fn reattach(&mut self) -> io::Result<bool> {
         let w = std::fs::read_to_string("/dev/winname").unwrap_or_default();
-        let w = w.trim();
+        self.reattachto(w.trim())
+    }
+
+    /// the window or screen image named w again (reattach's, by a name known)
+    pub fn reattachto(&mut self, w: &str) -> io::Result<bool> {
         if w.is_empty() || self.screen == 0 {
             return Ok(false);
         }
+        self.attachname(w)
+    }
+
+    /// the screen image of devdraw named w (wsys' own devdraw made its screen
+    /// again: Core::resize), where the connection drew on its image 0 before
+    pub fn rescreen(&mut self, w: &str) -> io::Result<bool> {
+        if w.is_empty() {
+            return Ok(false);
+        }
+        self.attachname(w)
+    }
+
+    fn attachname(&mut self, w: &str) -> io::Result<bool> {
         self.offlayer();
         let id = self.id();
         let mut m = vec![b'n'];
@@ -341,7 +358,9 @@ impl Display {
         let n = self.conn.ctlread(&mut b)?;
         let f = info(&b[..n])?;
         let old = std::mem::replace(&mut self.screen, id);
-        let _ = self.free(old);
+        if old != 0 {
+            let _ = self.free(old);
+        }
         self.r = Rect::new(int(&f[4]), int(&f[5]), int(&f[6]), int(&f[7]));
         if !w.starts_with("noborder.") {
             self.r = self.r.inset(BORDERWIDTH);

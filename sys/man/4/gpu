@@ -1005,14 +1005,18 @@ turns it off.
 Two outputs at the same place in the same mode show the same.
 The screen changes size with them, and
 .IR rio (1)
-with it; it can be no bigger than the framebuffer of
+with it, up to what the display engine takes.
+The framebuffer of
 .IR gpu (3)
-the driver made at the start: as many monitors side by side as the
-display has pipes, each of the biggest mode of those connected then
-(1920x1080 at least), or less if the memory is not there.
+devdraw draws in is as big as the screen: at the start the connected
+monitors side by side in their preferred modes; a bigger layout makes
+a bigger one and the screen goes onto it (the old one freed), a
+smaller one gives memory back (when 8 MB or more are spare).
 A monitor connected later goes on in its preferred mode right of the
 others, one disconnected goes off (not the last one); one turned off
 by hand stays off until it is disconnected.
+When the memory for a bigger framebuffer is not there the new monitor
+comes on in the biggest of its modes that fits, and the log says so.
 Reading
 .B mode
 gives
@@ -1031,6 +1035,13 @@ A context's picture
 as big as the screen goes to every output (a page flip each), one as
 big as a mode of an output to the first such output (in that mode),
 other sizes are refused (the client copies).
+When the layout changes (a monitor plugged in or out, a
+.B mode
+written) the picture goes off the display, the screen shows again in
+its new size, and the client's next scanout, of the old size, is
+refused: Mesa's WSI then says
+.B VK_ERROR_OUT_OF_DATE_KHR
+and the client (wsys(4)) makes a swapchain of the new size.
 .B -S
 leaves draw(3)'s screen where it was; then there is no layout and no
 scanout.

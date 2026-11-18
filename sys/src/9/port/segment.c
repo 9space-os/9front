@@ -459,6 +459,11 @@ putseg(Segment *s)
 	if((s->type&SG_TYPE) == SG_PHYSICAL && s->pseg != nil && s->pseg->pager != nil && _pagerfree != nil)
 		(*_pagerfree)(s->pseg->pager);
 
+	/* 9space: the last segment of a counted physical one (#G's framebuffers) */
+	if((s->type&SG_TYPE) == SG_PHYSICAL && s->pseg != nil && s->pseg->users != nil)
+		if(decref(s->pseg->users) == 0 && s->pseg->unused != nil)
+			(*s->pseg->unused)(s->pseg);
+
 	free(s);
 }
 
@@ -1187,14 +1192,21 @@ addphysseg(Physseg* new)
 	 * Check not already entered and there is room
 	 * for a new entry and the terminating null entry.
 	 */
+	Physseg *free;
+
 	lock(&physseglock);
+	free = nil;
 	for(ps = physseg; ps->name; ps++){
+		if(ps->name[0] == 0 && free == nil)
+			free = ps;	/* 9space: delphysseg's */
 		if(strcmp(ps->name, new->name) == 0){
 			unlock(&physseglock);
 			return nil;
 		}
 	}
-	if(ps-physseg >= nelem(physseg)-2){
+	if(free != nil)
+		ps = free;
+	else if(ps-physseg >= nelem(physseg)-2){
 		unlock(&physseglock);
 		return nil;
 	}
@@ -1214,6 +1226,27 @@ findphysseg(char *name)
 			return ps;
 
 	return nil;
+}
+
+/*
+ * 9space: physical segment name no longer attachable (#G's framebuffer
+ * replaced): its entry stays (segments point at it) under an empty name,
+ * which addphysseg gives again; the caller knows none is attached
+ */
+void
+delphysseg(char *name)
+{
+	Physseg *ps;
+
+	lock(&physseglock);
+	for(ps = physseg; ps->name; ps++)
+		if(strcmp(ps->name, name) == 0){
+			ps->name = "";
+			ps->users = nil;
+			ps->unused = nil;
+			break;
+		}
+	unlock(&physseglock);
 }
 
 /* 9front-ng: a free slot of p, i if it is, the table grown if every one is in use; -1 if it cannot grow (p->seglock held) */
@@ -1392,6 +1425,8 @@ segattach(int attr, char *name, uintptr va, uintptr len)
 
 	s = newseg(attr, va, len/BY2PG);
 	s->pseg = ps;
+	if(ps->users != nil)
+		incref(ps->users);	/* 9space: putseg puts it */
 done:
 	if(g != nil){
 		if(waserror()){

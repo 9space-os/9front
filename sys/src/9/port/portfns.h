@@ -173,6 +173,7 @@ int		islo(void);
 Segment*	isoverlap(uintptr, uintptr);
 Segment*	findseg(Proc*, uintptr);
 Physseg*	findphysseg(char*);
+void	delphysseg(char*);
 int		kenter(Ureg*);
 void		kexit(Ureg*);
 void		kickpager(void);

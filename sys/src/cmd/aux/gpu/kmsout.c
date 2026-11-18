@@ -76,6 +76,8 @@ static int ncrtc;
 static u32 scr_handle, scr_fb, scr_w, scr_h, scr_pitch;
 static unsigned long long scr_off;
 static u32 shown_fb;			/* a client's picture on the display */
+static unsigned long long need;		/* the bytes of the last layout bigger than the framebuffer (apply) */
+static void takeoff(void);
 static struct file *shown_by;		/* the client's file */
 static int shown_out;			/* the output that shows it, -1: every one */
 static struct drm_mode_modeinfo shown_mode;	/* its mode there */
@@ -284,6 +286,48 @@ findmode(struct out *o, u32 w, u32 h, u32 hz, struct drm_mode_modeinfo *m, bool 
 		*m = *best;
 	kfree(modes);
 	return r;
+}
+
+/*
+ * the biggest mode of output o (the most pixels, then the highest
+ * refresh) with which the layout of the outputs on fits maxbytes and
+ * the display engine (o where it is, the others as they are)
+ */
+static int
+fitmode(struct out *o, unsigned long long maxbytes, struct drm_mode_modeinfo *m)
+{
+	struct drm_device *dev = kmsdev();
+	struct drm_mode_get_connector gc;
+	struct drm_mode_modeinfo *modes, *best = NULL;
+	u32 encs[Nenc], ow = 0, oh = 0, bw, bh;
+	unsigned int j;
+	int i;
+
+	for (i = 0; i < nout; i++)
+		if (outs[i].on && &outs[i] != o) {
+			ow = max_t(u32, ow, outs[i].x + outs[i].mode.hdisplay);
+			oh = max_t(u32, oh, outs[i].y + outs[i].mode.vdisplay);
+		}
+	modes = kmalloc_array(Nmode, sizeof(*modes), GFP_KERNEL);
+	if (!modes)
+		return -ENOMEM;
+	if (getconn(o->conn, &gc, modes, encs, false) == 0)
+		for (j = 0; j < gc.count_modes; j++) {
+			struct drm_mode_modeinfo *x = &modes[j];
+
+			bw = max_t(u32, ow, o->x + x->hdisplay);
+			bh = max_t(u32, oh, o->y + x->vdisplay);
+			if (bw > dev->mode_config.max_width || bh > dev->mode_config.max_height ||
+			    (unsigned long long)bw * bh * 4 > maxbytes)
+				continue;
+			if (!best || (u32)x->hdisplay * x->vdisplay > (u32)best->hdisplay * best->vdisplay ||
+			    ((u32)x->hdisplay * x->vdisplay == (u32)best->hdisplay * best->vdisplay && x->vrefresh > best->vrefresh))
+				best = x;
+		}
+	if (best)
+		*m = *best;
+	kfree(modes);
+	return best ? 0 : -ENOENT;
 }
 
 /*
@@ -679,8 +723,13 @@ apply(unsigned long long maxbytes)
 	if (r)
 		return r;
 	ovfree();	/* a new layout: the client's overlay comes again with its next picture */
-	if (w > dev->mode_config.max_width || h > dev->mode_config.max_height || (unsigned long long)w * h * 4 > maxbytes)
+	need = 0;
+	if (w > dev->mode_config.max_width || h > dev->mode_config.max_height)
 		return -E2BIG;
+	if ((unsigned long long)w * h * 4 > maxbytes) {
+		need = (unsigned long long)w * h * 4;
+		return -E2BIG;
+	}
 	r = assign(want);
 	if (r)
 		return r;
@@ -798,7 +847,7 @@ errstr(int r)
  * one where it was, or right of the others)
  */
 const char *
-kmsout_set(char *name, char *spec, unsigned long long maxbytes, unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff)
+kmsout_set(char *name, char *spec, unsigned long long maxbytes, Kmsgrow grow, unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff)
 {
 	struct out *o = findout(name), save[Nout];
 	struct drm_mode_modeinfo m;
@@ -840,10 +889,7 @@ kmsout_set(char *name, char *spec, unsigned long long maxbytes, unsigned int *w,
 		}
 	}
 	mutex_lock(&kmslock);
-	if (shown_fb) {
-		mutex_unlock(&kmslock);
-		return errstr(-EBUSY);
-	}
+	takeoff();	/* the screen's layout changes: a client's picture of the old one goes */
 	memcpy(save, outs, sizeof(save));
 	if (mw == 0) {
 		o->on = false;
@@ -872,6 +918,8 @@ kmsout_set(char *name, char *spec, unsigned long long maxbytes, unsigned int *w,
 		o->on = true;
 	}
 	r = apply(maxbytes);
+	if (r == -E2BIG && need && grow && grow(need, &maxbytes) == 0)
+		r = apply(maxbytes);	/* in a bigger framebuffer */
 	if (r) {
 		/* as it was: the CRTCs that went off come on again */
 		for (i = 0; i < nout; i++) {
@@ -1036,12 +1084,13 @@ kmsout_hotplug_wait(unsigned int *seen)
 /*
  * after a hotplug event: an output newly connected on (its preferred
  * mode, right of the others) unless it was turned off by hand, one no
- * longer connected off (not the last one on); nil, or the error (busy:
- * a client's picture is on the display, try again later); *changed if
- * the layout did
+ * longer connected off (not the last one on); nil, or the error; *changed
+ * if the layout did.  A client's picture on the display goes when the
+ * layout changes: its next scanout, of the old size, is refused, and the
+ * client (Mesa's WSI: VK_ERROR_OUT_OF_DATE_KHR) makes one of the new
  */
 const char *
-kmsout_relayout(unsigned long long maxbytes, int *changed, unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff)
+kmsout_relayout(unsigned long long maxbytes, Kmsgrow grow, int *changed, unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff)
 {
 	struct out save[Nout];
 	struct drm_mode_modeinfo m;
@@ -1053,10 +1102,6 @@ kmsout_relayout(unsigned long long maxbytes, int *changed, unsigned int *w, unsi
 	if (!kms || !scr_fb)
 		return "no screen";
 	mutex_lock(&kmslock);
-	if (shown_fb) {
-		mutex_unlock(&kmslock);
-		return errstr(-EBUSY);
-	}
 	memcpy(save, outs, sizeof(save));
 	for (i = 0; i < nout; i++) {
 		struct out *o = &outs[i];
@@ -1093,7 +1138,23 @@ kmsout_relayout(unsigned long long maxbytes, int *changed, unsigned int *w, unsi
 		}
 	}
 	if (*changed) {
+		takeoff();
 		r = apply(maxbytes);
+		if (r == -E2BIG && need && grow) {
+			if (grow(need, &maxbytes) == 0)
+				r = apply(maxbytes);	/* in a bigger framebuffer */
+			else
+				pr_warn("kmsout: no framebuffer of %llu bytes\n", need);
+		}
+		if (r == -E2BIG && need) {
+			/* no bigger one: the new monitors in the biggest of their modes that fit */
+			for (i = 0; i < nout; i++)
+				if (outs[i].on && !save[i].on && fitmode(&outs[i], maxbytes, &m) == 0) {
+					pr_info("kmsout: %s: %dx%d, the most the framebuffer has room for\n", outs[i].name, m.hdisplay, m.vdisplay);
+					outs[i].mode = m;
+				}
+			r = apply(maxbytes);
+		}
 		if (r) {
 			/* as it was, but knowing what is connected now */
 			for (i = 0; i < nout; i++) {
@@ -1617,6 +1678,23 @@ back(void)
 	o = &outs[shown_out];
 	kmsidle();	/* a modeset after the commits on their way */
 	return setcrtc(o->crtc, scr_fb, o->x, o->y, &o->mode, o->conn);
+}
+
+/* with kmslock: a client's picture off the display, the screen again */
+static void
+takeoff(void)
+{
+	u32 old;
+
+	if (!shown_fb)
+		return;
+	old = shown_fb;
+	back();
+	shown_fb = 0;
+	shown_by = NULL;
+	shown_out = -1;
+	fbgone(old);
+	pr_info("kmsout: the layout changes: a client's picture off the display\n");
 }
 
 /*

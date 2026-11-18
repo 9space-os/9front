@@ -1137,6 +1137,8 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 				poperror();
 				pp = (Physseg*)(s+1);
 				*pp = *ps;
+				if(pp->users != nil)
+					incref(pp->users);	/* 9space: a segment of it too */
 				pp->size = len;
 				pp->pager = pg;
 				pg->s = s;
@@ -1163,6 +1165,8 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 				s = newseg(ps->attr, va, len/BY2PG);
 				pp = (Physseg*)(s+1);
 				*pp = *ps;
+				if(pp->users != nil)
+					incref(pp->users);	/* 9space: a segment of it too */
 				pp->pa = ps->pa + off;
 				pp->size = len;
 				s->pseg = pp;

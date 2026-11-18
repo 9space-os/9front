@@ -106,9 +106,26 @@ Writing
 enable or disable bus mastering.
 .TP
 .BI fb " bytes
-allocate a physically contiguous framebuffer of at least
+allocate a physically contiguous framebuffer of
 .I bytes
-bytes, once; later requests that fit are no-ops.
+bytes (rounded up to pages), the segment
+.BI gpu n fb
+for the first,
+.BI gpu n fb. k
+for the
+.IR k th
+after it; a request of the size it has is a no-op.
+A new one (bigger for a monitor plugged in, smaller for one gone) is
+the framebuffer from then on: the screen goes onto it when
+.IR vga (3)'s
+.B "type gpu"
+is written again.
+The old one is freed when the screen is no longer on it and no segment
+of it is attached (the driver detaches its own).
+.TP
+.B fbfree
+free the old framebuffers that are unused now (as happens when the
+last segment of one is detached).
 .TP
 .B "irq ack
 unmask the interrupt (see below).

@@ -63,6 +63,24 @@ enum {
 #define QID(g, t)	(((g)<<4)|(t))
 
 typedef struct Gpu Gpu;
+typedef struct Fb Fb;
+
+/*
+ * 9space: a framebuffer for devdraw (vgagpu.c), as big as the screen's
+ * layout needs: the driver asks for another when a monitor comes or
+ * goes (ctl fb), the old one is freed when no segment of it is left and
+ * the screen is on another (gpufb)
+ */
+struct Fb
+{
+	uchar	*raw;		/* xalloc's */
+	uchar	*va;		/* the first page in it */
+	ulong	size;
+	char	seg[KNAMELEN];	/* gpu<id>fb, gpu<id>fb.<n> */
+	Ref	users;		/* its segments (Physseg.users) */
+	int	old;		/* another is the framebuffer now */
+	Fb	*next;		/* Gpu.fbs */
+};
 typedef struct Dirty Dirty;
 struct Gpu
 {
@@ -94,9 +112,10 @@ struct Gpu
 	int	curox, curoy;	/* the image's offset from the point */
 	uchar	curclr[32], curset[32];	/* cursor.h's */
 
-	uchar	*fb;
-	ulong	fbsize;
-	char	fbseg[KNAMELEN];
+	Fb	*fb;		/* the framebuffer now */
+	Fb	*fbs;		/* all of them: the old ones until they are unused */
+	Fb	*scrfb;		/* the one the screen is on (gpufb) */
+	int	nfb;		/* made so far */
 
 	uvlong	vrampa;		/* AMD APU: the video memory carveout (vram) */
 	uvlong	vramsize;
@@ -415,7 +434,7 @@ ctlread(Gpu *g, void *a, long n, vlong off)
 	if(g->vramseg[0])
 		s = seprint(s, e, "vram %#llux %llud %s %s\n", g->vrampa, g->vramsize, g->vramseg, g->vramwseg);
 	if(g->fb != nil)
-		s = seprint(s, e, "fb %#llux %lud %s\n", (uvlong)PADDR(g->fb), g->fbsize, g->fbseg);
+		s = seprint(s, e, "fb %#llux %lud %s\n", (uvlong)PADDR(g->fb->va), g->fb->size, g->fb->seg);
 	else
 		s = seprint(s, e, "fb none\n");
 	USED(s);
@@ -498,30 +517,103 @@ gpuread(Chan *c, void *a, long n, vlong off)
 	return 0;
 }
 
+static Lock fblock;
+
+/* old framebuffers no segment has and the screen is not on: freed */
+static void
+fbreap(Gpu *g)
+{
+	Fb **l, *f;
+
+	lock(&fblock);
+	for(l = &g->fbs; (f = *l) != nil;){
+		if(f->old && f->users.ref == 0 && f != g->scrfb){
+			*l = f->next;
+			unlock(&fblock);
+			delphysseg(f->seg);
+			xfree(f->raw);
+			free(f);
+			lock(&fblock);
+			l = &g->fbs;
+			continue;
+		}
+		l = &f->next;
+	}
+	unlock(&fblock);
+}
+
+/* Physseg.unused: the last segment of a framebuffer went */
+static void
+fbunused(Physseg*)
+{
+	int i;
+
+	for(i = 0; i < ngpu; i++)
+		fbreap(&gpus[i]);
+}
+
+/*
+ * the framebuffer size bytes big: the first one, or another (bigger or
+ * smaller) in place of the one there, under a new segment name; the
+ * screen goes on the new one when vgagpu.c asks again (vgactl type gpu)
+ */
 static void
 fballoc(Gpu *g, ulong size)
 {
+	Fb *f;
+	Physseg seg;
+
 	size = PGROUND(size);
-	if(g->fb != nil){
-		if(size > g->fbsize)
-			error("framebuffer already allocated and too small");
+	if(size == 0)
+		error(Ebadarg);
+	if(g->fb != nil && g->fb->size == size)
 		return;
-	}
-	g->fb = xspanalloc(size, BY2PG, 0);
-	if(g->fb == nil)
+	f = malloc(sizeof *f);
+	if(f == nil)
 		error(Enomem);
-	memset(g->fb, 0, size);
-	g->fbsize = size;
-	snprint(g->fbseg, KNAMELEN, "gpu%dfb", g->id);
+	/* xalloc's memory can be freed (xspanalloc's cannot): the page in it ourselves */
+	f->raw = xalloc(size + BY2PG);
+	if(f->raw == nil){
+		free(f);
+		error("no memory for a framebuffer that big");
+	}
+	f->va = (uchar*)PGROUND((uintptr)f->raw);
+	f->size = size;
+	memset(f->va, 0, size);
+	if(g->nfb == 0)
+		snprint(f->seg, KNAMELEN, "gpu%dfb", g->id);
+	else
+		snprint(f->seg, KNAMELEN, "gpu%dfb.%d", g->id, g->nfb);
 	/*
 	 * cached, as the kernel has it (devdraw draws there): without
 	 * SG_CACHED the driver read it uncached, every copy of a change to
 	 * the card crawled (the screen slower than VESA's, a window's
 	 * frames torn), and one page had two memory types
 	 */
-	addseg(g->fbseg, PADDR(g->fb), size, SG_PHYSICAL | SG_CACHED | SG_NOEXEC);
+	memset(&seg, 0, sizeof seg);
+	seg.attr = SG_PHYSICAL | SG_CACHED | SG_NOEXEC;
+	seg.name = f->seg;
+	seg.pa = PADDR(f->va);
+	seg.size = size;
+	seg.eveonly = 1;
+	seg.users = &f->users;
+	seg.unused = fbunused;
+	if(addphysseg(&seg) == nil){
+		xfree(f->raw);
+		free(f);
+		error("#G: no room for the framebuffer's segment");
+	}
+	g->nfb++;
+	lock(&fblock);
+	if(g->fb != nil)
+		g->fb->old = 1;
+	f->next = g->fbs;
+	g->fbs = f;
+	g->fb = f;
+	unlock(&fblock);
 	if(screengpu == nil)
 		screengpu = g;
+	fbreap(g);
 }
 
 /*
@@ -640,6 +732,8 @@ gpuwrite(Chan *c, void *a, long n, vlong)
 			pciclrbme(g->pci);
 	} else if(cb->nf == 2 && strcmp(cb->f[0], "fb") == 0)
 		fballoc(g, strtoul(cb->f[1], 0, 0));
+	else if(cb->nf == 1 && strcmp(cb->f[0], "fbfree") == 0)
+		fbreap(g);
 	else if(cb->nf == 3 && strcmp(cb->f[0], "bar") == 0 && strcmp(cb->f[2], "cached") == 0)
 		barcached(g, atoi(cb->f[1]));
 	else if(cb->nf == 3 && strcmp(cb->f[0], "vram") == 0)
@@ -668,9 +762,11 @@ gpufb(uvlong *pa, void **va, ulong *size)
 	/* not always #G/0: a VM's own VGA may come first, a passed-through card after */
 	if((g = screengpu) == nil || g->fb == nil)
 		return -1;
-	*pa = PADDR(g->fb);
-	*va = g->fb;
-	*size = g->fbsize;
+	*pa = PADDR(g->fb->va);
+	*va = g->fb->va;
+	*size = g->fb->size;
+	g->scrfb = g->fb;	/* the screen on it now: the one before may go */
+	fbreap(g);
 	return 0;
 }
 

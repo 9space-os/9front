@@ -121,7 +121,7 @@ mod comp {
         }
         pub fn damage(&self, _: crate::draw::Rect) {}
     }
-    pub fn corescreen(_: &str) {}
+    pub fn corescreen(_: &str, _: usize) {}
 }
 mod draw;
 mod drawcore;
@@ -163,7 +163,7 @@ const NSLOT: usize = p9::window_region().2;
 const MAXBUF: u32 = 32; // a window's buffers (a Wayland window's surfaces, two or three each)
 const MINSIZE: i32 = 16;
 // devdraw's screen in a window (-d's drawcore): the window may grow to this
-const MAXSCREEN: (i32, i32) = (4096, 2304); // a window swept smaller stays this big
+const MAXSCREEN: (i32, i32) = (4096, 2304); // devdraw's segment holds this much from the start (Core::resize makes a bigger one)
 const CORNER: i32 = 20; // on the border this near a corner grabs both its edges
 const MAXEVENTS: usize = 512;
 const MAXMOUSE: usize = 32;
@@ -350,6 +350,8 @@ struct Win {
     bar: bool,           // wctl's bar: on top of the others, the mouse without the focus (wbar)
     menuout: Option<i32>, // its menu's item chosen (-1: none), for a read of menu
     full: Option<(Rect, i32, i32)>, // wctl's fullscreen: the frame, border and title bar it had
+    scale: f64, // its monitor's (wsys' dpi file, its border and title bar, a text window's font)
+    home: Option<(String, Rect)>, // its monitor went: that one's name and the frame on it, relative to its corner (back there when it comes again)
     mapped: bool, // made by clone: off the screen (hidden) until its first present
     nofocus: bool, // a popup that leaves the focus where it is (a tooltip)
     parent: Option<u32>, // a dialog's or popup's window: it moves, stacks, hides and goes with that one
@@ -716,6 +718,49 @@ fn opts(words: &[&str], cmd: bool) -> Result<Opts, String> {
     Ok(o)
 }
 
+/// the monitor of outs window frame f is most on (the one nearest its
+/// middle if on none)
+fn outof(outs: &[(String, Rect, f64)], f: Rect) -> usize {
+    let area = |r: Rect| if r.empty() { 0i64 } else { r.dx() as i64 * r.dy() as i64 };
+    let (cx, cy) = ((f.x0 + f.x1) / 2, (f.y0 + f.y1) / 2);
+    let dist = |r: &Rect| {
+        let dx = (r.x0 - cx).max(cx - r.x1).max(0) as i64;
+        let dy = (r.y0 - cy).max(cy - r.y1).max(0) as i64;
+        dx * dx + dy * dy
+    };
+    let best = (0..outs.len()).max_by_key(|&i| area(f.clip(&outs[i].1)));
+    match best {
+        Some(i) if area(f.clip(&outs[i].1)) > 0 => i,
+        _ => (0..outs.len()).min_by_key(|&i| dist(&outs[i].1)).unwrap_or(0),
+    }
+}
+
+/// frame f on monitor from to monitor to: its corner where it was in
+/// proportion, its size kept
+fn remap(f: Rect, from: Rect, to: Rect) -> Rect {
+    let x = to.x0 + ((f.x0 - from.x0).max(0) as i64 * to.dx() as i64 / from.dx().max(1) as i64) as i32;
+    let y = to.y0 + ((f.y0 - from.y0).max(0) as i64 * to.dy() as i64 / from.dy().max(1) as i64) as i32;
+    f.add(x - f.x0, y - f.y0)
+}
+
+/// frame f no bigger than area and moved into it
+fn fitin(f: Rect, area: Rect) -> Rect {
+    let (w, h) = (f.dx().min(area.dx()), f.dy().min(area.dy()));
+    let x = f.x0.min(area.x1 - w).max(area.x0);
+    let y = f.y0.min(area.y1 - h).max(area.y0);
+    Rect::new(x, y, x + w, y + h)
+}
+
+/// an output's mode file ("WxH hz at x y", "off"): where it is on the screen
+fn parsemode(m: &str) -> Option<Rect> {
+    let f: Vec<&str> = m.split_whitespace().collect();
+    let (w, h) = f.first()?.split_once('x')?;
+    let (w, h): (i32, i32) = (w.parse().ok()?, h.parse().ok()?);
+    let at = f.iter().position(|v| *v == "at")?;
+    let (x, y): (i32, i32) = (f.get(at + 1)?.parse().ok()?, f.get(at + 2)?.parse().ok()?);
+    Some(Rect::new(x, y, x + w, y + h))
+}
+
 /// rect r (a window's frame) after the options: move keeps the size
 fn place(r: Rect, o: &Opts, mv: bool) -> Rect {
     let mut r = o.r.unwrap_or(r);
@@ -778,10 +823,13 @@ struct Wsys {
     cursorfd: Option<Fd>, // to set the cursor of the focused window
     edge: Option<usize>,  // the border part the mouse is on (whichcorner), shown by the cursor
     tx: mpsc::Sender<Ev>,
-    font: Option<font::Font>, // of the text windows
+    font: Option<font::Font>, // of the text windows, menus, title bars: at the theme's scale
+    fonts: HashMap<i32, font::Font>, // the same at the other monitors' scales (by dpi), opened when first needed
+    curdpi: i32,              // the cursor's size is for this (the monitor with the mouse)
     fontname: String,         // its file
     fontflag: Option<String>, // -f
     ownscreen: bool,          // the screen of this machine itself (not a window's, not far away)
+    outs: Vec<(String, Rect, f64)>, // the monitors (gpu(4)'s outputs on), left to right, each its scale; one, the screen, without (readouts)
     black: u32,
     pale: u32,    // a selection's background
     menuhi: u32,  // a menu's item under the mouse
@@ -851,7 +899,8 @@ impl Wsys {
         if !self.ownscreen {
             return;
         }
-        let n = self.sz(16).clamp(16, 64);
+        let dpi = if self.curdpi > 0 { self.curdpi } else { self.theme.dpi() };
+        let n = theme::scalesize(dpi, 16).clamp(16, 64);
         if let Err(e) = std::fs::write("#v/vgactl", format!("cursorsize {n}")) {
             if self.theme.scale != 1.0 {
                 eprintln!("wsys: #v/vgactl: cursorsize {n}: {e}");
@@ -1247,7 +1296,13 @@ impl Wsys {
                     }
                     Kind::File(n, F::Ctl) => text(self.ctltext(n).as_bytes()),
                     Kind::Stack => text(self.stacktext().as_bytes()),
-                    Kind::Theme | Kind::File(_, F::Theme) => text(self.theme.text().as_bytes()),
+                    Kind::Theme => text(self.theme.text().as_bytes()),
+                    // a window's: at its monitor's scale
+                    Kind::File(n, F::Theme) => {
+                        let mut t = self.theme.clone();
+                        t.scale = self.wins[&n].scale;
+                        text(t.text().as_bytes())
+                    }
                     Kind::RootWinname => text(self.core.as_ref().map(|c| c.winname.as_str()).unwrap_or("").as_bytes()),
                     Kind::File(n, F::Label) => text(self.wins[&n].label.as_bytes()),
                     Kind::File(n, F::Wdir) => text(self.wins[&n].wdir.as_bytes()),
@@ -1260,7 +1315,7 @@ impl Wsys {
                     Kind::File(n, F::Winname) => text(self.wins[&n].name.as_bytes()),
                     Kind::File(n, F::Winid) => text(format!("{n:11} ").as_bytes()),
                     // the theme's scale as dots per inch (libdraw's display->dpi, scalesize(2))
-                    Kind::File(_, F::Dpi) => text(format!("{}\n", self.theme.dpi()).as_bytes()),
+                    Kind::File(n, F::Dpi) => text(format!("{}\n", theme::dpi(self.wins[&n].scale)).as_bytes()),
                     Kind::File(_, F::Snarf) => {
                         if offset == 0 {
                             self.getsnarf();
@@ -1769,13 +1824,23 @@ impl Wsys {
         let slot = self.slots.iter().skip(1).position(|&u| !u).map(|i| i + 1).ok_or("too many windows")?;
         let n = self.nextwin + 1;
         let s = self.d.r;
-        let off = self.sz(40 + 30 * ((n as i32 - 1) % 10));
+        // on the monitor with the mouse, at its scale, unless the options put it
+        // on another one
+        let (m, mut scale) = { let o = &self.outs[self.outat(self.mx, self.my)]; (o.1, o.2) };
+        let off = self.szat(scale, 40 + 30 * ((n as i32 - 1) % 10));
         // a bar (-bar) has neither: its rectangle is all of it (a title bar
         // would not fit in a bar's height at a larger scale)
-        let t = if o.bar { 0 } else { self.titleh() };
-        let bw = if o.bar { 0 } else { self.sz(BORDER) };
-        let auto = outer(Rect::new(s.x0 + off, s.y0 + off, s.x0 + off + self.sz(400), s.y0 + off + self.sz(300)), bw, t);
+        let mut t = if o.bar { 0 } else { self.titlehat(scale) };
+        let mut bw = if o.bar { 0 } else { self.szat(scale, BORDER) };
+        let auto = outer(Rect::new(m.x0 + off, m.y0 + off, m.x0 + off + self.szat(scale, 400), m.y0 + off + self.szat(scale, 300)), bw, t);
         let f = place(auto, o, false);
+        let sc = self.scaleof(f);
+        if (sc - scale).abs() > 1e-6 {
+            scale = sc;
+            if !o.bar {
+                (t, bw) = (self.titlehat(scale), self.szat(scale, BORDER));
+            }
+        }
         let r = inner(f, bw, t).clip(&inner(s, bw, t));
         if r.dx() < 1 || r.dy() < 1 {
             return Err("window outside the screen".into());
@@ -1799,7 +1864,7 @@ impl Wsys {
         self.nextwin = n;
         self.slots[slot] = true;
         self.wins.insert(n, Win {
-            r, border: bw, title: t, unmax: None, bar: o.bar, menuout: None, full: None, tlayer: None, mapped: text, nofocus: false, parent: None, modal: false, askclose: false, asked: false, hiddenby: false, slot, bufs: HashMap::new(), img, layer, name, refs: 0, pinned: false, pid: o.pid,
+            r, border: bw, title: t, unmax: None, bar: o.bar, menuout: None, full: None, scale, home: None, tlayer: None, mapped: text, nofocus: false, parent: None, modal: false, askclose: false, asked: false, hiddenby: false, slot, bufs: HashMap::new(), img, layer, name, refs: 0, pinned: false, pid: o.pid,
             label: String::new(), wdir: o.cd.clone().unwrap_or_default(), text: String::new(), partial: vec![],
             events: VecDeque::new(), raw: false, line: String::new(), cons: VecDeque::new(), eof: false,
             kbd: VecDeque::new(), kbdopen: 0, mouseopen: 0, mouse: VecDeque::new(), resized: false,
@@ -2009,7 +2074,10 @@ impl Wsys {
                 let (b, t) = (self.wins[&n].border, self.wins[&n].title);
                 let f = place(self.wins[&n].frame(), &o, cmd == "move");
                 self.wins.get_mut(&n).unwrap().unmax = None;
-                self.setrect(n, inner(f, b, t))
+                self.wins.get_mut(&n).unwrap().home = None;
+                let r = self.setrect(n, inner(f, b, t));
+                self.rescale(n);
+                r
             }
             "top" => {
                 self.raise(n);
@@ -2056,10 +2124,11 @@ impl Wsys {
                 if w.bar || w.full.is_some() {
                     return Ok(());
                 }
-                w.full = Some((w.frame(), w.border, w.title));
+                let f = w.frame();
+                w.full = Some((f, w.border, w.title));
                 w.unmax = None;
                 (w.border, w.title) = (0, 0);
-                let s = self.d.r;
+                let s = self.outoffr(f);
                 self.reframe(n, s, true)?;
                 self.restack(n, true);
                 Ok(())
@@ -2978,9 +3047,14 @@ impl Wsys {
         }
         // title bars on or off, another scale (border, bar): each window keeps
         // its frame, its content grows or shrinks (a new size for its program)
-        let (t, b) = (self.titleh(), self.sz(BORDER));
+        // each window at its monitor's scale (another font: opened again)
+        self.fonts.clear();
+        self.outs = self.readouts();
         let ids: Vec<u32> = self.wins.keys().copied().collect();
         for &n in &ids {
+            let sc = self.scaleof(self.wins[&n].frame());
+            self.wins.get_mut(&n).unwrap().scale = sc;
+            let (t, b) = (self.titlehat(sc), self.szat(sc, BORDER));
             let w = &self.wins[&n];
             if w.border == 0 || (w.title == t && w.border == b) {
                 continue;
@@ -3049,13 +3123,14 @@ impl Wsys {
     fn titlebuttons(&mut self, n: u32) -> Vec<(TitleOp, Rect)> {
         let Some(w) = self.wins.get(&n) else { return vec![] };
         let bar = w.titlebar();
-        let Some(font) = self.font.as_mut() else { return vec![] };
+        let pad = self.szat(w.scale, TITLEPAD);
+        let dpi = theme::dpi(w.scale);
+        let Some(font) = Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, dpi) else { return vec![] };
         if bar.empty() {
             return vec![];
         }
         let mut x = bar.x1;
         let mut v = vec![];
-        let pad = self.theme.scalesize(TITLEPAD);
         for (s, op) in TITLEOPS {
             // at least as wide as the bar is high (a square: something to hit, as
             // the HIG want; x of a proportional font is narrow)
@@ -3088,15 +3163,17 @@ impl Wsys {
             (false, false) => self.cother,
         };
         let ink = if current { self.white } else { self.black };
+        let sc = w.scale;
         let buttons = self.titlebuttons(n);
-        let pad = self.sz(TITLEPAD);
+        let pad = self.szat(sc, TITLEPAD);
         let end = buttons.last().map_or(bar.x1, |b| b.1.x0) - pad;
         let mut items: Vec<(i32, i32, String)> = buttons.iter().map(|(op, r)| {
             let s = TITLEOPS.iter().find(|t| t.1 == *op).unwrap().0;
             (r.x0 + pad, r.x1, s.to_string())
         }).collect();
         items.push((bar.x0 + pad, end, label));
-        let (font, d) = (self.font.as_mut().unwrap(), &mut self.d);
+        let dpi = theme::dpi(sc);
+        let (font, d) = (Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, dpi).unwrap(), &mut self.d);
         let y = bar.y0 + (bar.dy() - font.height) / 2;
         let res = (|| -> std::io::Result<()> {
             d.draw(l, &bar, bg, 0, 0)?;
@@ -3147,13 +3224,16 @@ impl Wsys {
     /// it, drawterm's window changed size): wsys' screen is what it shows now
     fn resized(&mut self) {
         let old = self.d.r;
+        let oldouts = self.outs.clone();
         // WSYSDEBUG=resize: each r, what the window and wsys' screen are then
         let dbg = wsysdebug("resize");
         if dbg {
             eprintln!("wsys: resize: r, winname {}, screen {:?}", std::fs::read_to_string("/dev/winname").unwrap_or_default().trim(), old);
         }
         if self.core.is_some() {
-            // devdraw is wsys' own, as big as MAXSCREEN: the part shown changes
+            // devdraw is wsys' own: its screen as big as the window or screen
+            // shown, a new screen image when that changes (the windows made
+            // again on it, as with the kernel's below)
             let Some(kd) = self.kd.as_mut() else { return };
             match kd.reattach().and_then(|again| kd.onlayer().map(|_| again)) {
                 Ok(true) => {}
@@ -3161,32 +3241,43 @@ impl Wsys {
                     if dbg {
                         eprintln!("wsys: resize: not in a window (kd.screen {})", kd.screen);
                     }
-                    return; // the screen itself (its size is devdraw's)
+                    return;
                 }
                 Err(e) => {
                     eprintln!("wsys: the window: {e}");
                     return;
                 }
             }
-            let (cr, kr) = (self.imgr, kd.r);
-            let shown = Rect::new(cr.x0, cr.y0, cr.x0 + kr.dx().min(cr.dx()), cr.y0 + kr.dy().min(cr.dy()));
+            let kr = kd.r;
+            let c = self.core.as_mut().unwrap();
+            let new = Rect::new(c.r.x0, c.r.y0, c.r.x0 + kr.dx(), c.r.y0 + kr.dy());
             if dbg {
-                eprintln!("wsys: resize: the window {kr:?}, devdraw's screen {cr:?}, shown {shown:?}");
+                eprintln!("wsys: resize: the window {kr:?}, devdraw's screen {:?} -> {new:?}", c.r);
             }
-            if shown != old {
-                // what comes into view: the screen's fill where no window is (a
-                // window of its own over it, freed: devdraw restores those below)
-                let fill = self.theme.back << 8 | 0xFF;
-                for strip in [Rect::new(old.x1, shown.y0, shown.x1, shown.y1), Rect::new(shown.x0, old.y1, shown.x1, shown.y1)] {
-                    if !strip.empty() {
-                        if let Ok(l) = self.d.allocwindow(self.scr, strip, fill) {
-                            let _ = self.d.free(l);
-                        }
+            if new != c.r {
+                if let Err(e) = c.resize(new) {
+                    eprintln!("wsys: screen {}x{}: {e}", new.dx(), new.dy());
+                    return;
+                }
+                if c.r.x0 == 0 && c.r.y0 == 0 {
+                    comp::corescreen(&c.name, c.stride);
+                }
+                let name = c.winname.clone();
+                match self.d.rescreen(&name) {
+                    Ok(true) => {}
+                    Ok(false) => return,
+                    Err(e) => {
+                        eprintln!("wsys: the screen: {e}");
+                        return;
                     }
                 }
-                let _ = self.d.flush();
-                self.d.r = shown;
-                self.fitwins();
+                self.rescreen(old, oldouts);
+            } else {
+                // the same size, maybe other monitors
+                self.outs = self.readouts();
+                if self.outs != oldouts {
+                    self.fitwins(&oldouts);
+                }
             }
             // all of it again, at the window's place (moved, or only a new image)
             self.coreload(vec![self.d.r]);
@@ -3203,6 +3294,13 @@ impl Wsys {
                 return;
             }
         }
+        self.rescreen(old, oldouts);
+    }
+
+    /// the windows onto the screen image d has now (old: wsys' screen before,
+    /// oldouts: the monitors): a screen of layers on it, each window made
+    /// again where it was, its program told
+    fn rescreen(&mut self, old: Rect, oldouts: Vec<(String, Rect, f64)>) {
         let new = self.d.r;
         let (img, bg) = (self.d.screen, self.bg);
         let scr = match self.d.draw(img, &new, bg, 0, 0).and_then(|_| self.d.allocscreen(img, bg)) {
@@ -3226,12 +3324,17 @@ impl Wsys {
         }
         let _ = self.d.free(oldscr);
         let _ = self.d.flush();
-        self.fitwins();
+        self.outs = self.readouts();
+        self.fitwins(&oldouts);
     }
 
-    /// the windows after the screen changed: bars as wide as it, maximized ones
-    /// over it again, others moved back into it when their corner is off it
-    fn fitwins(&mut self) {
+    /// the windows after the screen changed (old: the monitors before): bars
+    /// as wide as it; a window whose monitor went onto the one with the mouse,
+    /// where it was on that one in proportion, no bigger than it (maximized and
+    /// full screen ones over it), remembered for when its monitor comes again;
+    /// one whose monitor came again back where it was; others moved with their
+    /// monitor, and back into the screen when their corner is off it
+    fn fitwins(&mut self, old: &[(String, Rect, f64)]) {
         let s = self.d.r;
         let ns: Vec<u32> = self.z.clone();
         for &n in &ns {
@@ -3241,18 +3344,67 @@ impl Wsys {
                 let _ = self.setrect(n, Rect::new(s.x0, r.y0, s.x1, r.y1));
             }
         }
+        let target = self.outat(self.mx, self.my);
         for &n in &ns {
             let w = &self.wins[&n];
             if w.bar || w.hidden {
                 continue;
             }
             let (f, b, t) = (w.frame(), w.border, w.title);
+            // the frame it is to have on monitor to (its rectangle, from: the one it was on)
+            let mut to: Option<(Rect, Rect)> = None;
+            let mut home = w.home.clone();
+            if let Some((name, rel)) = &home {
+                if let Some(o) = self.outs.iter().find(|o| &o.0 == name) {
+                    // its monitor is there again: back where it was
+                    to = Some((o.1, Rect::new(o.1.x0, o.1.y0, o.1.x0 + rel.dx().max(1), o.1.y0 + rel.dy().max(1)).add(rel.x0, rel.y0)));
+                    home = None;
+                }
+            }
+            if to.is_none() && !old.is_empty() {
+                let from = old[outof(old, f)].clone();
+                match self.outs.iter().find(|o| o.0 == from.0) {
+                    // its monitor still there: with it, where it moved
+                    Some(o) if o.1 != from.1 => to = Some((o.1, f.add(o.1.x0 - from.1.x0, o.1.y0 - from.1.y0))),
+                    Some(_) => {}
+                    None => {
+                        let o = self.outs[target].1;
+                        if home.is_none() && !from.0.is_empty() {
+                            home = Some((from.0.clone(), f.add(-from.1.x0, -from.1.y0)));
+                        }
+                        to = Some((o, remap(f, from.1, o)));
+                    }
+                }
+            }
+            self.wins.get_mut(&n).unwrap().home = home;
+            let w = &self.wins[&n];
+            if let Some((o, nf)) = to {
+                let area = self.workarea(o);
+                let w = self.wins.get_mut(&n).unwrap();
+                if let Some(u) = w.unmax {
+                    w.unmax = Some(fitin(u.add(nf.x0 - f.x0, nf.y0 - f.y0), area));
+                }
+                if let Some((u, ub, ut)) = w.full {
+                    w.full = Some((fitin(u.add(nf.x0 - f.x0, nf.y0 - f.y0), area), ub, ut));
+                }
+                let r = if w.full.is_some() {
+                    o
+                } else if w.unmax.is_some() {
+                    inner(area, b, t)
+                } else {
+                    inner(fitin(nf, area), b, t)
+                };
+                let _ = self.setrect(n, r);
+                continue;
+            }
             if w.full.is_some() {
-                let _ = self.setrect(n, s);
+                let o = self.outs[outof(&self.outs, f)].1;
+                let _ = self.setrect(n, o);
                 continue;
             }
             if w.unmax.is_some() {
-                let _ = self.setrect(n, inner(self.workarea(), b, t));
+                let area = self.workarea(self.outs[outof(&self.outs, f)].1);
+                let _ = self.setrect(n, inner(area, b, t));
                 continue;
             }
             const KEEP: i32 = 32; // of a window this much stays on the screen
@@ -3262,20 +3414,170 @@ impl Wsys {
                 let _ = self.setrect(n, inner(f.add(x - f.x0, y - f.y0), b, t));
             }
         }
+        // each at the scale of the monitor it is on now
+        for &n in &ns {
+            self.rescale(n);
+        }
+        self.cursorat();
     }
 
-    /// the screen but for the bars at its top and bottom edges
-    fn workarea(&self) -> Rect {
-        let mut s = self.d.r;
+    /// the monitors: gpu(4)'s outputs that are on ("WxH hz at x y" in their
+    /// mode files), in wsys' screen's coordinates, left to right; one, the
+    /// whole screen, in a window, far away or without them
+    fn readouts(&self) -> Vec<(String, Rect, f64)> {
+        let s = self.d.r;
+        let mut v: Vec<(String, Rect, f64)> = vec![];
+        if self.ownscreen {
+            for g in std::fs::read_dir("/dev/gpu").into_iter().flatten().flatten() {
+                for o in std::fs::read_dir(g.path().join("outputs")).into_iter().flatten().flatten() {
+                    let m = std::fs::read_to_string(o.path().join("mode")).unwrap_or_default();
+                    if let Some(r) = parsemode(&m) {
+                        // "scale auto": each monitor's from its EDID (its pixels to the inch)
+                        let mut scale = self.theme.scale;
+                        if self.theme.scaleauto {
+                            if let Some(mm) = std::fs::read(o.path().join("edid")).ok().and_then(|e| edidmm(&e)) {
+                                scale = theme::autoscale(r.dx(), mm);
+                            }
+                        }
+                        let r = r.add(s.x0, s.y0).clip(&s);
+                        if !r.empty() {
+                            v.push((o.file_name().to_string_lossy().into_owned(), r, scale));
+                        }
+                    }
+                }
+            }
+        }
+        v.sort_by_key(|o| (o.1.x0, o.1.y0));
+        if v.is_empty() {
+            v.push((String::new(), s, self.theme.scale));
+        }
+        v
+    }
+
+    /// n pixels at 96 dpi at scale sc
+    fn szat(&self, sc: f64, n: i32) -> i32 {
+        theme::scalesize(theme::dpi(sc), n)
+    }
+
+    /// the scale of the monitor frame f is most on
+    fn scaleof(&self, f: Rect) -> f64 {
+        self.outs[outof(&self.outs, f)].2
+    }
+
+    /// the font at dpi: the theme's, else one of fonts, opened the first time
+    /// (textfont at that scale); the theme's if it cannot be
+    fn fontfor<'a>(font: &'a mut Option<font::Font>, fonts: &'a mut HashMap<i32, font::Font>, theme: &theme::Theme, flag: &Option<String>, dpi: i32) -> Option<&'a mut font::Font> {
+        if dpi == theme.dpi() || font.is_none() {
+            return font.as_mut();
+        }
+        if !fonts.contains_key(&dpi) {
+            let mut t = theme.clone();
+            t.scale = dpi as f64 / 96.0;
+            let name = textfont(flag, &t);
+            match font::Font::open(&name) {
+                Ok(f) => {
+                    fonts.insert(dpi, f);
+                }
+                Err(e) => {
+                    eprintln!("wsys: font {name}: {e}");
+                    return font.as_mut();
+                }
+            }
+        }
+        fonts.get_mut(&dpi)
+    }
+
+    /// the height of window n's font, as opened (else the theme's)
+    fn wfonth(&self, n: u32) -> i32 {
+        let dpi = self.wins.get(&n).map_or(self.theme.dpi(), |w| theme::dpi(w.scale));
+        let f = if dpi == self.theme.dpi() { self.font.as_ref() } else { self.fonts.get(&dpi).or(self.font.as_ref()) };
+        f.map(|f| f.height).unwrap_or(1).max(1)
+    }
+
+    /// a title bar's height at scale sc (none without title bars)
+    fn titlehat(&mut self, sc: f64) -> i32 {
+        if !self.theme.title {
+            return 0;
+        }
+        let dpi = theme::dpi(sc);
+        let pad = self.szat(sc, 4);
+        Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, dpi).map_or(0, |f| f.height + pad)
+    }
+
+    /// window n at its monitor's scale: border and title bar as big, its
+    /// content as big as it was to the eye (its pixels in proportion, its
+    /// corner kept), its program told (a resize: it reads dpi again)
+    fn rescale(&mut self, n: u32) {
+        let Some(w) = self.wins.get(&n) else { return };
+        if w.hidden {
+            return;
+        }
+        let f = w.frame();
+        let sc = self.scaleof(f);
+        let w = &self.wins[&n];
+        if (sc - w.scale).abs() < 1e-6 {
+            return;
+        }
+        let (old, r, b0, t0, bar, full) = (w.scale, w.r, w.border, w.title, w.bar, w.full.is_some());
+        let (b, t) = if bar || full || b0 == 0 { (b0, t0) } else { (self.szat(sc, BORDER), self.titlehat(sc)) };
+        let w = self.wins.get_mut(&n).unwrap();
+        w.scale = sc;
+        (w.border, w.title) = (b, t);
+        if !bar && !full && w.unmax.is_none() {
+            let k = sc / old;
+            let (dx, dy) = (((r.dx() as f64) * k).round() as i32, ((r.dy() as f64) * k).round() as i32);
+            let nr = Rect::new(f.x0 + b, f.y0 + b + t, f.x0 + b + dx.max(1), f.y0 + b + t + dy.max(1));
+            // no bigger than its monitor (but for the bars)
+            let area = self.workarea(self.outoffr(f));
+            let nr = inner(fitin(outer(nr, b, t), area), b, t);
+            if let Err(e) = self.reframe(n, nr, true) {
+                eprintln!("wsys: window {n}: {e}");
+            }
+        } else if let Err(e) = self.reframe(n, inner(f, b, t), true) {
+            eprintln!("wsys: window {n}: {e}");
+        }
+        self.paintborder(n);
+        self.drawtext(n);
+        let w = self.wins.get_mut(&n).unwrap();
+        w.resized = true;
+        w.drawn = None;
+        self.wake(n);
+    }
+
+    /// the cursor as big as the scale of the monitor with the mouse makes it
+    fn cursorat(&mut self) {
+        let dpi = theme::dpi(self.outs[self.outat(self.mx, self.my)].2);
+        if dpi != self.curdpi {
+            self.curdpi = dpi;
+            self.cursorsize();
+        }
+    }
+
+    /// the monitor with x y on it, else the first
+    fn outat(&self, x: i32, y: i32) -> usize {
+        self.outs.iter().position(|o| o.1.contains(x, y)).unwrap_or(0)
+    }
+
+    /// the monitor of window frame f: the one it is most on
+    fn outoffr(&self, f: Rect) -> Rect {
+        self.outs[outof(&self.outs, f)].1
+    }
+
+    /// monitor o but for the bars at its top and bottom edges
+    fn workarea(&self, o: Rect) -> Rect {
+        let mut s = o;
         for w in self.wins.values().filter(|w| w.bar && !w.hidden) {
             let f = w.frame();
-            if f.y0 <= self.d.r.y0 {
+            if f.x1 <= o.x0 || f.x0 >= o.x1 {
+                continue;
+            }
+            if f.y0 <= o.y0 {
                 s.y0 = s.y0.max(f.y1);
-            } else if f.y1 >= self.d.r.y1 {
+            } else if f.y1 >= o.y1 {
                 s.y1 = s.y1.min(f.y0);
             }
         }
-        if s.dy() < self.sz(MINSIZE) { self.d.r } else { s }
+        if s.dy() < self.sz(MINSIZE) { o } else { s }
     }
 
     /// window n over the whole screen, or back to the frame it had
@@ -3284,7 +3586,7 @@ impl Wsys {
         let (b, t) = (w.border, w.title);
         let (f, unmax) = match w.unmax {
             Some(f) => (f, None),
-            None => (self.workarea(), Some(w.frame())),
+            None => (self.workarea(self.outoffr(w.frame())), Some(w.frame())),
         };
         if self.setrect(n, inner(f, b, t)).is_ok() {
             self.wins.get_mut(&n).unwrap().unmax = unmax;
@@ -3595,8 +3897,10 @@ impl Wsys {
         let ink = if w.hold { self.holdcol } else { black };
         let want = w.want;
         let tabstop = self.tabstop;
-        let (sw, sg) = (self.sz(SCROLLWID), self.sz(SCROLLGAP));
-        let (font, d) = (self.font.as_mut().unwrap(), &mut self.d);
+        let sc = w.scale;
+        let (sw, sg) = (self.szat(sc, SCROLLWID), self.szat(sc, SCROLLGAP));
+        let dpi = theme::dpi(sc);
+        let (font, d) = (Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, dpi).unwrap(), &mut self.d);
         let scrollr = Rect::new(r.x0, r.y0, r.x0 + sw, r.y1);
         let inner = Rect::new(r.x0 + sw + sg, r.y0, r.x1, r.y1);
         let (maxw, h) = (inner.dx().max(1), font.height.max(1));
@@ -3748,7 +4052,7 @@ impl Wsys {
     /// button but in window n's scroll bar at y, as rio's: 1 back and 3 on by the
     /// lines from the top of the bar to the mouse, 2 to that place of the text
     fn scrollstep(&mut self, n: u32, but: i32, y: i32) {
-        let h = self.font.as_ref().map(|f| f.height).unwrap_or(1).max(1);
+        let h = self.wfonth(n);
         let Some(w) = self.wins.get_mut(&n) else { return };
         let s = w.scrollr;
         let (total, begin, nvis) = w.shown;
@@ -3831,6 +4135,7 @@ impl Wsys {
 
     fn mouse(&mut self, x: i32, y: i32, b: i32, ms: u32) {
         (self.mx, self.my, self.ms) = (x, y, ms);
+        self.cursorat();
         if self.menu.as_ref().is_some_and(|m| m.client.is_some()) {
             self.clientmouse(x, y, b);
             self.buttons = b;
@@ -4114,7 +4419,7 @@ impl Wsys {
                     // title bar above one at the bottom (it stays to be grabbed)
                     let mut dy = dy;
                     if let Some(w) = self.wins.get(&g.win).filter(|w| !w.bar) {
-                        let (area, f) = (self.workarea(), w.frame());
+                        let (area, f) = (self.workarea(self.outs[self.outat(x, y)].1), w.frame());
                         let top = g.orig.y0 - (w.r.y0 - f.y0) + dy; // the frame's top after the move
                         let grip = w.title.max(w.border).max(1);
                         if top < area.y0 {
@@ -4125,9 +4430,12 @@ impl Wsys {
                     }
                     let _ = self.setrect(g.win, g.orig.add(dx, dy));
                     self.wins.get_mut(&g.win).unwrap().unmax = None;
+                    self.wins.get_mut(&g.win).unwrap().home = None;
                 }
                 if b == 0 {
                     self.drag = None;
+                    // dropped on another monitor: at its scale
+                    self.rescale(g.win);
                 }
             }
             DragKind::Button(op, r) => {
@@ -4824,7 +5132,7 @@ impl Wsys {
     /// the offset in window n's text of the rune at x, y (as drawn)
     fn hit(&self, n: u32, x: i32, y: i32) -> usize {
         let w = &self.wins[&n];
-        let h = self.font.as_ref().map(|f| f.height).unwrap_or(1).max(1);
+        let h = self.wfonth(n);
         let Some(row) = w.rows.iter().find(|r| y < r.y + h).or(w.rows.last()) else {
             return w.text.len() + w.line.len();
         };
@@ -5255,28 +5563,25 @@ fn main() {
     // devdraw is wsys' own (drawcore; -k: the kernel's), on a screen as big as the
     // kernel's; what it draws the GPU composes, or wsys copies it into the kernel's
     // screen (kd). Where it cannot start, the kernel's (-d asked for it: an error)
-    // in a window (rio's, drawterm's through rcpu) the window may change its size:
-    // devdraw's screen as big as MAXSCREEN from the start (its pages made where it
-    // is drawn), wsys' screen the part the window shows (resized: Ev::Resized)
+    // devdraw's screen is as big as the window or the screen shown; when that
+    // changes (a window resized, a monitor plugged in or out: Ev::Resized) a new
+    // screen image of the new size (Core::resize). Its segment holds MAXSCREEN
+    // from the start (its pages made where drawn), a bigger one is made when
+    // the screen outgrows it
     // the screen of this machine itself, else a window (rio's) or a screen far
     // away (drawterm's, as its whole screen: noborder.screen too, and it resizes)
     let ownscreen = !remote && std::fs::read_to_string("/dev/winname").unwrap_or_default().starts_with("noborder.screen.");
-    let inwin = !ownscreen;
     let (d, core, kd) = if coredraw != Some(false) {
-        let cr = if inwin {
-            Rect::new(d.r.x0, d.r.y0, d.r.x0 + d.r.dx().max(MAXSCREEN.0), d.r.y0 + d.r.dy().max(MAXSCREEN.1))
-        } else {
-            d.r
-        };
+        let cr = Rect::new(d.r.x0, d.r.y0, d.r.x0 + d.r.dx().max(MAXSCREEN.0), d.r.y0 + d.r.dy().max(MAXSCREEN.1));
         let started = if d.chan != XRGB32 {
             Err(std::io::Error::other(format!("the screen is {}, not x8r8g8b8", draw::chanstr(d.chan))))
         } else {
-            drawcore::Core::start(cr, "x8r8g8b8").and_then(|c| Ok((Display::open_core()?, c)))
+            drawcore::Core::start(d.r, cr, "x8r8g8b8").and_then(|c| Ok((Display::open_core()?, c)))
         };
         match started {
             Ok((mut cd, c)) => {
-                if c.r.x0 == 0 && c.r.y0 == 0 && c.stride == c.r.dx() as usize * 4 {
-                    comp::corescreen(&c.name);
+                if c.r.x0 == 0 && c.r.y0 == 0 {
+                    comp::corescreen(&c.name, c.stride);
                 }
                 // wsys' screen: what the window shows of it
                 cd.r = Rect::new(c.r.x0, c.r.y0, c.r.x0 + d.r.dx(), c.r.y0 + d.r.dy());
@@ -5378,6 +5683,7 @@ fn main() {
         nextwin: 0,
         pending: vec![],
         imgr: core.as_ref().map_or(d.r, |c| c.r),
+        outs: vec![],
         compress,
         core,
         kd,
@@ -5401,6 +5707,8 @@ fn main() {
         edge: None,
         tx: tx.clone(),
         font: font::Font::open(&fontname).inspect_err(|e| eprintln!("wsys: font {fontname}: {e}")).ok(),
+        fonts: HashMap::new(),
+        curdpi: 0,
         fontname: fontname.clone(),
         fontflag,
         ownscreen,
@@ -5437,6 +5745,7 @@ fn main() {
         // rio's snarf, when wsys runs in a window of rio
         parentsnarf: std::fs::metadata("/dev/snarf").is_ok() && std::fs::metadata("/dev/wctl").is_ok(),
     };
+    ws.outs = ws.readouts();
     let colors = (|| -> std::io::Result<(u32, u32, u32, u32, u32)> {
         let t = &ws.theme;
         let (back, border, other, window, text) = (t.back, t.border, t.borderinactive, t.window, t.text);

@@ -3,7 +3,8 @@
  * (src/drawcore.rs). Paths are devdraw's qid paths (slot<<4 | type);
  * a read that has nothing yet (refresh) gives -2; errors in err.
  */
-extern int	drawcore_init(void*, int, int, int, int, char*, char*, int);
+extern int	drawcore_init(void*, int, int, int, int, int, char*, char*, int);
+extern int	drawcore_resize(void*, int, int, int, int, int, char*, int);
 extern int	drawcore_width(void);
 extern void*	drawcore_open(uvlong, int, uvlong*, char*, int);
 extern long	drawcore_read(void*, void*, long, vlong, char*, int);

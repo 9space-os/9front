@@ -127,13 +127,24 @@ pub struct Comp {
     tx: mpsc::Sender<Job>,
 }
 
-/// devdraw's screen when it is wsys' own (drawcore): its segment's name, set
-/// before start; the main loop then tells the changes (damage), no reader of
-/// #G's dirty
-static CORESCREEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+/// devdraw's screen when it is wsys' own (drawcore): its segment's name and
+/// bytes a row, set before start; the main loop then tells the changes
+/// (damage), no reader of #G's dirty. It may be wider and taller than the
+/// screen (as big as MAXSCREEN: the screen may grow, a monitor plugged in)
+/// A new one when the screen outgrew the segment (drawcore's Core::resize).
+static CORESCREEN: std::sync::Mutex<Option<(String, usize)>> = std::sync::Mutex::new(None);
 
-pub fn corescreen(seg: &str) {
-    let _ = CORESCREEN.set(seg.to_string());
+pub fn corescreen(seg: &str, stride: usize) {
+    *CORESCREEN.lock().unwrap() = Some((seg.to_string(), stride));
+}
+
+fn corescreenis() -> Option<(String, usize)> {
+    CORESCREEN.lock().unwrap().clone()
+}
+
+/// bytes a row of the framebuffer devdraw draws into, for a screen w wide
+fn fbstride(w: i32) -> usize {
+    corescreenis().map_or(w as usize * 4, |c| c.1)
 }
 
 // what goes well said too (wsys -g asked for the GPU; by default only what fails:
@@ -177,7 +188,7 @@ impl Comp {
                 let _ = itx.send(Ok(()));
                 // devdraw's changes, read by a thread of their own (the read blocks);
                 // wsys' own devdraw's the main loop tells
-                if CORESCREEN.get().is_none() {
+                if corescreenis().is_none() {
                     thread::spawn(move || dirtyreader(&gdir, dtx));
                 }
                 let e = c.run(rx, &*done);
@@ -523,14 +534,29 @@ impl Vkc {
             self.w = w;
             self.h = h;
             let size = w as usize * h as usize * 4;
-            self.fb = Some(match CORESCREEN.get() {
-                Some(name) => {
-                    let (va, len) = Seg::find(name).map_err(|e| format!("{name}: {e}"))?;
-                    if len < size {
-                        return Err(format!("{name}: {len} bytes, the screen {size}"));
+            self.fb = Some(match corescreenis() {
+                Some(_) => {
+                    // the screen grew: wsys gives devdraw a bigger segment when it
+                    // hears of it (its mouse's r), which may come after this
+                    let mut tries = 0;
+                    loop {
+                        let (name, stride) = corescreenis().unwrap();
+                        let found = Seg::find(&name).map_err(|e| format!("{name}: {e}"));
+                        match found {
+                            Ok((va, len)) if stride >= w as usize * 4 && len >= stride * (h as usize - 1) + w as usize * 4 => {
+                                // drawcore's, attached by wsys: in this thread too
+                                break Seg::view((va, len));
+                            }
+                            r if tries >= 50 => {
+                                let len = r.map(|(_, l)| l).unwrap_or(0);
+                                return Err(format!("{name}: {len} bytes, {stride} a row, the screen {w}x{h}"));
+                            }
+                            _ => {
+                                tries += 1;
+                                thread::sleep(Duration::from_millis(20));
+                            }
+                        }
                     }
-                    // drawcore's, attached for wsys' whole run: in this thread too
-                    Seg::view((va, len))
                 }
                 None => fbattach(&self.gdir, size)?,
             });
@@ -800,14 +826,15 @@ impl Vkc {
             return;
         }
         let (Some(fb), Some(st)) = (&self.fb, &self.staging) else { return };
-        let stride = self.w as usize * 4;
+        // the framebuffer's rows may be longer than the screen's (staging's)
+        let (fs, ss) = (fbstride(self.w), self.w as usize * 4);
         let n = d.dx() as usize * 4;
         // between devdraw's batches: what is drawn whole (drawcore::drawing)
         crate::drawcore::between(Duration::from_millis(100), || {
             for y in d.y0..d.y1 {
-                let o = y as usize * stride + d.x0 as usize * 4;
-                if o + n <= fb.len && o + n <= st.size {
-                    unsafe { std::ptr::copy_nonoverlapping((fb.va + o) as *const u8, st.ptr.add(o), n) };
+                let (fo, so) = (y as usize * fs + d.x0 as usize * 4, y as usize * ss + d.x0 as usize * 4);
+                if fo + n <= fb.len && so + n <= st.size {
+                    unsafe { std::ptr::copy_nonoverlapping((fb.va + fo) as *const u8, st.ptr.add(so), n) };
                 }
             }
         });

@@ -765,6 +765,14 @@ wsi_plan9_swapchain_queue_present(struct wsi_swapchain *wsi_chain,
          chain->shown = image_index;
          goto Shown;
       }
+      /* the screen changed size (a monitor plugged in or out): not a
+       * refusal; the app makes a new swapchain of the new size */
+      if (plan9win_size(chain->window_name, &w, &h) == 0 &&
+          ((uint32_t)w != chain->extent.width || (uint32_t)h != chain->extent.height)) {
+         plan9_free(chain, image_index);
+         chain->status = VK_ERROR_OUT_OF_DATE_KHR;
+         return chain->status;
+      }
       if (chain->stats)
          fprintf(stderr, "wsi plan9: scanout refused, copying from now on\n");
       chain->scanout = false;

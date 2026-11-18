@@ -83,6 +83,7 @@ extern void	refreshwake(void);
 
 /* devdraw.c's, for drawfs.c */
 extern int	drawinit(void);
+extern int	drawresize(void);	/* drawfs: the screen made again (devdraw.c) */
 extern Chan	*drawopen(Chan*, int);
 extern void	drawclose(Chan*);
 extern long	drawread(Chan*, void*, long, vlong);

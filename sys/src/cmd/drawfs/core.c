@@ -154,7 +154,7 @@ seterr(char *err, int nerr)
 }
 
 int
-drawcore_init(void *mem, int minx, int miny, int maxx, int maxy, char *chan, char *err, int nerr)
+drawcore_init(void *mem, int minx, int miny, int maxx, int maxy, int width, char *chan, char *err, int nerr)
 {
 	int ok, depth;
 
@@ -166,12 +166,37 @@ drawcore_init(void *mem, int minx, int miny, int maxx, int maxy, char *chan, cha
 		qunlock(&corelk);
 		return -1;
 	}
-	screenwidth = wordsperline(screenr, depth);
+	screenwidth = width > 0 ? width : wordsperline(screenr, depth);
 	screendata.base = mem;
 	screendata.bdata = mem;
 	screendata.allocd = 0;
 	drawcmap();
 	ok = drawinit();
+	qunlock(&corelk);
+	if(!ok){
+		snprint(err, nerr, "no screen image");
+		return -1;
+	}
+	return 0;
+}
+
+/*
+ * the screen r (minx...), in mem, width words a row (0: as r's): a new
+ * screen image of devdraw's (drawresize), drawn on from now on
+ */
+int
+drawcore_resize(void *mem, int minx, int miny, int maxx, int maxy, int width, char *err, int nerr)
+{
+	int ok;
+
+	qlock(&corelk);
+	screenr = Rect(minx, miny, maxx, maxy);
+	screenwidth = width > 0 ? width : wordsperline(screenr, chantodepth(screenchan));
+	screendata.base = mem;
+	screendata.bdata = mem;
+	screendata.allocd = 0;
+	ndirty = 0;
+	ok = drawresize();
 	qunlock(&corelk);
 	if(!ok){
 		snprint(err, nerr, "no screen image");

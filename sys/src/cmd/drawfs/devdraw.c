@@ -821,6 +821,12 @@ makescreenimage(void)
 		return nil;
 	}
 	i->width = width;
+	/*
+	 * drawfs: the screen's rows may be longer than r (wsys' segment holds
+	 * more: drawcore_resize): (0,0) for that width, as allocmemimaged
+	 * reckons it for r's own (the kernel's screens are at 0,0)
+	 */
+	i->zero = -(r.min.y*(int)(sizeof(ulong)*width) + ((r.min.x*i->depth) >> 3));
 	i->clipr = r;
 	di = allocdimage(i);
 	if(di == nil){
@@ -877,6 +883,23 @@ drawinit(void)
 	int ok;
 
 	dlock();
+	ok = initscreenimage();
+	dunlock();
+	return ok;
+}
+
+/*
+ * drawfs: the screen another size or in other memory (attachscreen's
+ * now): a screen image made again under a new name, as the kernel's at
+ * a resize; images and layers on the old one keep it until they go
+ */
+int
+drawresize(void)
+{
+	int ok;
+
+	dlock();
+	deletescreenimage();
 	ok = initscreenimage();
 	dunlock();
 	return ok;

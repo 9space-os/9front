@@ -433,6 +433,8 @@ struct Physseg
 	uintptr	size;			/* Maximum segment size in bytes */
 	int	eveonly;		/* 9front-ng: only the hostowner attaches it (a GPU's bars: #G) */
 	Pager	*pager;			/* 9front-ng: its pages one by one, from a driver (devsegment.c) */
+	Ref	*users;			/* 9space: the segments of it (nil: not counted) */
+	void	(*unused)(Physseg*);	/* 9space: called when the last of them goes */
 };
 
 struct Sema

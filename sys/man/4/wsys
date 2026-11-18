@@ -150,25 +150,54 @@ its programs draw there and a window moves by a message, where
 .IR wsys 's
 own would send the screen's pixels over the network): the kernel's devdraw, libmemdraw and libmemlayer in its process
 .RB ( drawfs (4)'s,
-built for APE), on a screen as big as the kernel's in a segment of
-.IR segment (3)
-.RB ( wsys.screen. pid);
-in a window (of
+built for APE), on a screen as big as the screen or the window (of
 .IR rio ,
 or
 .IR drawterm 's
 through
 .IR rcpu (1))
-as big as 4096 by 2304, of which its screen is the part the window shows.
-When that window changes (moved or resized: the mouse's
+it shows, in a segment of
+.IR segment (3)
+.RB ( wsys.screen. pid)
+that holds 4096 by 2304 from the start (its pages made where they are
+drawn) and is made again bigger when the screen outgrows it.
+When that window or the screen changes (moved or resized, a monitor
+plugged in or out: the mouse's
 .BR r ),
+devdraw's screen image is made again in the new size (as the kernel's,
+a new
+.BR noborder.screen. n)
+and
 .I wsys
-follows: its screen is the window's size, a bar as wide, a maximized
-window over it again, a window whose corner is off it moved back onto it;
-with
-.BR -k ,
-each window is made again on the window's new image (its program hears
-.BR r ).
+follows: its screen is the window's size, a bar as wide, each window made
+again on the new image (its program hears
+.BR r ),
+a maximized window over it again, a window whose corner is off it moved
+back onto it.
+On the machine's own screen
+.I wsys
+knows the monitors
+.RI ( gpu (4)'s
+outputs that are on, from their
+.B mode
+files): a window is maximized or made full screen on the monitor it is
+most on, and a new one comes on the monitor with the mouse.
+When a monitor goes, its windows go onto the one with the mouse, where
+they were on theirs in proportion and no bigger than it; when it comes
+again they go back where they were (unless moved meanwhile).
+With
+.B "scale auto"
+each monitor has its own scale, from its EDID: a window is at the scale
+of the monitor it is most on (its border, title bar and, for a text
+window, font; its
+.B dpi
+and
+.B theme
+files say it), and dropped on a monitor of another scale it is made
+as big to the eye there and its program hears
+.BR r ;
+the cursor is as big as the scale of the monitor it is on.
+Menus are at the theme's scale.
 Its tree and every window's directory have a directory
 .B draw
 .RB ( new ,
