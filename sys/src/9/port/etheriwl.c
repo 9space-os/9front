@@ -7,6 +7,74 @@
  * on attach.
  */
 
+/*
+ * 9space: what was added here follows OpenBSD's sources, each place
+ * names its function: 802.11n (HT capabilities, MAC context and station
+ * flags, the link quality table, QoS header padding), receiving and
+ * sending aggregates (block ack agreements, aggregation queues by
+ * SCD_QUEUE_CFG, the scheduler's byte count table, tx done and
+ * compressed block ack handling), 5 GHz (the NVM's SKU), the signal of
+ * each frame (rx phy and the 9000 family's rx descriptor, with its
+ * header padding), the Smart FIFO, the binding's time quota, the rx
+ * buffer timeout and periodic interrupt, the 7265D's firmware:
+ *
+ * sys/dev/pci/if_iwm.c (ISC):
+ * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
+ *   Author: Stefan Sperling <stsp@openbsd.org>
+ * Copyright (c) 2014 Fixup Software Ltd.
+ * Copyright (c) 2017 Stefan Sperling <stsp@openbsd.org>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ *
+ * sys/dev/pci/if_iwmreg.h, the commands' layouts and constants, under
+ * the BSD licence of its dual BSD/GPLv2 licence:
+ *
+ * BSD LICENSE
+ *
+ * Copyright(c) 2005 - 2014 Intel Corporation. All rights reserved.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in
+ *    the documentation and/or other materials provided with the
+ *    distribution.
+ *  * Neither the name Intel Corporation nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ *
+ * AMRR (amrrchoose) is OpenBSD's sys/net80211/ieee80211_amrr.c, its
+ * notice there. Nothing comes from Linux's iwlwifi.
+ */
+
 #include "u.h"
 #include "../port/lib.h"
 #include "mem.h"
@@ -27,6 +95,7 @@ enum {
 	Nlegq		= 7,	/* 9space: the queues set up at boot; 10-17 aggregation (Aggq0+tid) */
 	Aggq0		= 10,
 	Ntxqmax		= MaxQueue/1500,
+	Aggqmax		= 16,	/* 9space: an aggregation queue's by default (ctl aggq N; 64 hung the 7265D's firmware under load both ways) */
 
 	Nrxlog		= 8,
 	Nrx		= 1<<Nrxlog,
@@ -508,6 +577,7 @@ struct TXQ
 	uint	i;
 	uint	atail;	/* 9space: an aggregation queue's oldest entry (freed up to the firmware's SSN) */
 	int	agg;	/* 9space: an aggregation queue in use */
+	int	lim;	/* 9space: its frames in flight, at most */
 	Block	**b;
 	uchar	*d;
 	uchar	*c;
@@ -586,8 +656,10 @@ struct Ctlr {
 	uvlong systime;
 	int rxsignal;	/* 9space: the last rx phy's strongest antenna, dBm; 0: none */
 	int pmflags;	/* 9space: the MAC power table's flags (ctl pm), -1: the default */
+	int aggqmax;	/* 9space: an aggregation queue's frames in flight (ctl aggq), 0: Aggqmax */
 	int devpm;	/* 9space: the device power flags (ctl devpm), -1: the default */
 	u32int hwrev;	/* 9space: the hardware revision register (7265D: type 0x210) */
+	ulong ngone;	/* 9space: interrupts that read 0xffffffff or 0xa5a5a5a0 (and left the mask off) */
 	ulong nintr;	/* 9space: statistics: interrupts, those with rx, frames received */
 	ulong nrxintr;
 	ulong nrxframe;
@@ -2917,7 +2989,7 @@ aggstart(Ctlr *ctlr, int tid, int ssn)
 	 * moving the scheduler's write pointer by steps of 0x40 sticks
 	 * it (fixed from the 9000 family on, iwm_enable_txq)
 	 */
-	if(((ssn - q->i) & 0x3f) == 0 && (ssn & (Ntx-1)) != q->i)
+	if(!ctlr->mqrx && ((ssn - q->i) & 0x3f) == 0 && (ssn & (Ntx-1)) != q->i)
 		ssn = (ssn + 1) & 0xfff;
 	idx = ssn & (Ntx-1);
 	if((err = niclock(ctlr)) != nil)
@@ -2926,6 +2998,7 @@ aggstart(Ctlr *ctlr, int tid, int ssn)
 	nicunlock(ctlr);
 	q->i = q->atail = idx;
 	q->n = 0;
+	q->lim = ctlr->aggqmax > 0 && ctlr->aggqmax <= Framelimit? ctlr->aggqmax: Aggqmax;
 	if((err = scdqueuecfg(ctlr, qid, tid, 1, ssn)) != nil){
 		print("#l%d: aggregation queue %d: %s\n", ctlr->edev->ctlrno, qid, err);
 		return -1;
@@ -4143,7 +4216,7 @@ static int
 txqready(void *arg)
 {
 	TXQ *q = arg;
-	return q->n < Ntxqmax;
+	return q->n < (q->agg? q->lim: Ntxqmax);
 }
 
 static char*
@@ -4169,7 +4242,7 @@ qcmd(Ctlr *ctlr, uint qid, uint code, uchar *data, int size, Block *block)
 
 	ilock(&ctlr->Lock);
 	q = &ctlr->tx[qid];
-	while(q->n >= Ntxqmax && !ctlr->broken){
+	while(q->n >= (q->agg? q->lim: Ntxqmax) && !ctlr->broken){
 		iunlock(&ctlr->Lock);
 		qlock(&q->QLock);
 		if(!waserror()){
@@ -4517,7 +4590,7 @@ rxon(Ether *edev, Wnode *bss)
 		 * give HT only to WMM stations); two streams where both
 		 * have two antennas and it receives MCS 8-15
 		 */
-		ctlr->ht.on = ctlr->family >= 7000 && !ctlr->mqrx && bss->ht && bss->qos && ctlr->wifi->ncaps > 0;
+		ctlr->ht.on = ctlr->family >= 7000 && bss->ht && bss->qos && ctlr->wifi->ncaps > 0;
 		ctlr->ht.mimo = ctlr->ht.on && bss->htrxmcs[1] != 0
 			&& nant(ctlr->rfcfg.txantmask) >= 2 && nant(ctlr->rfcfg.rxantmask) >= 2;
 		htladder(ctlr);
@@ -4737,6 +4810,20 @@ iwlctl(Ether *edev, void *buf, long n)
 	 * 1 power save allowed, 2 power management), "devpm N" (device;
 	 * -1 either: the default), sent at once on 7000 and newer
 	 */
+	if(ctlr->family >= 7000 && n >= 5 && memcmp(buf, "aggq ", 5) == 0){
+		char tmp[16];
+		int i;
+
+		if(n >= sizeof tmp)
+			error(Ebadarg);
+		memmove(tmp, buf, n);
+		tmp[n] = 0;
+		ctlr->aggqmax = atoi(tmp+5);	/* 9space: the next aggregation queues' depth; the running ones too */
+		for(i = Aggq0; i < nelem(ctlr->tx); i++)
+			if(ctlr->tx[i].agg && ctlr->aggqmax > 0 && ctlr->aggqmax <= Framelimit)
+				ctlr->tx[i].lim = ctlr->aggqmax;
+		return n;
+	}
 	if(ctlr->family >= 7000 && n >= 3 && (memcmp(buf, "pm ", 3) == 0 || n >= 6 && memcmp(buf, "devpm ", 6) == 0)){
 		char tmp[32], *f[3];
 		char *err;
@@ -4777,9 +4864,27 @@ iwlifstat(void *a, char *s, char *e)
  	Ctlr *ctlr = edev->ctlr;
 
 	s = wifistat(ctlr->wifi, s, e);
-	s = seprint(s, e, "intr: %lud, with rx %lud, frames %lud\n",	/* 9space */
-		ctlr->nintr, ctlr->nrxintr, ctlr->nrxframe);
-	s = seprint(s, e, "hwrev: %#.8ux, firmware %s\n", ctlr->hwrev, ctlr->fwname);
+	/*
+	 * 9space: netif calls this with no room for stats (p, p): seprint
+	 * would give nil, and the next one write through it
+	 */
+	if(s == nil || s >= e)
+		return s;
+	s = seprint(s, e, "intr: %lud, with rx %lud, frames %lud, gone %lud, isr %.8ux imr %.8ux\n",	/* 9space */
+		ctlr->nintr, ctlr->nrxintr, ctlr->nrxframe, ctlr->ngone,
+		csr32r(ctlr, Isr), csr32r(ctlr, Imr));
+	s = seprint(s, e, "hwrev: %#.8ux, firmware %s, capa %.8ux %.8ux %.8ux %.8ux, api %.8ux %.8ux\n",
+		ctlr->hwrev, ctlr->fwname,
+		ctlr->fw->capa[0], ctlr->fw->capa[1], ctlr->fw->capa[2], ctlr->fw->capa[3],
+		ctlr->fw->api[0], ctlr->fw->api[1]);
+	{
+		int i;
+
+		for(i = Aggq0; i < nelem(ctlr->tx); i++)
+			if(ctlr->tx[i].agg)
+				s = seprint(s, e, "aggq %d: n %ud of %d, next %ud, oldest %ud\n",
+					i, ctlr->tx[i].n, ctlr->tx[i].lim, ctlr->tx[i].i, ctlr->tx[i].atail);
+	}
 	if(ctlr->ht.on)	/* 9space */
 		s = seprint(s, e, "ht: mcs %d%s, frames %lud, retries %lud, aggregates %lud of %lud frames, tids %#ux\n",
 			ctlr->ht.ladder[ctlr->ht.cur], ctlr->ht.mimo? " (2 streams)": "",
@@ -4920,12 +5025,8 @@ iwlattach(Ether *edev)
 			/* tested with 2230, it has transmit issues using higher bit rates */
 			if(ctlr->family >= 7000 || ctlr->type != Type2030)
 				ctlr->wifi->rates = iwlrates;
-			/*
-			 * not with multi-queue reception (9000 and newer) yet:
-			 * its firmware pads QoS headers it receives
-			 * (IWM_RX_MPDU_MFLG2_PAD), which mqrx does not take off
-			 */
-			if(ctlr->family >= 7000 && !ctlr->mqrx){
+			/* 9space: HT and aggregates on 7000 and newer (9000: the rx padding taken off above, untested) */
+			if(ctlr->family >= 7000){
 				htcaps(ctlr);
 				/* 9space: the access point's aggregates, answered by the firmware (iwlrxba) */
 				ctlr->wifi->ba = 1;
@@ -4938,7 +5039,7 @@ iwlattach(Ether *edev)
 			if(ctlr->family >= 7000 && ctlr->rfcfg.band5)
 				ctlr->wifi->scan = wifiscan5g;
 			/* 9space: the signal of each frame: wifi.c chooses the strongest node (a mesh's) */
-			if(ctlr->family >= 7000 && !ctlr->mqrx)
+			if(ctlr->family >= 7000)
 				ctlr->wifi->sigs = 1;
 		}
 
@@ -5022,9 +5123,19 @@ receive(Ctlr *ctlr)
 				nf = d[0];
 				if(nf < 1 || len < 36 + 4*nf + 4 || !ctlr->tx[qid].agg)
 					break;
+				/*
+				 * an aggregate's status only counts: its frames
+				 * are freed by the block ack (197); its SSN may be
+				 * past what the firmware has done with, and freeing
+				 * those let it DMA from reused buffers (the radio
+				 * hung under load both ways). A single frame's
+				 * status (a final attempt) moves the window, as
+				 * iwm_ampdu_tx_done
+				 */
+				if(nf > 1)
+					break;
 				ssn = get32(d + 36 + 4*nf) & 0xfff;
-				if(nf == 1)
-					htcount(ctlr, 1, d[36] == 1 || d[36] == 2 ? (d[3] > 0) : 1, d[3]);
+				htcount(ctlr, 1, d[36] == 1 || d[36] == 2 ? (d[3] > 0) : 1, d[3]);
 				aggadvance(ctlr, qid, ssn);
 				break;
 			}
@@ -5187,12 +5298,45 @@ receive(Ctlr *ctlr)
 				break;
 			len = get16(d);
 			if(ctlr->mqrx){
+				int mflags2, status, hdr, e, best, i;
+
 				if(d + 48 + len > b->lim)
 					break;
 				updatesystime(ctlr, get32(d+36));
 				if((d[12] & 3) != 3)
 					break;
+				/*
+				 * 9space: struct iwm_rx_mpdu_desc (48 bytes):
+				 * mac_flags2 at 3, status at 12, energy_a and _b
+				 * at 32, 33 (the signal, as
+				 * iwm_rxmq_get_signal_strength)
+				 */
+				mflags2 = d[3];
+				status = get16(d+12);
+				best = -256;
+				for(i = 32; i < 34; i++)
+					if((e = d[i]) != 0 && -e > best)
+						best = -e;
+				ctlr->rxsignal = best > -256? best: 0;
 				d += 48;
+				/*
+				 * 9space: the firmware padded the header to a
+				 * multiple of 4 (IWM_RX_MPDU_MFLG2_PAD), after the
+				 * CCMP IV where it found one (iwm_rx_mpdu_mq)
+				 */
+				if((mflags2 & 0x20) != 0 && len >= 24+2){
+					if((d[0] & 0x0c) == 0x04)
+						hdr = 16;	/* control: frame_min */
+					else
+						hdr = wifihdrlen((Wifipkt*)d);
+					if((status>>8 & 7) == 2)
+						hdr += 8;	/* IWM_RX_MPDU_RES_STATUS_SEC_CCM_ENC */
+					if(hdr + 2 <= len){
+						memmove(d+2, d, hdr);
+						d += 2;
+						len -= 2;
+					}
+				}
 			} else {
 				d += 4;
 				if(d + len + 4 > b->lim)
@@ -5210,7 +5354,7 @@ receive(Ctlr *ctlr)
 			put64(d - 8, ctlr->systime);
 			b->flag |= Btimestamp;
 			ctlr->nrxframe++;	/* 9space */
-			if(ctlr->rxsignal != 0 && !ctlr->mqrx){	/* 9space: wifi.c's Bsignal, the byte before the timestamp */
+			if(ctlr->rxsignal != 0){	/* 9space: wifi.c's Bsignal, the byte before the timestamp */
 				d[-9] = ctlr->rxsignal;
 				b->flag |= Bsignal;
 			}
@@ -5270,6 +5414,7 @@ iwlinterrupt(Ureg*, void *arg)
 	isr = csr32r(ctlr, Isr);
 	fhisr = csr32r(ctlr, FhIsr);
 	if(isr == 0xffffffff || (isr & 0xfffffff0) == 0xa5a5a5a0){
+		ctlr->ngone++;	/* 9space: ifstats */
 		iunlock(&ctlr->Lock);
 		return;
 	}
@@ -5420,8 +5565,8 @@ iwlpci(void)
 		ctlr->nic = mem;
 		ctlr->pdev = pdev;
 		/*
-		 * 9space: a 7265D (hardware revision type 0x210, as Linux's
-		 * CSR_HW_REV_TYPE_7265D) has firmware of its own, 7265D-29
+		 * 9space: a 7265D (hardware revision type 0x210, OpenBSD's
+		 * IWM_CSR_HW_REV_TYPE_7265D) has firmware of its own, 7265D-29
 		 * (DQA-capable); the register reads before the power-up
 		 */
 		if(family == 7000 && (pdev->did == 0x095a || pdev->did == 0x095b)
