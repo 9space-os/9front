@@ -348,7 +348,7 @@ enum {
 	UcodeCapLar	= 1<<1,
 
 	/* capa[1] */
-	UcodeCapQuota	= 1<<12,
+	UcodeCapQuota	= 1<<12,	/* DYNAMIC_QUOTA (44): the firmware sets the quotas itself */
 	
 	/* capa[2] */
 	UcodeCapLar2	= 1<<9,
@@ -2763,11 +2763,19 @@ settimeevent(Ctlr *ctlr, int amr, int ival)
 static char*
 setbindingquotas(Ctlr *ctlr, int bindid)
 {
-	uchar c[4*(3*4)], *p;
-	int i;
+	uchar c[4*(4*4)], *p;
+	int i, v2;
 
-	if((ctlr->fw->capa[1] & UcodeCapQuota) == 0)
+	/*
+	 * the driver gives the quotas only where the firmware does not
+	 * (no DYNAMIC_QUOTA capability), as OpenBSD's iwm_run; without
+	 * them the binding got slivers of air time: frames waited for
+	 * the next beacon. The entries have low_latency where the
+	 * firmware's API has QUOTA_LOW_LATENCY (38).
+	 */
+	if(ctlr->fw->capa[1] & UcodeCapQuota)
 		return nil;
+	v2 = (ctlr->fw->api[1] & (1<<(38-32))) != 0;
 
 	i = 0;
 	p = c;
@@ -2779,6 +2787,10 @@ setbindingquotas(Ctlr *ctlr, int bindid)
 		p += 4;
 		put32(p, 0);
 		p += 4;
+		if(v2){
+			put32(p, 0);	/* low_latency */
+			p += 4;
+		}
 		i++;
 	}
 	for(; i < 4; i++){
@@ -2788,6 +2800,10 @@ setbindingquotas(Ctlr *ctlr, int bindid)
 		p += 4;
 		put32(p, 0);
 		p += 4;
+		if(v2){
+			put32(p, 0);
+			p += 4;
+		}
 	}
 
 	return cmd(ctlr, 44, c, p - c);
