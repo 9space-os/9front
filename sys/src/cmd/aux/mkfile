@@ -35,6 +35,7 @@ TARG=\
 	olefs\
 	pcmcia\
 	portmap\
+	pstate\
 	rdwr\
 	reboot\
 	searchfs\

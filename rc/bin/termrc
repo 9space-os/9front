@@ -97,6 +97,12 @@ if(test -e '#P/acpiev' && ! test -e /srv/acpi){
 	aux/i2chid &
 }
 
+# 9space: aux/pstate, the processors' clock (P-states, pstate(8)):
+# /dev/pstate; pstate= in plan9.ini: auto (the default), high, low, or
+# off to leave the firmware's clock
+if(test -e '#P/msr' && ! ~ $pstate off && ! test -e /srv/pstate)
+	aux/pstate $pstate
+
 # 9space: aux/rtw89, the radio of a wlan(3) interface on a Realtek
 # RTL8852CE that plan9.ini hands to user level (*userpci=10ec/c852,
 # etherN=type=wlan; rtw89(8)); in the background: its firmware takes

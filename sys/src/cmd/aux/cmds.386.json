@@ -86,6 +86,7 @@
 			"olefs.c",
 			"pcmcia.c",
 			"portmap.c",
+			"pstate.c",
 			"rdwr.c",
 			"reboot.c",
 			"searchfs.c",

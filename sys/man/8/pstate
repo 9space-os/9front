@@ -1,0 +1,162 @@
+.TH PSTATE 8
+.SH NAME
+pstate \- the processors' clock (P-states)
+.SH SYNOPSIS
+.I (in plan9.ini)
+.B pstate=
+.RB [ auto | high | low | off ]
+.PP
+.B aux/pstate
+[
+.B -dn
+]
+[
+.B -m
+.I mountpoint
+]
+[
+.B -s
+.I service
+]
+[
+.BR auto | high | low
+]
+.SH DESCRIPTION
+.I Aux/pstate
+sets the clock of the machine's processors through their
+model-specific registers
+.RB ( #P/msr ,
+see
+.IR arch (3)).
+It posts
+.BI /srv/ service
+(default
+.BR pstate )
+and mounts it after
+.I mountpoint
+(default
+.BR /dev ),
+where it serves one file,
+.BR pstate .
+.I Termrc
+and
+.I cpurc
+start it unless
+.B pstate=off
+is in
+.IR plan9.ini (8);
+the variable's other values are the first policy.
+.PP
+The method follows the processor:
+.TF intel-eist
+.TP
+.B intel-hwp
+Intel's hardware P-states (Skylake and newer): the processor picks
+its clock between a minimum and a maximum, after an
+energy/performance preference.
+.TP
+.B amd-cppc
+AMD's CPPC through its MSRs (Zen 2 and newer, where the firmware
+offers it): the same.
+.TP
+.B intel-eist
+Enhanced SpeedStep by ratio (Nehalem to Broadwell), with turbo.
+.TP
+.B amd-pstate
+AMD's P-state registers (family 10h and newer, also where the
+firmware's CPPC is described by ACPI only); boost comes by itself in
+the fastest state.
+.PD
+.PP
+Switching on HWP or CPPC holds until the next reset; the
+processor then manages its clock alone.
+For the other two
+.I aux/pstate
+is the governor: every 100 ms it measures each processor's load
+(its MPERF counter stops while it halts); it goes to the highest
+clock when one processor was busy more than two thirds of the
+period or all of them more than half, and to the lowest after half a
+second without (OpenBSD's rule).
+.PP
+Reading
+.B pstate
+gives lines:
+.TF limits
+.TP
+.BI method " name"
+as above, or
+.B none
+with a line
+.BI why " reason"
+(a virtual machine, an older processor, SpeedStep off in the
+firmware).
+.TP
+.BI policy " p"
+the policy.
+.TP
+.BI tsc " mhz"
+the time stamp counter's rate, the nominal clock.
+.TP
+.BI cpu N " limits " "lowest nominal highest" " ..."
+per processor: its limits in the method's units (EIST: ratios of the
+100 MHz bus clock; HWP and CPPC: performance levels; AMD's P-states:
+state numbers, 0 the fastest), for the governed methods the
+.BR level ,
+.B high
+or
+.BR low ,
+and, where the processor counts APERF and MPERF, its clock while not
+halted
+.RB ( mhz )
+and the percentage of the last period it was busy
+.RB ( busy ).
+.PD
+.PP
+Writing a policy sets it:
+.TF auto
+.TP
+.B auto
+the governor, or for HWP and CPPC the whole range with a balanced
+preference.
+.TP
+.B high
+always the highest clock (turbo, boost).
+.TP
+.B low
+always the lowest.
+.PD
+.PP
+Option
+.B -d
+prints the governor's changes;
+.B -n
+only prints the method and the first processor's limits and exits,
+without switching HWP or CPPC on.
+.SH EXAMPLE
+.EX
+% cat /dev/pstate
+method intel-eist
+policy auto
+tsc 2594
+cpu0 limits 5 26 32 level low mhz 790 busy 2
+\&...
+% echo high >/dev/pstate
+.EE
+.SH SOURCE
+.B /sys/src/cmd/aux/pstate.c
+.SH SEE ALSO
+.IR arch (3),
+.IR acpi (8),
+.IR plan9.ini (8)
+.SH BUGS
+Processors older than Nehalem (Core 2, Pentium M) and Silvermont or
+Airmont Atoms would need ACPI's
+.B _PSS
+tables, which
+.I aux/pstate
+does not read; it says so and exits.
+AMD's CPPC described by ACPI alone
+.RB ( _CPC )
+is not used: such processors run on their P-state registers.
+.PP
+9space: not in 9front.
