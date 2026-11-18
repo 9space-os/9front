@@ -26,7 +26,15 @@ or its charge has fallen to
 .B batterycrit
 from
 .IR plan9.ini (8)),
-and it is neither charging nor idle (no AC), it says so on the console,
+and it is neither charging nor idle (no AC), it says so on the console
+and in a window of the newest window system
+.RI ( wsys (4)
+or
+.IR rio (1),
+by their
+.B /srv
+files and
+.IR window (1)),
 waits
 .I seconds
 (default 60) for AC, and then runs

@@ -31,6 +31,15 @@ fn battery {
 	}
 }
 
+# a message on the console and in a window of the newest window system
+# (wsys(4), rio(1): their /srv files; window(1) mounts $wsys), as the
+# console is hidden under them; the message has no rc syntax in it
+fn tell {
+	echo batteryguard: $* >[1=2]
+	for(s in `{ls -t /srv/wsys.* /srv/rio.* >[2]/dev/null | sed 1q})
+		wsys=$s window -r 400 300 1300 420 rc -c 'echo; echo batteryguard: '^$"*^'; sleep 300' >[2]/dev/null &
+}
+
 fn low {
 	! ~ $st charging idle unknown && {~ $st critical || test $pct -le $crit}
 }
@@ -41,15 +50,15 @@ if(~ $#pct 0)
 while(){
 	battery
 	if(~ $#pct 1 && low){
-		echo batteryguard: battery at $pct% '('$st'):' halting in $grace seconds unless AC is plugged in >[1=2]
+		tell battery at $pct%, $st: halting in $grace seconds unless AC is plugged in
 		sleep $grace
 		battery
 		if(~ $#pct 1 && low){
-			echo batteryguard: battery at $pct%: halting >[1=2]
+			tell battery at $pct%: halting now
 			fshalt
 			exit
 		}
-		echo batteryguard: AC plugged in, not halting >[1=2]
+		tell AC plugged in, not halting
 	}
 	sleep 30
 }
