@@ -484,9 +484,38 @@ The same file is in each window's directory, so programs find it as
 .B /lib/theme/classic
 holds the default (rio's colours),
 .B /lib/theme/modern
-paper, ink and slate blue;
+paper, ink and slate blue,
+.B /lib/theme/9space
+(the desktop's, from
+.BR $home/lib/profile )
+rio's grey, paper and ink with earth tones, light and dark;
 .B -t
 starts with a theme file.
+.IP
+Besides the colours above,
+.BR accent ,
+.BR surface ,
+.BR secondary ,
+.BR separator ,
+.BR danger ,
+.B success
+and
+.B warning
+are
+.IR ui (4)'s:
+what is chosen or on, a control's face, text that matters less, lines
+between things, and the colours of a state.
+A theme has a light palette, the colours' lines, and may have a dark one:
+.BI dark. name
+lines (a colour the dark palette does not name stays the light one).
+.B "mode light"
+or
+.B "mode dark"
+chooses; written alone it switches the desktop at once, its windows,
+.IR ui (4)
+and
+.IR term (1)
+with it.
 .IP
 .B scale
 is the factor the desktop is drawn at, 1 at 96 dots per inch:

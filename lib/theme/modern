@@ -1,6 +1,6 @@
 # wsys' theme (wsys(4)): Plan 9's paper and ink, a slate blue for what is
 # current, stone grey for what is not; title bars on
-back #e6e4d9
+back #777777
 border #2b4c6f
 borderinactive #a8a49c
 window #ffffea
@@ -13,3 +13,4 @@ holdinactive #7f95ad
 title 1
 uifont /lib/font/ttf/Inter-Regular.ttf
 monofont /lib/font/ttf/Go-Mono.ttf
+mode light

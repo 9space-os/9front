@@ -1,0 +1,44 @@
+# wsys' theme (wsys(4)), 9space's: rio's colours, warmer — its grey desktop,
+# paper and ink, a pale yellow selection; earth tones for what is current or
+# chosen (umber, ochre, sand), moss, brick and ochre for success, danger,
+# warning. Light and dark: "mode dark" (or "echo mode dark >/dev/theme")
+# chooses the dark palette, the dark.* lines; text has 12:1 or more against
+# its window, every colour of text 5.6:1 or more.
+back #777777
+border #6b5a3a
+borderinactive #b5ab93
+window #ffffea
+text #1e1a14
+select #eeee9e
+menuhigh #e3d6ae
+scroll #d8cfb2
+hold #7a4a1e
+holdinactive #b08a5e
+accent #7a5a28
+surface #fffff6
+secondary #655a44
+separator #ddd5b8
+danger #9e3a1e
+success #4a6628
+warning #8a5e00
+dark.back #3b3934
+dark.border #c2a46a
+dark.borderinactive #57513f
+dark.window #24211b
+dark.text #e6dec8
+dark.select #5a5326
+dark.menuhigh #4d4434
+dark.scroll #3d382b
+dark.hold #e0a96d
+dark.holdinactive #8a7354
+dark.accent #d4b06c
+dark.surface #2c2922
+dark.secondary #b3a88c
+dark.separator #45402f
+dark.danger #ec8a70
+dark.success #a8c47e
+dark.warning #e2b453
+mode light
+title 1
+uifont /lib/font/ttf/Inter-Regular.ttf
+monofont /lib/font/ttf/Go-Mono.ttf

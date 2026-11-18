@@ -9,6 +9,10 @@
 // what it found, "scale 1.5" a factor given. Programs size what they draw
 // by it: scalesize(n) = (n·dpi + 48)/96, dpi = round(96·scale), the same
 // formula libdraw's scalesize(2) has (/dev/dpi).
+// Light and dark (9space): a line "dark.name #rrggbb" sets a colour of the
+// dark palette ("name" one of the light), "mode light|dark" chooses; the
+// colour fields are those of the palette chosen. A dark palette starts as
+// the light one: what it does not name stays the light colour.
 
 use std::fmt::Write;
 
@@ -24,6 +28,16 @@ pub struct Theme {
     pub scroll: u32,         // a text window's scroll bar
     pub hold: u32,           // text and border while holding (Esc), current window
     pub holdinactive: u32,   // the border of a window holding, not current
+    pub accent: u32,         // what is on or chosen: a default button, a switch, the focus (ui)
+    pub surface: u32,        // a control's or a group's face, a text field's inside (ui)
+    pub secondary: u32,      // text that matters less: hints, a menu's shortcuts (ui)
+    pub separator: u32,      // lines between things (ui)
+    pub danger: u32,         // what destroys (ui)
+    pub success: u32,
+    pub warning: u32,
+    pub dark: bool,          // mode dark: the colours above are the dark palette's
+    pub light: Colours,      // the palettes as the file has them
+    pub darkcolours: Option<Colours>,
     pub title: bool,         // windows with a title bar (stage 7, step 3)
     pub font: String,        // wsys' font (font(6)); empty: -f, $font or vga's
     pub uifont: String,      // ui's font (TrueType); empty: its own choice
@@ -38,6 +52,22 @@ impl Default for Theme {
     }
 }
 
+/// a theme's colours, one palette (light or dark): the names its file has
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Colours(pub [u32; NCOLOURS]);
+
+pub const NCOLOURS: usize = 17;
+pub const COLOURS: [&str; NCOLOURS] = [
+    "back", "border", "borderinactive", "window", "text", "select", "menuhigh", "scroll", "hold", "holdinactive",
+    "accent", "surface", "secondary", "separator", "danger", "success", "warning",
+];
+
+impl Colours {
+    pub fn get(&self, name: &str) -> Option<u32> {
+        COLOURS.iter().position(|n| *n == name).map(|i| self.0[i])
+    }
+}
+
 /// a colour: #rrggbb (or rrggbb)
 fn colour(v: &str) -> Option<u32> {
     let h = v.strip_prefix('#').unwrap_or(v);
@@ -47,7 +77,7 @@ fn colour(v: &str) -> Option<u32> {
 impl Theme {
     /// rio's colours, as wsys had them
     pub fn classic() -> Theme {
-        Theme {
+        let mut t = Theme {
             back: 0x777777,
             border: 0x335588,
             borderinactive: 0xAAAAAA,
@@ -58,13 +88,44 @@ impl Theme {
             scroll: 0x999999,
             hold: 0x000099,
             holdinactive: 0x4993DD,
+            accent: 0x335588,
+            surface: 0xFFFFFF,
+            secondary: 0x555555,
+            separator: 0xCCCCCC,
+            danger: 0xBB2222,
+            success: 0x227722,
+            warning: 0x995500,
+            dark: false,
+            light: Colours([0; NCOLOURS]),
+            darkcolours: None,
             title: false,
             font: String::new(),
             uifont: String::new(),
             monofont: String::new(),
             scale: 1.0,
             scaleauto: true,
-        }
+        };
+        t.light = t.fields();
+        t
+    }
+
+    /// the colour fields as a palette
+    fn fields(&self) -> Colours {
+        Colours([
+            self.back, self.border, self.borderinactive, self.window, self.text, self.select, self.menuhigh, self.scroll,
+            self.hold, self.holdinactive, self.accent, self.surface, self.secondary, self.separator, self.danger,
+            self.success, self.warning,
+        ])
+    }
+
+    /// the colour fields from the palette the mode chooses
+    fn choose(&mut self) {
+        let c = if self.dark { self.darkcolours.unwrap_or(self.light) } else { self.light };
+        let v = c.0;
+        (self.back, self.border, self.borderinactive, self.window, self.text) = (v[0], v[1], v[2], v[3], v[4]);
+        (self.select, self.menuhigh, self.scroll, self.hold, self.holdinactive) = (v[5], v[6], v[7], v[8], v[9]);
+        (self.accent, self.surface, self.secondary, self.separator) = (v[10], v[11], v[12], v[13]);
+        (self.danger, self.success, self.warning) = (v[14], v[15], v[16]);
     }
 
     /// the dots per inch the factor makes: round(96·scale)
@@ -91,17 +152,23 @@ impl Theme {
             let value = f.collect::<Vec<_>>().join(" ");
             let bad = || format!("theme: line {}: {name} {value}", i + 1);
             let c = |v: &str| colour(v).ok_or_else(bad);
+            if let Some(i) = COLOURS.iter().position(|n| *n == name) {
+                t.light.0[i] = c(&value)?;
+                continue;
+            }
+            if let Some(i) = name.strip_prefix("dark.").and_then(|d| COLOURS.iter().position(|n| *n == d)) {
+                let v = c(&value)?;
+                t.darkcolours.get_or_insert(t.light).0[i] = v;
+                continue;
+            }
             match name {
-                "back" => t.back = c(&value)?,
-                "border" => t.border = c(&value)?,
-                "borderinactive" => t.borderinactive = c(&value)?,
-                "window" => t.window = c(&value)?,
-                "text" => t.text = c(&value)?,
-                "select" => t.select = c(&value)?,
-                "menuhigh" => t.menuhigh = c(&value)?,
-                "scroll" => t.scroll = c(&value)?,
-                "hold" => t.hold = c(&value)?,
-                "holdinactive" => t.holdinactive = c(&value)?,
+                "mode" => {
+                    t.dark = match value.as_str() {
+                        "dark" => true,
+                        "light" => false,
+                        _ => return Err(bad()),
+                    }
+                }
                 "title" => t.title = matches!(value.as_str(), "1" | "on" | "yes"),
                 "font" => t.font = value,
                 "uifont" => t.uifont = value,
@@ -119,6 +186,7 @@ impl Theme {
                 _ => return Err(format!("theme: line {}: unknown {name}", i + 1)),
             }
         }
+        t.choose();
         *self = t;
         Ok(())
     }
@@ -126,20 +194,17 @@ impl Theme {
     /// the theme as its file has it
     pub fn text(&self) -> String {
         let mut s = String::new();
-        for (n, v) in [
-            ("back", self.back),
-            ("border", self.border),
-            ("borderinactive", self.borderinactive),
-            ("window", self.window),
-            ("text", self.text),
-            ("select", self.select),
-            ("menuhigh", self.menuhigh),
-            ("scroll", self.scroll),
-            ("hold", self.hold),
-            ("holdinactive", self.holdinactive),
-        ] {
+        for (n, v) in COLOURS.iter().zip(self.light.0) {
             let _ = writeln!(s, "{n} #{v:06x}");
         }
+        if let Some(d) = &self.darkcolours {
+            for ((n, v), l) in COLOURS.iter().zip(d.0).zip(self.light.0) {
+                if v != l {
+                    let _ = writeln!(s, "dark.{n} #{v:06x}");
+                }
+            }
+        }
+        let _ = writeln!(s, "mode {}", if self.dark { "dark" } else { "light" });
         let _ = writeln!(s, "title {}", self.title as u8);
         let _ = writeln!(s, "scale {}{}", if self.scaleauto { "auto " } else { "" }, self.scale);
         for (n, v) in [("font", &self.font), ("uifont", &self.uifont), ("monofont", &self.monofont)] {

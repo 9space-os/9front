@@ -23,12 +23,19 @@ case terminal
 	# the default: wsys where it is installed (the profiles ui and full)
 	if(~ $#desktop 0 && test -x /bin/wsys)
 		desktop=wsys
+	# the desktop's theme: one's own ($home/lib/theme), else 9space's
+	# (light; "echo mode dark >/dev/theme" makes it dark)
+	wsystheme=()
+	if(test -e $home/lib/theme)
+		wsystheme=(-t $home/lib/theme)
+	if not if(test -e /lib/theme/9space)
+		wsystheme=(-t /lib/theme/9space)
 	if(~ $desktop wsys && test -x /bin/wsys && ! ~ $#wsysflags 0 && test -e /srv/gpu.esp && mount -c /srv/gpu.esp /n/esp >[2]/dev/null){
 		echo '# wsys' $wsysflags `{date} >>/n/esp/wsysboot.log
-		wsys $wsysflags -i riostart >[2=1] | esplog /n/esp/wsysboot.log
+		wsys $wsysflags $wsystheme -i riostart >[2=1] | esplog /n/esp/wsysboot.log
 	}
 	if not if(~ $desktop wsys && test -x /bin/wsys)
-		wsys $wsysflags -i riostart
+		wsys $wsysflags $wsystheme -i riostart
 	if not
 		rio -i riostart
 case cpu

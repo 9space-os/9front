@@ -4,7 +4,9 @@
 # the background, the window's border and inside in the new colours at once,
 # term's too (it reads /dev/theme again when wsys says the window changed),
 # the file reads back the new theme, a wrong line is refused (and changes
-# nothing), classic again. Prints ok/FAIL lines and "theme: all passed".
+# nothing), classic again. Then 9space (lib/theme/9space): its light colours,
+# "mode dark" written: the dark palette at once (term's too), read back,
+# "mode light" again. Prints ok/FAIL lines and "theme: all passed".
 fn fail { echo FAIL $*; exit fail }
 fn wait1 { # cmd...: until it succeeds, 10 s at most
 	n=0
@@ -41,13 +43,13 @@ echo ok classic: background 777777, border, window ffffff, term ffffff
 
 cat /lib/theme/modern >/mnt/wsys/theme || fail writing the theme
 sleep 0.5
-is 900,700 e6e4d9
+is 900,700 777777
 is 101,200 2b4c6f a8a49c
 is 390,290 ffffea
 sleep 1
 is 880,380 ffffea
-echo ok modern at once: background e6e4d9, border, window ffffea, term too
-grep -s '^back #e6e4d9$' /mnt/wsys/theme || fail the theme read back: `{cat /mnt/wsys/theme}
+echo ok modern at once: background 777777, border, window ffffea, term too
+grep -s '^back #777777$' /mnt/wsys/theme || fail the theme read back: `{cat /mnt/wsys/theme}
 grep -s '^title 1$' /mnt/wsys/theme || fail title not on: `{cat /mnt/wsys/theme}
 echo ok the theme reads back as written
 
@@ -63,6 +65,28 @@ sleep 0.5
 is 900,700 336699
 is 390,290 ffffea
 echo ok one line: the background alone
+
+# 9space: light, then dark through one line, then light again
+cat /lib/theme/9space >/mnt/wsys/theme || fail writing 9space
+sleep 0.5
+is 900,700 777777
+is 101,200 6b5a3a b5ab93
+is 390,290 ffffea
+echo ok 9space light: background 777777, umber border, paper
+echo mode dark >/mnt/wsys/theme || fail mode dark
+sleep 0.5
+is 900,700 3b3934
+is 101,200 c2a46a 57513f
+is 390,290 24211b
+sleep 1
+is 880,380 24211b
+grep -s '^mode dark$' /mnt/wsys/theme || fail the mode read back: `{grep '^mode' /mnt/wsys/theme}
+grep -s '^dark.window #24211b$' /mnt/wsys/theme || fail the dark palette read back
+echo ok 9space dark at once: background, border, window, term too
+echo mode light >/mnt/wsys/theme || fail mode light
+sleep 0.5
+is 390,290 ffffea
+echo ok 9space light again
 
 cat /lib/theme/classic >/mnt/wsys/theme
 sleep 0.5

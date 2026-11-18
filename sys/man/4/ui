@@ -53,8 +53,9 @@ the theme's
 first, and its colours from the desktop's theme
 .RB ( /dev/theme ,
 .IR wsys (4):
-the window's background and text, the current border for what is on and
-what has the focus, greys between them for the rest; again when it changes;
+the window's background and text, its accent for what is on and what has
+the focus, its surface inside text boxes, greys between them for the rest;
+the palette its mode chooses, light or dark; again when it changes;
 without
 .I wsys
 the classic one).
@@ -401,7 +402,7 @@ winit's scale factor) the window draws as many times as big, and is told
 when it changes;
 .BI nodes/ id /rect
 gives the window's pixels.
-The widget with the keyboard's focus has a ring of the theme's focus colour around it.
+The widget with the keyboard's focus has a ring of the theme's accent around it.
 .PP
 The user's changes go into the tree as well: a text box's
 .BR text ,

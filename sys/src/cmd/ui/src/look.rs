@@ -4,8 +4,10 @@
 // ui's look: Masonry's default properties (masonry/src/theme.rs of xilem rev
 // dc49687, Apache-2.0) with the colours of the desktop's theme (desk:
 // /dev/theme, wsys(4)) instead of Masonry's dark ones: the window's background
-// and text, the current border as accent and focus (a ring: BoxShadow), and greys mixed between
-// background and text for surfaces, borders, hover and active (Palette).
+// and text, the theme's accent as accent and focus (a ring: BoxShadow), its
+// surface inside text fields, and greys mixed between background and text
+// for faces, borders, hover and active (Palette). Light or dark is the
+// theme's mode: its colours are the chosen palette's.
 
 use masonry::core::{DefaultProperties, PropertySet, PropertyStack, Selector};
 use masonry::layout::{AsUnit, Length};
@@ -55,9 +57,9 @@ impl Palette {
         Palette {
             background: rgb(b),
             text: rgb(x),
-            textback: mix(b, x, 0.03),
-            accent: rgb(t.border),
-            focus: rgb(t.border),
+            textback: rgb(t.surface),
+            accent: rgb(t.accent),
+            focus: rgb(t.accent),
             disabled: mix(b, x, 0.45),
             placeholder: mix(b, x, 0.5),
             dim: mix(b, x, 0.55),

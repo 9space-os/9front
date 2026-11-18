@@ -3,6 +3,9 @@
 term	window term
 rc	window
 stats	window -r 0 30 161 147 stats -lmisce
+theme: 9space	cat /lib/theme/9space >/dev/theme
+theme: light	echo mode light >/dev/theme
+theme: dark	echo mode dark >/dev/theme
 theme: classic	cat /lib/theme/classic >/dev/theme
 theme: modern	cat /lib/theme/modern >/dev/theme
 edit the theme	window acme /dev/theme
