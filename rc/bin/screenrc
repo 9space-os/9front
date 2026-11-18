@@ -59,6 +59,10 @@ if(test -f /dev/mousectl && test -f /dev/winname){
 		aux/mouse $mouseport
 		if(~ $accupoint 1)
 			pipefile -dr /bin/aux/accupoint /dev/mouse
+		# 9space: midscroll=on in plan9.ini: the middle button and
+		# motion scroll (a TrackPoint's; mouse(3))
+		if(~ $midscroll on)
+			echo midscroll on >/dev/mousectl
 	}
 }
 

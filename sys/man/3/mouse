@@ -157,6 +157,22 @@ unlike
 .B scrollswap
 inverts the scroll wheel.
 .TP
+.B "midscroll\fI on/off\fP"
+(PS/2 mice, 9space) scrolls by the middle button, as on a TrackPoint:
+held and moved up or down it sends the wheel's buttons 8 and 16 and
+the pointer stays; pressed and released without moving it is a
+middle click, sent at the release.
+Off by default, as that changes the middle button:
+.IR rio (1)'s
+menu and
+.IR acme (1)'s
+sweeps hold it and move.
+.I Screenrc
+turns it on with
+.B midscroll=on
+in
+.IR plan9.ini (8).
+.TP
 .B reset
 clears the mouse
 to its default state.

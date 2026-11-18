@@ -11,6 +11,8 @@
 monitor=i915
 vgasize=1920x1080x32
 mouseport=ps2
+# the TrackPoint scrolls by its middle button (mouse(3))
+midscroll=on
 # WLAN: etheriwl's firmware for the 7265 under the name it reads; the
 # X1's card is a 7265D (hardware revision type 0x210): 7265D-29
 firmware iwlwifi-7265-17.ucode.zst iwm-7265-17

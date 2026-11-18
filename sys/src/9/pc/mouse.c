@@ -45,6 +45,7 @@ static int accelerated;
 static int mousehwaccel;
 static int synaptic;
 static volatile int disabletouch;
+static int midscroll;	/* 9space: the middle button and motion scroll */
 static char mouseport[5];
 
 enum
@@ -60,6 +61,7 @@ enum
 	CMserial,
 	CMtouchpad,
 	CMsynaptic,
+	CMmidscroll,
 };
 
 static Cmdtab mousectlmsg[] =
@@ -75,6 +77,7 @@ static Cmdtab mousectlmsg[] =
 	CMserial,		"serial",		0,
 	CMtouchpad,		"touchpad",		2,
 	CMsynaptic,		"synaptic",		1,
+	CMmidscroll,		"midscroll",		2,
 };
 
 /*
@@ -103,6 +106,60 @@ static Cmdtab mousectlmsg[] =
  * To resynchronize, if we get a byte more than two seconds
  * after the previous byte, we assume it's the first in a packet.
  */
+/*
+ * 9space: scrolling by the middle button, as a TrackPoint's (libinput's
+ * on-button scrolling, OpenBSD's wsmouse WSMOUSECFG_*: the same idea):
+ * with midscroll on, the middle button held and moved scrolls (buttons
+ * 8 and 16, one per Scrollstep of motion up or down, the pointer stays);
+ * pressed and released without motion it is a middle click then, on its
+ * release.  Off by default: rio's menu and acme's sweeps hold the middle
+ * button and move.
+ */
+enum {
+	Scrollstep	= 8,
+	Scrollslop	= 3,	/* motion below this is still a click */
+};
+
+static void
+midscrolltrack(int dx, int dy, int buttons, ulong ms)
+{
+	static int held, scrolling, moved, acc;
+
+	if(buttons & 2){
+		if(!held){
+			held = 1;
+			scrolling = 0;
+			moved = 0;
+			acc = 0;
+		}
+		moved += abs(dx) + abs(dy);
+		if(!scrolling && moved > Scrollslop)
+			scrolling = 1;
+		if(scrolling){
+			acc += dy;
+			while(acc <= -Scrollstep){
+				mousetrack(0, 0, (buttons&~2) | 8, ms);
+				mousetrack(0, 0, buttons&~2, ms);
+				acc += Scrollstep;
+			}
+			while(acc >= Scrollstep){
+				mousetrack(0, 0, (buttons&~2) | 16, ms);
+				mousetrack(0, 0, buttons&~2, ms);
+				acc -= Scrollstep;
+			}
+		}
+		return;
+	}
+	if(held){
+		held = 0;
+		if(!scrolling){
+			mousetrack(0, 0, buttons | 2, ms);
+			mousetrack(0, 0, buttons, ms);
+		}
+	}
+	mousetrack(dx, dy, buttons, ms);
+}
+
 static void
 ps2mouseputc(int c, int shift)
 {
@@ -166,6 +223,10 @@ ps2mouseputc(int c, int shift)
 		}
 		dx = msg[1];
 		dy = -msg[2];
+		if(midscroll){
+			midscrolltrack(dx, dy, buttons, TK2MS(MACHP(0)->PMach.ticks));
+			return;
+		}
 		mousetrack(dx, dy, buttons, TK2MS(MACHP(0)->PMach.ticks));
 	}
 }
@@ -605,6 +666,14 @@ mousectl(Cmdbuf *cb)
 			if(synaptic==1)
 				disabletouch = 0;
 		}else
+			cmderror(cb, "bad mouse control message");
+		break;
+	case CMmidscroll:
+		if(strcmp(cb->f[1], "on") == 0)
+			midscroll = 1;
+		else if(strcmp(cb->f[1], "off") == 0)
+			midscroll = 0;
+		else
 			cmderror(cb, "bad mouse control message");
 		break;
 	}
