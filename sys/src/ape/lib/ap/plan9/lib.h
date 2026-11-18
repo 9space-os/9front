@@ -44,6 +44,7 @@ typedef struct Fdinfo{
 #define FD_BUFFEREDX	0x8
 #define FD_ISTTY	0x20
 #define FD_EVENTFD	0x40	/* GCC port: an eventfd (gnu/epoll.c): write goes to its pipe's other end */
+#define FD_TIMERFD	0x80	/* GCC port: a timerfd (gnu/epoll.c): read gives the count of expirations */
 
 #define MAXSIG SIGTRAP
 

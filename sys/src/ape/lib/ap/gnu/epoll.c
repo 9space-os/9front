@@ -7,11 +7,14 @@
  * work as for any descriptor) with a set kept here, by its number;
  * epoll_wait polls the descriptors of the set.  A timerfd is the read end
  * of a pipe too, with a deadline kept here: epoll_wait waits no longer than
- * the earliest deadline in its set and, when one has come, writes the count
- * of expirations into the pipe, which is then readable as on Linux (8
- * bytes).  A timer is only kept by epoll_wait (libwayland's way); a timerfd
- * polled by itself never fires.  An eventfd is a pipe too, written through
- * eventfd_write.
+ * the earliest deadline in its set and, when one has come, counts the
+ * expiration.  The pipe holds one record (8 bytes) while expirations are
+ * pending, so that the descriptor is readable as on Linux; read takes the
+ * record and returns their count (FD_TIMERFD: plan9/read.c), and
+ * timerfd_settime drops them, as Linux's does (libwayland never reads its
+ * timerfd: it relies on that).  A timer is only kept by epoll_wait
+ * (libwayland's way); a timerfd polled by itself never fires.  An eventfd
+ * is a pipe too, written through eventfd_write.
  */
 #define _POSIX_SOURCE
 #define _BSD_EXTENSION
@@ -28,6 +31,8 @@
 #include <poll.h>
 
 extern void __eventfdmark(int);	/* plan9/write.c */
+extern void __timerfdmark(int);	/* plan9/read.c */
+extern int __readblock(int, void*, int);
 #include <signal.h>
 #include <lock.h>
 #include <sys/epoll.h>
@@ -59,6 +64,7 @@ struct Timer {
 	int	w;	/* its pipe's other end: the expirations go there */
 	long long	deadline;	/* ns on CLOCK_MONOTONIC; 0: disarmed */
 	long long	interval;
+	uint64_t	pending;	/* a timerfd's expirations not read; > 0: a record in the pipe */
 	Timer	*next;
 };
 
@@ -252,7 +258,26 @@ fire(Timer *t, long long ns)
 		t->deadline += n * t->interval;
 	}else
 		t->deadline = 0;
-	write(t->w, &n, sizeof n);
+	if(t->pending == 0)
+		write(t->w, &n, sizeof n);	/* the record that makes fd readable */
+	t->pending += n;
+}
+
+/*
+ * read(2) of timerfd fd took the record from its pipe into *v (8 bytes):
+ * the count of expirations instead, now none pending (plan9/read.c)
+ */
+void
+__timerfdtake(int fd, uint64_t *v)
+{
+	Timer *t;
+
+	lock(&lk);
+	if((t = findtimer(fd, 0)) != NULL && t->pending > 0){
+		*v = t->pending;
+		t->pending = 0;
+	}
+	unlock(&lk);
 }
 
 int
@@ -398,6 +423,7 @@ timerfd_create(int clock, int flags)
 	t->next = timers;
 	timers = t;
 	unlock(&lk);
+	__timerfdmark(fd);	/* read(fd) gives the count (plan9/read.c) */
 	return fd;
 }
 
@@ -406,6 +432,8 @@ timerfd_settime(int fd, int flags, const struct itimerspec *new, struct itimersp
 {
 	Timer *t;
 	long long ns, v;
+	uint64_t rec;
+	int drop;
 
 	lock(&lk);
 	if((t = findtimer(fd, 0)) == NULL){
@@ -426,7 +454,12 @@ timerfd_settime(int fd, int flags, const struct itimerspec *new, struct itimersp
 		t->deadline = v > 0 ? v : 1;	/* CLOCK_MONOTONIC's time, as now() */
 	else
 		t->deadline = ns + v;
+	/* as Linux: setting a timer drops the expirations not read */
+	drop = t->pending > 0;
+	t->pending = 0;
 	unlock(&lk);
+	if(drop)
+		__readblock(fd, &rec, sizeof rec);	/* the record is there: no wait */
 	return 0;
 }
 
