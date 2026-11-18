@@ -71,6 +71,9 @@ enum {
 
 	Iclsc		= 0x004,	/* interrupt coalescing */
 		ClscDis		= 1<<31,
+	Iperiodic	= 0x005,	/* 9space: the periodic interrupt, in 32 us (iwm's IWM_CSR_INT_PERIODIC_REG) */
+		PeriodicDis	= 0x00,
+		PeriodicEna	= 0xff,		/* ~8 ms */
 	Isr		= 0x008,	/* interrupt status */
 	Imr		= 0x00c,	/* interrupt mask */
 		Ialive		= 1<<0,
@@ -185,6 +188,7 @@ enum {
 
 		FhRxConfigNrbdShift	= 20,
 		FhRxConfigRbTimeoutShift= 4,
+		RxRbTimeout		= 0x11,	/* 9space: iwm's IWM_RX_RB_TIMEOUT */
 
 	FhRxStatus	= 0x1c44,
 
@@ -348,7 +352,7 @@ enum {
 	UcodeCapLar	= 1<<1,
 
 	/* capa[1] */
-	UcodeCapQuota	= 1<<12,
+	UcodeCapQuota	= 1<<12,	/* DYNAMIC_QUOTA (44): the firmware sets the quotas itself */
 	
 	/* capa[2] */
 	UcodeCapLar2	= 1<<9,
@@ -576,6 +580,12 @@ struct Ctlr {
 	} te;
 
 	uvlong systime;
+	int rxsignal;	/* 9space: the last rx phy's strongest antenna, dBm; 0: none */
+	int pmflags;	/* 9space: the MAC power table's flags (ctl pm), -1: the default */
+	int devpm;	/* 9space: the device power flags (ctl devpm), -1: the default */
+	ulong nintr;	/* 9space: statistics: interrupts, those with rx, frames received */
+	ulong nrxintr;
+	ulong nrxframe;
 
 	/*
 	 * 9space: HT with the access point (7000 and newer): the MCS
@@ -594,6 +604,7 @@ struct Ctlr {
 		int	success;
 		int	recovery;
 		int	threshold;
+		ulong	lastchoose;	/* ticks of AMRR's last decision */
 		ulong	ntx;		/* statistics */
 		ulong	nretry;
 	} ht;
@@ -617,6 +628,7 @@ struct Ctlr {
 		uchar	pnum;
 		uchar	txantmask;
 		uchar	rxantmask;
+		uchar	band5;	/* 9space: the NVM's SKU enables 5 GHz (7000 and newer) */
 	} rfcfg;
 
 	struct {
@@ -1964,6 +1976,13 @@ reset(Ctlr *ctlr)
 			FhRxConfigIgnRxfEmpty |
 			FhRxConfigIrqDstHost | 
 			FhRxConfigSingleFrame |
+			/*
+			 * 9space: an interrupt for each received buffer after
+			 * this timeout (iwm); without it frames waited for the
+			 * next other interrupt, around each beacon: round trips
+			 * of up to 100 ms and ~2 Mbit/s over the WLAN
+			 */
+			(RxRbTimeout << FhRxConfigRbTimeoutShift) |
 			(Nrxlog << FhRxConfigNrbdShift));
 
 		csr8w(ctlr, Iclsc, 64); /* 64*32=2048 usec */
@@ -2030,6 +2049,8 @@ reset(Ctlr *ctlr)
 		csr32w(ctlr, Gpc, csr32r(ctlr, Gpc) | 0x4000000);
 
 	ctlr->ie = Idefmask;
+	if(ctlr->family >= 7000)
+		ctlr->ie |= Irxperiodic;	/* 9space: the one-shot below (iwlinterrupt) */
 	csr32w(ctlr, Imr, ctlr->ie);
 	csr32w(ctlr, Isr, ~0);
 
@@ -2304,6 +2325,9 @@ readnvmconfig(Ctlr *ctlr)
 		ctlr->rfcfg.step = (u >> 2) & 3;
 		ctlr->rfcfg.dash = (u >> 0) & 3;
 		ctlr->rfcfg.pnum = (u >> 6) & 3;
+
+		/* 9space: the SKU, word 2 of the SW section (iwm: IWM_SKU, IWM_NVM_SKU_CAP_BAND_52GHZ) */
+		ctlr->rfcfg.band5 = (get16(buf + 4) & (1<<1)) != 0;
 	} else {
 		if(readnvmsect(ctlr, 12, buf, 8, 0) != 8)
 			return "can't read nvm phy config";
@@ -2317,6 +2341,9 @@ readnvmconfig(Ctlr *ctlr)
 
 		ctlr->rfcfg.txantmask = (u >> 24) & 15;
 		ctlr->rfcfg.rxantmask = (u >> 28) & 15;
+
+		/* 9space: the SKU, at word 2 of the PHY SKU section (iwm: IWM_SKU_8000) */
+		ctlr->rfcfg.band5 = (get32(buf + 4) & (1<<1)) != 0;
 	}
 	if(ctlr->family >= 8000){
 		if(readnvmsect(ctlr, 11, ea, Eaddrlen, 0x01<<1) != Eaddrlen){
@@ -2484,8 +2511,8 @@ htladder(Ctlr *ctlr)
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * Called from the interrupt with every frame's status: a step up after
- * enough frames with few retries, down after many.
+ * Called from the interrupt with the frames' status every 500 ms: a step
+ * up after enough frames with few retries, down after many.
  */
 enum {
 	AmrrMinThreshold	= 1,
@@ -2555,7 +2582,11 @@ htstatus(Ctlr *ctlr, Block *b, int ok, int retries)
 		ctlr->ht.retrycnt++;
 		ctlr->ht.nretry += retries;
 	}
-	amrrchoose(ctlr);
+	/* a decision every 500 ms, as OpenBSD's drivers call AMRR from a timeout */
+	if(TK2MS(MACHP(0)->PMach.ticks - ctlr->ht.lastchoose) >= 500){
+		ctlr->ht.lastchoose = MACHP(0)->PMach.ticks;
+		amrrchoose(ctlr);
+	}
 }
 
 /*
@@ -2581,6 +2612,68 @@ htcaps(Ctlr *ctlr)
 	c[17] = 1;			/* tx MCS set defined, the same */
 	ctlr->wifi->ncaps = 2+26;
 	ctlr->wifi->wmm = 1;
+}
+
+/*
+ * 9space: the Smart FIFO, as OpenBSD's iwm_sf_config and
+ * iwm_fill_sf_command (the timers and watermarks of if_iwmreg.h): the
+ * firmware's receive FIFO keeps frames until these timers run out;
+ * never configured, it held them for long (round trips of up to
+ * 100 ms). Off (SF_INIT_OFF) until associated, then full on with the
+ * short timers. The command is struct iwm_sf_cfg_cmd: state,
+ * watermark[2], long_delay_timeouts[5][2], full_on_timeouts[5][2].
+ */
+enum {
+	CmdSfCfg	= 0xd1,
+	SfFullOn	= 1,
+	SfInitOff	= 3,
+	SfWmarkSiso	= 4096,
+	SfWmarkMimo2	= 8192,
+	SfWmarkLegacy	= 4096,
+	SfWmarkScan	= 4096,
+	SfLongDelayAging = 1000000,	/* 1 s */
+};
+
+static u32int sffulltimeout[5][2] = {	/* aging, idle in us: single unicast, aggregated unicast, multicast, BA, TX response */
+	{ 2016, 320 }, { 2016, 320 }, { 10016, 2016 }, { 2016, 320 }, { 2016, 320 },
+};
+static u32int sffulltimeoutdef[5][2] = {
+	{ 400, 160 }, { 400, 160 }, { 400, 160 }, { 400, 160 }, { 400, 160 },
+};
+
+static char*
+setsmartfifo(Ctlr *ctlr, int state, Wnode *bss)
+{
+	uchar c[4 + 2*4 + 5*2*4 + 5*2*4], *p;
+	u32int (*t)[2];
+	int i, j, wmark;
+
+	if(ctlr->family < 7000)
+		return nil;
+	memset(c, 0, sizeof(c));
+	p = c;
+	put32(p, state);
+	p += 4;
+	if(state == SfFullOn && bss != nil)
+		wmark = ctlr->ht.on? (ctlr->ht.mimo? SfWmarkMimo2: SfWmarkSiso): SfWmarkLegacy;
+	else
+		wmark = SfWmarkMimo2;
+	put32(p, SfWmarkScan);		/* watermark[long delay on] */
+	p += 4;
+	put32(p, wmark);		/* watermark[full on] */
+	p += 4;
+	for(i = 0; i < 5; i++)
+		for(j = 0; j < 2; j++){
+			put32(p, SfLongDelayAging);
+			p += 4;
+		}
+	t = state == SfFullOn && bss != nil? sffulltimeout: sffulltimeoutdef;
+	for(i = 0; i < 5; i++)
+		for(j = 0; j < 2; j++){
+			put32(p, t[i][j]);
+			p += 4;
+		}
+	return cmd(ctlr, CmdSfCfg, c, p - c);
 }
 
 static char*
@@ -2790,7 +2883,7 @@ setmaccontext(Ether *edev, Ctlr *ctlr, int amr, Wnode *bss)
 	memmove(p, ctlr->bssid, 6);
 	p += 8;
 
-	put32(p, bss == nil? 0xF : (bss->validrates & 0xF));
+	put32(p, ctlr->channel > 14? 0: bss == nil? 0xF : (bss->validrates & 0xF));	/* 9space: no CCK on 5 GHz */
 	p += 4;
 	put32(p, bss == nil? 0xFF : (bss->validrates >> 4));
 	p += 4;
@@ -2999,11 +3092,19 @@ settimeevent(Ctlr *ctlr, int amr, int ival)
 static char*
 setbindingquotas(Ctlr *ctlr, int bindid)
 {
-	uchar c[4*(3*4)], *p;
-	int i;
+	uchar c[4*(4*4)], *p;
+	int i, v2;
 
-	if((ctlr->fw->capa[1] & UcodeCapQuota) == 0)
+	/*
+	 * the driver gives the quotas only where the firmware does not
+	 * (no DYNAMIC_QUOTA capability), as OpenBSD's iwm_run; without
+	 * them the binding got slivers of air time: frames waited for
+	 * the next beacon. The entries have low_latency where the
+	 * firmware's API has QUOTA_LOW_LATENCY (38).
+	 */
+	if(ctlr->fw->capa[1] & UcodeCapQuota)
 		return nil;
+	v2 = (ctlr->fw->api[1] & (1<<(38-32))) != 0;
 
 	i = 0;
 	p = c;
@@ -3015,6 +3116,10 @@ setbindingquotas(Ctlr *ctlr, int bindid)
 		p += 4;
 		put32(p, 0);
 		p += 4;
+		if(v2){
+			put32(p, 0);	/* low_latency */
+			p += 4;
+		}
 		i++;
 	}
 	for(; i < 4; i++){
@@ -3024,6 +3129,10 @@ setbindingquotas(Ctlr *ctlr, int bindid)
 		p += 4;
 		put32(p, 0);
 		p += 4;
+		if(v2){
+			put32(p, 0);
+			p += 4;
+		}
 	}
 
 	return cmd(ctlr, 44, c, p - c);
@@ -3067,7 +3176,15 @@ setmacpowermode(Ctlr *ctlr, Wnode *bss)
 	put32(p, ctlr->macid);
 	p += 4;
 
-	put16(p, ctlr->prom ? 0 : 1);	// flags
+	/*
+	 * flags: 1 power save allowed, 2 power management by the rest of
+	 * these parameters. 9space: with 1 alone the firmware dozed after
+	 * every frame and the access point held our frames until the
+	 * next beacon (round trips of up to 100 ms, ~2 Mbit/s); now it
+	 * stays awake while data flows, for the rx/tx data timeouts
+	 * (iwm's IWM_DEFAULT_PS_RX_DATA_TIMEOUT, ..._TX_..., 100 ms)
+	 */
+	put16(p, ctlr->prom ? 0 : ctlr->pmflags >= 0 ? ctlr->pmflags : 1|2);	// flags
 	p += 2;
 	/* a value below 25 seconds results in weird behavior */
 	dtim = bss ? 3*bss->dtimperiod*bss->ival : 0;
@@ -3075,9 +3192,9 @@ setmacpowermode(Ctlr *ctlr, Wnode *bss)
 	put16(p, dtim > 25 ? dtim : 25);	// keep alive seconds
 	p += 2;
 
-	put32(p, 0);	// rx data timeout
+	put32(p, 100*1000);	// rx data timeout, microseconds
 	p += 4;
-	put32(p, 0);	// tx data timeout
+	put32(p, 100*1000);	// tx data timeout
 	p += 4;
 	put32(p, 0);	// rx data timeout uapsd
 	p += 4;
@@ -3133,7 +3250,7 @@ updatedevicepower(Ctlr *ctlr)
 	uchar c[4];
 
 	memset(c, 0, sizeof(c));
-	put16(c, 0<<13 | 1<<0);	// cont active off, pm enable
+	put16(c, ctlr->devpm >= 0 ? ctlr->devpm : 0<<13 | 1<<0);	// cont active off, pm enable
 
 	return cmd(ctlr, 119, c, 4);
 }
@@ -3963,6 +4080,10 @@ rxon7000(Ether *edev, Ctlr *ctlr, Wnode *bss)
 		print("can't set binding quotas: %s\n", err);
 		return err;
 	}
+	if((err = setsmartfifo(ctlr, SfInitOff, nil)) != nil){	/* 9space */
+		print("can't set smart fifo: %s\n", err);
+		return err;
+	}
 	return nil;
 }
 
@@ -4026,6 +4147,9 @@ rxon(Ether *edev, Wnode *bss)
 	if(bss != nil){
 		ctlr->aid = bss->aid;
 		ctlr->channel = bss->channel;
+		/* 9space: the band by the channel (the PHY context's) on 7000 and newer */
+		if(ctlr->family >= 7000 && ctlr->channel > 14)
+			ctlr->rxflags &= ~RFlag24Ghz;
 		memmove(ctlr->bssid, bss->bssid, sizeof(ctlr->bssid));
 		if(bss->cap & (1<<5))
 			ctlr->rxflags |= RFlagShPreamble;
@@ -4095,9 +4219,13 @@ rxon(Ether *edev, Wnode *bss)
 			&ctlr->bss, ctlr->ht.mimo? StaFlgMimo2: 0)) != nil)
 			goto Out;
 
-		if(ctlr->family >= 7000)
+		if(ctlr->family >= 7000){
 			if((err = setmaccontext(edev, ctlr, CmdModify, bss)) != nil)
 				goto Out;
+			/* 9space: associated: the Smart FIFO full on (iwm_run) */
+			if((err = setsmartfifo(ctlr, SfFullOn, bss)) != nil)
+				goto Out;
+		}
 	}
 Out:
 	return err;
@@ -4206,6 +4334,9 @@ Broken:
 		rate = p - wifi->rates;
 	else
 		rate = 0;
+	/* 9space: no CCK (802.11b) on 5 GHz: the scan's probes have no rates of their own */
+	if(ctlr->channel > 14 && (ratetab[rate].flags & RFlagCCK) != 0)
+		rate = 4;	/* 6 Mbit/s OFDM */
 
 	/* select first available antenna */
 	ant = ctlr->rfcfg.txantmask & 7;
@@ -4271,6 +4402,39 @@ iwlctl(Ether *edev, void *buf, long n)
 		ctlr->broken = 1;
 		return n;
 	}
+	/*
+	 * 9space: the power flags for testing: "pm N" (MAC power table:
+	 * 1 power save allowed, 2 power management), "devpm N" (device;
+	 * -1 either: the default), sent at once on 7000 and newer
+	 */
+	if(ctlr->family >= 7000 && n >= 3 && (memcmp(buf, "pm ", 3) == 0 || n >= 6 && memcmp(buf, "devpm ", 6) == 0)){
+		char tmp[32], *f[3];
+		char *err;
+
+		if(n >= sizeof tmp)
+			error(Ebadarg);
+		memmove(tmp, buf, n);
+		tmp[n] = 0;
+		if(tokenize(tmp, f, nelem(f)) != 2)
+			error(Ebadarg);
+		qlock(&ctlr->QLock);
+		if(waserror()){
+			qunlock(&ctlr->QLock);
+			nexterror();
+		}
+		if(strcmp(f[0], "pm") == 0){
+			ctlr->pmflags = strtol(f[1], nil, 0);
+			err = ctlr->attached? setmacpowermode(ctlr, ctlr->wifi->bss): nil;
+		} else {
+			ctlr->devpm = strtol(f[1], nil, 0);
+			err = ctlr->attached? updatedevicepower(ctlr): nil;
+		}
+		if(err != nil)
+			error(err);
+		poperror();
+		qunlock(&ctlr->QLock);
+		return n;
+	}
 	if(ctlr->wifi)
 		return wifictl(ctlr->wifi, buf, n);
 	return 0;
@@ -4283,6 +4447,8 @@ iwlifstat(void *a, char *s, char *e)
  	Ctlr *ctlr = edev->ctlr;
 
 	s = wifistat(ctlr->wifi, s, e);
+	s = seprint(s, e, "intr: %lud, with rx %lud, frames %lud\n",	/* 9space */
+		ctlr->nintr, ctlr->nrxintr, ctlr->nrxframe);
 	if(ctlr->ht.on)	/* 9space */
 		s = seprint(s, e, "ht: mcs %d%s, frames %lud, retries %lud\n",
 			ctlr->ht.ladder[ctlr->ht.cur], ctlr->ht.mimo? " (2 streams)": "",
@@ -4430,6 +4596,12 @@ iwlattach(Ether *edev)
 			 */
 			if(ctlr->family >= 7000 && !ctlr->mqrx)
 				htcaps(ctlr);
+			/* 9space: 2.4 and 5 GHz where the NVM enables it (wifi.c only listens on DFS channels) */
+			if(ctlr->family >= 7000 && ctlr->rfcfg.band5)
+				ctlr->wifi->scan = wifiscan5g;
+			/* 9space: the signal of each frame: wifi.c chooses the strongest node (a mesh's) */
+			if(ctlr->family >= 7000 && !ctlr->mqrx)
+				ctlr->wifi->sigs = 1;
 		}
 
 		setoptions(edev);
@@ -4626,6 +4798,26 @@ receive(Ctlr *ctlr)
 		case 192:	/* rx phy */
 			if(len >= 8)
 				updatesystime(ctlr, get32(d+4));
+			/*
+			 * 9space: the signal of the frame that follows, as
+			 * iwm_get_signal_strength: non_cfg_phy[1] has each
+			 * antenna's energy (-dBm) in a byte, 0 where none
+			 */
+			ctlr->rxsignal = 0;
+			if(len >= 32 && !ctlr->mqrx){
+				u32int e;
+				int i, a, best;
+
+				e = get32(d+28);
+				best = -256;
+				for(i = 0; i < 3; i++){
+					a = (e >> 8*i) & 0xFF;
+					if(a != 0 && -a > best)
+						best = -a;
+				}
+				if(best > -256)
+					ctlr->rxsignal = best;
+			}
 			break;
 		case 195:	/* rx done */
 			if(d + 2 > b->lim)
@@ -4660,6 +4852,11 @@ receive(Ctlr *ctlr)
 
 			put64(d - 8, ctlr->systime);
 			b->flag |= Btimestamp;
+			ctlr->nrxframe++;	/* 9space */
+			if(ctlr->rxsignal != 0 && !ctlr->mqrx){	/* 9space: wifi.c's Bsignal, the byte before the timestamp */
+				d[-9] = ctlr->rxsignal;
+				b->flag |= Bsignal;
+			}
 
 			wifiiq(ctlr->wifi, b);
 			break;
@@ -4701,11 +4898,25 @@ iwlinterrupt(Ureg*, void *arg)
 	}
 	if(isr == 0 && fhisr == 0)
 		goto done;
+	ctlr->nintr++;	/* 9space */
+	if((isr & (Iswrx | Ifhrx | Irxperiodic)) || (fhisr & Ifhrx))
+		ctlr->nrxintr++;
 	csr32w(ctlr, Isr, isr);
 	csr32w(ctlr, FhIsr, fhisr);
 
-	if((isr & (Iswrx | Ifhrx | Irxperiodic | Ialive)) || (fhisr & Ifhrx))
+	if((isr & (Iswrx | Ifhrx | Irxperiodic | Ialive)) || (fhisr & Ifhrx)){
+		/*
+		 * 9space: as iwm_intr: the periodic interrupt as a one-shot,
+		 * 8 ms after a real rx interrupt, for an rx the hardware
+		 * left without one ("dangling")
+		 */
+		if(ctlr->family >= 7000){
+			csr8w(ctlr, Iperiodic, PeriodicDis);
+			if((isr & (Iswrx | Ifhrx)) || (fhisr & Ifhrx))
+				csr8w(ctlr, Iperiodic, PeriodicEna);
+		}
 		receive(ctlr);
+	}
 	if(isr & Ierr){
 		ctlr->broken = 1;
 		print("#l%d: fatal firmware error\n", edev->ctlrno);
@@ -4820,6 +5031,8 @@ iwlpci(void)
 			print("iwl: unable to alloc Ctlr\n");
 			continue;
 		}
+		ctlr->pmflags = -1;	/* 9space */
+		ctlr->devpm = -1;
 		ctlr->port = pdev->mem[0].bar & ~0xF;
 		mem = vmap(ctlr->port, pdev->mem[0].size);
 		if(mem == nil) {

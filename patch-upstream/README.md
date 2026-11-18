@@ -31,7 +31,7 @@ All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 `82ddeb288`, 2026-11-10, at `00d3043a2`, 2026-11-12, and at `eb49f1f87`,
 2026-11-12); 0032 to 0034 on them at `eb49f1f87` (2026-11-14); all 38 at
 `6ae667969` (2026-11-15), 0039 to 0044 on them there (2026-11-16), 0045
-on them there (2026-11-17), 0046 on them there (2026-11-18). Each
+on them there (2026-11-17), 0046 and 0047 on them there (2026-11-18). Each
 applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
@@ -113,6 +113,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0044 | news, zuke, pool, dma, doom, eqn, troff: no variable both changed and read without a sequence point | bug fix |
 | 0045 | usbohci: bufferRounding on the last Td of an input transfer: a short last packet ends it | bug fix |
 | 0046 | nusb/cam: format WxHxBPP-FOURCC in ctl: skip the '-' before the fourcc | bug fix |
+| 0047 | etheriwl: send the binding's time quota where the firmware has no DYNAMIC_QUOTA, not only where it has | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -685,6 +686,20 @@ the short form `format WxH` worked. Found on real hardware: a ThinkPad
 X1 Carbon 3rd's integrated camera (04ca:7049, YUY2 only) booted by PXE;
 the fix shown there (switching to `1280x720x16-YUY2` and back, a frame
 read in each). Not done: compiled with 9front's own compilers.
+
+### 0047 etheriwl: send the binding's time quota where the firmware has no DYNAMIC_QUOTA, not only where it has
+
+`setbindingquotas` sent the TIME_QUOTA command only where the firmware
+has the DYNAMIC_QUOTA capability (capa[1] bit 12), the one case where
+it sets the quotas itself; OpenBSD's `iwm_run` sends it exactly where it
+lacks it. A Wireless 7265 (`iwm-7265-17`) never got one: frames to it
+waited for the next beacon (round trips up to 100 ms, a sawtooth over
+ping intervals) and it sent ~250 frames a second, ~2 Mbit/s. Found and
+shown on a ThinkPad X1 Carbon 3rd booted by PXE, 9space's kernel (its
+etheriwl also has 802.11n and 5 GHz): with the quota ~1 ms and ~22
+Mbit/s each way. The entries carry `low_latency` where the firmware's
+API has QUOTA_LOW_LATENCY (38), as `iwm_update_quotas`. Not done:
+compiled with 9front's own compilers; run on 9front's own driver.
 
 ## Not included
 

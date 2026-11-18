@@ -1,7 +1,7 @@
 From 3bcd72e67501c2e845def7d38bd6bd808419beb2 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Mon, 16 Nov 2026 19:01:03 +0100
-Subject: [PATCH 42/46] postscript: the functions declared (atof, malloc,
+Subject: [PATCH 42/47] postscript: the functions declared (atof, malloc,
  error's arguments were wrong on a 64-bit machine)
 
 The programs on APE (compiled -B) called the C library's and common's

@@ -1,0 +1,82 @@
+From b05f0f66d259d7bb0936089490210f8bf39b17f3 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Wed, 18 Nov 2026 12:28:14 +0100
+Subject: [PATCH 47/47] etheriwl: send the binding's time quota where the
+ firmware has no DYNAMIC_QUOTA, not only where it has
+
+setbindingquotas sent the TIME_QUOTA command only when the firmware
+had the DYNAMIC_QUOTA capability (capa[1] bit 12, TLV capability 44),
+the one case where the firmware sets the quotas itself; OpenBSD's
+iwm_run (and Linux) send it exactly when it lacks it. A Wireless 7265
+(iwm-7265-17) never got a quota: frames to it waited for the next
+beacon (round trips up to 100 ms) and it sent slowly, ~2 Mbit/s over
+802.11n. With the quota: ~1 ms, ~22 Mbit/s each way. The entries
+carry low_latency where the firmware's API has QUOTA_LOW_LATENCY (38),
+as iwm_update_quotas does.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/port/etheriwl.c | 24 ++++++++++++++++++++----
+ 1 file changed, 20 insertions(+), 4 deletions(-)
+
+diff --git a/sys/src/9/port/etheriwl.c b/sys/src/9/port/etheriwl.c
+index 087ecca8f..c5efef3a4 100644
+--- a/sys/src/9/port/etheriwl.c
++++ b/sys/src/9/port/etheriwl.c
+@@ -348,7 +348,7 @@ enum {
+ 	UcodeCapLar	= 1<<1,
+ 
+ 	/* capa[1] */
+-	UcodeCapQuota	= 1<<12,
++	UcodeCapQuota	= 1<<12,	/* DYNAMIC_QUOTA (44): the firmware sets the quotas itself */
+ 	
+ 	/* capa[2] */
+ 	UcodeCapLar2	= 1<<9,
+@@ -2762,11 +2762,19 @@ settimeevent(Ctlr *ctlr, int amr, int ival)
+ static char*
+ setbindingquotas(Ctlr *ctlr, int bindid)
+ {
+-	uchar c[4*(3*4)], *p;
+-	int i;
++	uchar c[4*(4*4)], *p;
++	int i, v2;
+ 
+-	if((ctlr->fw->capa[1] & UcodeCapQuota) == 0)
++	/*
++	 * the driver gives the quotas only where the firmware does not
++	 * (no DYNAMIC_QUOTA capability), as OpenBSD's iwm_run; without
++	 * them the binding got slivers of air time: frames waited for
++	 * the next beacon. The entries have low_latency where the
++	 * firmware's API has QUOTA_LOW_LATENCY (38).
++	 */
++	if(ctlr->fw->capa[1] & UcodeCapQuota)
+ 		return nil;
++	v2 = (ctlr->fw->api[1] & (1<<(38-32))) != 0;
+ 
+ 	i = 0;
+ 	p = c;
+@@ -2778,6 +2786,10 @@ setbindingquotas(Ctlr *ctlr, int bindid)
+ 		p += 4;
+ 		put32(p, 0);
+ 		p += 4;
++		if(v2){
++			put32(p, 0);	/* low_latency */
++			p += 4;
++		}
+ 		i++;
+ 	}
+ 	for(; i < 4; i++){
+@@ -2787,6 +2799,10 @@ setbindingquotas(Ctlr *ctlr, int bindid)
+ 		p += 4;
+ 		put32(p, 0);
+ 		p += 4;
++		if(v2){
++			put32(p, 0);
++			p += 4;
++		}
+ 	}
+ 
+ 	return cmd(ctlr, 44, c, p - c);
+-- 
+2.56.0
+

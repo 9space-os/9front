@@ -1,7 +1,7 @@
 From e14b22bc895774bb5f04c1f0734eea143928b623 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sat, 31 Oct 2026 10:34:37 +0100
-Subject: [PATCH 02/46] ip/tcp: keep a call in limbo when the listener's queue
+Subject: [PATCH 02/47] ip/tcp: keep a call in limbo when the listener's queue
  is full
 
 When the final ack of a handshake arrives and the listener already has

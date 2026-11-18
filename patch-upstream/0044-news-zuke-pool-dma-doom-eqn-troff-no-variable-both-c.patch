@@ -1,7 +1,7 @@
 From def5838112a157754037c484dceb5ac11194169a Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Mon, 16 Nov 2026 22:00:01 +0100
-Subject: [PATCH 44/46] news, zuke, pool, dma, doom, eqn, troff: no variable
+Subject: [PATCH 44/47] news, zuke, pool, dma, doom, eqn, troff: no variable
  both changed and read without a sequence point
 
 gcc's -Wsequence-point found seven; their result was undefined:

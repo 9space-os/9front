@@ -1,7 +1,7 @@
 From 590052a99d71f549489d58c123799729c6e89cb6 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Mon, 16 Nov 2026 19:01:03 +0100
-Subject: [PATCH 43/46] compress, expr, antiword, spin: the functions they call
+Subject: [PATCH 43/47] compress, expr, antiword, spin: the functions they call
  declared
 
 compress: unistd.h and utime.h (with _POSIX_SOURCE), foreground's

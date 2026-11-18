@@ -1,7 +1,7 @@
 From d562219ec3712cd3510638584432bb8ab85a1c4b Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sat, 31 Oct 2026 10:34:44 +0100
-Subject: [PATCH 03/46] ndb/cs: don't cut errors to 63 bytes
+Subject: [PATCH 03/47] ndb/cs: don't cut errors to 63 bytes
 
 rwrite() read the error of a failed lookup into curerr[64], and
 sendmsg() prefixes it with "cs: ". For a long name the reason got lost:
