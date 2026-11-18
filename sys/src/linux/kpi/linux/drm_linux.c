@@ -495,6 +495,17 @@ memchr_inv(const void *s, int c, size_t n)
  */
 
 int idr_cmp(struct idr_entry *, struct idr_entry *);
+/*
+ * 9space: the next entry at or after an index (idr_get_next, xa_get_next,
+ * xa_find) is found by splaying the tree at that index (the splay tree's own
+ * name_SPLAY of OpenBSD's sys/tree.h, Niels Provos, ISC/BSD) and, if the
+ * root is below it, its successor: amortized O(log n), a walk in order O(n).
+ * OpenBSD's drm_linux.c walks the tree from its start for each, so
+ * idr_for_each_entry and xa_for_each are quadratic (a GEM object's pages
+ * freed one by one in shmem_release: minutes for a closed client, aux/i915
+ * spinning). FreeBSD's LinuxKPI finds it in its radix tree the same way
+ * (radix_tree_iter_find).
+ */
 SPLAY_PROTOTYPE(idr_tree, idr_entry, entry, idr_cmp);
 
 struct pool idr_pool;
@@ -613,16 +624,20 @@ idr_find(struct idr *idr, unsigned long id)
 void *
 idr_get_next(struct idr *idr, int *id)
 {
-	struct idr_entry *res;
+	struct idr_entry *res, find;
 
-	SPLAY_FOREACH(res, idr_tree, &idr->tree) {
-		if (res->id >= *id) {
-			*id = res->id;
-			return res->ptr;
-		}
-	}
-
-	return NULL;
+	/* 9space: the first id at or after *id (see idr_tree's note) */
+	if (SPLAY_EMPTY(&idr->tree))
+		return NULL;
+	find.id = *id;
+	idr_tree_SPLAY(&idr->tree, &find);
+	res = SPLAY_ROOT(&idr->tree);
+	if (res->id < *id)
+		res = SPLAY_NEXT(idr_tree, &idr->tree, res);
+	if (res == NULL)
+		return NULL;
+	*id = res->id;
+	return res->ptr;
 }
 
 int
@@ -707,6 +722,22 @@ xarray_cmp(struct xarray_entry *a, struct xarray_entry *b)
 SPLAY_PROTOTYPE(xarray_tree, xarray_entry, entry, xarray_cmp);
 struct pool xa_pool;
 SPLAY_GENERATE(xarray_tree, xarray_entry, entry, xarray_cmp);
+
+/* 9space: the first entry at or after index, nil if none (see idr_tree's note) */
+static struct xarray_entry *
+xarray_nfind(struct xarray *xa, unsigned long index)
+{
+	struct xarray_entry find, *e;
+
+	if (SPLAY_EMPTY(&xa->xa_tree))
+		return NULL;
+	find.id = index;
+	xarray_tree_SPLAY(&xa->xa_tree, &find);
+	e = SPLAY_ROOT(&xa->xa_tree);
+	if (e->id < index)
+		e = SPLAY_NEXT(xarray_tree, &xa->xa_tree, e);
+	return e;
+}
 
 void
 xa_init_flags(struct xarray *xa, gfp_t flags)
@@ -895,14 +926,12 @@ xa_get_next(struct xarray *xa, unsigned long *index)
 {
 	struct xarray_entry *res;
 
-	SPLAY_FOREACH(res, xarray_tree, &xa->xa_tree) {
-		if (res->id >= *index) {
-			*index = res->id;
-			return res->ptr;
-		}
-	}
-
-	return NULL;
+	/* 9space: the first index at or after *index (see idr_tree's note) */
+	res = xarray_nfind(xa, *index);
+	if (res == NULL)
+		return NULL;
+	*index = res->id;
+	return res->ptr;
 }
 
 /* 9front: what Linux 7.3's users take besides OpenBSD's */
@@ -946,14 +975,11 @@ xa_find(struct xarray *xa, unsigned long *index, unsigned long max, xa_mark_t ma
 		return NULL;
 	p = NULL;
 	xa_lock(xa);
-	SPLAY_FOREACH(e, xarray_tree, &xa->xa_tree) {
-		if (e->id > max)
-			break;
-		if (e->id >= *index) {
-			*index = e->id;
-			p = e->ptr;
-			break;
-		}
+	/* 9space: the first at or after *index (see idr_tree's note) */
+	e = xarray_nfind(xa, *index);
+	if (e != NULL && e->id <= max) {
+		*index = e->id;
+		p = e->ptr;
 	}
 	xa_unlock(xa);
 	return p;
