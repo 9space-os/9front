@@ -127,14 +127,11 @@ static bool
 plan9_inwsys(VkIcdSurfacePlan9 *s, struct wsi_device *wsi_device)
 {
    const char *copy = getenv("WSI_PLAN9_COPY");
-   int fd;
 
    if (plan9_scanout(s, wsi_device) || (copy && atoi(copy)) || wsi_device->sw)
       return false;
-   if ((fd = plan9win_wsys(s->windowName)) < 0)
-      return false;
-   plan9win_wsysclose(fd);
-   return true;
+   /* asked with each frame's capabilities: no descriptor opened and closed */
+   return plan9win_inwsys(s->windowName);
 }
 
 /*

@@ -35,6 +35,7 @@ typedef struct Fdinfo{
 	 * the following is used if flags&FD_BUFFERED
 	 */
 	Muxbuf	*buf;	/* holds buffered data and state */
+	unsigned long	gen;	/* 9space: one more at each close: the number held by another file after it */
 } Fdinfo;
 
 /* #define FD_CLOEXEC 1 is in fcntl.h */

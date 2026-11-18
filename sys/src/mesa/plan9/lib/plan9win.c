@@ -52,6 +52,78 @@ windir(const char *name, char *dir, int n)
 	snprint(dir, n, "%s", name == nil ? "/dev" : name);
 }
 
+/*
+ * a small file of a window's directory read whole (winname, ctl): kept
+ * open and read again from the start (each frame asks: a pread, not an
+ * open, read and close); -1 if there is none
+ */
+enum { Nkept = 8 };
+static struct {
+	char	path[160];
+	int	fd;
+} kept[Nkept];
+static int nextkept;
+
+static int
+readkept(const char *path, char *buf, int n, int omode)
+{
+	int i, fd, m;
+
+	for(i = 0; i < Nkept; i++)
+		if(kept[i].path[0] && strcmp(kept[i].path, path) == 0){
+			if((m = pread(kept[i].fd, buf, n, 0)) > 0)
+				return m;
+			close(kept[i].fd);	/* the window gone, or another wsys: open again */
+			kept[i].path[0] = 0;
+			break;
+		}
+	if((fd = open(path, omode|OCEXEC)) < 0)
+		return -1;
+	if((m = pread(fd, buf, n, 0)) <= 0){
+		close(fd);
+		return m;
+	}
+	i = nextkept++ % Nkept;
+	if(kept[i].path[0])
+		close(kept[i].fd);
+	snprint(kept[i].path, sizeof kept[i].path, "%s", path);
+	kept[i].fd = fd;
+	return m;
+}
+
+/*
+ * a window of wsys: its border, as wide as wsys' scale makes it (not
+ * rio's Borderwidth); its ctl (wsys(4)) says where the content is on the
+ * screen, image i is the window with the border.  -1 if it is not one
+ * of wsys'
+ */
+static int
+wsysborder(const char *name, Image *i)
+{
+	char b[256], path[160], *f[12];
+	int n, x0;
+
+	if(name != nil && name[0] != '/'){
+		/* an image's name: the process's window's (its ctl is /dev/ctl) or not known */
+		if((n = readkept("/dev/winname", b, sizeof b - 1, OREAD)) <= 0)
+			return -1;
+		b[n] = 0;
+		if(strcmp(b, name) != 0)
+			return -1;
+		name = nil;
+	}
+	windir(name, path, sizeof path);
+	strncat(path, "/ctl", sizeof path - strlen(path) - 1);
+	if((n = readkept(path, b, sizeof b - 1, OREAD)) <= 0)
+		return -1;
+	b[n] = 0;
+	if(tokenize(b, f, nelem(f)) != 10)
+		return -1;
+	x0 = atoi(f[1]);
+	n = x0 - i->r.min.x;
+	return n >= 0 && n <= 64 ? n : -1;
+}
+
 /* the window by name, again if its image's name changed (rio renames on resize) */
 static Image*
 window(const char *name)
@@ -59,7 +131,7 @@ window(const char *name)
 	char wname[128], path[160];
 	const char *key;
 	Win *w, *lru;
-	int fd, n, i, border;
+	int n, i, border;
 
 	if(disp == nil){
 		disp = initdisplay(nil, nil, drawerr);
@@ -72,16 +144,15 @@ window(const char *name)
 		/* a window's directory: its winname (the process's: /dev/winname) */
 		windir(name, path, sizeof path);
 		strncat(path, "/winname", sizeof path - strlen(path) - 1);
-		if((fd = open(path, OREAD)) < 0){
+		n = readkept(path, wname, sizeof wname - 1, OREAD);
+		if(n < 0){
 			win = nil;
 			curname[0] = 0;
 			if(name != nil)
 				return nil;	/* another window, gone */
 			return disp->image;	/* no rio: the screen */
 		}
-		n = read(fd, wname, sizeof wname - 1);
-		close(fd);
-		if(n <= 0)
+		if(n == 0)
 			return name == nil ? disp->image : nil;
 		wname[n] = 0;
 		/* rio's windows have a border; devdraw's screen (no rio) is noborder.screen.N */
@@ -116,6 +187,8 @@ window(const char *name)
 	snprint(w->key, sizeof w->key, "%s", key);
 	snprint(w->name, sizeof w->name, "%s", wname);
 Found:
+	if((i = wsysborder(name, w->img)) >= 0)
+		border = i;
 	w->border = border;
 	w->used = ++usegen;
 	win = w->img;
@@ -257,6 +330,41 @@ plan9win_wsys(const char *name)
 	return fd;
 }
 
+/*
+ * whether window name is the process's window in wsys (as plan9win_wsys,
+ * without keeping a descriptor): asked each frame (the surface's
+ * capabilities), its files kept open
+ */
+int
+plan9win_inwsys(const char *name)
+{
+	char b[256], path[160], *f[12];
+	int n;
+
+	lock(&lk);
+	if(name != nil && name[0] != '/'){
+		n = readkept("/dev/winname", b, sizeof b - 1, OREAD);
+		if(n <= 0){
+			unlock(&lk);
+			return 0;
+		}
+		b[n] = 0;
+		if(strcmp(b, name) != 0){
+			unlock(&lk);
+			return 0;
+		}
+		name = nil;
+	}
+	windir(name, path, sizeof path);
+	strncat(path, "/ctl", sizeof path - strlen(path) - 1);
+	n = readkept(path, b, sizeof b - 1, OREAD);
+	unlock(&lk);
+	if(n <= 0)
+		return 0;
+	b[n] = 0;
+	return tokenize(b, f, nelem(f)) == 10;
+}
+
 /* the window's events in wsys (wsys(4)'s event): a descriptor, -1 */
 int
 plan9win_wsysevents(const char *name)
@@ -325,6 +433,12 @@ plan9win_again(void)
 	}
 	buf = win = nil;
 	curname[0] = 0;
+	/* the files kept open are the dead wsys': open again in the next */
+	for(i = 0; i < Nkept; i++)
+		if(kept[i].path[0]){
+			close(kept[i].fd);
+			kept[i].path[0] = 0;
+		}
 	if(disp != nil)
 		closedisplay(disp);
 	disp = nil;

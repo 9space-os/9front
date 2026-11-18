@@ -528,7 +528,16 @@ node, its objects GEM objects whose pages are an alias segment
 the client attaches, revoked in every process when the object is
 freed;
 .B submit
-is i915's execbuffer2 of the bound objects, softpinned.
+is i915's execbuffer2 of the objects the request names after the
+engine,
+.IB id " " ... ,
+each with a
+.B w
+if the batch writes it (as Linux's EXEC_OBJECT_WRITE: implicit sync
+with other contexts and processes), softpinned; without them, of every
+bound object, written.
+The request is one write: Mesa sends the list of its execbuffer when it
+fits one 9P message (7000 bytes), else none.
 The display goes through KMS on the primary node:
 .B outputs
 with EDID, the probed modes and the mode shown;

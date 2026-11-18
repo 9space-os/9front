@@ -120,6 +120,7 @@ struct Dev {
 	uint64_t	ino;	/* the qid of its ctl, unique */
 	int	ctx;		/* the driver's number */
 	int	submitfd, statfd;
+	int	waitfd;		/* a fence file kept for waits (fencewait), -1 none or in use */
 	uint64_t	done;		/* fences done, as last read */
 	int	failed;
 	int	nfence;
@@ -137,6 +138,7 @@ struct Fd {
 	int	kind;
 	Dev	*dev;
 	uint64_t	ino;
+	unsigned long	gen;	/* APE's __fdgen when it was known so: the same descriptor while it is */
 	uint32_t	handle;	/* dma-buf: the GEM object */
 	Fence	f;		/* sync file */
 	int	hasf;
@@ -304,6 +306,8 @@ scan(void)
 	}
 }
 
+extern unsigned long __fdgen(int);	/* APE: one more at each close of the descriptor */
+
 static uint64_t
 ino(int fd)
 {
@@ -348,10 +352,14 @@ getdev(int fd)
 
 	if(fd < 0 || fd >= Maxfd)
 		return NULL;
+	f = &fds[fd];
+	/* known and not closed since (each ioctl comes here: no stat, no fd2path) */
+	if(f->kind == Kdev && f->gen == __fdgen(fd))
+		return livefd(f->dev, fd);
 	if(_FD2PATH(fd, path, sizeof path) < 0)
 		return NULL;
 	q = ino(fd);
-	f = &fds[fd];
+	f->gen = __fdgen(fd);
 	if(f->kind == Kdev && f->dev->ino == q)
 		return livefd(f->dev, fd);
 	f->kind = Knone;
@@ -386,6 +394,7 @@ getdev(int fd)
 	d->submitfd = open(path, O_WRONLY);
 	snprintf(path, sizeof path, "%s/ctx/%d/fence", d->gpu->dir, d->ctx);
 	d->statfd = open(path, O_RDONLY);
+	d->waitfd = -1;
 	if(d->submitfd < 0 || d->statfd < 0){
 		if(d->submitfd >= 0)
 			close(d->submitfd);
@@ -424,6 +433,7 @@ newfd(int kind, Dev *d)
 	fds[p[0]].kind = kind;
 	fds[p[0]].dev = d;
 	fds[p[0]].ino = ino(p[0]);
+	fds[p[0]].gen = __fdgen(p[0]);
 	return p[0];
 }
 
@@ -435,14 +445,19 @@ getfd(int fd, int kind)
 
 	if(fd < 0 || fd >= Maxfd)
 		return NULL;
-	if(fds[fd].kind == kind && fds[fd].ino == ino(fd))
+	if(fds[fd].kind == kind && fds[fd].gen == __fdgen(fd))
+		return &fds[fd];	/* not closed since: no stat */
+	if(fds[fd].kind == kind && fds[fd].ino == ino(fd)){
+		fds[fd].gen = __fdgen(fd);
 		return &fds[fd];
+	}
 	/* a descriptor dup'd from a known one (libsync's sync_accumulate dups): the same */
 	if((q = ino(fd)) == 0)
 		return NULL;
 	for(i = 0; i < Maxfd; i++)
 		if(i != fd && fds[i].kind == kind && fds[i].ino == q && ino(i) == q){
 			fds[fd] = fds[i];
+			fds[fd].gen = __fdgen(fd);
 			return &fds[fd];
 		}
 	return NULL;
@@ -593,17 +608,27 @@ fencewait(Fence f)
 
 	if((d = f.ctx) == NULL || f.k <= d->done)
 		return;
-	snprintf(path, sizeof path, "%s/ctx/%d/fence", d->gpu->dir, d->ctx);
-	if((fd = open(path, O_RDWR)) < 0)
-		return;
+	/* the context's fence file kept open (a wait is a write and a read), or another for a second waiter */
+	pthread_mutex_lock(&lk);
+	fd = d->waitfd;
+	d->waitfd = -1;
+	pthread_mutex_unlock(&lk);
+	if(fd < 0){
+		snprintf(path, sizeof path, "%s/ctx/%d/fence", d->gpu->dir, d->ctx);
+		if((fd = open(path, O_RDWR)) < 0)
+			return;
+	}
 	snprintf(buf, sizeof buf, "wait %llu", (unsigned long long)f.k);
-	if(write(fd, buf, strlen(buf)) >= 0 && (n = read(fd, buf, sizeof buf-1)) > 0){
+	if(write(fd, buf, strlen(buf)) >= 0 && (n = pread(fd, buf, sizeof buf-1, 0)) > 0){
 		buf[n] = 0;
 		if(strstr(buf, "failed") != NULL)
 			d->failed = 1;
 	}
-	close(fd);
 	pthread_mutex_lock(&lk);
+	if(d->waitfd < 0)
+		d->waitfd = fd;
+	else
+		close(fd);
 	if(f.k > d->done && !d->failed)
 		d->done = f.k;	/* fences of a context complete in order */
 	pthread_mutex_unlock(&lk);
@@ -907,6 +932,8 @@ syncwait(Dev *d, uint32_t *h, uint64_t *pts, unsigned n, int64_t timeout, unsign
 	}
 }
 
+enum { Maxsubmit = 7000 };	/* bytes of a submission: less than gpu(4)'s 9P message (8192) */
+
 /*
  * the i915 ioctls
  */
@@ -1019,7 +1046,8 @@ execbuf(Dev *d, struct drm_i915_gem_execbuffer2 *eb)
 	struct i915_user_extension *ext;
 	uint64_t *vals, addr, k;
 	unsigned i, nf, eng;
-	char req[64], reply[256];
+	char *rq;
+	int m, base, rlen;
 	Fence f, mine;
 	Gem *g, *batch;
 	Sync *s;
@@ -1103,23 +1131,31 @@ execbuf(Dev *d, struct drm_i915_gem_execbuffer2 *eb)
 		}
 	}
 	batch = getgem(d, obj[(eb->flags & I915_EXEC_BATCH_FIRST) ? 0 : eb->buffer_count-1].handle);
-	snprintf(req, sizeof req, "%d %u %s", batch->id, eb->batch_start_offset, eng == 0 ? "rcs" : "bcs");
-	if(write(d->submitfd, req, strlen(req)) < 0){
-		dbg("submit %s: %s", req, syserr());
+	/*
+	 * the batch and the objects it uses (w: written), as the execbuffer
+	 * names them: the driver passes only those (implicit sync as on Linux)
+	 */
+	rlen = 64 + eb->buffer_count * 16;
+	if((rq = malloc(rlen)) == NULL){
+		pthread_mutex_unlock(&lk);
+		return seterr(ENOMEM);
+	}
+	m = snprintf(rq, rlen, "%d %u %s", batch->id, eb->batch_start_offset, eng == 0 ? "rcs" : "bcs");
+	base = m;
+	for(i = 0; i < eb->buffer_count; i++)
+		m += snprintf(rq+m, rlen-m, " %d%s", getgem(d, obj[i].handle)->id, (obj[i].flags & EXEC_OBJECT_WRITE) ? "w" : "");
+	/* one 9P write (a longer one would come in parts): else without the list (every object) */
+	if(m > Maxsubmit)
+		m = base;
+	if(write(d->submitfd, rq, m) < 0){
+		dbg("submit %.64s: %s", rq, syserr());
+		free(rq);
 		pthread_mutex_unlock(&lk);
 		return seterr(EIO);
 	}
+	free(rq);
+	/* our submissions are all there are on the context: this is fence k */
 	k = ++d->nfence;
-	/* the driver's count: our submissions are all there are on the context */
-	if(pread(d->statfd, reply, sizeof reply-1, 0) > 0){
-		unsigned long long done, n;
-		if(sscanf(reply, "%llu %llu", &done, &n) == 2){
-			k = n;
-			d->nfence = n;
-			if(done > d->done)
-				d->done = done;
-		}
-	}
 	mine.ctx = d;
 	mine.k = k;
 	for(i = 0; i < eb->buffer_count; i++)
@@ -1370,6 +1406,7 @@ i915ioctl(Dev *d, unsigned long req, void *arg)
 			}
 			memset(&fds[r], 0, sizeof fds[r]);
 			fds[r].kind = Kdmabuf;
+			fds[r].gen = __fdgen(r);
 			fds[r].dev = d;
 			fds[r].ino = ino(r);
 		}else if((r = newfd(Kdmabuf, d)) < 0){

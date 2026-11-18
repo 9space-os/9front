@@ -11,7 +11,8 @@
  *	/dev/gpu/0/clone	a new context: open gives its ctl
  *	/dev/gpu/0/ctx/n/ctl	the context's words (drv.ctl), each
  *				request's reply the fid's own, read after it
- *	/dev/gpu/0/ctx/n/submit	drv.submit
+ *	/dev/gpu/0/ctx/n/submit	drv.submit (a line as long as a write: a
+ *				submission may name its objects)
  *	/dev/gpu/0/ctx/n/fence	"done n" read; write k (or wait k,
  *				query k): the next read waits for fence k
  *				(drv.fencewait), "k done|busy"
@@ -35,6 +36,7 @@ enum {
 	Xoutbacklight,
 	Xdrv = 0x20,	/* the driver's own files: Xdrv and up */
 	Nctx	= 256,
+	Maxsubmit = 8192,	/* words of a submission (its objects) */
 	Nout	= 16,
 };
 
@@ -364,6 +366,24 @@ fswrite(Req *r)
 			: "permission denied";
 		goto done;
 	}
+	if(KIND(r->fid->file) == Xctxsubmit){
+		/* a submission may name its objects: longer than a ctl message */
+		char *sb, **sf;
+
+		sb = emalloc9p(r->ifcall.count + 1);
+		memmove(sb, r->ifcall.data, r->ifcall.count);
+		sb[r->ifcall.count] = 0;
+		sf = emalloc9p(Maxsubmit * sizeof *sf);
+		n = tokenize(sb, sf, Maxsubmit);
+		free(fa->reply);
+		fa->reply = nil;
+		e = drv.submit(fa, sf, n);
+		free(sf);
+		free(sb);
+		if(e == nil)
+			fsreplied(fa, r);
+		goto done;
+	}
 	n = tokenize(buf, f, nelem(f));
 	switch(KIND(r->fid->file)){
 	case Xctl:
@@ -380,13 +400,6 @@ fswrite(Req *r)
 		qlock(&ctxlock);
 		e = drv.ctl(fa, f, n);
 		qunlock(&ctxlock);
-		if(e == nil)
-			fsreplied(fa, r);
-		break;
-	case Xctxsubmit:
-		free(fa->reply);
-		fa->reply = nil;
-		e = drv.submit(fa, f, n);
 		if(e == nil)
 			fsreplied(fa, r);
 		break;

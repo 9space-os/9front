@@ -12,9 +12,12 @@
  *				an alias segment (segment(3)) the client
  *				attaches
  *	bind id gpuaddr		where the object is softpinned from now on
- *	submit id offset eng	EXECBUFFER2 of every bound object, pinned
- *				(EXEC_OBJECT_PINNED, no relocations), the
- *				batch last, with an out fence: fence k
+ *	submit id offset eng [obj[w]...]
+ *				EXECBUFFER2 of the objects named (w:
+ *				EXEC_OBJECT_WRITE; without them every bound
+ *				one, written), pinned (EXEC_OBJECT_PINNED, no
+ *				relocations), the batch last, with an out
+ *				fence: fence k
  *	free id			GEM_CLOSE, after the object's segment is revoked
  *				in every process (segment(3))
  *	export id		PRIME_HANDLE_TO_FD: the object as a dma-buf,
@@ -618,7 +621,7 @@ i915_map_plane(void *v, int *id, u64 *gpu, unsigned int *w, unsigned int *h, uns
 static u64 canonical(u64 a) { return (u64)((s64)(a << 16) >> 16); }
 
 int
-i915_submit(void *v, int id, u32 offset, int engine, u64 *k)
+i915_submit(void *v, int id, u32 offset, int engine, int nobj, int *ids, unsigned char *wr, u64 *k)
 {
 	struct gctx *c = v;
 	struct drm_i915_gem_exec_object2 *obj;
@@ -638,19 +641,37 @@ i915_submit(void *v, int id, u32 offset, int engine, u64 *k)
 		r = -EBUSY;	/* gpu(4): at most 64 outstanding */
 		goto out;
 	}
-	obj = kvmalloc_array(c->nbo, sizeof(*obj), GFP_KERNEL | __GFP_ZERO);
+	obj = kvmalloc_array((nobj > 0 ? nobj : c->nbo) + 1, sizeof(*obj), GFP_KERNEL | __GFP_ZERO);
 	if (!obj) {
 		r = -ENOMEM;
 		goto out;
 	}
 	n = 0;
-	for (i = 0; i < c->nbo; i++)
-		if (c->bo[i].used && c->bo[i].gpu && &c->bo[i] != batch) {
-			obj[n].handle = c->bo[i].handle;
-			obj[n].offset = canonical(c->bo[i].gpu);
-			obj[n].flags = EXEC_OBJECT_PINNED | EXEC_OBJECT_SUPPORTS_48B_ADDRESS | EXEC_OBJECT_WRITE;
+	if (nobj > 0) {
+		/* the ones the client's execbuffer names (Mesa's validation list) */
+		for (i = 0; i < nobj; i++) {
+			struct bo *b = findbo(c, ids[i]);
+
+			if (!b || !b->gpu) {
+				kvfree(obj);
+				r = b ? -EINVAL : -ENOENT;
+				goto out;
+			}
+			if (b == batch)
+				continue;
+			obj[n].handle = b->handle;
+			obj[n].offset = canonical(b->gpu);
+			obj[n].flags = EXEC_OBJECT_PINNED | EXEC_OBJECT_SUPPORTS_48B_ADDRESS | (wr[i] ? EXEC_OBJECT_WRITE : 0);
 			n++;
 		}
+	} else
+		for (i = 0; i < c->nbo; i++)
+			if (c->bo[i].used && c->bo[i].gpu && &c->bo[i] != batch) {
+				obj[n].handle = c->bo[i].handle;
+				obj[n].offset = canonical(c->bo[i].gpu);
+				obj[n].flags = EXEC_OBJECT_PINNED | EXEC_OBJECT_SUPPORTS_48B_ADDRESS | EXEC_OBJECT_WRITE;
+				n++;
+			}
 	obj[n].handle = batch->handle;
 	obj[n].offset = canonical(batch->gpu);
 	obj[n].flags = EXEC_OBJECT_PINNED | EXEC_OBJECT_SUPPORTS_48B_ADDRESS;

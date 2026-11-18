@@ -103,16 +103,46 @@ ctxctl(Gfid *fa, char **f, int n)
 	return "unknown ctl message";
 }
 
+/*
+ * "bo offset [rcs|bcs] [obj[w] ...]": the batch, and the objects it uses
+ * (w: it writes them; without a list every bound one, written)
+ */
 static char*
 ctxsubmit(Gfid *fa, char **f, int n)
 {
 	u64g k;
-	int x;
+	int x, i, eng, nobj, *ids;
+	char *w, *e;
+	uchar *wr;
 
-	if(n != 2 && n != 3)
-		return "usage: bo offset [rcs|bcs]";
-	x = i915_submit(fa->ctx->lc, atoi(f[0]), strtoul(f[1], nil, 0),
-		n == 3 && strcmp(f[2], "bcs") == 0, &k);
+	if(n < 2)
+		return "usage: bo offset [rcs|bcs] [obj[w] ...]";
+	eng = 0;
+	i = 2;
+	if(n > 2 && (strcmp(f[2], "rcs") == 0 || strcmp(f[2], "bcs") == 0)){
+		eng = strcmp(f[2], "bcs") == 0;
+		i = 3;
+	}
+	nobj = n - i;
+	ids = nil;
+	wr = nil;
+	if(nobj > 0){
+		ids = emalloc9p(nobj * sizeof *ids);
+		wr = emalloc9p(nobj);
+		for(x = 0; x < nobj; x++){
+			w = f[i+x];
+			ids[x] = strtol(w, &e, 10);
+			wr[x] = *e == 'w';
+			if(e == w || (*e != 0 && strcmp(e, "w") != 0)){
+				free(ids);
+				free(wr);
+				return "usage: bo offset [rcs|bcs] [obj[w] ...]";
+			}
+		}
+	}
+	x = i915_submit(fa->ctx->lc, atoi(f[0]), strtoul(f[1], nil, 0), eng, nobj, ids, wr, &k);
+	free(ids);
+	free(wr);
 	return x < 0 ? errstr9(x) : nil;
 }
 
