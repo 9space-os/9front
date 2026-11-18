@@ -1,6 +1,6 @@
 .TH GRAPHICS 2
 .SH NAME
-Display, Point, Rectangle, Cursor, initdraw, geninitdraw, newwindow, wsyslost, wsysagain, scalesize, drawerror, initdisplay, closedisplay, getdefont, getwindow, gengetwindow, flushimage, lockdisplay, unlockdisplay, openfont, buildfont, freefont, Pfmt, Rfmt, strtochan, chantostr, chantodepth \- interactive graphics
+Display, Point, Rectangle, Cursor, initdraw, geninitdraw, newwindow, wsyslost, wsysagain, wsysopen, wsysgetwindow, wsysctl, wsysparent, wsysseen, wsyswinlost, wsysclose, scalesize, drawerror, initdisplay, closedisplay, getdefont, getwindow, gengetwindow, flushimage, lockdisplay, unlockdisplay, openfont, buildfont, freefont, Pfmt, Rfmt, strtochan, chantostr, chantodepth \- interactive graphics
 .SH SYNOPSIS
 .nf
 .ft L
@@ -32,6 +32,27 @@ int	wsyslost(void)
 .PP
 .B
 int	wsysagain(char *rect)
+.PP
+.B
+Wsyswin*	wsysopen(Wsyswin *parent, char *msgs)
+.PP
+.B
+int	wsysgetwindow(Wsyswin *w)
+.PP
+.B
+int	wsysctl(Wsyswin *w, char *msg)
+.PP
+.B
+int	wsysparent(Wsyswin *w, Wsyswin *parent, int none)
+.PP
+.B
+void	wsysseen(Wsyswin *w)
+.PP
+.B
+int	wsyswinlost(Wsyswin *w)
+.PP
+.B
+void	wsysclose(Wsyswin *w)
 .PP
 .B
 void	drawerror(Display *d, char *msg)
@@ -478,6 +499,90 @@ A
 that ends in order posts
 .B hangup
 to its windows' processes instead.
+.PP
+Under
+.IR wsys (4)
+a program may have more windows than its own (not under
+.IR rio ).
+.I Wsysopen
+makes one through a clone file: a dialog or popup of
+.I parent
+(above it, moving, hidden and going with it), or, without a parent,
+of the program's window, or with the line
+.B "parent -"
+in
+.I msgs
+a window of its own.
+.I Msgs
+are
+.IR wsys (4)
+ctl lines, a line each
+.RB ( "rect \fIx0 y0 x1 y1\fP" ,
+.BR modal ,
+.BR "popup grab" ,
+.BR askclose ,
+.BR label ),
+written before the window comes on the screen.
+The
+.B Wsyswin
+holds its clone file
+.RB ( ctl :
+the window lives while it is open), its number
+.RB ( id ),
+the directory of its files
+.RB ( dir :
+.BI /mnt/drawwin. k\f1,
+.I k
+its number in the program, where
+.IR mntgen (4)
+serves
+.BR /mnt ;
+for
+.IR initmouse ,
+.IR initkeyboard ),
+and its
+.B image
+and
+.B screen
+on
+.BR display ,
+made again by
+.I wsysgetwindow
+after a resize.
+.I Wsysctl
+writes a ctl message
+.RB ( rect
+is the window's contents; the frame, border and title bar, lies around
+them),
+.I wsysparent
+makes it a dialog or popup of
+.I parent
+(nil: of the program's window) or, with
+.IR none ,
+a window of its own,
+.I wsysclose
+closes the window and with it its dialogs and popups.
+When the program's
+.I wsys
+is gone,
+.I wsysagain
+makes each window of
+.I wsysopen
+again in the next one as it was (its messages, parent, place and label;
+parents first) at the same
+.BR dir :
+the program opens its files again there.
+.I Wsysseen
+notes where the window is now (call it after the user moved it: a
+mouse
+.B r
+in its
+.BR dir ),
+.I wsyswinlost
+says whether its
+.I wsys
+is gone and the window not yet made again.
+These are 9space's, not 9front's.
 .PP
 .I Initdisplay
 is part of

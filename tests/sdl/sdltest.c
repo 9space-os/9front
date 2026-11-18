@@ -8,7 +8,10 @@
  * (/dev/window, image(6)), the clipboard (/dev/snarf), cursors (/dev/cursor
  * read back where wsys gives it: one of the program's, a system cursor,
  * hidden, the default), the pointer warped, events pumped for a while, a
- * tone through /dev/audio if there is one.
+ * tone through /dev/audio if there is one. Under wsys more windows (its
+ * clone files): a second one of its own, a modal dialog of it and a popup
+ * menu, each filled and read back from its directory (/mnt/drawwin.k:
+ * libdraw's wsysopen), its title there; the dialog gone with its parent.
  * -e secs: then the input events for secs seconds (keys, the mouse), a line
  * each (the host types and moves the mouse through QEMU: tests/sdl/README).
  * Prints "ok ..." / "FAIL ..." lines and a summary.
@@ -100,6 +103,132 @@ static void check(const char *what, int x, int y, unsigned want)
         FAIL("%s: at %d,%d %06x, want %06x", what, x, y, got, want);
     } else {
         OK("%s: at %d,%d %06x", what, x, y, got);
+    }
+}
+
+/* the pixel in the middle of a window's image (dir/window, image(6)) */
+static int midpixel(const char *dir, unsigned *rgb)
+{
+    char path[96], *b, f[13];
+    long len, off;
+    int minx, miny, maxx, maxy, x, y;
+    unsigned char *p;
+
+    snprintf(path, sizeof path, "%s/window", dir);
+    if (!(b = slurp(path, &len)) || len < 60) {
+        free(b);
+        return -1;
+    }
+    memcpy(f, b, 12);
+    f[12] = 0;
+    if (!strstr(f, "x8r8g8b8") && !strstr(f, "a8r8g8b8")) {
+        free(b);
+        return -2;
+    }
+    minx = atoi(b + 12);
+    miny = atoi(b + 24);
+    maxx = atoi(b + 36);
+    maxy = atoi(b + 48);
+    x = (minx + maxx) / 2;
+    y = (miny + maxy) / 2;
+    off = 60 + ((long)(y - miny) * (maxx - minx) + (x - minx)) * 4;
+    if (off + 4 > len) {
+        free(b);
+        return -3;
+    }
+    p = (unsigned char *)b + off;
+    *rgb = (unsigned)(p[0] | p[1] << 8 | p[2] << 16);
+    free(b);
+    return 0;
+}
+
+/* a window filled with colour rgb and shown */
+static void fill(SDL_Window *w, unsigned rgb)
+{
+    SDL_Surface *s = SDL_GetWindowSurface(w);
+
+    if (s) {
+        SDL_FillSurfaceRect(s, NULL, SDL_MapSurfaceRGB(s, rgb >> 16, rgb >> 8 & 0xff, rgb & 0xff));
+        SDL_UpdateWindowSurface(w);
+    }
+}
+
+static void wantmid(const char *what, const char *dir, unsigned want)
+{
+    unsigned got;
+    int r = midpixel(dir, &got);
+
+    if (r < 0) {
+        FAIL("%s: %s/window: %d", what, dir, r);
+    } else if (got != want) {
+        FAIL("%s: %06x, want %06x", what, got, want);
+    } else {
+        OK("%s: %06x", what, got);
+    }
+}
+
+/*
+ * wsys only (its clone file): a window of its own, a modal dialog of it, a
+ * popup menu of the dialog; their directories are libdraw's wsysopen's,
+ * /mnt/drawwin.1, .2, .3 in the order made
+ */
+static void morewindows(SDL_Window *main)
+{
+    SDL_Window *two, *dlg, *menu;
+    SDL_Event ev;
+    char *t;
+    long len;
+    int w, h;
+
+    if (access("/dev/clone", F_OK) < 0) {
+        OK("more windows: not under wsys (no /dev/clone)");
+        return;
+    }
+    if (!(two = SDL_CreateWindow("sdltwo", 200, 150, 0))) {
+        FAIL("a second window: %s", SDL_GetError());
+        return;
+    }
+    SDL_GetWindowSize(two, &w, &h);
+    if (w == 200 && h == 150) {
+        OK("a second window %dx%d", w, h);
+    } else {
+        FAIL("a second window %dx%d, want 200x150", w, h);
+    }
+    fill(two, 0x00ff00);
+    wantmid("the second window drawn", "/mnt/drawwin.1", 0x00ff00);
+    if ((t = slurp("/mnt/drawwin.1/label", &len)) && len == 6 && memcmp(t, "sdltwo", 6) == 0) {
+        OK("its title in its label");
+    } else {
+        FAIL("its label: %.*s", t ? (int)len : 0, t ? t : "");
+    }
+    free(t);
+    if (!(dlg = SDL_CreateWindow("sdldialog", 120, 80, 0)) || !SDL_SetWindowParent(dlg, two) || !SDL_SetWindowModal(dlg, true)) {
+        FAIL("a dialog: %s", SDL_GetError());
+        return;
+    }
+    /* (SDL makes it, then gives it a parent: a window of its own until then) */
+    fill(dlg, 0x0000ff);
+    wantmid("a dialog drawn", "/mnt/drawwin.2", 0x0000ff);
+    if (!(menu = SDL_CreatePopupWindow(main, 10, 10, 60, 40, SDL_WINDOW_POPUP_MENU))) {
+        FAIL("a popup menu: %s", SDL_GetError());
+    } else {
+        fill(menu, 0xff00ff);
+        wantmid("a popup menu drawn", "/mnt/drawwin.3", 0xff00ff);
+        SDL_DestroyWindow(menu);
+        if (access("/mnt/drawwin.3/wctl", F_OK) < 0) {
+            OK("the popup menu gone");
+        } else {
+            FAIL("the popup menu still there");
+        }
+    }
+    while (SDL_PollEvent(&ev))
+        ;
+    SDL_DestroyWindow(dlg);
+    SDL_DestroyWindow(two);
+    if (access("/mnt/drawwin.1/wctl", F_OK) < 0 && access("/mnt/drawwin.2/wctl", F_OK) < 0) {
+        OK("the second window and its dialog gone");
+    } else {
+        FAIL("the second window or its dialog still there");
     }
 }
 
@@ -341,6 +470,10 @@ int main(int argc, char **argv)
         SDL_DestroyAudioStream(as);
     } else {
         OK("audio: no /dev/audio here");
+    }
+
+    if (evsecs == 0) {
+        morewindows(win);
     }
 
     /* -e: the input, as SDL gives it */

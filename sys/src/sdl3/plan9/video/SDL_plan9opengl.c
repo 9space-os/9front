@@ -3,18 +3,20 @@
 
   SDL's plan9 video driver: OpenGL and OpenGL ES through EGL's plan9
   platform (Mesa's: zink on the GPU's Vulkan, the plan9 WSI), the native
-  window "" being the process's window (/dev/winname) or the screen.
+  window "" being the process's window (/dev/winname) or the screen, a
+  directory another window's (wsys' clone file): a surface each window.
   9front has no dlopen: EGL is the static libvulkan.a (Mesa's), named here
   by weak references as Vulkan is (SDL_plan9vulkan.c); a program that
   wants SDL's GL links -lvulkan (and, if it calls no EGL function itself,
   -Wl,-u,eglGetDisplay).  SDL's own EGL layer (SDL_egl.c) loads libEGL by
-  name and is not used.  One window a process, one surface.
+  name and is not used.
 */
 #include "SDL_internal.h"
 
 #if defined(SDL_VIDEO_DRIVER_PLAN9) && (defined(SDL_VIDEO_OPENGL) || defined(SDL_VIDEO_OPENGL_ES2))
 
 #include "SDL_plan9opengl.h"
+#include "SDL_plan9video.h"
 
 #include <EGL/egl.h>
 
@@ -44,8 +46,8 @@ extern __eglMustCastToProperFunctionPointerType EGLAPIENTRY eglGetProcAddress(co
 #endif
 
 static EGLDisplay dpy = EGL_NO_DISPLAY;
-static EGLSurface surf = EGL_NO_SURFACE;	/* the window's: one a process */
 static EGLConfig cfg;
+static bool havecfg;
 static int swapinterval = 1;
 
 static bool eglerror(const char *what)
@@ -83,9 +85,13 @@ void PLAN9_GL_UnloadLibrary(SDL_VideoDevice *_this)
 {
     (void)_this;
     if (dpy != EGL_NO_DISPLAY) {
-        if (surf != EGL_NO_SURFACE) {
-            eglDestroySurface(dpy, surf);
-            surf = EGL_NO_SURFACE;
+        SDL_Window *w;
+
+        for (w = _this->windows; w; w = w->next) {
+            if (w->internal && w->internal->eglsurf) {
+                eglDestroySurface(dpy, (EGLSurface)w->internal->eglsurf);
+                w->internal->eglsurf = NULL;
+            }
         }
         eglTerminate(dpy);
         dpy = EGL_NO_DISPLAY;
@@ -124,30 +130,49 @@ static bool chooseconfig(SDL_VideoDevice *_this, bool es)
     if (!eglChooseConfig(dpy, attr, &cfg, 1, &n) || n < 1) {
         return eglerror("eglChooseConfig");
     }
+    havecfg = true;
     return true;
+}
+
+/* window's surface, made the first time: "" the process's window, else its directory */
+static EGLSurface surface(SDL_Window *window)
+{
+    SDL_WindowData *w = window ? window->internal : NULL;
+    const char *name;
+
+    if (!w) {
+        return EGL_NO_SURFACE;
+    }
+    if (!w->eglsurf) {
+        name = PLAN9_SurfaceName(window);
+        w->eglsurf = eglCreateWindowSurface(dpy, cfg, (EGLNativeWindowType)(name ? name : ""), NULL);
+        if ((EGLSurface)w->eglsurf == EGL_NO_SURFACE) {
+            w->eglsurf = NULL;
+            eglerror("eglCreateWindowSurface");
+            return EGL_NO_SURFACE;
+        }
+    }
+    return (EGLSurface)w->eglsurf;
 }
 
 SDL_GLContext PLAN9_GL_CreateContext(SDL_VideoDevice *_this, SDL_Window *window)
 {
     EGLint attr[16];
     EGLContext ctx, share;
+    EGLSurface surf;
     bool es;
     int i = 0;
 
-    (void)window;
     if (dpy == EGL_NO_DISPLAY && !PLAN9_GL_LoadLibrary(_this, NULL)) {
         return NULL;
     }
     es = _this->gl_config.profile_mask == SDL_GL_CONTEXT_PROFILE_ES;
+    if (!havecfg && !chooseconfig(_this, es)) {
+        return NULL;
+    }
+    surf = surface(window);
     if (surf == EGL_NO_SURFACE) {
-        if (!chooseconfig(_this, es)) {
-            return NULL;
-        }
-        surf = eglCreateWindowSurface(dpy, cfg, (EGLNativeWindowType)"", NULL);	/* "": this process's window */
-        if (surf == EGL_NO_SURFACE) {
-            eglerror("eglCreateWindowSurface");
-            return NULL;
-        }
+        return NULL;
     }
     if (!eglBindAPI(es ? EGL_OPENGL_ES_API : EGL_OPENGL_API)) {
         eglerror("eglBindAPI");
@@ -187,6 +212,11 @@ bool PLAN9_GL_MakeCurrent(SDL_VideoDevice *_this, SDL_Window *window, SDL_GLCont
     if (!context || !window) {
         return eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) ? true : eglerror("eglMakeCurrent");
     }
+    EGLSurface surf = surface(window);
+
+    if (surf == EGL_NO_SURFACE) {
+        return false;
+    }
     return eglMakeCurrent(dpy, surf, surf, (EGLContext)context) ? true : eglerror("eglMakeCurrent");
 }
 
@@ -212,9 +242,26 @@ bool PLAN9_GL_GetSwapInterval(SDL_VideoDevice *_this, int *interval)
 
 bool PLAN9_GL_SwapWindow(SDL_VideoDevice *_this, SDL_Window *window)
 {
+    EGLSurface surf = surface(window);
+
     (void)_this;
-    (void)window;
+    if (surf == EGL_NO_SURFACE) {
+        return false;
+    }
     return eglSwapBuffers(dpy, surf) ? true : eglerror("eglSwapBuffers");
+}
+
+/* window's surface gone with it */
+void PLAN9_GL_DestroySurface(SDL_Window *window)
+{
+    SDL_WindowData *w = window ? window->internal : NULL;
+
+    if (w && w->eglsurf && dpy != EGL_NO_DISPLAY && eglDestroySurface) {
+        eglDestroySurface(dpy, (EGLSurface)w->eglsurf);
+    }
+    if (w) {
+        w->eglsurf = NULL;
+    }
 }
 
 bool PLAN9_GL_DestroyContext(SDL_VideoDevice *_this, SDL_GLContext context)

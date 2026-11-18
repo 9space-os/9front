@@ -6,13 +6,15 @@
   weak reference, so that a program without Vulkan does not carry it; a
   program that wants SDL's Vulkan links -lvulkan (and, if it calls no
   Vulkan function itself, -Wl,-u,vkGetInstanceProcAddr).  The surface is
-  VK_PLAN9_surface: the process's window (/dev/winname) or the screen.
+  VK_PLAN9_surface: the window's: the process's (/dev/winname, the screen
+  without a window system) or another's directory (wsys' clone file).
 */
 #include "SDL_internal.h"
 
 #if defined(SDL_VIDEO_DRIVER_PLAN9) && defined(SDL_VIDEO_VULKAN)
 
 #include "SDL_plan9vulkan.h"
+#include "SDL_plan9video.h"
 
 /*
  * VK_PLAN9_surface (9front's vulkan/vulkan_plan9.h): SDL's own Khronos
@@ -24,7 +26,7 @@ typedef struct VkPlan9SurfaceCreateInfoPLAN9 {
     VkStructureType sType;
     const void *pNext;
     VkFlags flags;
-    const char *pWindowName;    /* NULL: /dev/winname, else the screen */
+    const char *pWindowName;    /* NULL: the process's window; a window's directory */
 } VkPlan9SurfaceCreateInfoPLAN9;
 typedef VkResult (VKAPI_PTR *PFN_vkCreatePlan9SurfacePLAN9)(VkInstance instance, const VkPlan9SurfaceCreateInfoPLAN9 *pCreateInfo,
                                                             const VkAllocationCallbacks *pAllocator, VkSurfaceKHR *pSurface);
@@ -80,7 +82,6 @@ bool PLAN9_Vulkan_CreateSurface(SDL_VideoDevice *_this, SDL_Window *window, VkIn
     VkPlan9SurfaceCreateInfoPLAN9 info;
     VkResult r;
 
-    (void)window;
     if (!gipa) {
         return SDL_SetError("Vulkan is not loaded");
     }
@@ -90,7 +91,7 @@ bool PLAN9_Vulkan_CreateSurface(SDL_VideoDevice *_this, SDL_Window *window, VkIn
     }
     SDL_zero(info);
     info.sType = VK_STRUCTURE_TYPE_PLAN9_SURFACE_CREATE_INFO_PLAN9;
-    info.pWindowName = NULL;    /* the process's window (/dev/winname), else the screen */
+    info.pWindowName = PLAN9_SurfaceName(window);
     r = create(instance, &info, allocator, surface);
     if (r != VK_SUCCESS) {
         return SDL_SetError("vkCreatePlan9SurfacePLAN9 failed: %s", SDL_Vulkan_GetResultString(r));

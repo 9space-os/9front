@@ -68,7 +68,8 @@
 			"../../../libdraw/writecolmap.c",
 			"../../../libdraw/writeimage.c",
 			"../../../libdraw/writesubfont.c",
-			"../../../libdraw/wsysagain.c"
+			"../../../libdraw/wsysagain.c",
+			"../../../libdraw/wsysopen.c"
 		]
 	}
 ]

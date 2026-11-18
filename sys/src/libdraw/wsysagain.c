@@ -200,6 +200,9 @@ wsysagain(char *rect)
 
 	qlock(&againlk);
 	r = again(rect);
+	/* 9space: the program's other windows (wsysopen) there too */
+	if(r == 0)
+		_wsysremake();
 	qunlock(&againlk);
 	return r;
 }

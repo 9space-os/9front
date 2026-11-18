@@ -123,19 +123,21 @@ impl Window {
                 }
             }
         } else {
-            // its frame: where the program puts it (a popup: in the screen's
-            // coordinates, as winit's positions are), else where wsys did
-            let (fx0, fy0, fx1, fy1) = win.rect().unwrap_or((screen.x0, screen.y0, screen.x0 + 400, screen.y0 + 300));
+            // its contents (wsys' ctl rect: the frame, border and title bar,
+            // around them): where the program puts them (a popup: in the
+            // screen's coordinates, as winit's positions are), else where
+            // wsys did
+            let (cx0, cy0, cx1, cy1) = win.contents().unwrap_or((screen.x0, screen.y0, screen.x0 + 400, screen.y0 + 300));
             let (w, h) = match attrs.inner_size {
                 Some(size) => {
                     let (w, h): (u32, u32) = size.to_physical::<u32>(scale).into();
-                    (w as i32 + 2 * b, h as i32 + 2 * b)
+                    (w as i32, h as i32)
                 },
-                None => (fx1 - fx0, fy1 - fy0),
+                None => (cx1 - cx0, cy1 - cy0),
             };
             let (x, y) = match attrs.position {
                 Some(pos) => pos.to_physical::<i32>(scale).into(),
-                None => (fx0, fy0),
+                None => (cx0, cy0),
             };
             if let Err(e) = win.set_rect(x, y, x + w, y + h) {
                 tracing::warn!("plan9: the window's place: {e}");

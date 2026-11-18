@@ -59,6 +59,7 @@ OFILES=\
 	writeimage.$O\
 	writesubfont.$O\
 	wsysagain.$O\
+	wsysopen.$O\
 
 HFILES=\
 	/sys/include/ape/draw.h\

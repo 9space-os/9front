@@ -366,6 +366,34 @@ extern int	initdraw(void(*)(Display*, char*), char*, char*);
 extern int	newwindow(char*);
 extern int	wsyslost(void);	/* 9front-ng: the window's wsys gone */
 extern int	wsysagain(char*);	/* 9front-ng: the window again in the next wsys */
+/* 9space: more windows of the program under wsys(4) (graphics(2)) */
+typedef struct Wsyswin Wsyswin;
+struct Wsyswin
+{
+	int	ctl;		/* its clone file: closed, the window goes */
+	int	id;		/* its number in wsys */
+	char	dir[32];	/* its files: /mnt/drawwin.key, there in the next wsys too */
+	Image	*image;		/* its window, in display (wsysgetwindow) */
+	Screen	*screen;
+	/* libdraw's: to make it again in the next wsys */
+	Wsyswin	*parent;
+	Wsyswin	*next;
+	char	*msgs;
+	char	*label;
+	Rectangle	r;
+	int	key;
+	int	gone;
+	int	own;		/* parent -: a window of its own */
+	char	srv[64];	/* the wsys it is in */
+};
+extern Wsyswin*	wsysopen(Wsyswin*, char*);
+extern int	wsysgetwindow(Wsyswin*);
+extern int	wsysctl(Wsyswin*, char*);
+extern int	wsyswinlost(Wsyswin*);
+extern void	wsysseen(Wsyswin*);
+extern int	wsysparent(Wsyswin*, Wsyswin*, int);
+extern void	wsysclose(Wsyswin*);
+extern void	_wsysremake(void);
 extern Display*	initdisplay(char*, char*, void(*)(Display*, char*));
 extern int	loadimage(Image*, Rectangle, uchar*, int);
 extern int	cloadimage(Image*, Rectangle, uchar*, int);

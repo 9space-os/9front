@@ -18,5 +18,6 @@ bool PLAN9_GL_SetSwapInterval(SDL_VideoDevice *_this, int interval);
 bool PLAN9_GL_GetSwapInterval(SDL_VideoDevice *_this, int *interval);
 bool PLAN9_GL_SwapWindow(SDL_VideoDevice *_this, SDL_Window *window);
 bool PLAN9_GL_DestroyContext(SDL_VideoDevice *_this, SDL_GLContext context);
+void PLAN9_GL_DestroySurface(SDL_Window *window);
 
 #endif

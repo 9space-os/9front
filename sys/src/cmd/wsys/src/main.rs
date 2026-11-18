@@ -1306,6 +1306,9 @@ impl Wsys {
                                 return e(&err);
                             }
                         }
+                        // what it did on draw(3) done before its program hears back
+                        // (a new layer's name: the program's namedimage looks it up)
+                        let _ = self.d.flush();
                         ok
                     }
                     Kind::RootWctl | Kind::File(_, F::Wctl) => {
@@ -1807,6 +1810,8 @@ impl Wsys {
         }
         self.paint(n, None);
         self.drawtext(n);
+        // its layer's name known before its program reads winname
+        let _ = self.d.flush();
         Ok(n)
     }
 

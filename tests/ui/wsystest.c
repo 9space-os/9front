@@ -701,6 +701,65 @@ main(void)
 		close(q->ctl);
 	}
 
+	/*
+	 * libdraw's wsysopen: a window of its own (parent -) and a modal dialog
+	 * of it, drawn through draw(3); the window closed, the dialog with it
+	 */
+	{
+		Wsyswin *lw, *ld;
+		Image *red, *blue;
+		Display *wd;
+		char path[64];
+
+		display = d;
+		snprint(buf, sizeof buf, "parent -\nrect %d %d %d %d", o.x+300, o.y+260, o.x+420, o.y+340);
+		display = nil;	/* its image below, on its own draw(3) */
+		lw = wsysopen(nil, buf);
+		if(lw == nil)
+			fail("wsysopen: %r");
+		/*
+		 * a window's draw(3) is wsys' own where it serves one (dir/draw;
+		 * in a window's name space /dev/draw is it): this program's d is
+		 * the kernel's, where it reads the screen back
+		 */
+		snprint(path, sizeof path, "%s/draw", lw->dir);
+		wd = d;
+		if(access(path, AEXIST) == 0 && (wd = initdisplay(lw->dir, lw->dir, nil)) == nil)
+			fail("initdisplay %s: %r", lw->dir);
+		display = wd;
+		if(wsysgetwindow(lw) < 0)
+			fail("wsysopen's window: %r");
+		red = allocimage(wd, Rect(0, 0, 1, 1), RGB24, 1, DRed);
+		blue = allocimage(wd, Rect(0, 0, 1, 1), RGB24, 1, DBlue);
+		draw(lw->image, lw->image->r, red, nil, ZP);
+		flushimage(wd, 1);
+		want(P(360, 300), Red, "wsysopen: a window of its own, drawn");
+		snprint(buf, sizeof buf, "modal\nrect %d %d %d %d", o.x+330, o.y+280, o.x+390, o.y+320);
+		ld = wsysopen(lw, buf);
+		if(ld == nil)
+			fail("wsysopen of a parent: %r");
+		/* moved: the image anew */
+		snprint(buf, sizeof buf, "rect %d %d %d %d", o.x+331, o.y+281, o.x+391, o.y+321);
+		if(wsysctl(ld, buf) < 0 || wsysgetwindow(ld) < 0)
+			fail("the dialog: rect: %r");
+		draw(ld->image, ld->image->r, blue, nil, ZP);
+		flushimage(wd, 1);
+		want(P(360, 300), Blue, "wsysopen: its dialog over it");
+		print("ok wsysopen: window %d, its dialog %d (%s)\n", lw->id, ld->id, ld->dir);
+		wsysclose(lw);
+		/* the dialog gone with it in wsys; its image this program's until it lets go */
+		if(wsysctl(ld, "top") == 0)
+			fail("the window closed, its dialog still in wsys");
+		print("ok wsysopen: the window closed, its dialog with it\n");
+		wsysclose(ld);
+		want(P(360, 300), Bg, "both gone from the screen");
+		freeimage(red);
+		freeimage(blue);
+		if(wd != d)
+			closedisplay(wd);
+		display = d;
+	}
+
 	if(leftover())
 		fail("segments left in #g");
 	print("ok no segment left in #g\n");
