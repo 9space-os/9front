@@ -457,7 +457,7 @@ notify(Ureg *ureg, char *msg)
 	sp -= 256;	/* debugging: preserve context causing problem */
 	sp -= sizeof(Ureg);
 	/*
-	 * 9space: the handler entered as a function the System V way too:
+	 * GCC port: the handler entered as a function the System V way too:
 	 * the stack 16-byte aligned before the (fake) return pc, as after a
 	 * call (a gcc-compiled handler keeps SSE values there), the arguments
 	 * also in %rdi and %rsi.  libc's notify(2) then registers the
@@ -477,7 +477,7 @@ notify(Ureg *ureg, char *msg)
 	sp -= BY2WD+ERRMAX;
 	memmove((char*)sp, msg, ERRMAX);
 	str = sp;
-	sp -= 4*BY2WD;				/* 9space: (sp+8) & 15 == 0 */
+	sp -= 4*BY2WD;				/* GCC port: (sp+8) & 15 == 0 */
 	((uintptr*)sp)[2] = str;		/* arg2 string */
 	((uintptr*)sp)[1] = (uintptr)nureg;	/* arg1 is ureg* */
 	((uintptr*)sp)[0] = 0;			/* arg0 is pc */
@@ -485,7 +485,7 @@ notify(Ureg *ureg, char *msg)
 	ureg->sp = sp;
 	ureg->pc = (uintptr)up->notify;
 	ureg->bp = (uintptr)nureg;		/* arg1 passed in RARG */
-	ureg->di = (uintptr)nureg;		/* 9space: and in System V's */
+	ureg->di = (uintptr)nureg;		/* GCC port: and in System V's */
 	ureg->si = str;
 	ureg->cs = UESEL;
 	ureg->ss = UDSEL;
@@ -519,7 +519,7 @@ noted(Ureg *ureg, Ureg *nureg, int arg0)
 			return -1;
 		ureg->sp = sp;
 		ureg->bp = oureg;		/* arg 1 passed in RARG */
-		ureg->di = oureg;		/* 9space: and in System V's */
+		ureg->di = oureg;		/* GCC port: and in System V's */
 		((uintptr*)sp)[1] = oureg;	/* arg 1 0(FP) is ureg* */
 		((uintptr*)sp)[0] = 0;		/* arg 0 is pc */
 		break;

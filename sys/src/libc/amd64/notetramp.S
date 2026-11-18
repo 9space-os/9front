@@ -3,7 +3,7 @@
  * the stub for sys.h's NOTIFY _notify): fn is up->notify, per process, as
  * in 9front.
  *
- * 9space: sys/src/9/pc64/trap.c's notify() enters the handler both ways:
+ * GCC port: sys/src/9/pc64/trap.c's notify() enters the handler both ways:
  * 6c's (the Ureg* in %rbp and at 8(%rsp), the message's address at
  * 16(%rsp), 0(%rsp) a fake return pc) and System V's (%rdi, %rsi, the
  * stack aligned as after a call).  Before, the kernel did only the first

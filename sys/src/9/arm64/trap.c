@@ -230,7 +230,7 @@ syscall(Ureg *ureg)
 		returnto(noteret);
 
 	/*
-	 * 9space: a note's handler entered through noteret, all registers
+	 * GCC port: a note's handler entered through noteret, all registers
 	 * loaded (forkret loads only x0: the handler's x1, the message,
 	 * AAPCS's arg 2, would be lost), as pc64's syscall
 	 */
@@ -254,7 +254,7 @@ notify(Ureg *ureg, char *msg)
 	sp -= 256;	/* debugging: preserve context causing problem */
 	sp -= sizeof(Ureg);
 	/*
-	 * 9space: the handler entered as an AAPCS function too: the note's
+	 * GCC port: the handler entered as an AAPCS function too: the note's
 	 * message in x1 (nureg is in x0 already), the stack 16-byte aligned
 	 * (Ureg 16-aligned, the 160 bytes below it keep it so).  libc's
 	 * notify(2) then registers the handler itself, per process, as
@@ -277,7 +277,7 @@ notify(Ureg *ureg, char *msg)
 	*(uintptr*)(sp+2*BY2WD) = sp+3*BY2WD;
 	*(uintptr*)(sp+1*BY2WD) = (uintptr)nureg;
 	ureg->r0 = (uintptr)nureg;
-	ureg->r1 = sp+3*BY2WD;		/* 9space: the message, AAPCS's arg 2 */
+	ureg->r1 = sp+3*BY2WD;		/* GCC port: the message, AAPCS's arg 2 */
 	ureg->sp = sp;
 	ureg->pc = (uintptr)up->notify;
 	ureg->link = 0;
