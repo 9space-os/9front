@@ -5115,6 +5115,14 @@ iwlpci(void)
 		}
 		ctlr->nic = mem;
 		ctlr->pdev = pdev;
+		/*
+		 * 9space: a 7265D (hardware revision type 0x210, as Linux's
+		 * CSR_HW_REV_TYPE_7265D) has firmware of its own, 7265D-29
+		 * (DQA-capable); the register reads before the power-up
+		 */
+		if(family == 7000 && (pdev->did == 0x095a || pdev->did == 0x095b)
+		&& (csr32r(ctlr, Rev) & 0xFFF0) == 0x210)
+			fwname = "iwm-7265D-29";
 		ctlr->fwname = fwname;
 		ctlr->family = family;
 		ctlr->mqrx = family >= 9000;
