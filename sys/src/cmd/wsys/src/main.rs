@@ -355,6 +355,7 @@ struct Win {
     parent: Option<u32>, // a dialog's or popup's window: it moves, stacks, hides and goes with that one
     modal: bool,         // ctl modal: its parent takes no clicks while it is shown (they bring it up)
     askclose: bool,      // ctl askclose: Delete (title bar, menu) sends close, the client deletes it
+    asked: bool,         // close sent: the next Delete deletes it (a client that hangs or will not)
     hiddenby: bool,      // hidden with its parent, shown again with it
     slot: usize,
     bufs: HashMap<u32, Buf>,
@@ -1786,7 +1787,7 @@ impl Wsys {
         self.nextwin = n;
         self.slots[slot] = true;
         self.wins.insert(n, Win {
-            r, border: bw, title: t, unmax: None, bar: false, menuout: None, full: None, tlayer: None, mapped: text, nofocus: false, parent: None, modal: false, askclose: false, hiddenby: false, slot, bufs: HashMap::new(), img, layer, name, refs: 0, pinned: false, pid: o.pid,
+            r, border: bw, title: t, unmax: None, bar: false, menuout: None, full: None, tlayer: None, mapped: text, nofocus: false, parent: None, modal: false, askclose: false, asked: false, hiddenby: false, slot, bufs: HashMap::new(), img, layer, name, refs: 0, pinned: false, pid: o.pid,
             label: String::new(), wdir: o.cd.clone().unwrap_or_default(), text: String::new(), partial: vec![],
             events: VecDeque::new(), raw: false, line: String::new(), cons: VecDeque::new(), eof: false,
             kbd: VecDeque::new(), kbdopen: 0, mouseopen: 0, mouse: VecDeque::new(), resized: false,
@@ -3106,9 +3107,12 @@ impl Wsys {
     /// fills the screen or gives the frame back, min hides (as Hide)
     /// the user deletes window n (title bar's x, button 3's Delete): its client
     /// asked to be asked (ctl askclose): an event close, it deletes the window
-    /// (or not: a dialog asks whether to save); else it goes
+    /// (or not: a dialog asks whether to save); else, or when it was asked
+    /// already and the window is still there (a client that hangs), it goes
     fn closereq(&mut self, n: u32) {
-        if self.wins.get(&n).is_some_and(|w| w.askclose) {
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        if w.askclose && !w.asked {
+            w.asked = true;
             self.event(n, "close".into());
         } else {
             self.delwin(n, true);

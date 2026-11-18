@@ -845,6 +845,8 @@ button 3's menu) only sends the event
 the client deletes the window (closes its clone file, or
 .BR delete ),
 or keeps it (a dialog asks whether to save first).
+A second Delete of a window asked so deletes it at once (a client that
+hangs, or will not).
 .B wctl
 and
 .B ctl
