@@ -231,184 +231,228 @@ ps2mouseputc(int c, int shift)
 	}
 }
 
-static unsigned int
-diffpos(int x1, int y1, int x2, int y2)
+/*
+ * 9space: a Synaptics touchpad in absolute and W mode (setabs), as a
+ * laptop's pad is used: one finger moves the pointer by its motion,
+ * two scroll (buttons 8 and 16), a click of the pad is button 1 with
+ * one finger on it, 3 (right) with two, 2 (middle) with three; its
+ * TrackPoint's packets pass through (W 3), and on pads that wire the
+ * TrackPoint's buttons to themselves those come as its buttons.
+ * After OpenBSD's pms.c (pms_proc_synaptics, synaptics_get_hwinfo;
+ * Copyright (c) 1994 Charles M. Hannum, (c) 1992, 1993 Erik Forsberg,
+ * BSD) and its pmsreg.h's values; 9front's synmouseputc mapped the pad
+ * onto the screen (absolute) instead.
+ */
+enum {
+	/* queries (pmsreg.h) */
+	SynQidentify	= 0x00,
+	SynQcaps	= 0x02,
+	SynQmodel	= 0x03,
+	SynQextmodel	= 0x09,
+	SynQextcaps	= 0x0c,
+	SynQmodes	= 0x01,
+	SynQext2caps	= 0x10,
+
+	SynCapext	= 1<<23,
+	SynCapmulti	= 1<<1,
+	SynCappass	= 1<<7,
+	SynExtclickpad	= 1<<20,
+	SynExt2cap	= 1<<17,	/* in the modes: ext2 caps queried */
+	SynExt2stick	= 1<<16,	/* the TrackPoint's buttons on the pad */
+
+	Syntouch	= 30,	/* z of a finger on it */
+	Synpalm		= 13,	/* a width this wide is a palm */
+	Syndiv		= 6,	/* pad units per pointer unit */
+	Synscroll	= 70,	/* pad units of two fingers per wheel click */
+};
+
+static struct {
+	uint	id, caps, model, extmodel, extcaps, modes, ext2caps;
+	int	lastx, lasty, havepos;	/* the finger's last place */
+	int	fingers;
+	int	remx, remy, acc;	/* motion and scroll not yet sent */
+	int	click;		/* the pad's click: the buttons it became */
+	int	stick;		/* the TrackPoint's buttons wired to the pad */
+} syn;
+
+static int
+synquery(int q, uint *v)
 {
-	unsigned int dx, dy, r;
-	
-	dx = abs(x1-x2);
-	dy = abs(y1-y2);
-	r = dx*dx + dy*dy;
-	return r;
+	uchar cmd[9], r[3];
+	int i;
+
+	/* the query's number as four resolution commands, then a status request */
+	for(i = 0; i < 4; i++){
+		cmd[2*i] = 0xE8;
+		cmd[2*i+1] = (q >> (6 - 2*i)) & 3;
+	}
+	cmd[8] = 0xE9;
+	if(i8042auxquery(cmd, 9, r, 3) < 0)
+		return -1;
+	*v = r[0]<<16 | r[1]<<8 | r[2];
+	return 0;
+}
+
+static void
+synhwinfo(void)
+{
+	memset(&syn, 0, sizeof syn);
+	if(synquery(SynQidentify, &syn.id) < 0 || ((syn.id >> 8) & 0xff) != 0x47){
+		print("synaptics: no touchpad (identify %6.6ux)\n", syn.id);
+		return;
+	}
+	synquery(SynQcaps, &syn.caps);
+	synquery(SynQmodel, &syn.model);
+	if(((syn.caps >> 20) & 7) >= 1)
+		synquery(SynQextmodel, &syn.extmodel);
+	if(((syn.caps >> 20) & 7) >= 4)
+		synquery(SynQextcaps, &syn.extcaps);
+	if(((syn.id & 0xf) << 8 | ((syn.id >> 16) & 0xff)) >= 0x705){
+		synquery(SynQmodes, &syn.modes);
+		if(syn.modes & SynExt2cap)
+			synquery(SynQext2caps, &syn.ext2caps);
+	}
+	print("synaptics: %s, firmware %d.%d, caps %6.6ux model %6.6ux ext model %6.6ux ext caps %6.6ux ext2 caps %6.6ux\n",
+		syn.extcaps & SynExtclickpad ? "clickpad" : "touchpad",
+		syn.id & 0xf, (syn.id >> 16) & 0xff,
+		syn.caps, syn.model, syn.extmodel, syn.extcaps, syn.ext2caps);
+}
+
+/* Plan 9's buttons of a TrackPoint packet's 3 bits (left, right, middle) */
+static int
+synbuttons(int bits)
+{
+	return (bits & 1) | (bits & 2) << 1 | (bits & 4) >> 1;
+}
+
+static void
+synpacket(uchar *p, int shift)
+{
+	int w, x, y, z, fingers, buttons, dx, dy, click;
+	ulong ms;
+
+	ms = TK2MS(MACHP(0)->PMach.ticks);
+	w = ((p[0] & 0x30) >> 2) | ((p[0] & 0x04) >> 1) | ((p[3] & 0x04) >> 2);
+	z = p[2];
+	if((syn.caps & SynCapext) == 0){
+		/* no W mode: bit 3 is a touch */
+		if(w & 8)
+			w = 4;
+		else
+			z = w = 0;
+	}
+
+	/* the TrackPoint */
+	if(w == 3){
+		dx = p[4] - ((p[1] & 0x10) ? 256 : 0);
+		dy = -(p[5] - ((p[1] & 0x20) ? 256 : 0));
+		buttons = synbuttons(p[1] & 7) | syn.stick;
+		if(shift && (buttons & 4))
+			buttons = (buttons & ~4) | 2;
+		if(midscroll)
+			midscrolltrack(dx, dy, buttons, ms);
+		else
+			mousetrack(dx, dy, buttons, ms);
+		return;
+	}
+	if(w == 2)
+		return;		/* extended W mode, not asked for */
+
+	/* the TrackPoint's buttons on the pad (pmsreg.h's BUTTONS_STICK) */
+	if(((syn.extmodel >> 12) & 0xf) != 0 && ((p[0] ^ p[3]) & 2)
+	&& (syn.ext2caps & SynExt2stick)){
+		syn.stick = synbuttons((p[4] & 1) | (p[5] & 1) << 1 | (p[4] & 2) << 1);
+		mousetrack(0, 0, syn.stick, ms);
+		return;
+	}
+
+	if(disabletouch)
+		return;
+
+	x = (p[3] & 0x10) << 8 | (p[1] & 0x0f) << 8 | p[4];
+	y = (p[3] & 0x20) << 7 | (p[1] & 0xf0) << 4 | p[5];
+
+	if(z < Syntouch)
+		fingers = 0;
+	else if((syn.caps & SynCapmulti) && w == 0)
+		fingers = 2;
+	else if((syn.caps & SynCapmulti) && w == 1)
+		fingers = 3;
+	else if(w >= Synpalm)
+		fingers = 0;	/* a palm */
+	else
+		fingers = 1;
+
+	/* the pad's own buttons; a clickpad's click by the fingers on it */
+	buttons = ((p[0] & p[3]) & 1) ? 1 : 0;
+	buttons |= ((p[0] & p[3]) & 2) ? 4 : 0;
+	click = (syn.extcaps & SynExtclickpad) && ((p[0] ^ p[3]) & 1);
+	if(click && syn.click == 0)
+		syn.click = fingers >= 3 ? 2 : fingers == 2 ? 4 : 1;
+	else if(!click)
+		syn.click = 0;
+	buttons |= syn.click | syn.stick;
+
+	dx = dy = 0;
+	if(fingers != syn.fingers){
+		/* another number of fingers: their place anew */
+		syn.fingers = fingers;
+		syn.havepos = 0;
+		syn.acc = 0;
+	} else if(syn.havepos && (fingers == 1 || syn.click != 0)){
+		/*
+		 * one finger moves; so does any while the pad is pressed:
+		 * a menu is held and dragged (rio's, wsys')
+		 */
+		syn.remx += x - syn.lastx;
+		syn.remy += y - syn.lasty;
+		dx = syn.remx / Syndiv;
+		dy = -(syn.remy / Syndiv);
+		syn.remx %= Syndiv;
+		syn.remy %= Syndiv;
+	} else if(syn.havepos && fingers == 2 && syn.click == 0){
+		/* two fingers up: the wheel up (button 8) */
+		syn.acc += y - syn.lasty;
+		while(syn.acc >= Synscroll){
+			mousetrack(0, 0, buttons | 8, ms);
+			mousetrack(0, 0, buttons, ms);
+			syn.acc -= Synscroll;
+		}
+		while(syn.acc <= -Synscroll){
+			mousetrack(0, 0, buttons | 16, ms);
+			mousetrack(0, 0, buttons, ms);
+			syn.acc += Synscroll;
+		}
+	}
+	if(fingers > 0){
+		syn.lastx = x;
+		syn.lasty = y;
+		syn.havepos = 1;
+	}
+	mousetrack(dx, dy, buttons, ms);
 }
 
 static void
 synmouseputc(int c, int shift)
 {
-	static short msg[6];
+	static uchar msg[6];
 	static int nb;
-	static uchar b[] = {0, 1, 4, 5, 2, 3, 6, 7, 0, 1, 2, 3, 2, 3, 6, 7};
-	static int prevx, prevy;
-	static int maxx = 0;
-	static int minx = 6143;
-	static int maxy = 0;
-	static int miny = 6143;
-	static int edgminx = 1632;
-	static int edgmaxx = 5312;
-	static int edgminy = 1568;
-	static int edgmaxy = 4288;
-	static int ignore = 0;
-	static int press;
-	Memimage *i;
-	int click[4];		
-	int buttons, x, y, t, w, z, dx, dy;
-	int deltah, deltal;
-	int dp;
 
-	deltah = 58;
-	deltal = 3;
-	click[0] = Mousereleas;
-	click[1] = Mouseleft;
-	click[2] = Mousemid;
-	click[3] = Mouseright;
-	
-	/* re-synchronize with stream in case
-	 * of packet loss
-	 */
-	if(lastmousems() > 500
-	&& nb != 0)
+	/* a new packet after a pause; else the packet's bytes as pms_sync_synaptics checks them */
+	if(lastmousems() > 500)
 		nb = 0;
-
-	/* ignore 3-6 bytes
-	 * of trailing idle packet
-	 */
-	if(nb == 2
-	&& (c&0xFF) == 0x0
-	&& msg[0] == 0x80)
-		ignore = 4;
-
-	if(ignore){
-		--ignore;
-		if(++nb == packetsize)
-			nb = 0;
+	c &= 0xff;
+	if(nb == 0 && (c & 0xc8) != 0x80)
+		return;
+	if(nb == 3 && (c & 0xc8) != 0xc0){
+		nb = 0;
 		return;
 	}
-		
-	msg[nb] = c & 0xff;
-
-	if(++nb < packetsize)
+	msg[nb++] = c;
+	if(nb < 6)
 		return;
-
 	nb = 0;
-
-	w = (msg[3]&0x4) >> 2;
-	w |= (msg[0]&0x4) >> 1;
-	w |= (msg[0]&0x30) >> 2;
-	
-	z = msg[2];
-	
-	/* handle trackpoint */
-	if(w == 3){
-		/* handle buttons */
-		if(msg[0] == 0x84
-		&& msg[3] == 0xc4){
-			switch(msg[1]){
-			case Mousereleas:
-				press = 0;
-				break;
-			case Mouseleft:
-				press = 1;
-				break;
-			case Mousemid:
-				press = 2;
-				break;
-			case Mouseright:
-				press = 3;
-			}
-		}
-
-		buttons = b[(msg[1]&7) | (shift ? 8 : 0)];
-		if(msg[1] & 0x10)
-			msg[4] |= 0xFF00;
-		if(msg[1] & 0x20)
-			msg[5] |= 0xFF00;
-		dx = msg[4];
-		dy = -msg[5];
-		mousetrack(dx, dy, buttons, TK2MS(MACHP(0)->PMach.ticks));
-		return;
-	}
-	
-	/* palm-detect */
-	if (w >= 6 || z > 110 || z < 40)
-		return;
-
-	if(w < 4
-	&& w != 2)
-		return;
-	
-	/* handle touchpad */
-	if(disabletouch == 1)
-		return;
-
-	x = msg[4];
-	x |= (msg[1]&0xF) << 8;
-	if(msg[3]&0x10)
-		x |= (1 << 12);
-
-	y = msg[5];
-	y |= (msg[1]&0xF0) << 4;
-	if(msg[3]&0x20)
-		y |= (1 << 12);
-	
-	/* compute edges */
-	if(x > maxx)
-		maxx = x;	
-	if(y > maxy)
-		maxy = y;
-	if(x < minx)
-		minx = x;	
-	if(y < miny)
-		miny = y;
-	
-	/* compute margins */
-	edgminx = (minx*57)/50;
-	edgmaxx = (maxx*121)/125;
-	edgminy = (miny*57)/50;
-	edgmaxy = (maxy*121)/125;
-	
-	if(x < edgminx
-	|| x > edgmaxx)
-		return;
-	
-	if(y < edgminy
-	|| y > edgmaxy)
-		return;
-	
-	if((i = gscreen) == nil)
-		return;
-	
-	x = ((x-edgminx)*Dx(i->clipr))/(edgmaxx-edgminx);
-	if(x < 0)
-		x = 0;
-	t = Dy(i->clipr)-(edgminy*-Dy(i->clipr))/(edgmaxy-edgminy);
-	y = t + ((y*-Dy(i->clipr))/(edgmaxy-edgminy));
-	if(y < 0)
-		y = 0;
-
-	/* ignore accidental taps */		
-	dp = diffpos(x, y, prevx, prevy);
-	if(dp > deltah*deltah
-	|| dp < deltal*deltal){
-		prevx = x;
-		prevy = y;
-		return;
-	}
-	
-	/* imitate trackpoint buttons */
-	buttons = b[(click[press]&7) | (shift ? 8 : 0)];
-	mousetrack(x-prevx, y-prevy, buttons, TK2MS(MACHP(0)->PMach.ticks));
-	prevx = x;
-	prevy = y;
+	synpacket(msg, shift);
 }
 
 /*
@@ -595,6 +639,8 @@ mousectl(Cmdbuf *cb)
 		break;
 	case CMsynaptic:
 		intellimouse = 0;
+		disstream();
+		synhwinfo();	/* 9space */
 		setabs();
 		synaptic = 1;
 		packetsize = 6;

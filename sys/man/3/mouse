@@ -107,6 +107,20 @@ is equivalent to a write of
 followed by a write of
 .BR intellimouse .
 .TP
+.B synaptic
+sets the PS2 port to a Synaptics touchpad in its absolute mode
+(9space: the pad as a laptop's: one finger moves the pointer, two
+scroll as the wheel, a click of a clickpad is button 1 with one finger
+on it, 3 with two, 2 with three; a TrackPoint behind it passes through,
+its buttons too where the pad carries them; 9front put the pointer
+where the finger touched).
+The touchpad's identity and capabilities go to the console.
+.TP
+.B "touchpad\fI on/off\fP"
+the touchpad of
+.B synaptic
+on or off (the TrackPoint stays).
+.TP
 .B "accelerated\fI [n]\fP"
 turns on mouse acceleration.
 .I N

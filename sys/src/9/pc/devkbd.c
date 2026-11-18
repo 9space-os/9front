@@ -225,6 +225,44 @@ i8042auxcmd(int cmd)
 }
 
 /*
+ * 9space: commands to the aux port, each acknowledged, then nresp bytes
+ * of its answer (a touchpad's status request), read here under the
+ * lock the interrupt takes, so that they do not go to auxputc; 0, or
+ * -1 if the device did not answer
+ */
+int
+i8042auxquery(uchar *cmd, int ncmd, uchar *resp, int nresp)
+{
+	int c, i, tries;
+
+	if(nokbd)
+		return -1;
+	ilock(&i8042lock);
+	for(i = 0; i < ncmd; i++){
+		tries = 0;
+		do{
+			if(tries++ > 2 || outcmd(0xD4, cmd[i]) < 0 || (c = indata()) < 0){
+				iunlock(&i8042lock);
+				return -1;
+			}
+		} while(c == 0xFE || c == 0);
+		if(c != 0xFA){
+			iunlock(&i8042lock);
+			return -1;
+		}
+	}
+	for(i = 0; i < nresp; i++){
+		if((c = indata()) < 0){
+			iunlock(&i8042lock);
+			return -1;
+		}
+		resp[i] = c;
+	}
+	iunlock(&i8042lock);
+	return 0;
+}
+
+/*
  * set keyboard's leds for lock states (scroll, numeric, caps).
  *
  * at least one keyboard (from Qtronics) also sets its numeric-lock

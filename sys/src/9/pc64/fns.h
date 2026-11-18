@@ -54,6 +54,7 @@ void	halt(void);
 void	mwait(volatile void*);	/* GCC port: volatile, the word MONITOR watches (another processor writes it) */
 void	lapicipiirq(int, int);	/* pmc(3) */
 int	i8042auxcmd(int);
+int	i8042auxquery(uchar*, int, uchar*, int);
 void	i8042auxenable(void (*)(int, int));
 void	i8042reset(void);
 void	i8250console(void);
