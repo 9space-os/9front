@@ -31,7 +31,7 @@ All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 `82ddeb288`, 2026-11-10, at `00d3043a2`, 2026-11-12, and at `eb49f1f87`,
 2026-11-12); 0032 to 0034 on them at `eb49f1f87` (2026-11-14); all 38 at
 `6ae667969` (2026-11-15), 0039 to 0044 on them there (2026-11-16), 0045
-on them there (2026-11-17). Each
+on them there (2026-11-17), 0046 on them there (2026-11-18). Each
 applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
@@ -112,6 +112,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0043 | compress, expr, antiword, spin: the functions they call declared (compress's utime) | bug fix |
 | 0044 | news, zuke, pool, dma, doom, eqn, troff: no variable both changed and read without a sequence point | bug fix |
 | 0045 | usbohci: bufferRounding on the last Td of an input transfer: a short last packet ends it | bug fix |
+| 0046 | nusb/cam: format WxHxBPP-FOURCC in ctl: skip the '-' before the fourcc | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -674,6 +675,16 @@ packet before it still stops the endpoint. Found and shown by the gcc
 branch's `tests/usb` (a stick on OHCI: root hub, `/dev/sdU*`, sector 0
 read back; now passes on xHCI, EHCI, UHCI and OHCI). Not done: compiled
 with 9front's own compilers.
+
+### 0046 nusb/cam: format WxHxBPP-FOURCC in ctl: skip the '-' before the fourcc
+
+Writing back what `ctl` reads, `format 640x480x16-YUY2`, failed with
+"invalid argument": after the bits per pixel the parser was left on the
+`-`, so the fourcc had five characters and was compared as `-YUY`. Only
+the short form `format WxH` worked. Found on real hardware: a ThinkPad
+X1 Carbon 3rd's integrated camera (04ca:7049, YUY2 only) booted by PXE;
+the fix shown there (switching to `1280x720x16-YUY2` and back, a frame
+read in each). Not done: compiled with 9front's own compilers.
 
 ## Not included
 

@@ -1,7 +1,7 @@
 From 464b38332de0d0c579824f98e797762c8ca50dca Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Mon, 16 Nov 2026 19:01:03 +0100
-Subject: [PATCH 41/45] ape/lib/9: exits and _exits with their argument in
+Subject: [PATCH 41/46] ape/lib/9: exits and _exits with their argument in
  parentheses
 
 exits(nfail ? "fail" : nil) expanded to exit(nfail ? "fail" : nil &&

@@ -1,7 +1,7 @@
 From 27476e3bee00d8332bba0912c22cdf184b35f353 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Tue, 17 Nov 2026 10:49:52 +0100
-Subject: [PATCH 45/45] usbohci: bufferRounding on the last Td of an input
+Subject: [PATCH 45/46] usbohci: bufferRounding on the last Td of an input
  transfer: a short last packet ends it
 
 Under QEMU's pci-ohci no device was ever attached ("no data from device",
