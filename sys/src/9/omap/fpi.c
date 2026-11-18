@@ -1,6 +1,8 @@
 /*
  * Floating Point Interpreter.
- * shamelessly stolen from an original by ark.
+ * From Plan 9 from Bell Labs' ARM kernels, after an original by ark.
+ * Copyright © 2021 Plan 9 Foundation, Copyright © 20XX 9front authors;
+ * MIT, /lib/legal/mit.
  */
 #include "../omap/fpi.h"
 
