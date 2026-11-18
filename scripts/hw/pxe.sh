@@ -19,7 +19,7 @@
 # (MCPURL=http://machine:8090/mcp MCPTOKEN=`cat $PXE_DIR/mcptoken`).
 # And /rc/bin/termcpu (scripts/hw/termcpu.rc): the machine as its own auth
 # and cpu server for drawterm; run once by hand (it asks for the keys),
-# then termrc.local starts it at boot.
+# then termrc.local starts it at boot (the keys kept in $PXE_DIR/keys).
 #
 # usage: scripts/hw/pxe.sh mac [machine]	e.g. 80:ca:52:83:8a:6a thinkbook16g7
 #   machine: tests/hw/machines/<machine>, plan9.ini lines the machine always
@@ -166,6 +166,14 @@ done
 mkdir -p "$X/rc/bin"
 cp "$HERE/scripts/hw/termcpu.rc" "$X/rc/bin/termcpu"
 chmod +x "$X/rc/bin/termcpu"
+# its keys, once termcpu asked for them on the machine (the root's
+# /usr/glenda/lib/nvram, keys): kept in $PXE_DIR/keys, the root made anew
+# (gen-ufs-root.sh's rsync --delete) would lose them
+mkdir -p "$P/keys" "$X/usr/glenda/lib"
+for k in nvram keys; do
+	[ -s "$P/ufsroot/usr/glenda/lib/$k" ] && cp -p "$P/ufsroot/usr/glenda/lib/$k" "$P/keys/$k"
+	[ -s "$P/keys/$k" ] && cp -p "$P/keys/$k" "$X/usr/glenda/lib/$k"
+done
 # the machine's firmware (linux-firmware's, as the host has it: .zst, .xz or plain)
 FWDIR=${FWDIR:-/usr/lib/firmware}
 [ -z "$MACHINE" ] || grep '^firmware ' "$MACHINE" | while read -r _ pat name; do

@@ -5,6 +5,8 @@ usage: scripts/guest/mcp.py rc 'command' [timeout]   (command '-': from stdin)
        scripts/guest/mcp.py read path
        scripts/guest/mcp.py write path < content
        scripts/guest/mcp.py wait [seconds]           until the server answers
+       scripts/guest/mcp.py reload                   the server reads its deny list
+                                                     again (after the user changed it)
 Prints the tool's text; exits 1 when the tool reports an error (rc: a non-empty
 status). env: MCPURL (http://127.0.0.1:$PORT/mcp, PORT 18091), MCPTOKEN
 (mcpguest); the session id is kept in $CLI_DIR/mcp.sid.
@@ -78,6 +80,8 @@ def main():
         ans = call("read", {"path": sys.argv[2]}, 60)
     elif cmd == "write":
         ans = call("write", {"path": sys.argv[2], "content": sys.stdin.read()}, 60)
+    elif cmd == "reload":
+        ans = call("reload_deny", {}, 60)
     else:
         sys.exit(__doc__)
     if "error" in ans:
