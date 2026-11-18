@@ -168,6 +168,16 @@ struct Wifi
 	 * returns -1 to decline
 	 */
 	int	batx;
+	/*
+	 * 9space: roaming where the driver gives the signal: below roam
+	 * dBm (0: never) for a while, the access point is left and the
+	 * scan chooses again; the wait doubles each time it chooses the
+	 * same one (roamfail, as OpenBSD's ic_bgscan_fail)
+	 */
+	int	roam;
+	ulong	weaksince;
+	int	roamfail;
+	uchar	roamfrom[Eaddrlen];
 	int	(*baagree)(Wifi*, int tid, int ssn, int win, int on);
 	ulong	replays;	/* frames CCMP's (TKIP's) replay check dropped */
 

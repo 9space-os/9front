@@ -1235,6 +1235,59 @@ bestbss(Wifi *wifi, Wnode *wn)
 	return best;
 }
 
+/*
+ * 9space: roaming (Wifi.roam): the associated node's signal below the
+ * threshold for 5 s, doubled for each time the scan chose the same
+ * node again (at most 5 min); the scan that follows chooses the
+ * strongest (bestbss). OpenBSD scans in the background instead
+ * (ieee80211_bgscan), which needs the firmware's scan.
+ */
+enum {
+	Roamdefault	= -75,	/* dBm: below it a scan costs less than the link (OpenBSD scans in the background below -60/-70) */
+	Roamwait	= 5,	/* s */
+	Roammaxfail	= 64,
+};
+
+static int
+roamweak(Wifi *wifi, Wnode *wn, ulong now)
+{
+	if(!wifi->sigs || wifi->roam == 0 || wn->status != Sassoc || !wn->hasrssi
+	|| memcmp(wifi->bssid, wifi->ether->Netif.bcast, Eaddrlen) != 0){
+		wifi->weaksince = 0;
+		return 0;	/* off, not associated, or a bssid asked for */
+	}
+	if(wn->rssi >= wifi->roam){
+		wifi->weaksince = 0;
+		return 0;
+	}
+	if(wifi->weaksince == 0){
+		wifi->weaksince = now;
+		return 0;
+	}
+	if(TK2SEC(now - wifi->weaksince) < Roamwait*(1+wifi->roamfail))
+		return 0;
+	wifi->weaksince = 0;
+	return 1;
+}
+
+/* 9space: after a roaming scan: the same node again waits longer */
+static void
+roamchose(Wifi *wifi, Wnode *wn)
+{
+	static uchar zeros[Eaddrlen];
+
+	if(memcmp(wifi->roamfrom, zeros, Eaddrlen) == 0)
+		return;
+	if(memcmp(wifi->roamfrom, wn->bssid, Eaddrlen) == 0){
+		if(wifi->roamfail < Roammaxfail)
+			wifi->roamfail = wifi->roamfail? 2*wifi->roamfail: 1;
+	} else
+		wifi->roamfail = 0;
+	memset(wifi->roamfrom, 0, Eaddrlen);
+	if(wifi->debug)
+		print("#l%d: roamed to %E (wait now %d s)\n", wifi->ether->ctlrno, wn->bssid, Roamwait*(1+wifi->roamfail));
+}
+
 static void
 wifiproc(void *arg)
 {
@@ -1261,6 +1314,8 @@ wifiproc(void *arg)
 			if((wn = nodelookup(wifi, w->a2, 0)) == nil)
 				continue;
 			wn->lastseen = MACHP(0)->PMach.ticks;
+			if((b->flag & Bsignal) && wn == wifi->bss && wn->hasrssi)
+				wn->rssi = (7*wn->rssi + (schar)b->rp[-9]) / 8;	/* 9space: its data's signal too (roaming) */
 			if((b = wifidecrypt(wifi, wn, b)) != nil){
 				w = (Wifipkt*)b->rp;
 				if(w->fc[1] & 0x40)
@@ -1334,6 +1389,7 @@ wifiproc(void *arg)
 				setstatus(wifi, wn, Sauth);
 			if(wifi->bss == nil && goodbss(wifi, wn)){
 				wifi->bss = wn;
+				roamchose(wifi, wn);	/* 9space */
 				if(wn->status == Sauth)
 					sendassoc(wifi, wn);
 			}
@@ -1496,6 +1552,14 @@ Scan:
 			wifi->bss = nil;
 			break;
 		}
+		if(roamweak(wifi, wn, now)){
+			if(wifi->debug)
+				print("#l%d: roaming: %E at %d dBm\n", wifi->ether->ctlrno, wn->bssid, wn->rssi);
+			memmove(wifi->roamfrom, wn->bssid, Eaddrlen);
+			wifideauth(wifi, wn);
+			wifi->bss = nil;
+			break;
+		}
 		if(TK2MS(now - wn->lastsend) > 1000){
 			if((wn->status == Sauth || wn->status == Sblocked) && (++tmout & 7) == 0)
 				wifideauth(wifi, wn);	/* stuck in auth, start over */
@@ -1534,6 +1598,7 @@ wifiattach(Ether *ether, void (*transmit)(Wifi*, Wnode*, Block*))
 	memmove(wifi->bssid, ether->Netif.bcast, Eaddrlen);
 
 	wifi->lastauth = MACHP(0)->PMach.ticks;
+	wifi->roam = Roamdefault;	/* 9space: only where the driver gives the signal (sigs) */
 
 	snprint(name, sizeof(name), "#l%dwifi", ether->ctlrno);
 	kproc(name, wifiproc, wifi);
@@ -1635,11 +1700,13 @@ enum {
 	CMrxkey3,
 	CMrxkey4,
 	CMtxkey0,
+	CMroam,		/* 9space */
 };
 
 static Cmdtab wifictlmsg[] =
 {
 	CMdebug,	"debug",	0,
+	CMroam,		"roam",		2,	/* 9space: roam dBm (0: never) */
 	CMessid,	"essid",	0,
 	CMauth,		"auth",		0,
 	CMbssid,	"bssid",	0,
@@ -1687,6 +1754,11 @@ wifictl(Wifi *wifi, void *buf, long n)
 			error("missing node");
 	}
 	switch(ct->index){
+	case CMroam:
+		wifi->roam = atoi(cb->f[1]);
+		wifi->weaksince = 0;
+		wifi->roamfail = 0;
+		break;
 	case CMdebug:
 		if(cb->f[1] != nil)
 			wifi->debug = atoi(cb->f[1]);

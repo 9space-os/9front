@@ -583,6 +583,7 @@ struct Ctlr {
 	int rxsignal;	/* 9space: the last rx phy's strongest antenna, dBm; 0: none */
 	int pmflags;	/* 9space: the MAC power table's flags (ctl pm), -1: the default */
 	int devpm;	/* 9space: the device power flags (ctl devpm), -1: the default */
+	u32int hwrev;	/* 9space: the hardware revision register (7265D: type 0x210) */
 	ulong nintr;	/* 9space: statistics: interrupts, those with rx, frames received */
 	ulong nrxintr;
 	ulong nrxframe;
@@ -1356,6 +1357,7 @@ iwlinit(Ether *edev)
 	}
 
 	ctlr->type = csr32r(ctlr, Rev);
+	ctlr->hwrev = ctlr->type;	/* 9space: the register as read (ifstats) */
 	if(ctlr->family >= 8000){
 		ctlr->type &= 0xFFFF;
 		ctlr->dash = 0;
@@ -4515,6 +4517,7 @@ iwlifstat(void *a, char *s, char *e)
 	s = wifistat(ctlr->wifi, s, e);
 	s = seprint(s, e, "intr: %lud, with rx %lud, frames %lud\n",	/* 9space */
 		ctlr->nintr, ctlr->nrxintr, ctlr->nrxframe);
+	s = seprint(s, e, "hwrev: %#.8ux, firmware %s\n", ctlr->hwrev, ctlr->fwname);
 	if(ctlr->ht.on)	/* 9space */
 		s = seprint(s, e, "ht: mcs %d%s, frames %lud, retries %lud\n",
 			ctlr->ht.ladder[ctlr->ht.cur], ctlr->ht.mimo? " (2 streams)": "",
