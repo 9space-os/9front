@@ -91,6 +91,14 @@ struct Wnode
 	uchar	vht;
 	uchar	he;
 	uchar	qos;
+	/*
+	 * 9space: from its HT capabilities (45) and HT operation (61):
+	 * the capability info, the MCS it receives (streams 1 and 2), the
+	 * HT protection mode; for drivers that pick the HT rates
+	 */
+	ushort	htcap;
+	uchar	htrxmcs[2];
+	uchar	htprot;
 	ushort	qseq[Ntid];	/* 9space: the QoS data's sequence numbers, per TID */
 	ushort	txba;		/* 9space: the TIDs whose block ack agreement we made */
 	uchar	batoken;	/* the last ADDBA request's dialog token */

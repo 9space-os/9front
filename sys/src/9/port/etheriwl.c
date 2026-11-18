@@ -577,6 +577,27 @@ struct Ctlr {
 
 	uvlong systime;
 
+	/*
+	 * 9space: HT with the access point (7000 and newer): the MCS
+	 * ladder by rate, the step in use (the firmware's link quality
+	 * table starts there), AMRR's counts
+	 */
+	struct {
+		int	on;
+		int	mimo;		/* two streams both ways */
+		uchar	ladder[16];
+		int	n;
+		int	cur;
+		int	lq;		/* the step the firmware's table has, -1: none */
+		int	txcnt;
+		int	retrycnt;
+		int	success;
+		int	recovery;
+		int	threshold;
+		ulong	ntx;		/* statistics */
+		ulong	nretry;
+	} ht;
+
 	RXQ rx;
 	TXQ tx[7];
 
@@ -2382,8 +2403,221 @@ enum {
 	StaTypeAux,
 };
 
+/*
+ * 9space: HT (802.11n) on the 7000 family and newer. The registers
+ * and commands as OpenBSD's if_iwm.c uses them (ISC licence,
+ * "Copyright (c) 2014, 2016 genua gmbh", "Copyright (c) 2014 Fixup
+ * Software Ltd.", "Copyright (c) 2017 Stefan Sperling"): the station's
+ * MIMO flag, the MAC context's HT and protection flags, the link quality
+ * command whose table the firmware walks down on retries
+ * (iwm_set_rate_table), rate_n_flags for HT; the rate is chosen with
+ * AMRR (amrrchoose below).
+ */
+enum {
+	StaFlgMimo2	= 1<<28,	/* IWM_STA_FLG_MIMO_EN_MIMO2 */
+
+	MacQosTgn	= 1<<1,		/* IWM_MAC_QOS_FLG_TGN: HT */
+	MacProtHt	= 1<<23,	/* IWM_MAC_PROT_FLG_HT_PROT */
+	MacProtFat	= 1<<24,	/* IWM_MAC_PROT_FLG_FAT_PROT */
+
+	RateHt		= 1<<8,		/* IWM_RATE_MCS_HT_MSK */
+	RateAntPos	= 14,		/* IWM_RATE_MCS_ANT_POS */
+
+	TxOffldPad	= 1<<13,	/* IWM_TX_CMD_OFFLD_PAD: the header padded to 4 */
+
+	CmdLq		= 0x4e,		/* IWM_LQ_CMD */
+	Lqsize		= 4+4+4+4+4+16*4+4,	/* struct iwm_lq_cmd */
+};
+
+static int
+nant(int mask)
+{
+	return (mask & 1) + ((mask>>1) & 1) + ((mask>>2) & 1);
+}
+
+/* the first antenna of a mask, as transmit picks it */
+static int
+firstant(int mask)
+{
+	mask &= 7;
+	mask |= mask == 0;
+	return ((mask - 1) & mask) ^ mask;
+}
+
+/*
+ * The MCS by rate: one stream 0-7, then the two-stream ones faster
+ * than MCS 7 (12: 78 Mbit/s, 13, 14, 15) where both sides have two.
+ */
+static void
+htladder(Ctlr *ctlr)
+{
+	int i;
+
+	ctlr->ht.n = 0;
+	for(i = 0; i < 8; i++)
+		ctlr->ht.ladder[ctlr->ht.n++] = i;
+	if(ctlr->ht.mimo)
+		for(i = 12; i < 16; i++)
+			ctlr->ht.ladder[ctlr->ht.n++] = i;
+	ctlr->ht.cur = 0;
+	ctlr->ht.lq = -1;
+	ctlr->ht.txcnt = ctlr->ht.retrycnt = 0;
+	ctlr->ht.success = ctlr->ht.recovery = 0;
+	ctlr->ht.threshold = 1;
+}
+
+/*
+ * AMRR, as OpenBSD's net80211/ieee80211_amrr.c (ieee80211_amrr_choose):
+ *
+ * Copyright (c) 2006
+ *	Damien Bergamini <damien.bergamini@free.fr>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ *
+ * Called from the interrupt with every frame's status: a step up after
+ * enough frames with few retries, down after many.
+ */
+enum {
+	AmrrMinThreshold	= 1,
+	AmrrMaxThreshold	= 15,
+};
+
+static void
+amrrchoose(Ctlr *ctlr)
+{
+	int change;
+
+	change = 0;
+	if(ctlr->ht.retrycnt < ctlr->ht.txcnt/10 && ctlr->ht.txcnt > 10){
+		ctlr->ht.success++;
+		if(ctlr->ht.success >= ctlr->ht.threshold && ctlr->ht.cur < ctlr->ht.n-1){
+			ctlr->ht.recovery = 1;
+			ctlr->ht.success = 0;
+			ctlr->ht.cur++;
+			change = 1;
+		} else
+			ctlr->ht.recovery = 0;
+	} else if(ctlr->ht.retrycnt > ctlr->ht.txcnt/3){
+		ctlr->ht.success = 0;
+		if(ctlr->ht.cur > 0){
+			if(ctlr->ht.recovery){
+				ctlr->ht.threshold *= 2;
+				if(ctlr->ht.threshold > AmrrMaxThreshold)
+					ctlr->ht.threshold = AmrrMaxThreshold;
+			} else
+				ctlr->ht.threshold = AmrrMinThreshold;
+			ctlr->ht.cur--;
+			change = 1;
+		}
+		ctlr->ht.recovery = 0;
+	}
+	if(ctlr->ht.txcnt > 10 || change)
+		ctlr->ht.txcnt = ctlr->ht.retrycnt = 0;
+}
+
+/*
+ * The link quality table: from the step in use down the ladder, the
+ * two-stream rates first (mimo_delim says how many); the firmware
+ * takes the next entry on each retry. Sent without waiting for the
+ * answer: from transmit.
+ */
+/*
+ * 9space: a frame's status from the tx done notification (iwm_tx_resp:
+ * failure_frame, the retries, at 3; status at 36), counted as
+ * OpenBSD's iwm_rx_tx_cmd_single counts them for AMRR
+ */
+static void
+htstatus(Ctlr *ctlr, Block *b, int ok, int retries)
+{
+	Wifipkt *w;
+
+	if(!ctlr->ht.on || b == nil || BLEN(b) < 24)
+		return;
+	w = (Wifipkt*)b->rp;
+	if((w->fc[0] & 0x0c) != 0x08 || (w->a1[0] & 1) != 0
+	|| memcmp(w->a1, ctlr->bssid, Eaddrlen) != 0)
+		return;
+	ctlr->ht.txcnt++;
+	ctlr->ht.ntx++;
+	if(!ok)
+		ctlr->ht.retrycnt++;
+	if(retries > 0){
+		ctlr->ht.retrycnt++;
+		ctlr->ht.nretry += retries;
+	}
+	amrrchoose(ctlr);
+}
+
+/*
+ * 9space: our HT capabilities element for wifi.c's association request
+ * (as iwm's ic_htcaps, ic_ampdu_params, ic_sup_mcs): SM power save off,
+ * short guard interval at 20 MHz, MCS 0-7 or 0-15 by the receiving
+ * antennas, 20 MHz only; and QoS data (WMM), which HT needs
+ */
+static void
+htcaps(Ctlr *ctlr)
+{
+	uchar *c;
+
+	c = ctlr->wifi->caps;
+	memset(c, 0, 2+26);
+	c[0] = 45;
+	c[1] = 26;
+	put16(c+2, 3<<2 | 1<<5);	/* HT capability info */
+	c[4] = 5<<2 | 3;		/* A-MPDU: 4 us spacing, 64K */
+	c[5] = 0xff;			/* MCS 0-7 */
+	if(nant(ctlr->rfcfg.rxantmask) >= 2)
+		c[6] = 0xff;		/* MCS 8-15 */
+	c[17] = 1;			/* tx MCS set defined, the same */
+	ctlr->wifi->ncaps = 2+26;
+	ctlr->wifi->wmm = 1;
+}
+
 static char*
-setstation(Ctlr *ctlr, int id, int type, uchar addr[6], Station *sta)
+sethtlq(Ctlr *ctlr)
+{
+	uchar c[Lqsize], *p;
+	int i, j, mcs, cur, siso, delim;
+
+	cur = ctlr->ht.cur;
+	siso = firstant(ctlr->rfcfg.txantmask);
+	memset(c, 0, sizeof(c));
+	c[0] = ctlr->bss.id;		/* sta_id */
+	c[6] = siso;			/* single_stream_ant_msk */
+	c[7] = ctlr->rfcfg.txantmask & 7;	/* dual_stream_ant_msk */
+	put16(c+12, 4000);		/* agg_time_limit, 4 ms */
+	c[14] = 3;			/* agg_disable_start_th */
+	c[15] = 0x3f;			/* agg_frame_cnt_limit */
+	p = c + 20;			/* rs_table[16] */
+	delim = 0;
+	for(i = cur, j = 0; j < 16; j++){
+		mcs = ctlr->ht.ladder[i];
+		if(mcs >= 8){
+			put32(p, mcs | RateHt | (ctlr->rfcfg.txantmask & 7)<<RateAntPos);
+			delim = j+1;
+		} else
+			put32(p, mcs | RateHt | siso<<RateAntPos);
+		p += 4;
+		if(i > 0)
+			i--;
+	}
+	c[5] = delim;			/* mimo_delim */
+	ctlr->ht.lq = cur;
+	return qcmd(ctlr, 4, CmdLq, c, sizeof(c), nil);
+}
+
+static char*
+setstation(Ctlr *ctlr, int id, int type, uchar addr[6], Station *sta, u32int staflags)
 {
 	uchar c[Tcmdsize], *p;
 	char *err;
@@ -2410,7 +2644,7 @@ setstation(Ctlr *ctlr, int id, int type, uchar addr[6], Station *sta)
 		*p++ = 1 << 1;		/* modify mask */
 		p += 2;			/* reserved */
 
-		put32(p, 0<<26 | 0<<28);
+		put32(p, staflags);	/* 9space: MIMO (bits 28-29) for HT */
 		p += 4;			/* station_flags */
 
 		put32(p, 3<<26 | 3<<28);
@@ -2499,7 +2733,8 @@ setphycontext(Ctlr *ctlr, int amr)
 
 	put32(p, ctlr->rfcfg.txantmask);
 	p += 4;
-	put32(p, ctlr->rfcfg.rxantmask<<1 | (1<<10) | (1<<12));
+	/* 9space: active chains 2 where there are two (MIMO reception, as iwm) */
+	put32(p, ctlr->rfcfg.rxantmask<<1 | (1<<10) | ((nant(ctlr->rfcfg.rxantmask) >= 2? 2: 1)<<12));
 	p += 4;
 	put32(p, 0);		// acquisition_data ????
 	p += 4;
@@ -2560,7 +2795,9 @@ setmaccontext(Ether *edev, Ctlr *ctlr, int amr, Wnode *bss)
 	put32(p, bss == nil? 0xFF : (bss->validrates >> 4));
 	p += 4;
 
-	put32(p, 0);	// protection flags
+	/* 9space: HT protection as the access point's HT operation says (iwm) */
+	put32(p, ctlr->ht.on && bss != nil && (bss->htprot == 1 || bss->htprot == 3)?
+		MacProtHt | MacProtFat: 0);	// protection flags
 	p += 4;
 
 	put32(p, ctlr->rxflags & RFlagShPreamble);
@@ -2570,7 +2807,7 @@ setmaccontext(Ether *edev, Ctlr *ctlr, int amr, Wnode *bss)
 	put32(p, ctlr->rxfilter);
 	p += 4;
 
-	put32(p, 0);	// qos flags
+	put32(p, ctlr->ht.on? MacQosTgn: 0);	// qos flags (9space: HT)
 	p += 4;
 
 	for(i = 0; i < 4; i++){
@@ -3800,9 +4037,11 @@ rxon(Ether *edev, Wnode *bss)
 			ctlr->bss.id = -1;
 		} else {
 			ctlr->bcast.id = -1;
+			ctlr->ht.on = ctlr->ht.mimo = 0;
 		}
 	} else {
 		ctlr->aid = 0;
+		ctlr->ht.on = ctlr->ht.mimo = 0;
 		memmove(ctlr->bssid, edev->Netif.bcast, sizeof(ctlr->bssid));
 		ctlr->bcast.id = -1;
 		ctlr->bss.id = -1;
@@ -3831,15 +4070,29 @@ rxon(Ether *edev, Wnode *bss)
 			(ctlr->type != Type4965)? 15: 31,
 			StaTypeGeneralPurpose,
 			edev->Netif.bcast,
-			&ctlr->bcast)) != nil)
+			&ctlr->bcast, 0)) != nil)
 			goto Out;
 	}
 	if(ctlr->bss.id == -1 && bss != nil && ctlr->aid != 0){
+		/*
+		 * 9space: HT where the access point has it and we associated
+		 * with QoS (wifi.c sent our HT capabilities; access points
+		 * give HT only to WMM stations); two streams where both
+		 * have two antennas and it receives MCS 8-15
+		 */
+		ctlr->ht.on = ctlr->family >= 7000 && !ctlr->mqrx && bss->ht && bss->qos && ctlr->wifi->ncaps > 0;
+		ctlr->ht.mimo = ctlr->ht.on && bss->htrxmcs[1] != 0
+			&& nant(ctlr->rfcfg.txantmask) >= 2 && nant(ctlr->rfcfg.rxantmask) >= 2;
+		htladder(ctlr);
+		if(ctlr->wifi->debug)
+			print("#l%d: ht %d mimo %d, its mcs %.2ux %.2ux, protection %d\n",
+				edev->ctlrno, ctlr->ht.on, ctlr->ht.mimo,
+				bss->htrxmcs[0], bss->htrxmcs[1], bss->htprot);
 		if((err = setstation(ctlr,
 			0,
 			StaTypeLink,
 			bss->bssid,
-			&ctlr->bss)) != nil)
+			&ctlr->bss, ctlr->ht.mimo? StaFlgMimo2: 0)) != nil)
 			goto Out;
 
 		if(ctlr->family >= 7000)
@@ -3853,7 +4106,7 @@ Out:
 static void
 transmit(Wifi *wifi, Wnode *wn, Block *b)
 {
-	int flags, rate, ant;
+	int flags, rate, ant, ht, hdrlen, pad;
 	uchar c[Tcmdsize], *p;
 	Ether *edev;
 	Station *sta;
@@ -3919,6 +4172,36 @@ Broken:
 	if(sta->id == -1)
 		goto Broken;
 
+	/*
+	 * 9space: the firmware wants the 802.11 header padded to a
+	 * multiple of 4 bytes (a QoS data header has 26), flagged in the
+	 * command (iwm_tx: IWM_TX_CMD_FLG_MH_PAD, IWM_TX_CMD_OFFLD_PAD);
+	 * without it the firmware died at the first QoS frame
+	 */
+	pad = 0;
+	if(ctlr->family >= 7000){
+		hdrlen = wifihdrlen(w);
+		if(hdrlen & 3){
+			pad = 4 - (hdrlen & 3);
+			b = padblock(b, pad);
+			memmove(b->rp, b->rp+pad, hdrlen);
+			memset(b->rp+hdrlen, 0, pad);
+			w = (Wifipkt*)b->rp;
+			flags |= TFlagNeedPadding;
+		}
+	}
+
+	/*
+	 * 9space: data to an HT access point goes at the MCS of the link
+	 * quality table (TFlagLinkq: iwm's IWM_TX_CMD_FLG_STA_RATE)
+	 */
+	ht = sta == &ctlr->bss && ctlr->ht.on;
+	if(ht){
+		flags |= TFlagLinkq;
+		if(ctlr->ht.lq != ctlr->ht.cur && (err = sethtlq(ctlr)) != nil)
+			print("#l%d: link quality: %s\n", edev->ctlrno, err);
+	}
+
 	if(p >= wifi->rates)
 		rate = p - wifi->rates;
 	else
@@ -3930,16 +4213,21 @@ Broken:
 	ant = ((ant - 1) & ant) ^ ant;
 
 	memset(p = c, 0, sizeof(c));
-	put16(p, BLEN(b));
+	put16(p, BLEN(b) - pad);	/* the frame, without the padding */
 	p += 2;
-	p += 2;		/* lnext */
+	put16(p, pad? TxOffldPad: 0);	/* lnext; offload_assist on 7000 and newer */
+	p += 2;
 	put32(p, flags);
 	p += 4;
 	put32(p, 0);
 	p += 4;		/* scratch */
 
-	*p++ = ratetab[rate].plcp;
-	*p++ = ratetab[rate].flags | (ant<<6);
+	if(ht)
+		p += 2;	/* rate_n_flags 0: the table's */
+	else {
+		*p++ = ratetab[rate].plcp;
+		*p++ = ratetab[rate].flags | (ant<<6);
+	}
 
 	p += 2;		/* xflags */
 	*p++ = sta->id;	/* station id */
@@ -3993,7 +4281,13 @@ iwlifstat(void *a, char *s, char *e)
 {
 	Ether *edev = a;
  	Ctlr *ctlr = edev->ctlr;
-	return wifistat(ctlr->wifi, s, e);
+
+	s = wifistat(ctlr->wifi, s, e);
+	if(ctlr->ht.on)	/* 9space */
+		s = seprint(s, e, "ht: mcs %d%s, frames %lud, retries %lud\n",
+			ctlr->ht.ladder[ctlr->ht.cur], ctlr->ht.mimo? " (2 streams)": "",
+			ctlr->ht.ntx, ctlr->ht.nretry);
+	return s;
 }
 
 static void
@@ -4129,6 +4423,13 @@ iwlattach(Ether *edev)
 			/* tested with 2230, it has transmit issues using higher bit rates */
 			if(ctlr->family >= 7000 || ctlr->type != Type2030)
 				ctlr->wifi->rates = iwlrates;
+			/*
+			 * not with multi-queue reception (9000 and newer) yet:
+			 * its firmware pads QoS headers it receives
+			 * (IWM_RX_MPDU_MFLG2_PAD), which mqrx does not take off
+			 */
+			if(ctlr->family >= 7000 && !ctlr->mqrx)
+				htcaps(ctlr);
 		}
 
 		setoptions(edev);
@@ -4199,6 +4500,8 @@ receive(Ctlr *ctlr)
 			break;
 		case 28:	/* tx done */
 			if(ctlr->family >= 7000){
+				if(len > 36)
+					htstatus(ctlr, bb, d[36] == 1 || d[36] == 2, d[3]);
 				if(len <= 36 || d[36] == 1 || d[36] == 2)
 					break;
 			} else if(ctlr->type == Type4965){

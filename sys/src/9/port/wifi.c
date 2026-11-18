@@ -958,6 +958,8 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 	wn->dtimcount = 0;
 	wn->dtimperiod = 1;
 	wn->wmm = wn->ht = wn->vht = wn->he = 0;	/* 9space: as this beacon says */
+	wn->htcap = wn->htprot = 0;
+	wn->htrxmcs[0] = wn->htrxmcs[1] = 0;
 
 	rsnset = 0;
 	dschan = htchan = 0;
@@ -1006,12 +1008,19 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			if(d != x)
 				dschan = d[0];
 			break;
-		case 61:	/* 9space: HT operation, its primary channel */
+		case 61:	/* 9space: HT operation: primary channel, info 1, info 2 (protection in its low bits) */
 			if(d != x)
 				htchan = d[0];
+			if(x - d >= 3)
+				wn->htprot = d[2] & 3;
 			break;
 		case 45:	/* 9space: HT capabilities */
 			wn->ht = 1;
+			if(x - d >= 5){	/* info (2), A-MPDU parameters (1), MCS set (16) */
+				wn->htcap = d[0] | d[1]<<8;
+				wn->htrxmcs[0] = d[3];
+				wn->htrxmcs[1] = d[4];
+			}
 			break;
 		case 191:	/* 9space: VHT capabilities */
 			wn->vht = 1;
