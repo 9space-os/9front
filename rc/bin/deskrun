@@ -245,7 +245,7 @@ WBARDEBUG=items exec wbar -m /tmp/deskmenu >/tmp/deskwbar.err >[2=1]' >/tmp/desk
 	echo '==== back'
 	echo delete >/mnt/wsys/$b/wctl
 	sleep 0.5
-	window -r $sx0 $sy0 $sx1 `{echo $sy0+30 | hoc} wbar
+	window -bar -r $sx0 $sy0 $sx1 `{echo $sy0+30 | hoc} wbar
 	fn onebar { nb=`{bars}; ~ $#nb 1 }
 	wait1 onebar || fail no bar again
 	cat /tmp/desktheme >/mnt/wsys/theme

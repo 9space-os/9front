@@ -648,6 +648,7 @@ struct Opts {
     maxy: Option<(bool, i32)>,
     pid: Option<u32>,
     cd: Option<String>,
+    bar: bool, // -bar: a bar from the start (wbar): no border or title bar
     cmd: Vec<String>,
 }
 
@@ -698,6 +699,10 @@ fn opts(words: &[&str], cmd: bool) -> Result<Opts, String> {
             "-cd" => {
                 o.cd = Some(words.get(i + 1).ok_or("missing directory")?.to_string());
                 i += 2;
+            }
+            "-bar" => {
+                o.bar = true;
+                i += 1;
             }
             "-hide" | "-scroll" | "-noscroll" => i += 1,
             _ => return Err(format!("unknown option {w}")),
@@ -1765,8 +1770,10 @@ impl Wsys {
         let n = self.nextwin + 1;
         let s = self.d.r;
         let off = self.sz(40 + 30 * ((n as i32 - 1) % 10));
-        let t = self.titleh();
-        let bw = self.sz(BORDER);
+        // a bar (-bar) has neither: its rectangle is all of it (a title bar
+        // would not fit in a bar's height at a larger scale)
+        let t = if o.bar { 0 } else { self.titleh() };
+        let bw = if o.bar { 0 } else { self.sz(BORDER) };
         let auto = outer(Rect::new(s.x0 + off, s.y0 + off, s.x0 + off + self.sz(400), s.y0 + off + self.sz(300)), bw, t);
         let f = place(auto, o, false);
         let r = inner(f, bw, t).clip(&inner(s, bw, t));
@@ -1781,7 +1788,9 @@ impl Wsys {
                 return Err(e.to_string());
             }
         };
-        let name = format!("wsys.{}.{}.{}", std::process::id(), n, layer);
+        // without a border: noborder., as libdraw and p9win know such a window
+        let pre = if bw == 0 { "noborder." } else { "" };
+        let name = format!("{pre}wsys.{}.{}.{}", std::process::id(), n, layer);
         if let Err(e) = self.d.name(layer, &name, true) {
             let _ = self.d.free(layer);
             let _ = self.d.free(img);
@@ -1790,7 +1799,7 @@ impl Wsys {
         self.nextwin = n;
         self.slots[slot] = true;
         self.wins.insert(n, Win {
-            r, border: bw, title: t, unmax: None, bar: false, menuout: None, full: None, tlayer: None, mapped: text, nofocus: false, parent: None, modal: false, askclose: false, asked: false, hiddenby: false, slot, bufs: HashMap::new(), img, layer, name, refs: 0, pinned: false, pid: o.pid,
+            r, border: bw, title: t, unmax: None, bar: o.bar, menuout: None, full: None, tlayer: None, mapped: text, nofocus: false, parent: None, modal: false, askclose: false, asked: false, hiddenby: false, slot, bufs: HashMap::new(), img, layer, name, refs: 0, pinned: false, pid: o.pid,
             label: String::new(), wdir: o.cd.clone().unwrap_or_default(), text: String::new(), partial: vec![],
             events: VecDeque::new(), raw: false, line: String::new(), cons: VecDeque::new(), eof: false,
             kbd: VecDeque::new(), kbdopen: 0, mouseopen: 0, mouse: VecDeque::new(), resized: false,
@@ -1801,8 +1810,10 @@ impl Wsys {
         });
         self.z.push(n);
         self.alloctitle(n);
-        self.restack(n, true); // (below the bars)
-        if text {
+        self.restack(n, true); // (below the bars; a bar above the others)
+        if o.bar {
+            // never the focus (as the ctl message bar makes it)
+        } else if text {
             self.setfocus(Some(n));
         } else {
             // a client of buffers: shown with its first picture, where it put the window

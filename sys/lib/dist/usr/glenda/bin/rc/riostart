@@ -5,7 +5,9 @@
 # ui branch: under wsys(4) wbar(1) first, a bar along the top; stats below it
 y=0
 if(~ $desktop wsys && test -x /bin/wbar){
-	window -r 0 0 1024 30 wbar
+	# a bar from the start (-bar: no border or title bar, which would not fit
+	# in its height with the theme's title bars at a larger scale)
+	window -bar -r 0 0 1024 30 wbar
 	y=30
 }
 window -r 0 $y 161 `{echo $y + 117 | hoc} stats -lmisce

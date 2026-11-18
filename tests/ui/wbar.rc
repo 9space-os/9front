@@ -4,7 +4,8 @@
 # current); its windows' places: button 1 makes a window current, hides the
 # current one, brings a hidden one back; a window maximized stays below the
 # bar; Mod4+Tab passes the bar by; the menu (wsys', narrow) runs its command,
-# clicked and held.
+# clicked and held. At scale 2 with title bars, a window of 30 pixels made with
+# -bar (as riostart makes wbar's) is a bar of 30 pixels.
 # Prints ok/FAIL lines and "wbar: all passed".
 fn fail { echo FAIL $*; exit fail }
 fn wait1 { # cmd...: until it succeeds, 10 s at most
@@ -133,4 +134,21 @@ rm -f /tmp/wbartouched
 wait1 test -e /tmp/wbartouched || fail held: touch did not run: `{items}
 wait1 shut || fail held: the menu stayed open
 echo ok held on the menu, let go on touch
+
+# -bar: a bar from the start; at scale 2 with title bars a frame of 30 pixels
+# would not hold one (the X1: no bar at boot), as a bar it is all contents
+echo scale 2 >/mnt/wsys/theme || fail scale 2
+sleep 0.5
+if(window -r 0 0 1024 30 sleep 30 >[2]/dev/null) fail a 30-pixel window with a title bar at scale 2 was made
+n0=`{ls -p /mnt/wsys | grep -c '^[0-9]+$'}
+window -bar -r 0 0 1024 30 sleep 30 || fail window -bar refused
+fn more { test `{ls -p /mnt/wsys | grep -c '^[0-9]+$'} -gt $n0 }
+wait1 more || fail no window from window -bar
+nb=`{ls -p /mnt/wsys | grep '^[0-9]+$' | sort -n | tail -1}
+b=`{grep '^'$nb' ' /mnt/wsys/stack}
+~ $b(2) 0 && ~ $b(3) 0 && ~ $b(4) 1024 && ~ $b(5) 30 && ~ $b(6) 0 || fail the -bar window $nb: $b, windows `{ls -p /mnt/wsys | grep '^[0-9]+$'} n0 $n0, stack `{cat /mnt/wsys/stack}
+grep -s noborder /mnt/wsys/$nb/winname || fail its name: `{cat /mnt/wsys/$nb/winname}
+echo ok window -bar at scale 2: a bar of 30 pixels, no border
+echo delete >/mnt/wsys/$nb/wctl
+echo scale 1 >/mnt/wsys/theme
 echo wbar: all passed

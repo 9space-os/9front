@@ -23,7 +23,11 @@ and makes it a bar along the top of the screen
 message to
 .BR /dev/wctl :
 no border, above the other windows, the mouse but never the keyboard's focus;
-a window maximized stays below it).
+a window maximized stays below it). Its window is best made a bar from the
+start,
+.B "window -bar -r 0 0 1024 30 wbar"
+(riostart does): with the theme's title bars at a larger scale, a window of
+30 pixels has no room inside its frame.
 On it are, from the start:
 .TP
 .B menu

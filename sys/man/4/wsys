@@ -231,7 +231,13 @@ options
 .BR -dx ,
 .BR -dy ,
 .BR -pid ,
-.BR -cd )
+.BR -cd ;
+and
+.BR -bar ,
+not rio's: a bar from the start, without border or title bar, as the ctl
+message
+.B bar
+makes it, so that a bar's few pixels need not hold them first)
 makes a window and attaches to its directory; a window's number attaches to
 an existing one;
 .B none
