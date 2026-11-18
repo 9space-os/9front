@@ -407,8 +407,8 @@ impl super::Instance {
             s_type: vk::StructureType,
             p_next: *const c_void,
             flags: vk::Flags,
-            // null: the process's window (/dev/winname); a path: wsys' window
-            // directory of another window of the process (/dev/wsys/n)
+            // null: the process's window (/dev/winname); a path: the directory
+            // of another window of the process (/mnt/wsyswin.n: p9win's)
             p_window_name: *const core::ffi::c_char,
         }
         type CreatePlan9Surface = unsafe extern "system" fn(
@@ -432,7 +432,7 @@ impl super::Instance {
         .ok_or_else(|| crate::InstanceError::new(String::from("no vkCreatePlan9SurfacePLAN9")))?;
         let create: CreatePlan9Surface = unsafe { core::mem::transmute(f) };
         // (copied by the driver: vkCreatePlan9SurfacePLAN9 keeps the name)
-        let dir = alloc::ffi::CString::new(alloc::format!("/dev/wsys/{window}")).unwrap();
+        let dir = alloc::ffi::CString::new(alloc::format!("/mnt/wsyswin.{window}")).unwrap();
         let info = Plan9SurfaceCreateInfo {
             s_type: vk::StructureType::from_raw(1008999000),
             p_next: core::ptr::null(),

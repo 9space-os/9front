@@ -39,8 +39,9 @@ impl<D: HasDisplayHandle, W: HasWindowHandle> SurfaceInterface<D, W> for Plan9Im
         let RawWindowHandle::Plan9(h) = raw else {
             return Err(InitError::Unsupported(window));
         };
-        // the process's window (0), or wsys' window n of the process
-        let dir = if h.window == 0 { "/dev".to_string() } else { format!("/dev/wsys/{}", h.window) };
+        // the process's window (0), or the process's window of key n (p9win:
+        // its directory stays at /mnt/wsyswin.n, also in the next wsys)
+        let dir = if h.window == 0 { "/dev".to_string() } else { format!("/mnt/wsyswin.{}", h.window) };
         let draw = Draw::open_in(&dir).map_err(|e| {
             SoftBufferError::PlatformError(Some("plan9: draw(3)".into()), Some(Box::new(e)))
         })?;
