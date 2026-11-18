@@ -16,6 +16,10 @@ profile	full	gpu ui
 
 # gpu: the GPU stack: gpu(4)'s drivers (the LinuxKPI with Linux's DRM drivers),
 # Mesa's Vulkan, the Vulkan programs. Without it the screen is VESA's
+gpu	lib/firmware/amdgpu
+gpu	lib/firmware/LICENSE.amdgpu
+gpu	lib/firmware/i915
+gpu	lib/firmware/LICENSE.i915
 gpu	$objtype/bin/aux/amdgpu
 gpu	$objtype/bin/aux/i915
 gpu	$objtype/bin/aux/i915stk

@@ -35,6 +35,8 @@
 # (likewise); Rust links with gcc, so rust takes gcc along. Without DEV, as before:
 # gcc if it is built, Rust and Go if RUST_OUT, GO_OUT are set. MCP=1: the MCP server
 # (MCP_DIR, tools/mcp) as /$objtype/bin/9front-mcp, built with 9space's Go.
+# /lib/firmware: linux-firmware's WLAN and GPU firmware (scripts/guest/firmware.spec,
+# checked against firmware.list; the GPUs' in the gpu group); FIRMWARE=0: none.
 #
 # REPLICA_DIR (with REPLICA_KEY, REPLICA_URL): the stage is published there for
 # pull(1), updates over HTTP (scripts/replica/publish.py; REPLICA_DIR is what a web
@@ -43,7 +45,7 @@
 # public key, the replica's db and log as of this CD). dir.list: each path's
 # mode and owners as the CD has them (scripts/guest/proto.py -l).
 #
-# usage: [objtype=386] [PROFILE=p] [DEV=list] [MCP=1] [REPLICA_DIR=d REPLICA_KEY=k REPLICA_URL=u]
+# usage: [objtype=386] [PROFILE=p] [DEV=list] [MCP=1] [FIRMWARE=0] [REPLICA_DIR=d REPLICA_KEY=k REPLICA_URL=u]
 #        scripts/guest/stage-dist.sh dir
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
@@ -182,6 +184,17 @@ python3 "$ROOT/scripts/guest/proto.py" -s "$VIEW" -d "$OUT" -l "$OUT.list" \
 	"$ROOT/sys/lib/sysconfig/proto/distproto" "$ROOT/sys/lib/sysconfig/proto/9bootproto" \
 	"${PROTOS[@]}" \
 	2> "$OUT.warnings" || { cat "$OUT.warnings"; exit 1; }
+# the firmware (scripts/guest/firmware.spec, firmware.list): linux-firmware's
+# files under the names the drivers read, each checked against its sha256
+# (stage-firmware.py: FWDIR, the host's /usr/lib/firmware by default), with
+# their licences; FIRMWARE=0: none, as 9front's CD. The GPUs' are in the
+# profiles' gpu group
+if [ "${FIRMWARE:-1}" = 1 ]; then
+	python3 "$ROOT/scripts/guest/stage-firmware.py" "$OUT/lib/firmware" || exit 1
+	(cd "$OUT" && find lib/firmware -type d -printf '%p\t20000000775\tsys\tsys\n' \
+		-o -type f -printf '%p\t664\tsys\tsys\n') >> "$OUT.list"
+	LC_ALL=C sort -u -o "$OUT.list" "$OUT.list"
+fi
 # the profile's omitted groups (scripts/guest/profiles), for check-install -x too
 : > "$OUT.omitted"
 for p in "${omit[@]}"; do
