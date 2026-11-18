@@ -1,0 +1,105 @@
+#!/bin/rc
+# extmon [seconds]: an external monitor plugged in and out by hand while
+# it waits (default 300 s each): the GPU driver's hotplug (gpu(4): its
+# kmsout.c, DRM's hotplug event) turns the new output on right of the
+# others in its preferred mode, the screen (vgactl's size) grows with
+# it, the monitor's EDID and modes are there; pulled out, the output
+# goes off and the screen is as before.  Not a step of the stick's
+# configurations: someone at the machine plugs the monitor (over MCP:
+# rc /sys/lib/hwtest/cat/extmon.rc).  Prints ok/FAIL/SKIP lines.
+rfork ne
+secs=300
+~ $#1 1 && secs=$1
+fn ok { echo ok extmon: $* }
+fn fail { echo FAIL extmon: $* }
+
+g=`{ls /srv/gpu.* >[2]/dev/null | sed 1q}
+if(~ $#g 0){
+	echo SKIP extmon: no GPU driver '(/srv/gpu.*)'
+	exit ''
+}
+mount $g /n/gpu || { fail mount $g; exit mount }
+d=`{ls -d /n/gpu/gpu/* | sed 1q}
+
+fn connected { awk '$1 == "output" && $3 == "connected" {print $2}' $d/status }
+fn screensize { awk '$1 == "size" {print $2}' '#v/vgactl' }
+# an output's mode as one word ("1920x1080 60 at 0 0", "off"; ~ matches only its first argument)
+fn modeof { m=`{cat $d/outputs/$1/mode >[2]/dev/null}; echo $"m }
+
+before=`{connected}
+size0=`{screensize}
+echo '###' connected now: $before, screen $size0
+for(o in `{ls $d/outputs})
+	echo '###' $o: `{modeof $o}
+
+echo '###' plug a monitor in now '('$secs' s)'
+new=()
+t=0
+while(~ $#new 0 && test $t -lt $secs){
+	sleep 1
+	t=`{echo $t + 1 | hoc}
+	for(o in `{connected})
+		if(! ~ $o $before)
+			new=$o
+}
+if(~ $#new 0){
+	echo SKIP extmon: no monitor plugged in within $secs s
+	exit ''
+}
+ok $new connected after $t s
+
+# the driver's hotplug turns it on: up to 15 s
+on=()
+for(i in `{seq 15}){
+	m=`''{modeof $new}
+	m=`{echo $m}
+	if(~ $#on 0 && ! ~ $"m off ''){
+		on=$"m
+	}
+	if(~ $#on 0)
+		sleep 1
+}
+if(~ $#on 0)
+	fail $new connected but still off after 15 s '(no hotplug event or no room in the framebuffer)'
+if not
+	ok $new on by itself: $on
+
+n=`{wc -c <$d/outputs/$new/edid}
+if(test $n -ge 128)
+	ok $new EDID $n bytes
+if not
+	fail $new EDID $n bytes
+m=`{sed 1q $d/outputs/$new/modes}
+ok $new preferred mode $m, `{wc -l <$d/outputs/$new/modes} modes
+
+size1=`{screensize}
+if(! ~ $size1 $size0)
+	ok screen $size0 '->' $size1
+if not
+	fail screen still $size0 with $new on
+for(o in `{ls $d/outputs})
+	echo '###' $o: `{modeof $o}
+
+echo '###' pull the monitor out now '('$secs' s)'
+t=0
+while(~ $new `{connected} && test $t -lt $secs){
+	sleep 1
+	t=`{echo $t + 1 | hoc}
+}
+if(~ $new `{connected}){
+	echo SKIP extmon: $new not pulled out within $secs s
+	exit ''
+}
+ok $new disconnected after $t s
+sleep 5
+m=`{modeof $new}
+if(~ $"m off)
+	ok $new off
+if not
+	fail $new still $"m after it was pulled out
+size2=`{screensize}
+if(~ $size2 $size0)
+	ok screen back to $size0
+if not
+	fail screen $size2, was $size0
+unmount /n/gpu

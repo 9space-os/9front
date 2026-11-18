@@ -101,6 +101,7 @@ never run there).
 | stress | all processors a minute on the same floating point sum (one result), a ramfs copy compared, temperatures (`#P/cputemp`), the clock idle and under load (`hwfreq`: APERF/MPERF) |
 | gcc | the native gcc: `gccmk` builds a program from a 9front mkfile, it runs (SKIP without `/$objtype/gnu`) |
 | hangme | hangs (dry run only) |
+| extmon | by hand, not in a configuration: an external monitor plugged in while it waits (hotplug turns it on, EDID, modes, the screen grows) and pulled out (off, the screen as before); over MCP on a PXE machine: `rc /sys/lib/hwtest/cat/extmon.rc [seconds]` |
 
 ## The soak test (a working day)
 
