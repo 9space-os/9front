@@ -42,6 +42,8 @@ struct chunk {
 	unsigned long	used[BITS_TO_LONGS(CHUNKPAGES)];
 	unsigned long	nfree;
 	u64	maxpa;		/* 9space: its highest byte's physical address */
+	u64	pa0;		/* 9space: its first page's physical address */
+	int	contig;		/* 9space: its pages follow each other physically from pa0 */
 };
 
 u64 kpi_dma_limit = DMA_BIT_MASK(64);	/* 9space: the device's DMA mask (dma.c) */
@@ -52,6 +54,77 @@ static int nchunks;
 static struct page *hash[NHASH];
 
 static inline unsigned int hashpfn(unsigned long pfn) { return (pfn * 2654435761UL) % NHASH; }
+
+/*
+ * 9space: the chunks by address, so that a page is found without a walk:
+ * a chunk's run of addresses (physical for a contiguous one, virtual for
+ * every one) touches at most two keys of CHUNK's size, and there are few
+ * chunks, so a key's list is short. pfn_to_page and virt_to_page walked
+ * a hash chain of pages (a pool of N chunks: N/2 pages a list) or every
+ * chunk; i915 asks for each page of an object, many times a frame. A
+ * scattered chunk's pages stay in hash[]. Lists only grow (chunks are
+ * not given back): a new entry is published with a release store, the
+ * lookups take no lock.
+ */
+#define KEYSHIFT	23	/* log2(CHUNK) */
+
+struct cref {
+	struct cref	*next;
+	struct chunk	*c;
+};
+
+static struct cref *bypa[NHASH], *byva[NHASH];
+
+/* 0, -1 if an entry could not be made (then that key's lookup does not find c) */
+static int
+addref(struct cref **t, u64 a, struct chunk *c)
+{
+	struct cref *r;
+	u64 k;
+	int ok = 0;
+
+	for (k = a >> KEYSHIFT; k <= (a + CHUNK - 1) >> KEYSHIFT; k++) {
+		r = p9_mallocz(sizeof(*r));
+		if (r == NULL) {
+			ok = -1;
+			continue;
+		}
+		r->c = c;
+		r->next = t[hashpfn(k)];
+		__atomic_store_n(&t[hashpfn(k)], r, __ATOMIC_RELEASE);
+	}
+	return ok;
+}
+
+/* the contiguous chunk with the page at physical address pa, nil if none */
+static struct chunk *
+chunkbypa(u64 pa)
+{
+	struct cref *r;
+	struct chunk *c;
+
+	for (r = __atomic_load_n(&bypa[hashpfn(pa >> KEYSHIFT)], __ATOMIC_ACQUIRE); r; r = r->next) {
+		c = r->c;
+		if (pa >= c->pa0 && pa < c->pa0 + CHUNK)
+			return c;
+	}
+	return NULL;
+}
+
+/* the chunk with virtual address a, nil if none */
+static struct chunk *
+chunkbyva(const u8 *a)
+{
+	struct cref *r;
+	struct chunk *c;
+
+	for (r = __atomic_load_n(&byva[hashpfn((unsigned long)a >> KEYSHIFT)], __ATOMIC_ACQUIRE); r; r = r->next) {
+		c = r->c;
+		if (a >= c->va && a < c->va + CHUNK)
+			return c;
+	}
+	return NULL;
+}
 
 static struct chunk *
 newchunk(u64 limit)
@@ -104,16 +177,29 @@ Again:
 		snprintf(c->name, sizeof(c->name), "kpi.%d.%dl", p9_getpid(), nchunks);
 		goto Again;
 	}
+	/* 9space: contiguous (the usual case): found by its range, not page by page */
+	c->pa0 = pa[0];
+	c->contig = 1;
+	for (i = 1; i < CHUNKPAGES; i++)
+		if (pa[i] != pa[0] + i * PAGE_SIZE) {
+			c->contig = 0;
+			break;
+		}
+	if (c->contig && addref(bypa, c->pa0, c) < 0)
+		c->contig = 0;	/* no memory for its entry: page by page then */
 	for (i = 0; i < CHUNKPAGES; i++) {
 		p = &c->pages[i];
 		p->virtual = c->va + i * PAGE_SIZE;
 		p->phys_addr = pa[i];
 		p->kpi_chunk = c;
 		INIT_LIST_HEAD(&p->lru);
-		h = hashpfn(pa[i] >> PAGE_SHIFT);
-		p->kpi_hnext = hash[h];
-		hash[h] = p;
+		if (!c->contig) {
+			h = hashpfn(pa[i] >> PAGE_SHIFT);
+			p->kpi_hnext = hash[h];
+			__atomic_store_n(&hash[h], p, __ATOMIC_RELEASE);
+		}
 	}
+	addref(byva, (u64)(uintptr_t)c->va, c);	/* (failed: virt_to_page walks the chunks) */
 	c->nfree = CHUNKPAGES;
 	kfree(pa);
 	c->next = chunks;
@@ -135,18 +221,38 @@ err:
 static long
 findrun(struct chunk *c, unsigned long n)
 {
-	unsigned long i, k;
+	unsigned long i, j, k, mis;
 
-	for (i = 0; i + n <= CHUNKPAGES; i++) {
-		if (c->pages[i].phys_addr & (n * PAGE_SIZE - 1))
+	/*
+	 * 9space: from free page to free page, past a used one in the way,
+	 * to the next aligned page of a contiguous chunk: the bitmap's words,
+	 * not every index (that took most of aux/i915's time, page by page
+	 * through the used part of each chunk for every allocation)
+	 */
+	i = 0;
+	while (i + n <= CHUNKPAGES) {
+		i = _find_next_zero_bit(c->used, CHUNKPAGES, i);
+		if (i + n > CHUNKPAGES)
+			break;
+		mis = c->pages[i].phys_addr & (n * PAGE_SIZE - 1);
+		if (mis) {
+			if (c->contig)
+				i += (n * PAGE_SIZE - mis) >> PAGE_SHIFT;
+			else
+				i++;
 			continue;
-		if (_find_next_bit(c->used, i + n, i) < i + n)
+		}
+		j = _find_next_bit(c->used, i + n, i);
+		if (j < i + n) {
+			i = j + 1;
 			continue;
+		}
 		for (k = 1; k < n; k++)
 			if (c->pages[i + k].phys_addr != c->pages[i].phys_addr + k * PAGE_SIZE)
 				break;
 		if (k == n)
 			return i;
+		i++;
 	}
 	return -1;
 }
@@ -317,7 +423,9 @@ kpi_virt_to_page(const void *v)
 	const u8 *a = v;
 	struct chunk *c;
 
-	for (c = chunks; c; c = c->next)
+	if ((c = chunkbyva(a)) != NULL)
+		return &c->pages[(a - c->va) >> PAGE_SHIFT];
+	for (c = chunks; c; c = c->next)	/* (a key without its entry: no memory then) */
 		if (a >= c->va && a < c->va + CHUNK)
 			return &c->pages[(a - c->va) >> PAGE_SHIFT];
 	return heappage(a);
@@ -342,6 +450,8 @@ page_is_ram(unsigned long pfn)
 {
 	struct page *p;
 
+	if (chunkbypa((u64)pfn << PAGE_SHIFT) != NULL)
+		return 1;
 	for (p = hash[hashpfn(pfn)]; p; p = p->kpi_hnext)
 		if ((p->phys_addr >> PAGE_SHIFT) == pfn)
 			return 1;
@@ -352,8 +462,12 @@ struct page *
 kpi_pfn_to_page(unsigned long pfn)
 {
 	unsigned int h = hashpfn(pfn);
+	struct chunk *c;
 	struct page *p;
+	u64 pa = (u64)pfn << PAGE_SHIFT;
 
+	if ((c = chunkbypa(pa)) != NULL)
+		return &c->pages[(pa - c->pa0) >> PAGE_SHIFT];
 	for (p = hash[h]; p; p = p->kpi_hnext)
 		if ((p->phys_addr >> PAGE_SHIFT) == pfn)
 			return p;
