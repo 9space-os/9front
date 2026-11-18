@@ -520,6 +520,7 @@ struct FWImage
 
 	u32int	flags;
 	u32int	capa[4];
+	u32int	nscanchan;	/* 9space: IWM_UCODE_TLV_N_SCAN_CHANNELS */
 	u32int	api[4];
 
 	u32int	physku;
@@ -655,6 +656,9 @@ struct Ctlr {
 
 	uvlong systime;
 	int rxsignal;	/* 9space: the last rx phy's strongest antenna, dBm; 0: none */
+	int auxsta;	/* 9space: the aux station for scans is there (setauxsta) */
+	int scanning;	/* 9space: a background scan of the firmware's runs */
+	ulong nscan;	/* 9space: background scans */
 	int pmflags;	/* 9space: the MAC power table's flags (ctl pm), -1: the default */
 	int aggqmax;	/* 9space: an aggregation queue's frames in flight (ctl aggq), 0: Aggqmax */
 	int devpm;	/* 9space: the device power flags (ctl devpm), -1: the default */
@@ -1672,6 +1676,11 @@ Tooshort:
 				if(t >= nelem(i->capa))
 					goto Tooshort;
 				i->capa[t] = get32(p+4);
+				break;
+			case 31:	/* 9space: the scan command's channels (IWM_UCODE_TLV_N_SCAN_CHANNELS) */
+				if(l < 4)
+					goto Tooshort;
+				i->nscanchan = get32(p);
 				break;
 			case 32:
 				if(l < 4)
@@ -3054,6 +3063,176 @@ iwlbatx(Wifi *wifi, int tid, int ssn, int on)
 	return n;
 }
 
+/*
+ * 9space: a background scan by the firmware (the LMAC scan, for firmware
+ * without the UMAC one: 7000 and 8000), passive, the firmware returning
+ * to our channel between its channels: OpenBSD's iwm_lmac_scan with
+ * bgscan set (struct iwm_scan_req_lmac, iwm_scan_channel_cfg_lmac,
+ * iwm_scan_probe_req_v1; the aux station of iwm_add_aux_sta). The
+ * beacons it hears come in as frames (wifi.c keeps their nodes and
+ * signals); the iteration complete notification ends it.
+ */
+enum {
+	CmdScanLmac	= 0x51,		/* IWM_SCAN_OFFLOAD_REQUEST_CMD */
+	NotifScanDone	= 0x6d,		/* IWM_SCAN_OFFLOAD_COMPLETE */
+	NotifScanIter	= 0xe7,		/* IWM_SCAN_ITERATION_COMPLETE */
+	AuxStaId	= 1,		/* IWM_AUX_STA_ID */
+	AuxMacIndex	= 4,		/* IWM_MAC_INDEX_AUX */
+	AuxQueue	= 5,		/* 9front's queue on the multicast FIFO (iwm: IWM_TX_FIFO_MCAST) */
+	StaTypeAuxActivity = 4,		/* IWM_STA_AUX_ACTIVITY */
+
+	ScanPassAll	= 1<<0,		/* IWM_LMAC_SCAN_FLAG_PASS_ALL */
+	ScanPassive	= 1<<1,
+	ScanIterComplete= 1<<3,
+	ScanExtDwell	= 1<<7,
+	ScanChanPartial	= 1<<28,	/* IWM_UNIFIED_SCAN_CHANNEL_PARTIAL */
+	PhyBand24	= 1,		/* IWM_PHY_BAND_24 (5 GHz is 0) */
+	FilterAcceptGrp	= 1<<2,		/* IWM_MAC_FILTER_ACCEPT_GRP */
+	FilterInBeacon	= 1<<6,		/* IWM_MAC_FILTER_IN_BEACON */
+	TxFlgBtDis	= 1<<12,	/* IWM_TX_CMD_FLG_BT_DIS */
+	TxFlgSeqCtl	= 1<<13,	/* IWM_TX_CMD_FLG_SEQ_CTL */
+
+	Lmacfixed	= 764,		/* struct iwm_scan_req_lmac without its channels */
+	Lmacchan	= 12,		/* struct iwm_scan_channel_cfg_lmac */
+	Lmacprobe	= 4*4 + 512,	/* struct iwm_scan_probe_req_v1 */
+};
+
+/* the firmware scans by LMAC (no UMAC scan capability), and says how many channels */
+static int
+lmacscanok(Ctlr *ctlr)
+{
+	return ctlr->family >= 7000 && (ctlr->fw->capa[0] & (1<<2)) == 0
+		&& ctlr->fw->nscanchan > 0 && ctlr->fw->nscanchan <= 64;
+}
+
+static char*
+setauxsta(Ctlr *ctlr)
+{
+	uchar c[Tcmdsize], *p;
+
+	memset(p = c, 0, sizeof(c));
+	*p++ = 0;			/* control: add */
+	p++;				/* awake_acs */
+	put16(p, 0xffff);		/* tid_disable_tx */
+	p += 2;
+	put32(p, AuxMacIndex);		/* mac_id_n_color */
+	p += 4;
+	p += 8;				/* addr, reserved */
+	*p++ = AuxStaId;		/* sta id */
+	p++;				/* modify mask */
+	p += 2;
+	p += 4;				/* station_flags */
+	p += 4;				/* station_flags_mask */
+	p += 4;				/* ba tids, ssn */
+	p += 2;				/* sleep_tx_count */
+	p++;				/* sleep state flags */
+	*p++ = ctlr->fw->api[0] & UcodeApiSta ? StaTypeAuxActivity : 0;	/* station_type */
+	p += 2;				/* assoc id */
+	p += 2;				/* beamform flags */
+	put32(p, 1<<AuxQueue);		/* tfd_queue_mask */
+	p += 4;
+	if(ctlr->fw->api[0] & UcodeApiSta)
+		p += 4;			/* rx_ba_window, sp_length, uapsd_acs */
+	return cmd(ctlr, 24, c, p - c);
+}
+
+/* the scan over the channels of chans (0 ends) */
+static char*
+lmacscan(Ctlr *ctlr, uchar *chans)
+{
+	uchar *c, *p, *ch;
+	int n, size, rxant, txant;
+	char *err;
+
+	size = Lmacfixed + Lmacchan*ctlr->fw->nscanchan + Lmacprobe;
+	if((c = malloc(size)) == nil)
+		return "no memory for the scan";
+	memset(c, 0, size);
+	rxant = ctlr->rfcfg.rxantmask & 7;
+	txant = firstant(ctlr->rfcfg.txantmask);
+	p = c + 4;			/* reserved1 */
+	p++;				/* n_channels, below */
+	*p++ = 10;			/* active_dwell */
+	*p++ = 110;			/* passive_dwell */
+	*p++ = 44;			/* fragmented_dwell */
+	*p++ = 90;			/* extended_dwell */
+	p++;				/* reserved2 */
+	put16(p, rxant<<1 | rxant<<4 | rxant<<7 | 1);	/* rx_chain_select (iwm_scan_rx_chain) */
+	p += 2;
+	put32(p, ScanPassAll | ScanPassive | ScanIterComplete | ScanExtDwell);
+	p += 4;
+	put32(p, 120);			/* max_out_time: back on our channel within */
+	p += 4;
+	put32(p, 120);			/* suspend_time */
+	p += 4;
+	put32(p, PhyBand24);		/* flags */
+	p += 4;
+	put32(p, FilterAcceptGrp | FilterInBeacon);
+	p += 4;
+	/* tx_cmd[2]: 2.4 GHz at 1 Mbit/s (CCK), 5 GHz at 6 Mbit/s, from the aux station */
+	put32(p, TxFlgSeqCtl | TxFlgBtDis);
+	put32(p+4, 10 | RFlagCCK<<8 | txant<<RateAntPos);
+	p[8] = AuxStaId;
+	p += 12;
+	put32(p, TxFlgSeqCtl | TxFlgBtDis);
+	put32(p+4, 0xd | txant<<RateAntPos);
+	p[8] = AuxStaId;
+	p += 12;
+	p += 20*34;			/* direct_scan: none (passive) */
+	put32(p, 2);			/* scan_prio: high */
+	p += 4;
+	put32(p, 1);			/* iter_num */
+	p += 4;
+	p += 4;				/* delay */
+	p[2] = 1;			/* schedule[0]: one iteration */
+	p[3] = 1;			/* full_scan_mul */
+	p += 2*4;
+	put16(p+2, 1);			/* channel_opt[0].non_ebs_ratio: no EBS */
+	put16(p+6, 1);
+	p += 2*4;
+	assert(p - c == Lmacfixed);
+	n = 0;
+	for(ch = chans; *ch != 0 && n < ctlr->fw->nscanchan; ch++){
+		put32(p, ScanChanPartial);	/* flags */
+		put16(p+4, *ch);		/* channel_num */
+		put16(p+6, 1);			/* iter_count */
+		p += Lmacchan;
+		n++;
+	}
+	c[4] = n;			/* n_channels */
+	err = cmd(ctlr, CmdScanLmac, c, size);
+	free(c);
+	return err;
+}
+
+/* wifi.c's background scan: -1 where it cannot (no LMAC scan, none associated, one running) */
+static int
+iwlbgscan(Wifi *wifi)
+{
+	Ctlr *ctlr;
+	char *err;
+	uchar *chans;
+
+	ctlr = wifi->ether->ctlr;
+	qlock(&ctlr->QLock);
+	if(!ctlr->auxsta || ctlr->scanning || ctlr->aid == 0 || ctlr->bss.id < 0){
+		qunlock(&ctlr->QLock);
+		return -1;
+	}
+	chans = wifi->scan != nil? wifi->scan: wifiscan2g;
+	ctlr->scanning = 1;
+	if((err = lmacscan(ctlr, chans)) != nil){
+		ctlr->scanning = 0;
+		qunlock(&ctlr->QLock);
+		if(wifi->debug)
+			print("#l%d: background scan: %s\n", wifi->ether->ctlrno, err);
+		return -1;
+	}
+	ctlr->nscan++;
+	qunlock(&ctlr->QLock);
+	return 0;
+}
+
 static char*
 sethtlq(Ctlr *ctlr)
 {
@@ -3704,6 +3883,20 @@ postboot7000(Ctlr *ctlr)
 		if((err = disablebeaconfilter(ctlr)) != nil){
 			print("can't disable beacon filter: %s\n", err);
 			return err;
+		}
+
+		/*
+		 * 9space: the aux station the firmware's scans name
+		 * (iwm_init_hw: iwm_add_aux_sta); only the runtime
+		 * firmware has stations (the calibration's died at it)
+		 */
+		ctlr->auxsta = 0;
+		ctlr->scanning = 0;
+		if(lmacscanok(ctlr)){
+			if((err = setauxsta(ctlr)) != nil)
+				print("#l%d: aux station: %s\n", ctlr->edev->ctlrno, err);
+			else
+				ctlr->auxsta = 1;
 		}
 	}
 
@@ -4873,6 +5066,8 @@ iwlifstat(void *a, char *s, char *e)
 	s = seprint(s, e, "intr: %lud, with rx %lud, frames %lud, gone %lud, isr %.8ux imr %.8ux\n",	/* 9space */
 		ctlr->nintr, ctlr->nrxintr, ctlr->nrxframe, ctlr->ngone,
 		csr32r(ctlr, Isr), csr32r(ctlr, Imr));
+	s = seprint(s, e, "bgscan: %s, %lud done, aux station %d, %ud scan channels\n",
+		ctlr->scanning? "running": "idle", ctlr->nscan, ctlr->auxsta, ctlr->fw->nscanchan);
 	s = seprint(s, e, "hwrev: %#.8ux, firmware %s, capa %.8ux %.8ux %.8ux %.8ux, api %.8ux %.8ux\n",
 		ctlr->hwrev, ctlr->fwname,
 		ctlr->fw->capa[0], ctlr->fw->capa[1], ctlr->fw->capa[2], ctlr->fw->capa[3],
@@ -5041,6 +5236,9 @@ iwlattach(Ether *edev)
 			/* 9space: the signal of each frame: wifi.c chooses the strongest node (a mesh's) */
 			if(ctlr->family >= 7000)
 				ctlr->wifi->sigs = 1;
+			/* 9space: background scans for roaming (iwlbgscan) */
+			if(ctlr->family >= 7000)
+				ctlr->wifi->bgscan = iwlbgscan;
 		}
 
 		setoptions(edev);
@@ -5236,6 +5434,14 @@ receive(Ctlr *ctlr)
 			goto Calib;
 		case 130:	/* start scan */
 		case 132:	/* stop scan */
+			break;
+		case NotifScanIter:	/* 9space: the background scan done (iwm_endscan) */
+		case NotifScanDone:
+			if(ctlr->scanning){
+				ctlr->scanning = 0;
+				if(ctlr->wifi != nil)
+					wifibgscandone(ctlr->wifi);
+			}
 			break;
 		case 136:	/* NVM access (>= 7000 family) */
 			if(ctlr->family < 7000)

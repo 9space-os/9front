@@ -1285,6 +1285,46 @@ roamweak(Wifi *wifi, Wnode *wn, ulong now)
 	return 1;
 }
 
+enum {
+	Bgscanmax	= 15,	/* s: a background scan's end, at the latest */
+	Roamhyst	= 8,	/* dB: how much stronger another node must be */
+};
+
+/*
+ * 9space: the strongest node of the network heard during the background
+ * scan, if it is Roamhyst stronger than ours (on 5 GHz where it reaches
+ * Rssithres5, as bestbss); nil if none
+ */
+static Wnode*
+roambetter(Wifi *wifi, Wnode *cur)
+{
+	Wnode *n, *best, *best5;
+
+	best = best5 = nil;
+	for(n = wifi->node; n != &wifi->node[nelem(wifi->node)]; n++){
+		if(n == cur || !n->hasrssi || n->channel == 0 || !goodbss(wifi, n))
+			continue;
+		if((s32int)(n->lastseen - wifi->bgscanstart) < 0)	/* GCC port: 32 bits, as the ticks */
+			continue;	/* not heard in this scan */
+		if(best == nil || n->rssi > best->rssi)
+			best = n;
+		if(n->channel > 14 && (best5 == nil || n->rssi > best5->rssi))
+			best5 = n;
+	}
+	if(best5 != nil && (best5->rssi >= Rssithres5 || best5->rssi >= best->rssi))
+		best = best5;
+	if(best == nil || best->rssi < cur->rssi + Roamhyst)
+		return nil;
+	return best;
+}
+
+/* 9space: the driver's background scan ended (from its interrupt) */
+void
+wifibgscandone(Wifi *wifi)
+{
+	wifi->bgscanning = 0;
+}
+
 /* 9space: after a roaming scan: the same node again waits longer */
 static void
 roamchose(Wifi *wifi, Wnode *wn)
@@ -1527,6 +1567,15 @@ Scan:
 	 * response comes fast: 100 ms on the others on 5 GHz
 	 */
 	while(wifi->bss == nil){
+		/*
+		 * 9space: an authentication just sent (roaming to a node
+		 * chosen after a background scan): its answer comes on that
+		 * node's channel, the radio stays there for a second
+		 */
+		if(TK2MS(MACHP(0)->PMach.ticks - wifi->lastauth) < 1000){
+			tsleep(&up->sleep, return0, 0, 100);
+			continue;
+		}
 		ethersetlink(ether, 0);
 		list = wifi->scan != nil ? wifi->scan : wifiscan2g;
 		if(list != scan || list[i] == 0){
@@ -1567,13 +1616,57 @@ Scan:
 			wifi->bss = nil;
 			break;
 		}
+		/*
+		 * 9space: with the driver's background scan the weak signal
+		 * starts one; after it the strongest node heard then, if
+		 * clearly better, is joined directly (roambetter); without
+		 * one the node is left and the scan below chooses again
+		 */
+		if(wifi->bgscanning && TK2SEC(now - wifi->bgscanstart) > Bgscanmax)
+			wifi->bgscanning = 0;	/* no word of its end: given up */
+		if(wifi->bgscanstart != 0 && !wifi->bgscanning){
+			Wnode *nn;
+
+			nn = roambetter(wifi, wn);
+			wifi->bgscanstart = 0;
+			if(nn == nil){
+				if(wifi->roamfail < Roammaxfail)
+					wifi->roamfail = wifi->roamfail? 2*wifi->roamfail: 1;
+				if(wifi->debug)
+					print("#l%d: background scan: none better (wait now %d s)\n",
+						wifi->ether->ctlrno, Roamwait*(1+wifi->roamfail));
+			} else {
+				if(wifi->debug)
+					print("#l%d: roaming: %E %d dBm to %E %d dBm channel %d\n", wifi->ether->ctlrno,
+						wn->bssid, wn->rssi, nn->bssid, nn->rssi, nn->channel);
+				memmove(wifi->roamfrom, wn->bssid, Eaddrlen);
+				wifideauth(wifi, wn);
+				wifi->bss = nil;
+				setstatus(wifi, nn, Sconn);
+				sendauth(wifi, nn);
+				wifi->lastauth = nn->lastsend;
+				break;
+			}
+		}
 		if(roamweak(wifi, wn, now)){
-			if(wifi->debug)
-				print("#l%d: roaming: %E at %d dBm\n", wifi->ether->ctlrno, wn->bssid, wn->rssi);
-			memmove(wifi->roamfrom, wn->bssid, Eaddrlen);
-			wifideauth(wifi, wn);
-			wifi->bss = nil;
-			break;
+			if(wifi->bgscan != nil){
+				if(!wifi->bgscanning && wifi->bgscanstart == 0){
+					wifi->bgscanstart = now;
+					wifi->bgscanning = 1;
+					if((*wifi->bgscan)(wifi) < 0){
+						wifi->bgscanning = 0;
+						wifi->bgscanstart = 0;
+					} else if(wifi->debug)
+						print("#l%d: background scan: %E at %d dBm\n", wifi->ether->ctlrno, wn->bssid, wn->rssi);
+				}
+			} else {
+				if(wifi->debug)
+					print("#l%d: roaming: %E at %d dBm\n", wifi->ether->ctlrno, wn->bssid, wn->rssi);
+				memmove(wifi->roamfrom, wn->bssid, Eaddrlen);
+				wifideauth(wifi, wn);
+				wifi->bss = nil;
+				break;
+			}
 		}
 		if(TK2MS(now - wn->lastsend) > 1000){
 			if((wn->status == Sauth || wn->status == Sblocked) && (++tmout & 7) == 0)
