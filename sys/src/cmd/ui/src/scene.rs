@@ -256,9 +256,6 @@ impl Scene {
                     return Err(format!("{id} exists"));
                 }
                 let parent = f.get(2).copied().unwrap_or(ROOT);
-                if kind == Kind::Window && parent != ROOT {
-                    return Err("a window is a child of the root".into());
-                }
                 let index = match f.get(3) {
                     Some(n) => Some(n.parse::<usize>().map_err(|_| format!("bad index {n}"))?),
                     None => None,
@@ -338,10 +335,10 @@ impl Scene {
 
     fn attach(&mut self, id: &str, parent: &str, index: Option<usize>) -> Result<(), String> {
         let p = self.nodes.get(parent).ok_or_else(|| format!("no node {parent}"))?;
-        if self.nodes.get(id).is_some_and(|n| n.kind == Kind::Window) && parent != ROOT {
-            return Err("a window is a child of the root".into());
-        }
-        if p.children.len() >= p.kind.holds() {
+        // a window takes no place in its parent: it holds as many besides
+        let win = self.nodes.get(id).is_some_and(|n| n.kind == Kind::Window);
+        let held = p.children.iter().filter(|c| self.nodes.get(*c).is_none_or(|n| n.kind != Kind::Window)).count();
+        if !win && held >= p.kind.holds() {
             return Err(format!("{parent} ({}) holds no more", p.kind.name()));
         }
         let p = self.nodes.get_mut(parent).unwrap();

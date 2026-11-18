@@ -70,18 +70,18 @@ echo ok one line: the background alone
 cat /lib/theme/9space >/mnt/wsys/theme || fail writing 9space
 sleep 0.5
 is 900,700 777777
-is 101,200 6b5a3a b5ab93
+is 101,200 8888cc c8c890
 is 390,290 ffffea
-echo ok 9space light: background 777777, umber border, paper
+echo ok 9space light: background 777777, the purple-blue border of acme, paper
 echo mode dark >/mnt/wsys/theme || fail mode dark
 sleep 0.5
-is 900,700 3b3934
-is 101,200 c2a46a 57513f
-is 390,290 24211b
+is 900,700 3b3b38
+is 101,200 8888cc 4e4e3a
+is 390,290 1e1e16
 sleep 1
-is 880,380 24211b
+is 880,380 1e1e16
 grep -s '^mode dark$' /mnt/wsys/theme || fail the mode read back: `{grep '^mode' /mnt/wsys/theme}
-grep -s '^dark.window #24211b$' /mnt/wsys/theme || fail the dark palette read back
+grep -s '^dark.window #1e1e16$' /mnt/wsys/theme || fail the dark palette read back
 echo ok 9space dark at once: background, border, window, term too
 echo mode light >/mnt/wsys/theme || fail mode light
 sleep 0.5

@@ -7,6 +7,9 @@
 // to ui as ctl's lines, all of one event in one write (a transaction). The
 // widgets and their state (focus, the text being edited) stay in ui; the
 // program holds only its own state.
+// Written for 9space on xilem_core (its View and ViewSequence traits, used
+// as a crate: Copyright 2022 the Xilem Authors, Apache-2.0); no code of
+// Xilem's is copied here.
 //
 //	fn app(n: &mut i32) -> impl UiView<i32> {
 //		column((label(format!("{n}")), button("add one", |n: &mut i32| *n += 1)))
@@ -38,6 +41,7 @@ pub use conn::{Proxy, Ui, run, run_on, run_on_with, run_with};
 #[derive(Default)]
 struct Shared {
     tx: RefCell<String>,
+    files: RefCell<Vec<(String, Rc<[u8]>)>>, // nodes/id/image to write after tx
     next: Cell<u64>,
     paths: RefCell<HashMap<String, Vec<ViewId>>>,
 }
@@ -90,15 +94,27 @@ impl Cx {
         std::mem::take(&mut *self.sh.tx.borrow_mut())
     }
 
+    /// the files to write once that transaction made their nodes (an image's,
+    /// an svg's picture: nodes/id/image), name and contents
+    pub fn take_files(&mut self) -> Vec<(String, Rc<[u8]>)> {
+        std::mem::take(&mut *self.sh.files.borrow_mut())
+    }
+
     fn parent(&self) -> &str {
         self.parents.last().map(|s| s.as_str()).unwrap_or(ROOT)
     }
 
     /// a new node, in the node being built
-    fn node(&mut self, kind: &str) -> Node {
-        let n = self.sh.next.get() + 1;
-        self.sh.next.set(n);
-        let id = format!("n{n}");
+    /// name: the client's own id for it (.id()), else n1, n2, ...
+    fn node(&mut self, kind: &str, name: Option<&str>) -> Node {
+        let id = match name {
+            Some(n) => n.to_string(),
+            None => {
+                let n = self.sh.next.get() + 1;
+                self.sh.next.set(n);
+                format!("n{n}")
+            }
+        };
         self.sh.line(&format!("new {id} {kind} {}", self.parent()));
         self.sh.paths.borrow_mut().insert(id.clone(), self.path.clone());
         Node { id }
@@ -290,13 +306,14 @@ type Handler<S, A> = Box<dyn Fn(&mut S, &str) -> A>;
 /// progress bar, slider.
 pub struct Widget<S, A = ()> {
     kind: &'static str,
+    name: Option<String>, // .id()
     props: Vec<(&'static str, String)>,
     on: Vec<(&'static str, Handler<S, A>)>,
 }
 
 impl<S, A> Widget<S, A> {
     fn new(kind: &'static str) -> Self {
-        Widget { kind, props: Vec::new(), on: Vec::new() }
+        Widget { kind, name: None, props: Vec::new(), on: Vec::new() }
     }
 
     /// a property of ui(4)'s (set id key value)
@@ -312,6 +329,13 @@ impl<S, A> Widget<S, A> {
     /// its share of the row or column it is in
     pub fn flex(self, f: f64) -> Self {
         self.prop("flex", f)
+    }
+
+    /// its node's id in ui (letters, digits, _-.: unique), for whoever reads
+    /// ui's files; else uiview names it
+    pub fn id(mut self, name: impl ToString) -> Self {
+        self.name = Some(name.to_string());
+        self
     }
 
     fn on(mut self, kind: &'static str, f: impl Fn(&mut S, &str) -> A + 'static) -> Self {
@@ -456,6 +480,79 @@ pub fn pages<S: 'static, A: 'static>(count: usize, page: usize, f: impl Fn(&mut 
     Widget::new("pages").prop("count", count).prop("page", page).on("page", move |s, a| f(s, a.trim().parse().unwrap_or(0)))
 }
 
+/// A picture: an image node's (PNG or image(6)) or an svg node's (SVG),
+/// written to its nodes/id/image after the node is made, again when the
+/// data are other ones (another Rc).
+pub struct Picture<S, A = ()> {
+    kind: &'static str,
+    name: Option<String>,
+    data: Rc<[u8]>,
+    props: Vec<(&'static str, String)>,
+    phantom: PhantomData<fn() -> (S, A)>,
+}
+
+/// an image node: data PNG or image(6)
+pub fn image<S, A>(data: Rc<[u8]>) -> Picture<S, A> {
+    Picture { kind: "image", name: None, data, props: Vec::new(), phantom: PhantomData }
+}
+
+/// an svg node: data SVG
+pub fn svg<S, A>(data: Rc<[u8]>) -> Picture<S, A> {
+    Picture { kind: "svg", name: None, data, props: Vec::new(), phantom: PhantomData }
+}
+
+impl<S, A> Picture<S, A> {
+    /// its node's id (Widget::id)
+    pub fn id(mut self, name: impl ToString) -> Self {
+        self.name = Some(name.to_string());
+        self
+    }
+
+    pub fn prop(mut self, key: &'static str, value: impl ToString) -> Self {
+        self.props.push((key, value.to_string()));
+        self
+    }
+}
+
+impl<S, A> ViewMarker for Picture<S, A> {}
+impl<S: 'static, A: 'static> View<S, A, Cx> for Picture<S, A> {
+    type Element = Node;
+    type ViewState = Known;
+
+    fn build(&self, cx: &mut Cx, _: &mut S) -> (Node, Known) {
+        let n = cx.node(self.kind, self.name.as_deref());
+        let mut k = Known::default();
+        k.send(&cx.sh, &n.id, &self.props);
+        if !self.data.is_empty() {
+            cx.sh.files.borrow_mut().push((format!("nodes/{}/image", n.id), self.data.clone()));
+        }
+        (n, k)
+    }
+
+    fn rebuild(&self, prev: &Self, k: &mut Known, cx: &mut Cx, el: NodeMut<'_>, s: &mut S) {
+        if prev.kind != self.kind {
+            prev.teardown(k, cx, NodeMut { node: el.node, parent: el.parent, idx: el.idx, sh: el.sh });
+            let (n, nk) = self.build(cx, s);
+            replace(el, n);
+            *k = nk;
+            return;
+        }
+        k.send(&cx.sh, &el.node.id, &self.props);
+        if !Rc::ptr_eq(&prev.data, &self.data) && !self.data.is_empty() {
+            cx.sh.files.borrow_mut().push((format!("nodes/{}/image", el.node.id), self.data.clone()));
+        }
+    }
+
+    fn teardown(&self, _: &mut Known, cx: &mut Cx, el: NodeMut<'_>) {
+        cx.sh.line(&format!("del {}", el.node.id));
+        cx.sh.paths.borrow_mut().remove(&el.node.id);
+    }
+
+    fn message(&self, _: &mut Known, _: &mut MessageCtx, _: NodeMut<'_>, _: &mut S) -> MessageResult<A> {
+        MessageResult::Stale
+    }
+}
+
 /// what the user's change made of a property: ui has it already
 fn learn(known: &mut Known, ev: &Event) {
     let (key, v) = match ev.kind.as_str() {
@@ -477,7 +574,7 @@ impl<S: 'static, A: 'static> View<S, A, Cx> for Widget<S, A> {
     type ViewState = Known;
 
     fn build(&self, cx: &mut Cx, _: &mut S) -> (Node, Known) {
-        let n = cx.node(self.kind);
+        let n = cx.node(self.kind, self.name.as_deref());
         let mut k = Known::default();
         k.send(&cx.sh, &n.id, &self.props);
         (n, k)
@@ -518,8 +615,10 @@ impl<S: 'static, A: 'static> View<S, A, Cx> for Widget<S, A> {
 /// A widget holding others: a row, a column, a scrolled box, a box.
 pub struct Container<Seq, S, A = ()> {
     kind: &'static str,
+    name: Option<String>, // .id()
     props: Vec<(&'static str, String)>,
     seq: Seq,
+    close: Option<Handler<S, A>>, // a window node's: the user closes it
     phantom: PhantomData<fn() -> (S, A)>,
 }
 
@@ -537,12 +636,18 @@ impl<Seq, S, A> Container<Seq, S, A> {
         self.prop("flex", f)
     }
 
+    /// its node's id (Widget::id)
+    pub fn id(mut self, name: impl ToString) -> Self {
+        self.name = Some(name.to_string());
+        self
+    }
+
     /// pixels between the children
     pub fn gap(self, g: f64) -> Self {
         self.prop("gap", g)
     }
 
-    /// across the row or column: start, center, end
+    /// across the row or column: start, center, end, stretch
     pub fn align(self, a: &str) -> Self {
         self.prop("align", a)
     }
@@ -555,10 +660,26 @@ impl<Seq, S, A> Container<Seq, S, A> {
     pub fn height(self, h: f64) -> Self {
         self.prop("height", h)
     }
+
+    /// a window node: the user closes its window (ui's event close id); the
+    /// state then drops the view, or keeps it (a dialog that asks first)
+    pub fn on_close(mut self, f: impl Fn(&mut S) -> A + 'static) -> Self {
+        self.close = Some(Box::new(move |s, _| f(s)));
+        self
+    }
 }
 
 fn container<Seq, S, A>(kind: &'static str, seq: Seq) -> Container<Seq, S, A> {
-    Container { kind, props: Vec::new(), seq, phantom: PhantomData }
+    Container { kind, name: None, props: Vec::new(), seq, close: None, phantom: PhantomData }
+}
+
+/// a window of its own under wsys (ui(4)'s window node), its contents one
+/// child; anywhere in the tree (it takes no place there). role: window (one
+/// of its own), dialog (of the window it is in: .prop("modal", 1) takes that
+/// window's clicks) or popup (a menu's, without a border); .width, .height,
+/// .prop("x"/"y") where; .on_close what the user's close does
+pub fn window<S: 'static, A, V: UiView<S, A>>(role: &str, title: impl ToString, child: V) -> Container<V, S, A> {
+    container("window", child).prop("role", role).prop("title", title)
 }
 
 pub fn column<S, A, Seq: UiSeq<S, A>>(seq: Seq) -> Container<Seq, S, A> {
@@ -699,7 +820,7 @@ where
     type ViewState = ContainerState<Seq::SeqState>;
 
     fn build(&self, cx: &mut Cx, s: &mut S) -> (Node, Self::ViewState) {
-        let n = cx.node(self.kind);
+        let n = cx.node(self.kind, self.name.as_deref());
         let mut known = Known::default();
         known.send(&cx.sh, &n.id, &self.props);
         let mut el = AppendVec::default();
@@ -738,6 +859,16 @@ where
     }
 
     fn message(&self, st: &mut Self::ViewState, m: &mut MessageCtx, el: NodeMut<'_>, s: &mut S) -> MessageResult<A> {
+        // for this node itself: a window node's close
+        if m.remaining_path().is_empty() {
+            let Some(ev) = m.take_message::<Event>() else {
+                return MessageResult::Stale;
+            };
+            return match (&self.close, ev.kind.as_str()) {
+                (Some(f), "close") => MessageResult::Action(f(s, &ev.arg)),
+                _ => MessageResult::Nop,
+            };
+        }
         let id = el.node.id.clone();
         let mut sp = Splice { parent: &id, children: &mut st.children, scratch: &mut st.scratch, idx: 0, sh: el.sh };
         self.seq.seq_message(&mut st.seq, m, &mut sp, s)

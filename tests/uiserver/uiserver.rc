@@ -767,6 +767,15 @@ if(test -x /tests/gocount){
 }
 if not echo skip gocount: no Go '(../9front-go)'
 
+# the widget demos (every kind of node, sections, dialog, window, popup,
+# dark and light): rc, Go, Rust, C++
+for(p in rcwidgets gowidgets uiwidgets cxxwidgets){
+	/tests/widgets $p >/tmp/widgets.$p >[2=1] </dev/null
+	cat /tmp/widgets.$p
+	if(! grep -s '^widgets '$p': (all passed|not here)' /tmp/widgets.$p)
+		nfail=`{echo $nfail+1 | hoc}
+}
+
 cat /tmp/ui.log | grep -v '^uitest$'
 if(~ $nfail 0) echo uiserver: all passed
 if not echo uiserver: $nfail failed

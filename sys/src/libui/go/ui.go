@@ -151,6 +151,27 @@ func (u *Ui) ReadFile(name string) ([]byte, error) {
 	return io.ReadAll(f)
 }
 
+// WriteFile writes a file of ui's: nodes/id/image (an image node's PNG or
+// image(6), an svg node's SVG: shown when the file is closed), nodes/id/props.
+func (u *Ui) WriteFile(name string, data []byte) error {
+	f, err := u.fs.open(name, OWRITE)
+	if err != nil {
+		return err
+	}
+	for len(data) > 0 {
+		n := len(data)
+		if n > 8192 {
+			n = 8192
+		}
+		if _, err := f.Write(data[:n]); err != nil {
+			f.Close()
+			return err
+		}
+		data = data[n:]
+	}
+	return f.Close()
+}
+
 // Close lets ui's files go; the window stays until ui ends.
 func (u *Ui) Close() error {
 	u.ctl.Close()

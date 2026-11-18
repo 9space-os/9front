@@ -1,0 +1,335 @@
+#!/bin/rc
+# SPDX-License-Identifier: MIT
+#
+# rcwidgets: every widget of ui(4) in a window, from rc; the same scene as
+# uiwidgets (Rust), gowidgets (Go) and cxxwidgets (C++). A switch makes the
+# desktop dark or light (the theme's mode, /dev/theme); a dialog, a second
+# window and a popup menu are windows of wsys (ui's window nodes); what the
+# user does shows in the status line. Prints "ready srv" once its scene is
+# there, then an event a line.
+# The image is 9front's face, read at run time from /lib/face (9front's,
+# MIT: /lib/legal/mit).
+rfork ens
+srv=ui.$user.$pid.0
+window '/bin/ui -s '$srv
+n=0
+while(! test -e /srv/$srv && test $n -lt 100){ sleep 0.1; n=`{echo $n+1 | hoc} }
+mount /srv/$srv /mnt/ui || { echo rcwidgets: no ui: /srv/$srv >[1=2]; exit mount }
+fn ctl { echo $* >/mnt/ui/ctl }
+fn status { ctl set status text $* }
+
+# the scene, in parts (a write is a transaction; each under 8K)
+cat >/mnt/ui/ctl <<'EOF'
+title widgets: rc
+set root padding 16
+set root gap 12
+set root align stretch
+new head row root
+set head gap 12
+set head align center
+new h1 varlabel head
+set h1 text 9space widgets
+set h1 weight 700
+new lang badge head
+set lang text rc
+new fill label head
+set fill text ' '
+set fill flex 1
+new darkl label head
+set darkl text dark
+new dark switch head
+new sect row root
+set sect gap 8
+new s0 button sect
+set s0 text Controls
+new s1 button sect
+set s1 text Text
+new s2 button sect
+set s2 text Lists
+new s3 button sect
+set s3 text Layout
+new d0 divider root
+new st stack root
+set st flex 1
+set st active 0
+EOF
+cat >/mnt/ui/ctl <<'EOF'
+new c0 column st
+set c0 gap 12
+new r1 row c0
+set r1 gap 8
+new press button r1
+set press text Press me
+new bdlg button r1
+set bdlg text Dialog…
+new bwin button r1
+set bwin text Window…
+new bmenu button r1
+set bmenu text Menu…
+new r2 row c0
+set r2 gap 16
+set r2 align center
+new ck checkbox r2
+set ck text Check me
+new sw switch r2
+new swl label r2
+set swl text a switch
+new rg radiogroup c0
+new rgc row rg
+set rgc gap 16
+new ra radio rgc
+set ra text Umber
+set ra checked 1
+new rb radio rgc
+set rb text Ochre
+new rc radio rgc
+set rc text Sand
+new r3 row c0
+set r3 gap 12
+set r3 align center
+new sll label r3
+set sll text Slider
+new sl slider r3
+set sl min 0
+set sl max 1
+set sl value 0.3
+set sl flex 1
+new pr progress r3
+set pr value 0.3
+set pr flex 1
+new spn spinner r3
+new r4 row c0
+set r4 gap 12
+set r4 align center
+new stl label r4
+set stl text Stepper
+new stp stepper r4
+set stp min 0
+set stp max 10
+set stp value 3
+new sel select r4
+set sel options Umber|Ochre|Sand|Moss
+set sel selected 0
+new bdg badged r4
+set bdg badge 3
+new inbox button bdg
+set inbox text Inbox
+new cnt badge r4
+set cnt count 12
+EOF
+cat >/mnt/ui/ctl <<'EOF'
+new c1 column st
+set c1 gap 12
+new tb textbox c1
+set tb placeholder type here
+new echo label c1
+set echo text (what you type)
+new ta textarea c1
+set ta placeholder lines of text: Enter makes a new one
+set ta flex 1
+new prs scroll c1
+set prs flex 1
+new pro prose prs
+set pro text 'Prose: text to select and copy, not to edit; button 3 plumbs it. It sits in a scroll, which moves it when it is longer than the room it has: the wheel, or the bar at its side. Plan 9 takes text as the stuff of work: what is shown can be selected, sent and plumbed, and the window is a file.' 
+new r5 row c1
+set r5 gap 12
+set r5 align center
+new vl varlabel r5
+set vl text weight
+set vl weight 400
+set vl animate 200
+new wsl slider r5
+set wsl min 100
+set wsl max 900
+set wsl value 400
+set wsl flex 1
+EOF
+cat >/mnt/ui/ctl <<'EOF'
+new c2 column st
+set c2 gap 12
+new g grid c2
+set g columns 3
+new g0 label g
+set g0 text Colour
+new g1 label g
+set g1 text Hex
+new g2 label g
+set g2 text Use
+new g3 label g
+set g3 text Umber
+new g4 label g
+set g4 text #6b5a3a
+new g5 label g
+set g5 text border
+new g6 label g
+set g6 text Ochre
+new g7 label g
+set g7 text #7a5a28
+new g8 label g
+set g8 text accent
+new col collapse c2
+set col text More
+new colt label col
+set colt text folded away until asked
+new pg pages c2
+set pg count 5
+set pg page 0
+new ls list c2
+set ls flex 1
+EOF
+fn send { # the lines of its input, one write: one transaction
+	cat >/tmp/rcwidgets.$pid
+	cat /tmp/rcwidgets.$pid >/mnt/ui/ctl
+	rm -f /tmp/rcwidgets.$pid
+}
+fn rows { # page: twenty rows of the long list, those of the page before gone
+	for(i in `{seq 1 20}){
+		if(test -d /mnt/ui/nodes/row$i) echo del row$i
+		echo new row$i label ls
+		echo set row$i text row `{echo $1'*20+'$i | hoc}
+	}
+}
+rows 0 | send
+cat >/mnt/ui/ctl <<'EOF'
+new c3 column st
+set c3 gap 12
+new spl split c3
+set spl fraction 0.35
+set spl draggable 1
+set spl flex 1
+new left label spl
+set left text left of the split (drag the bar)
+new right column spl
+set right gap 8
+new al align right
+set al align center
+new alt label al
+set alt text centred
+new d1 divider right
+new zs zstack right
+set zs align center
+new zbox box zs
+set zbox width 160
+set zbox height 48
+set zbox background #d8cfb2
+set zbox radius 8
+new ztext label zs
+set ztext text over a box
+new pics row right
+set pics gap 12
+set pics align center
+new logo svg pics
+new img image pics
+new status label root
+set status text ready
+EOF
+test -e /lib/face/48x48x8/n/9front.1 && cat /lib/face/48x48x8/n/9front.1 >/mnt/ui/nodes/img/image
+echo '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><circle cx="32" cy="32" r="30" fill="#7a5a28"/><circle cx="32" cy="32" r="18" fill="#eeee9e"/><circle cx="32" cy="32" r="6" fill="#4a6628"/></svg>' >/mnt/ui/nodes/logo/image
+echo ready $srv
+
+fn dialog {
+	{
+		echo new dlg window
+		echo set dlg role dialog
+		echo set dlg modal 1
+		echo set dlg title A dialog
+		echo set dlg width 320
+		echo set dlg height 120
+		echo new dlgc column dlg
+		echo set dlgc padding 16
+		echo set dlgc gap 12
+		echo new dlgt label dlgc
+		echo set dlgt text 'Discard the changes?'
+		echo new dlgr row dlgc
+		echo set dlgr gap 8
+		echo new dcancel button dlgr
+		echo set dcancel text Cancel
+		echo new dok button dlgr
+		echo set dok text Discard
+	} | send
+}
+fn second {
+	{
+		echo new w2 window
+		echo set w2 role window
+		echo set w2 title A second window
+		echo set w2 width 300
+		echo set w2 height 160
+		echo new w2c column w2
+		echo set w2c padding 16
+		echo set w2c gap 12
+		echo new w2t label w2c
+		echo set w2t text A window of its own
+		echo new w2close button w2c
+		echo set w2close text Close
+	} | send
+}
+fn menu { # under the menu button: ui's window on the screen and the button in it
+	o=`{cat /mnt/ui/ctl}
+	r=`{cat /mnt/ui/nodes/bmenu/rect}
+	x=`{echo $o(1)+$r(1) | hoc}
+	y=`{echo $o(2)+$r(4) | hoc}
+	{
+		echo new pop window
+		echo set pop role popup
+		echo set pop x $x
+		echo set pop y $y
+		echo set pop width 140
+		echo set pop height 108
+		echo new popc column pop
+		echo set popc padding 4
+		echo set popc gap 2
+		for(i in Umber Ochre Sand){
+			echo new m$i button popc
+			echo set m$i text $i
+		}
+	} | send
+}
+fn gone { ctl del $1 >[2]/dev/null }
+
+# what the user does: event's lines through a pipe (ui gives a line a read,
+# what does not fit is lost; read(1) reads a byte at a time, cat whole lines)
+cat /mnt/ui/event | {
+while(e=`{read}){
+	echo event $e
+	switch($e(1)){
+	case close
+		if(~ $#e 1) exit
+		gone $e(2)
+		status closed $e(2)
+	case click
+		switch($e(2)){
+		case s0; ctl set st active 0
+		case s1; ctl set st active 1
+		case s2; ctl set st active 2
+		case s3; ctl set st active 3
+		case bdlg; test -d /mnt/ui/nodes/dlg || dialog
+		case bwin; test -d /mnt/ui/nodes/w2 || second
+		case bmenu; test -d /mnt/ui/nodes/pop || menu
+		case dok dcancel; gone dlg
+		case w2close; gone w2
+		case mUmber mOchre mSand; gone pop
+		}
+		status clicked $e(2)
+	case check
+		if(~ $e(2) dark){
+			if(~ $e(3) 1) echo mode dark >/dev/theme
+			if not echo mode light >/dev/theme
+		}
+		status $e(2) $e(3)
+	case slide
+		switch($e(2)){
+		case sl; ctl set pr value $e(3)
+		case wsl; ctl set vl weight $e(3)
+		}
+		status $e(2) $e(3)
+	case text
+		if(~ $e(2) tb) ctl set echo text $e(3-)
+	case page
+		rows $e(3) | send
+		status page $e(3)
+	case *
+		status $e
+	}
+}
+}

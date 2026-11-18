@@ -112,6 +112,38 @@ and if the state then says otherwise, the view's value goes to
 .I ui
 again (a text box whose callback keeps nothing stays as it was).
 .PP
+.B window(\fIrole\fP, \fItitle\fP, \fIchild\fP)
+is a window of its own under
+.IR wsys (4)
+(role
+.BR window ,
+.B dialog
+of the window it is in, with
+.B .prop("modal", 1)
+modal, or
+.BR popup ),
+anywhere in the tree;
+.B .on_close
+says what the user's close does (drop the view, or keep it: a dialog that
+asks first).
+.B image(\fIdata\fP)
+and
+.B svg(\fIdata\fP)
+(an
+.BR Rc<[u8]> :
+PNG or
+.IR image (6),
+SVG) are written to the node's
+.B image
+file after the node is made, again when the
+.B Rc
+is another.
+.BI .id( name )
+gives a node a name of the program's own (for whoever reads ui's files),
+else uiview names it.
+The app's view fills ui's window: its root's children are stretched across it
+.RB ( "align stretch" ).
+.PP
 .I Run
 starts
 .B /bin/ui

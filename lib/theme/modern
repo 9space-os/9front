@@ -1,5 +1,7 @@
 # wsys' theme (wsys(4)): Plan 9's paper and ink, a slate blue for what is
-# current, stone grey for what is not; title bars on
+# current, stone grey for what is not; title bars on. The background
+# #777777 is rio's (/sys/src/cmd/rio/data.c; Copyright © 2021 Plan 9
+# Foundation, Copyright © 20XX 9front authors; MIT, /lib/legal/mit).
 back #777777
 border #2b4c6f
 borderinactive #a8a49c

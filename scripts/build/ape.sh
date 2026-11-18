@@ -34,6 +34,13 @@ for p, a in sorted(apeprogs.LINKS.items()): print(p, ' '.join(a))" | while read 
 	"$CROSS/$TRIPLE-gcc" -o "$OUT/$p" $args > "$LOG" 2>&1 ||
 		{ tail -20 "$LOG"; echo "ape: linking $p failed" >&2; exit 1; }
 done
+# programs in C++ (apeprogs.CXX: cxxwidgets, ui.hh's)
+python3 -c "import sys; sys.path.insert(0, '$ROOT/scripts/gen'); import apeprogs
+for p, a in sorted(apeprogs.CXX.items()): print(p, ' '.join(a))" | while read -r p src args; do
+	"$CROSS/$TRIPLE-g++" -std=gnu++17 -O2 -Wall -o "$OUT/$p" "$ROOT/$src" $args > "$LOG" 2>&1 ||
+		{ tail -20 "$LOG"; echo "ape: building $p failed" >&2; exit 1; }
+	"$CROSS/$TRIPLE-strip" "$OUT/$p"
+done
 for p in $(python3 -c "import sys; sys.path.insert(0, '$ROOT/scripts/gen'); import apeprogs; print(' '.join(apeprogs.PROGS))"); do
 	cmp -s "$OUT/$p" "$ROOT/$objtype/bin/$p" && continue
 	cp "$OUT/$p" "$ROOT/$objtype/bin/$p.new"

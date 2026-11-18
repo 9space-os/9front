@@ -1,43 +1,54 @@
-# wsys' theme (wsys(4)), 9space's: rio's colours, warmer — its grey desktop,
-# paper and ink, a pale yellow selection; earth tones for what is current or
-# chosen (umber, ochre, sand), moss, brick and ochre for success, danger,
-# warning. Light and dark: "mode dark" (or "echo mode dark >/dev/theme")
-# chooses the dark palette, the dark.* lines; text has 12:1 or more against
-# its window, every colour of text 5.6:1 or more.
+# SPDX-License-Identifier: MIT
+#
+# wsys' theme (wsys(4)), 9space's: acme's colours on rio's grey desktop.
+# Taken from 9front: acme's (/sys/src/cmd/acme/acme.c, iconinit: its tag's
+# DPalebluegreen mixed with white, DPalegreygreen, DPurpleblue; its text's
+# DPaleyellow mixed with white, DDarkyellow, DYellowgreen; but2col
+# #aa0000, but3col #006600; DMedblue; /sys/include/draw.h's values) and
+# rio's background #777777 (/sys/src/cmd/rio/data.c). Copyright © 2021
+# Plan 9 Foundation, Copyright © 20XX 9front authors; MIT, /lib/legal/mit.
+# The dark palette and the other colours are 9space's.
+# Text on acme's pale yellow with its darker yellow selection; controls,
+# menus and text boxes on acme's pale blue-green (its tag); the current
+# window's border in acme's purple-blue, the scroll bar its yellow-green;
+# danger and success acme's button 2 red and button 3 green. Light and
+# dark: "mode dark" (or "echo mode dark >/dev/theme") chooses the dark
+# palette, the dark.* lines (acme's hues, dimmed). Text has 12:1 or more
+# against its window, every colour of text 6.2:1 or more.
 back #777777
-border #6b5a3a
-borderinactive #b5ab93
+border #8888cc
+borderinactive #c8c890
 window #ffffea
-text #1e1a14
+text #000000
 select #eeee9e
-menuhigh #e3d6ae
-scroll #d8cfb2
-hold #7a4a1e
-holdinactive #b08a5e
-accent #7a5a28
-surface #fffff6
-secondary #655a44
-separator #ddd5b8
-danger #9e3a1e
-success #4a6628
-warning #8a5e00
-dark.back #3b3934
-dark.border #c2a46a
-dark.borderinactive #57513f
-dark.window #24211b
-dark.text #e6dec8
-dark.select #5a5326
-dark.menuhigh #4d4434
-dark.scroll #3d382b
-dark.hold #e0a96d
-dark.holdinactive #8a7354
-dark.accent #d4b06c
-dark.surface #2c2922
-dark.secondary #b3a88c
-dark.separator #45402f
-dark.danger #ec8a70
-dark.success #a8c47e
-dark.warning #e2b453
+menuhigh #9eeeee
+scroll #99994c
+hold #000099
+holdinactive #8888cc
+accent #4d4d99
+surface #eaffff
+secondary #4d4d33
+separator #d8d8a8
+danger #aa0000
+success #006600
+warning #6b5e00
+dark.back #3b3b38
+dark.border #8888cc
+dark.borderinactive #4e4e3a
+dark.window #1e1e16
+dark.text #e8e8d4
+dark.select #55552a
+dark.menuhigh #2c4a4a
+dark.scroll #66663a
+dark.hold #9999ff
+dark.holdinactive #55557a
+dark.accent #a8a8ec
+dark.surface #1c2828
+dark.secondary #b4b49a
+dark.separator #3e3e2e
+dark.danger #ff7a6a
+dark.success #72c472
+dark.warning #d8c45a
 mode light
 title 1
 uifont /lib/font/ttf/Inter-Regular.ttf

@@ -22,20 +22,29 @@ cargostd "$BUILD/cargo/rust" $T
 mkdir -p "$HERE/root/tests" "$HERE/root/lib/font/ttf"
 (cd "$ROOT/tests/ui" && env PLAN9="$ROOT" ARCH=amd64 CC=gcc "$ROOT/sys/src/cmd/build/build.exe" build.json >/dev/null)
 (cd "$HERE" && env PLAN9="$ROOT" ARCH=amd64 CC=gcc "$ROOT/sys/src/cmd/build/build.exe" build.json >/dev/null)
-for p in ui uitodo uitick uicount; do
+for p in ui uitodo uitick uicount uiwidgets; do
 	"$CROSS/$TRIPLE-strip" -o "$HERE/root/tests/$p" "$BUILD/cargo/rust/$T/release/$p"
 done
 # the client in Go, with ../9front-go when it is there (a build cache of its
 # own: the toolchain is rebuilt under the same version)
 GO=${GO:-$GO_DIR/go/bin/go}
-rm -f "$HERE/root/tests/gocount"
+rm -f "$HERE/root/tests/gocount" "$HERE/root/tests/gowidgets"
 if [ -x "$GO" ]; then
-	(cd "$ROOT/sys/src/libui/go" && GOOS=plan9 GOARCH=amd64 CGO_ENABLED=0 GOCACHE="$BUILD/gocache" \
-		"$GO" build -o "$HERE/root/tests/gocount" ./cmd/gocount)
+	for c in gocount gowidgets; do
+		(cd "$ROOT/sys/src/libui/go" && GOOS=plan9 GOARCH=amd64 CGO_ENABLED=0 GOCACHE="$BUILD/gocache" \
+			"$GO" build -o "$HERE/root/tests/$c" ./cmd/$c)
+	done
 fi
 cp "$ROOT/amd64/bin/wsys" "$ROOT/tests/ui/root/tests/uipeek" "$HERE/root/tests/"
 cp "$ROOT/lib/font/ttf/"*.ttf "$HERE/root/lib/font/ttf/"
 cp "$HERE/uiserver.rc" "$HERE/root/tests/uiserver"
+# the widget demos: C++'s with 9front-gcc's g++ (APE, ui.hh); rc's from the
+# tree; Go's and Rust's built above
+"$CROSS/$TRIPLE-g++" -std=gnu++17 -O2 -Wall -o "$BUILD/cxxwidgets" "$ROOT/sys/src/libui/cxx/cxxwidgets.cc" -l9
+"$CROSS/$TRIPLE-strip" -o "$HERE/root/tests/cxxwidgets" "$BUILD/cxxwidgets"
+cp "$HERE/widgets.rc" "$HERE/root/tests/widgets"
+cp "$ROOT/rc/bin/rcwidgets" "$HERE/root/tests/rcwidgets"
+chmod +x "$HERE/root/tests/widgets" "$HERE/root/tests/rcwidgets"
 cp "$HERE/uirestart.rc" "$HERE/root/tests/uirestart"
 # a plumber before wsys (its windows, ui among them, find it): plumbtest... to testport
 cp "$ROOT/tests/ui/plumbrules" "$HERE/root/tests/plumbrules"
@@ -46,9 +55,9 @@ UFS_EXTRA=$HERE/root MEM=1024 KARGS="vgasize=1024x768x32 monitor=vesa mouseport=
 	"bind -a '#i' /dev" "bind -a '#m' /dev" >"$CLI_DIR/uiserverguest.log" 2>&1 &
 guest=$!
 trap 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true' EXIT
-M="timeout 300 python3 $ROOT/scripts/guest/mcp.py"
+M="timeout 1000 python3 $ROOT/scripts/guest/mcp.py"
 $M wait 600 >/dev/null
-$M rc 'bind /tests/ui /bin/ui; plumber -p /tests/plumbrules >/dev/null >[2=1] </dev/null; /tests/wsys -x -i /tests/uiserver >/tmp/wsys.log >[2=1] </dev/null' 240 >"$CLI_DIR/uiserver.out" || true
+$M rc 'bind /tests/ui /bin/ui; plumber -p /tests/plumbrules >/dev/null >[2=1] </dev/null; /tests/wsys -x -i /tests/uiserver >/tmp/wsys.log >[2=1] </dev/null' 900 >"$CLI_DIR/uiserver.out" || true
 out=$($M rc 'cat /tmp/wsys.log' 20) || true
 echo "$out" | grep -v -e '/srv/wsys'
 fail=0

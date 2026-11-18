@@ -25,6 +25,10 @@ pub struct Palette {
     pub background: Color, // the window's (the frame is cleared with it)
     pub text: Color,
     pub textback: Color,   // a text box's inside
+    pub face: Color,       // a control's face (button, check box, select): the theme's surface (acme's tag)
+    pub pressed: Color,    // a control's face pressed
+    pub line: Color,       // a control's border
+    pub high: Color,       // an item under the mouse or chosen (a select's list): the theme's menuhigh
     pub accent: Color,     // what is on: a switch, a progress bar, a slider's track
     pub focus: Color,      // the focused widget's border
     pub disabled: Color,   // text of what is disabled
@@ -58,6 +62,10 @@ impl Palette {
             background: rgb(b),
             text: rgb(x),
             textback: rgb(t.surface),
+            face: rgb(t.surface),
+            pressed: mix(t.surface, x, 0.14),
+            line: mix(t.surface, x, 0.30),
+            high: rgb(t.menuhigh),
             accent: rgb(t.accent),
             focus: rgb(t.accent),
             disabled: mix(b, x, 0.45),
@@ -103,8 +111,8 @@ pub fn property_set(p: &Palette) -> DefaultProperties {
     properties.insert::<Button, _>(BorderWidth {
         width: BORDER_WIDTH,
     });
-    properties.insert::<Button, _>(Background::Color(p.z800));
-    properties.insert::<Button, _>(BorderColor { color: p.z700 });
+    properties.insert::<Button, _>(Background::Color(p.face));
+    properties.insert::<Button, _>(BorderColor { color: p.line });
     {
         let mut stack = PropertyStack::new();
         stack.push_layer(
@@ -117,7 +125,7 @@ pub fn property_set(p: &Palette) -> DefaultProperties {
         );
         stack.push_layer(
             Selector::new().with_active(true),
-            Background::Color(p.z700),
+            Background::Color(p.pressed),
         );
         stack.push_layer(
             Selector::new().with_disabled(true),
@@ -131,8 +139,8 @@ pub fn property_set(p: &Palette) -> DefaultProperties {
     properties.insert::<Checkbox, _>(BorderWidth {
         width: BORDER_WIDTH,
     });
-    properties.insert::<Checkbox, _>(Background::Color(p.z800));
-    properties.insert::<Checkbox, _>(BorderColor { color: p.z700 });
+    properties.insert::<Checkbox, _>(Background::Color(p.face));
+    properties.insert::<Checkbox, _>(BorderColor { color: p.line });
     properties.insert::<Checkbox, _>(CheckmarkStrokeWidth { width: 2.0 });
     properties.insert::<Checkbox, _>(CheckmarkColor { color: p.text });
     {
@@ -147,7 +155,7 @@ pub fn property_set(p: &Palette) -> DefaultProperties {
         );
         stack.push_layer(
             Selector::new().with_active(true),
-            Background::Color(p.z700),
+            Background::Color(p.pressed),
         );
         stack.push_layer(
             Selector::new().with_disabled(true),
@@ -216,13 +224,13 @@ pub fn property_set(p: &Palette) -> DefaultProperties {
         width: BORDER_WIDTH,
     });
 
-    properties.insert::<SelectorButton, _>(Background::Color(p.z800));
-    properties.insert::<SelectorButton, _>(BorderColor { color: p.z700 });
+    properties.insert::<SelectorButton, _>(Background::Color(p.face));
+    properties.insert::<SelectorButton, _>(BorderColor { color: p.line });
     {
         let mut stack = PropertyStack::new();
         stack.push_layer(
             Selector::new().with_active(true),
-            Background::Color(p.z700),
+            Background::Color(p.pressed),
         );
         stack.push_layer(
             Selector::new().with_disabled(true),
@@ -241,12 +249,16 @@ pub fn property_set(p: &Palette) -> DefaultProperties {
 
     // SelectorItem
     properties.insert::<SelectorItem, _>(Padding::from_vh(6.px(), 16.px()));
-    properties.insert::<SelectorItem, _>(Background::Color(p.z900));
+    properties.insert::<SelectorItem, _>(Background::Color(p.face));
     {
         let mut stack = PropertyStack::new();
         stack.push_layer(
+            Selector::new().with_hovered(true),
+            Background::Color(p.high),
+        );
+        stack.push_layer(
             Selector::new().with_active(true),
-            Background::Color(p.z800),
+            Background::Color(p.high),
         );
         stack.push_layer(
             Selector::new().with_disabled(true),

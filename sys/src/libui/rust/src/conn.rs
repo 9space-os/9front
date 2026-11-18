@@ -121,6 +121,23 @@ impl Ui {
         Ok(u)
     }
 
+    /// files of the nodes the last transaction made: their pictures
+    /// (nodes/id/image, shown when closed); one that fails is said, not fatal
+    pub fn files(&self, files: Vec<(String, std::rc::Rc<[u8]>)>) {
+        for (name, data) in files {
+            let path = format!("{}/{name}", self.mtpt);
+            let r = File::options().write(true).open(&path).and_then(|mut f| {
+                for c in data.chunks(8192) {
+                    f.write_all(c)?;
+                }
+                Ok(())
+            });
+            if let Err(e) = r {
+                eprintln!("uiview: {path}: {e}");
+            }
+        }
+    }
+
     /// a transaction: its lines all or none
     pub fn ctl(&mut self, t: &str) -> io::Result<()> {
         if t.is_empty() {
@@ -234,7 +251,9 @@ where
     let mut view = app(&mut state);
     let (mut root, mut vs) = view.build(&mut cx, &mut state);
     let t = cx.take();
-    ui.ctl(&format!("clear\n{t}"))?;
+    // the app's one view fills the window (root's children stretched across it)
+    ui.ctl(&format!("clear\nset root align stretch\n{t}"))?;
+    ui.files(cx.take_files());
     // the events on a thread of their own, into the loop with the Proxies' changes
     let (tx, rx) = mpsc::channel::<Msg<S>>();
     let mut events = ui.events.take().ok_or_else(|| io::Error::other("the ui's events are read already"))?;
@@ -267,6 +286,7 @@ where
         cx.rebuild(&next, &view, &mut vs, &mut root, &mut state);
         view = next;
         ui.ctl(&cx.take())?;
+        ui.files(cx.take_files());
     }
     Ok(())
 }

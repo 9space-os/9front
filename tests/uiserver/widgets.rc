@@ -1,0 +1,136 @@
+#!/bin/rc
+# SPDX-License-Identifier: MIT
+#
+# widgets.rc prog: one of the widget demos (rcwidgets, gowidgets, uiwidgets,
+# cxxwidgets: the same scene in rc, Go, Rust and C++), run by uiserver.rc in
+# its wsys. Its scene has every kind of ui(4)'s nodes; a click on a section
+# button shows that page (stack); typed text comes back in a label; the
+# dialog button makes a modal dialog, a window of wsys, its Discard button
+# deletes it; the window button a second window, the menu button a popup,
+# its item takes it away; the dark switch makes the theme dark and light
+# again. Prints ok/FAIL lines and "widgets prog: all passed".
+prog=$1
+nfail=0
+fn ok { echo ok $prog: $* }
+fn fail { echo FAIL $prog: $*; nfail=`{echo $nfail+1 | hoc} }
+fn waitfor { # cmd...: until it succeeds, 10 s at most
+	n=0
+	while(! $* >[2]/dev/null && test $n -lt 100){ sleep 0.1; n=`{echo $n+1 | hoc} }
+	$* >[2]/dev/null
+}
+fn m { echo A $1 $2 $3; sleep 0.1 }
+fn nwin { ls -p /mnt/wsys | grep -c '^[0-9]+$' }
+# a node's middle on the screen: its window's contents (ui's ctl for its own,
+# wsys' ctl of window w for a window node's) and its rect there
+fn at { # node [wsys window]
+	if(~ $#2 0) o=`{cat /mnt/uw/ctl}
+	if not { o=`{cat /mnt/wsys/$2/ctl}; o=$o(2-) }
+	r=`{cat /mnt/uw/nodes/$1/rect}
+	echo `{echo 'int('$o(1)'+('$r(1)+$r(3)')/2)' | hoc} `{echo 'int('$o(2)'+('$r(2)+$r(4)')/2)' | hoc}
+}
+fn click { p=`{at $*}; { m $p(1) $p(2) 0; m $p(1) $p(2) 1; m $p(1) $p(2) 0 } >/dev/mousein; sleep 0.5 }
+fn newest { ls -p /mnt/wsys | grep '^[0-9]+$' | sort -n | tail -1 }
+
+log=/tmp/$prog.log
+p=/tests/$prog
+test -x $p || p=/bin/$prog
+if(! test -x $p){
+	echo widgets $prog: not here
+	exit ''
+}
+# in a window of its own, as from the desktop (its /dev: theme, wsys, ...)
+rm -f $log
+window -r 0 0 200 100 'rc -c '''^$p^' >'^$log^' >[2=1]'''
+fn ready { grep -s '^ready ' $log }
+waitfor ready || { fail no ready: `{cat $log}; echo widgets $prog: failed; exit fail }
+srv=`{grep '^ready ' $log | sed 1q | awk '{print $2}'}
+# its pid is in its ui's name (ui.user.pid.n)
+pid=`{echo $srv | awk -F. '{print $3}'}
+mount /srv/$srv /mnt/uw || { fail mount /srv/$srv; exit fail }
+ok ready, /srv/$srv
+
+# every kind of node
+missing=()
+for(k in column row label button textbox checkbox progress slider scroll box list grid image select switch divider spinner align zstack stack split badge badged collapse prose radio radiogroup stepper svg textarea varlabel pages)
+	grep -s '^new [^ ]* '$k'( |$)' /mnt/uw/tree || missing=($missing $k)
+if(~ $#missing 0) ok every kind of node
+if not fail kinds missing: $missing
+sleep 1
+
+# the sections: a click on Text shows the stack's second page
+click s1
+click s1
+waitfor grep -s '^active 1$' /mnt/uw/nodes/st/props && ok Text section shown || fail section: `{cat /mnt/uw/nodes/st/props}
+# typed text comes back
+click tb
+click tb
+/tests/uipeek -k hello
+fn echoed { grep -s '^text hello$' /mnt/uw/nodes/echo/props }
+waitfor echoed && ok typed text echoed || fail echo: `{cat /mnt/uw/nodes/echo/props}
+click s0
+waitfor grep -s '^active 0$' /mnt/uw/nodes/st/props || fail back to Controls
+
+# the dialog: a window of wsys, modal; Discard deletes it
+w0=`{nwin}
+click bdlg
+fn hasdlg { test -d /mnt/uw/nodes/dlg && test `{nwin} -gt $w0 }
+if(waitfor hasdlg){
+	ok the dialog, a window of wsys
+	grep -s '^modal 1$' /mnt/uw/nodes/dlg/props && ok it is modal || fail not modal
+	sleep 1
+	d=`{newest}
+	click dok $d
+	fn nodlg { ! test -d /mnt/uw/nodes/dlg && test `{nwin} -eq $w0 }
+	waitfor nodlg && ok Discard took the dialog away || fail the dialog stays
+}
+if not fail no dialog: `{nwin} windows
+
+# a second window, a popup menu and its item
+click bwin
+fn hasw2 { test -d /mnt/uw/nodes/w2 }
+waitfor hasw2 && ok a second window || fail no second window
+sleep 1
+d=`{newest}
+click w2close $d
+fn now2 { ! test -d /mnt/uw/nodes/w2 }
+waitfor now2 && ok its Close button closed it || fail the second window stays
+click bmenu
+fn haspop { test -d /mnt/uw/nodes/pop }
+if(waitfor haspop){
+	grep -s '^role popup$' /mnt/uw/nodes/pop/props && ok a popup menu || fail not a popup
+	sleep 1
+	d=`{newest}
+	click mOchre $d
+	fn nopop { ! test -d /mnt/uw/nodes/pop }
+	waitfor nopop && ok its item took it away || fail the popup stays
+}
+if not fail no popup menu
+
+# dark and light
+click dark
+fn isdark { grep -s '^mode dark$' /mnt/wsys/theme }
+if(waitfor isdark) ok the switch made the theme dark
+if not {
+	fail not dark: `{grep '^mode' /mnt/wsys/theme}
+	# where things are: ui's window, the switch in it, the windows' stack
+	echo ui at `{cat /mnt/uw/ctl} switch at `{cat /mnt/uw/nodes/dark/rect} clicked at `{at dark}
+	echo stack: `{cat /mnt/wsys/stack}
+	for(w in `{ls -p /mnt/wsys | grep '^[0-9]+$'}) echo window $w `{cat /mnt/wsys/$w/ctl} `{cat /mnt/wsys/$w/label}
+}
+click dark
+fn islight { grep -s '^mode light$' /mnt/wsys/theme }
+waitfor islight && ok and light again || fail not light again
+
+unmount /mnt/uw
+echo kill >/proc/$pid/notepg >[2]/dev/null
+# its ui's window gone too (labelled widgets: ...), and the one it ran in:
+# the next demo's window where this one's was
+for(w in `{ls -p /mnt/wsys | grep '^[0-9]+$'})
+	if(grep -s '^widgets: ' /mnt/wsys/$w/label >[2]/dev/null) echo delete >/mnt/wsys/$w/ctl
+
+sleep 0.5
+if(~ $nfail 0) echo widgets $prog: all passed
+if not {
+	sed 's/^/log: /' $log | sed 40q
+	echo widgets $prog: $nfail failed
+}

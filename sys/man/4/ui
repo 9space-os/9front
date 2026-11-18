@@ -346,8 +346,10 @@ and
 .B align
 .RB ( start ,
 .BR center ,
-.BR end :
-across a row or column).
+.BR end ,
+.BR stretch :
+across a row or column; stretch makes each child as wide as a column, as
+high as a row, so that a child's flex children have its room).
 .IP
 And for a node of any kind its look (else the theme's):
 .B background

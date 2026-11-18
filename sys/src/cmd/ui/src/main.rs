@@ -339,6 +339,7 @@ fn build(sc: &Scene, id: &str, ids: &mut Ids) -> NewWidget<dyn Widget> {
             f = f.cross_axis_alignment(match n.prop("align") {
                 Some("center") => CrossAxisAlignment::Center,
                 Some("end") => CrossAxisAlignment::End,
+                Some("stretch") => CrossAxisAlignment::Stretch,
                 _ => CrossAxisAlignment::Start,
             });
             let kids = laid(sc, id);
@@ -511,14 +512,22 @@ fn build(sc: &Scene, id: &str, ids: &mut Ids) -> NewWidget<dyn Widget> {
     w
 }
 
-/// the children a node lays out: the root's without its windows (they are
-/// windows of their own)
+/// the children a node lays out: without its window nodes (they are windows
+/// of their own, wherever they are in the tree)
 fn laid(sc: &Scene, id: &str) -> Vec<String> {
     let n = &sc.nodes[id];
-    if id != ROOT {
-        return n.children.clone();
-    }
     n.children.iter().filter(|c| sc.nodes.get(*c).is_none_or(|k| k.kind != Kind::Window)).cloned().collect()
+}
+
+/// the window nodes under id, in the tree's order (one in another after it)
+fn window_nodes(sc: &Scene, id: &str, out: &mut Vec<String>) {
+    let Some(n) = sc.nodes.get(id) else { return };
+    for c in &n.children {
+        if sc.nodes.get(c).is_some_and(|k| k.kind == Kind::Window) {
+            out.push(c.clone());
+        }
+        window_nodes(sc, c, out);
+    }
 }
 
 /// the window a node shows in: the window node it is in, or the root's
@@ -888,11 +897,14 @@ impl App {
             if let (Some(x), Some(y)) = (n.num("x"), n.num("y")) {
                 attrs = attrs.with_position(winit::dpi::LogicalPosition::new(x, y));
             }
-            // a dialog (modal: its window takes no clicks) or popup of the root's
-            // window, else a window of its own
+            // a dialog (modal: its window takes no clicks) or popup of the
+            // window it is in (the root's, or a window node's), else a window
+            // of its own
             let role = n.prop("role").unwrap_or("window");
             if role == "dialog" || role == "popup" {
-                if let Some(rw) = self.guis.iter().find(|g| g.node == ROOT).and_then(|g| g.window.window_handle().ok()).map(|h| h.as_raw()) {
+                let host = n.parent.as_deref().map(|p| owner(&self.fs.scene, p)).unwrap_or_else(|| ROOT.to_string());
+                let pw = self.guis.iter().find(|g| g.node == host).or_else(|| self.guis.iter().find(|g| g.node == ROOT));
+                if let Some(rw) = pw.and_then(|g| g.window.window_handle().ok()).map(|h| h.as_raw()) {
                     attrs = unsafe { attrs.with_parent_window(Some(rw)) };
                 }
             }
@@ -970,7 +982,8 @@ impl App {
             return; // (the root's first: resumed)
         }
         let sc = &self.fs.scene;
-        let want: Vec<String> = sc.nodes[ROOT].children.iter().filter(|c| sc.nodes.get(*c).is_some_and(|n| n.kind == Kind::Window)).cloned().collect();
+        let mut want = Vec::new();
+        window_nodes(sc, ROOT, &mut want);
         self.guis.retain(|g| g.node == ROOT || want.contains(&g.node));
         for w in want {
             if self.guis.iter().any(|g| g.node == w) {
@@ -1147,6 +1160,7 @@ impl App {
                         Flex::set_cross_axis_alignment(&mut f, match n.prop("align") {
                             Some("center") => CrossAxisAlignment::Center,
                             Some("end") => CrossAxisAlignment::End,
+                            Some("stretch") => CrossAxisAlignment::Stretch,
                             _ => CrossAxisAlignment::Start,
                         });
                         match len(n.num("gap")) {

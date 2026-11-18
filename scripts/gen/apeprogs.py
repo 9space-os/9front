@@ -25,7 +25,13 @@ LIBS = ['sys/src/mesa', 'sys/src/libffi', 'sys/src/wayland', 'sys/src/sdl3', 'sy
 	'sys/src/freetype', 'sys/src/pixman', 'sys/src/expat', 'sys/src/xkbcommon', 'sys/src/fontconfig', 'sys/src/fcft', 'sys/src/foot']
 
 # program: its source directory
-PROGS = {'wlsys': 'sys/src/cmd/wlsys', 'foot': 'sys/src/foot'}
+PROGS = {'wlsys': 'sys/src/cmd/wlsys', 'foot': 'sys/src/foot', 'cxxwidgets': 'sys/src/libui/cxx'}
+
+# programs in C++ (9front-gcc's g++, libstdc++): their sources and link
+# arguments (scripts/build/ape.sh)
+CXX = {
+	'cxxwidgets': ['sys/src/libui/cxx/cxxwidgets.cc', '-l9'],
+}
 
 # programs of a vendored release, linked from its library (LIBS made it): their
 # link arguments (scripts/build/ape.sh); the others scripts/wayland/build.sh makes
