@@ -98,6 +98,23 @@ fn sysstate() -> String {
     }
     for f in ["/dev/battery", "/mnt/pm/battery", "/mnt/apm/battery", "/shr/usb/battery"] {
         if let Ok(s) = std::fs::read_to_string(f) {
+            // acpi(8)'s lines: the percentage first, the status twelfth;
+            // charging shows a +, 10% or less without AC "low" (batteryguard(8)
+            // powers off at 5%)
+            let a: Vec<&str> = s.lines().next().unwrap_or("").split_whitespace().collect();
+            if a.len() >= 12 {
+                if let Ok(pct) = a[0].parse::<u64>() {
+                    let st = a[11];
+                    let mark = match st {
+                        "charging" => "+",
+                        "critical" => " low",
+                        "discharging" if pct <= 10 => " low",
+                        _ => "",
+                    };
+                    out.push(format!("bat {pct}%{mark}"));
+                    break;
+                }
+            }
             let v: Vec<u64> = s.split_whitespace().filter_map(|x| x.parse().ok()).collect();
             if v.len() >= 3 && v[2] > 0 {
                 out.push(format!("bat {}%", 100 * v[1] / v[2]));

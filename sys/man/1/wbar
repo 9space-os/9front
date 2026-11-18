@@ -68,7 +68,15 @@ reads it: the processors' load
 .RB ( /dev/sysstat :
 what is not idle), the memory in use
 .RB ( /dev/swap ),
-the battery's charge where there is one.
+the battery's charge where there is one
+(from
+.IR acpi (8):
+a
+.B +
+while it charges,
+.B low
+at 10% or less without AC; see
+.IR batteryguard (8)).
 .TP
 a clock
 at the end: the local time from
