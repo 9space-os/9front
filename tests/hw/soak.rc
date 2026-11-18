@@ -1,0 +1,224 @@
+#!/bin/rc
+# soak [-m minutes] [-r seconds] [-w wlanaddr] [-o dir]: the laptop's
+# working day as a test (1.0 criterion 1: dist/docs/roadmap.md): rounds
+# of the desktop's kinds of program together in windows of the running
+# window system, each round checked; scripts/hw/soak.py starts it over
+# MCP and watches from the host (pings, the network, a hang).
+#
+# A round (-r seconds, default 120): in windows of the newest wsys(4)
+# or rio(1) at once
+#	uitick, uiwidgets	ui(4) clients (on the GPU where there is one)
+#	vkcube			Vulkan (/tests/vkcube, tests/gpu's)
+#	games/juggle, paint	draw(3)
+#	term			term(1) with an rc that lists and dates in a loop
+#	foot			Wayland (wlsys(4)) with the same rc
+# all alive at the half and at the end, then killed; ten seconds later
+# no process Broken, the window system and aux/i915 alive, and aux/i915
+# idle (the CPU time of its procs over ten seconds: a driver spinning
+# after its clients went is how the xarray walk showed, 2026-11-18).
+# Each round logs the kernel's new messages, the memory in use, the
+# temperatures, the battery and the clock. -w: listeners on the WLAN
+# address for the host's transfers (port 5001 sends 50 MB, 5002
+# swallows). Out in -o dir (default /usr/glenda/soak): log (lines
+# "time ok|FAIL|note round N: ..."), kmesg, err/ (each program's
+# standard error).
+rfork e
+mins=480
+secs=120
+wlan=()
+out=/usr/glenda/soak
+while(~ $1 -*){
+	switch($1){
+	case -m
+		mins=$2
+		shift
+	case -r
+		secs=$2
+		shift
+	case -w
+		wlan=$2
+		shift
+	case -o
+		out=$2
+		shift
+	case *
+		echo usage: soak '[-m minutes] [-r seconds] [-w wlanaddr] [-o dir]' >[1=2]
+		exit usage
+	}
+	shift
+}
+
+mkdir -p $out/bin $out/err
+log=$out/log
+rm -f $log $out/kmesg
+nfail=0
+round=0
+fn log { echo `{date -n} $* >>$log }
+fn ok { log ok round $round: $* }
+fn fail { log FAIL round $round: $*; nfail=`{echo $nfail + 1 | hoc} }
+fn note { log note round $round: $* }
+
+ws=`{ls -t /srv/wsys.* /srv/rio.* >[2]/dev/null | sed 1q}
+if(~ $#ws 0){
+	log FAIL no window system '(/srv/wsys.*, /srv/rio.*)'
+	exit nowsys
+}
+
+# the programs, each a script of its own: window(1) hands its command to
+# the window system as text, so no quotes are needed in it
+progs=(uitick uiwidgets vkcube juggle paint term foot)
+fn mkprog {
+	n=$1
+	shift
+	{
+		echo '#!/bin/rc'
+		echo $* '>[2]'$out/err/$n
+	} >$out/bin/$n
+	chmod +x $out/bin/$n
+}
+echo '#!/bin/rc
+while(){ ls -l /bin >/dev/null; date; sleep 1 }' >$out/bin/loop
+chmod +x $out/bin/loop
+mkprog uitick exec uitick
+mkprog uiwidgets exec uiwidgets
+mkprog vkcube exec /tests/vkcube --c 1000000
+mkprog juggle exec games/juggle 333333441333333
+mkprog paint exec paint
+mkprog term exec term $out/bin/loop
+mkprog foot exec wlsys foot $out/bin/loop
+# where each window goes on a 1920x1080 screen (smaller ones are cut)
+rect=('1300 40 1900 380' '1300 400 1900 1000' '640 40 1280 520' '640 540 1280 1000' \
+	'200 700 620 1040' '0 300 620 680' '0 40 620 280')
+
+# the names ps shows for a program (foot runs as foot under wlsys)
+fn alive {
+	ps | awk '{print $NF}' | grep -s '^'$1'$'
+}
+# a note to a process that may be gone already: in a subshell, as a
+# redirection that fails ends a script of rc's (a program's procs go
+# together when one of them is killed)
+fn note2 {
+	if(test -e /proc/$1/note)
+		@{echo $2 >/proc/$1/note} >[2]/dev/null
+}
+fn killprogs {
+	for(p in uitick uiwidgets vkcube juggle paint term foot wlsys loop)
+		for(pid in `{ps | awk '$NF == "'$p'" {print $2}'})
+			note2 $pid kill
+}
+# CPU time (ms, user and system) of aux/i915's procs, 0 without them
+fn i915ms {
+	t=0
+	for(pid in `{ps | awk '$NF == "i915" {print $2}'})
+		t=`{awk '{print '$t' + $4 + $5}' /proc/$pid/status >[2]/dev/null}
+	echo $t
+}
+# every program (its procs together: a driver spins in several) busy
+# 3 s or more of the 10 since the file $1 (ps' times, whole seconds;
+# procs there in both): name:seconds
+fn busy {
+	ps >$out/ps.b
+	awk 'function s(t,  a) { split(t, a, ":"); return a[1]*60 + a[2] }
+		FNR == NR { t[$2] = s($3) + s($4); next }
+		($2 in t) { d[$NF] += s($3) + s($4) - t[$2] }
+		END { for(n in d) if(d[n] >= 3) print n ":" d[n] }' $1 $out/ps.b
+}
+
+# the network's listeners for the host's transfers
+lpids=()
+if(~ $#wlan 1){
+	aux/listen1 -t 'tcp!'$wlan'!5001' /bin/dd -if /dev/zero -bs 65536 -count 800 -quiet 1 &
+	lpids=($lpids $apid)
+	aux/listen1 -t 'tcp!'$wlan'!5002' /bin/rc -c 'cat >/dev/null' &
+	lpids=($lpids $apid)
+}
+
+# what a run before left (none of these is to run beside the test)
+killprogs
+sleep 2
+kn=`{wc -l </dev/kmesg}
+end=`{echo `{date -n} + $mins '*' 60 | hoc}
+log start soak $mins minutes, rounds of $secs s, window system $ws, ncpu `{wc -l </dev/sysstat}
+while(test `{date -n} -lt $end){
+	round=`{echo $round + 1 | hoc}
+	rm -f $out/err/*
+	i=1
+	for(p in $progs){
+		wsys=$ws window -r `{echo $rect($i)} $out/bin/$p >[2]$out/err/window.$p
+		i=`{echo $i + 1 | hoc}
+	}
+	half=`{echo $secs / 2 | hoc}
+	for(when in half end){
+		sleep $half
+		gone=()
+		for(p in $progs)
+			if(! alive $p)
+				gone=($gone $p)
+		if(~ $#gone 0)
+			ok all $#progs programs alive at the $when
+		if not {
+			for(p in $gone)
+				fail $p gone at the $when: `{cat $out/err/window.$p $out/err/$p >[2]/dev/null | sed 3q}
+		}
+	}
+	killprogs
+	sleep 10
+	left=()
+	for(p in $progs wlsys)
+		if(alive $p)
+			left=($left $p)
+	if(! ~ $#left 0)
+		fail still there 10 s after kill: $left
+
+	# idle: the driver, and nothing else, must spin on
+	a=`{i915ms}
+	ps >$out/ps.a
+	sleep 10
+	b=`{i915ms}
+	bz=`{busy $out/ps.a}
+	if(! ~ $#bz 0)
+		fail busy while idle '(name:s of 10 s)': $bz
+	d=`{echo $b - $a | hoc}
+	if(test $d -gt 2000)
+		fail aux/i915 busy while idle: $d ms CPU in 10 s
+	if not
+		ok aux/i915 idle: $d ms CPU in 10 s
+
+	br=`{ps | grep Broken | awk '{print $2 ":" $NF}'}
+	if(! ~ $#br 0)
+		fail Broken processes: $br
+	for(p in wsys i915)
+		if(! alive $p)
+			fail $p is gone
+
+	# the kernel's new messages, the suspicious ones in the log
+	k=`{wc -l </dev/kmesg}
+	if(test $k -gt $kn){
+		sed -n `{echo $kn + 1 | hoc}^',$p' /dev/kmesg >$out/kmesg.new
+		cat $out/kmesg.new >>$out/kmesg
+		for(l in `{grep -i -n -e panic -e fault -e fatal -e broken -e 'timed* *out' -e error $out/kmesg.new | sed 5q | sed 's/ /_/g'})
+			note kmesg: $l
+	}
+	kn=$k
+
+	# a ramfs: 16 MB copied and compared
+	ramfs -m /n/soak
+	{for(j in `{seq 256}) dd -if /bin/rc -bs 65536 -count 1 -quiet 1} >/n/soak/a
+	cp /n/soak/a /n/soak/b
+	if(! cmp -s /n/soak/a /n/soak/b)
+		fail ramfs copy differs
+	unmount /n/soak
+
+	mem=`{awk '$2 == "user" {print $1}' /dev/swap}
+	bat=`{sed 1q /dev/battery >[2]/dev/null | awk '{print $1 "%," $12}'}
+	tmp=`{cat '#P/cputemp' >[2]/dev/null | awk '{print $1}' | sed 4q}
+	clk=`{grep cpu0 /dev/pstate >[2]/dev/null | awk '{for(i=1;i<NF;i++) if($i == "mhz") print $(i+1)}'}
+	note state: mem $mem pages, battery $bat, temp $tmp, cpu0 $clk MHz, failures $nfail
+}
+
+for(l in $lpids)
+	note2 $l kill
+log done soak: $round rounds, $nfail failures
+if(! ~ $nfail 0)
+	exit failures
+exit ''
