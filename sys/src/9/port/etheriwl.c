@@ -24,6 +24,8 @@ enum {
 
 	Ntxlog		= 8,
 	Ntx		= 1<<Ntxlog,
+	Nlegq		= 7,	/* 9space: the queues set up at boot; 10-17 aggregation (Aggq0+tid) */
+	Aggq0		= 10,
 	Ntxqmax		= MaxQueue/1500,
 
 	Nrxlog		= 8,
@@ -504,6 +506,8 @@ struct TXQ
 {
 	uint	n;
 	uint	i;
+	uint	atail;	/* 9space: an aggregation queue's oldest entry (freed up to the firmware's SSN) */
+	int	agg;	/* 9space: an aggregation queue in use */
 	Block	**b;
 	uchar	*d;
 	uchar	*c;
@@ -606,12 +610,15 @@ struct Ctlr {
 		int	recovery;
 		int	threshold;
 		ulong	lastchoose;	/* ticks of AMRR's last decision */
+		int	aggtids;	/* TIDs whose aggregation queue is on */
+		ulong	nampdu;		/* statistics: aggregates, frames in them */
+		ulong	nampduframes;
 		ulong	ntx;		/* statistics */
 		ulong	nretry;
 	} ht;
 
 	RXQ rx;
-	TXQ tx[7];
+	TXQ tx[18];	/* 9space: 0-6 as 9front, 10-17 the TIDs' aggregation queues (iwm's IWM_FIRST_AGG_TX_QUEUE) */
 
 	int ndma;
 	int ntxq;
@@ -2565,6 +2572,30 @@ amrrchoose(Ctlr *ctlr)
  * failure_frame, the retries, at 3; status at 36), counted as
  * OpenBSD's iwm_rx_tx_cmd_single counts them for AMRR
  */
+static void htcount(Ctlr*, int, int, int);
+
+/*
+ * 9space: the access point's station flags for HT (iwm_add_sta_cmd):
+ * two streams, the largest aggregate it takes (its A-MPDU length
+ * exponent, at most 64K) and the spacing it wants (2-16 us)
+ */
+static u32int
+htstaflags(Ctlr *ctlr, Wnode *bss)
+{
+	u32int f;
+	int sz, ss;
+
+	if(!ctlr->ht.on)
+		return 0;
+	f = ctlr->ht.mimo? StaFlgMimo2: 0;
+	sz = bss->htampdu & 3;
+	f |= sz << 19;
+	ss = bss->htampdu>>2 & 7;
+	if(ss >= 4)
+		f |= ss << 23;
+	return f;
+}
+
 static void
 htstatus(Ctlr *ctlr, Block *b, int ok, int retries)
 {
@@ -2576,15 +2607,23 @@ htstatus(Ctlr *ctlr, Block *b, int ok, int retries)
 	if((w->fc[0] & 0x0c) != 0x08 || (w->a1[0] & 1) != 0
 	|| memcmp(w->a1, ctlr->bssid, Eaddrlen) != 0)
 		return;
-	ctlr->ht.txcnt++;
-	ctlr->ht.ntx++;
-	if(!ok)
-		ctlr->ht.retrycnt++;
-	if(retries > 0){
-		ctlr->ht.retrycnt++;
-		ctlr->ht.nretry += retries;
-	}
-	/* a decision every 500 ms, as OpenBSD's drivers call AMRR from a timeout */
+	htcount(ctlr, 1, !ok + (retries > 0), retries);
+}
+
+/*
+ * 9space: n frames sent, nbad of them with retries or failed, retries
+ * in all: AMRR's counts, a decision every 500 ms (as OpenBSD's drivers
+ * call AMRR from a timeout)
+ */
+static void
+htcount(Ctlr *ctlr, int n, int nbad, int retries)
+{
+	if(!ctlr->ht.on || n <= 0)
+		return;
+	ctlr->ht.txcnt += n;
+	ctlr->ht.ntx += n;
+	ctlr->ht.retrycnt += nbad;
+	ctlr->ht.nretry += retries;
 	if(TK2MS(MACHP(0)->PMach.ticks - ctlr->ht.lastchoose) >= 500){
 		ctlr->ht.lastchoose = MACHP(0)->PMach.ticks;
 		amrrchoose(ctlr);
@@ -2744,6 +2783,204 @@ iwlrxba(Wifi *wifi, int tid, int ssn, int win, int on)
 	return 0;
 }
 
+/*
+ * 9space: sending aggregates (A-MPDU), as OpenBSD's iwm does it with a
+ * queue of its own per TID (iwm_sta_tx_agg, iwm_enable_txq,
+ * iwm_update_sched, iwm_txq_advance, iwm_ampdu_tx_done,
+ * iwm_rx_compressed_ba), here beside 9front's queues (no DQA): the
+ * queue's ring index is the frame's sequence number (mod 256), its
+ * entries are freed up to the firmware's SSN, the scheduler's byte
+ * count table has each frame's length.
+ */
+enum {
+	CmdScdQueueCfg	= 0x1d,	/* IWM_SCD_QUEUE_CFG */
+	StaModQueues	= 1<<7,	/* IWM_STA_MODIFY_QUEUES */
+	StaModTidDis	= 1<<1,	/* IWM_STA_MODIFY_TID_DISABLE_TX */
+	FwDwBcTable	= 1<<4,	/* IWM_UCODE_TLV_FLAGS_DW_BC_TABLE */
+	Framelimit	= 64,
+};
+
+/* the TID's access category's FIFO (iwm_tid_to_ac, iwm_ac_to_tx_fifo) */
+static int tidfifo[8] = { 1, 0, 0, 1, 2, 2, 3, 3 };
+
+/* the scheduler's byte count table: a frame's length, each queue 256+64 entries */
+static void
+bcset(Ctlr *ctlr, int qid, int idx, int sta, int len)
+{
+	uchar *t;
+	int v;
+
+	if(ctlr->fw->flags & FwDwBcTable)
+		len = (len + 8 + 3) / 4;	/* + CRC and delimiter, in words */
+	else
+		len += 8;
+	v = sta<<12 | len;
+	t = (uchar*)ctlr->sched.s + qid*(256+64)*2;
+	put16(t + idx*2, v);
+	dmaflush(1, t + idx*2, 2);
+	if(idx < 64){
+		put16(t + (256+idx)*2, v);
+		dmaflush(1, t + (256+idx)*2, 2);
+	}
+}
+
+/* entries up to the SSN's are done (the firmware sends none before its window); called from the interrupt */
+static void
+aggadvance(Ctlr *ctlr, int qid, int ssn)
+{
+	TXQ *q;
+	Block *b;
+	int idx;
+
+	q = &ctlr->tx[qid];
+	idx = ssn & (Ntx-1);
+	while(q->atail != idx && q->n > 0){
+		if((b = q->b[q->atail]) != nil){
+			q->b[q->atail] = nil;
+			freeblist(b);
+		}
+		bcset(ctlr, qid, q->atail, ctlr->bss.id, 1-8);	/* iwm_reset_sched: length 1 */
+		q->n--;
+		q->atail = (q->atail + 1) % Ntx;
+	}
+	wakeup(&q->Rendez);
+}
+
+/* the station's queues and the TIDs it may aggregate (ADD_STA modify) */
+static char*
+setstationagg(Ctlr *ctlr)
+{
+	uchar c[Tcmdsize], *p;
+	u32int qmask;
+	int i;
+
+	qmask = 1<<0;
+	for(i = 0; i < 8; i++)
+		if(ctlr->ht.aggtids & 1<<i)
+			qmask |= 1<<(Aggq0+i);
+	memset(p = c, 0, sizeof(c));
+	*p++ = 1;			/* control: modify */
+	p++;				/* awake_acs */
+	put16(p, ~ctlr->ht.aggtids & 0xffff);	/* tid_disable_tx: no aggregates but on these */
+	p += 2;
+	put32(p, ctlr->macid);
+	p += 4;
+	memmove(p, ctlr->bssid, 6);
+	p += 8;
+	*p++ = ctlr->bss.id;		/* sta id */
+	*p++ = StaModQueues | StaModTidDis;	/* modify mask */
+	p += 2;
+	p += 4;				/* station_flags */
+	p += 4;				/* station_flags_mask: none changed */
+	p += 4;				/* add/remove_immediate_ba_tid, ssn */
+	p += 2;				/* sleep_tx_count */
+	p += 2;				/* sleep state flags, station_type */
+	p += 2;				/* assoc id */
+	p += 2;				/* beamform flags */
+	put32(p, qmask);		/* tfd_queue_mask */
+	p += 4;
+	if(ctlr->fw->api[0] & UcodeApiSta)
+		p += 4;			/* rx_ba_window, sp_length, uapsd_acs */
+	return cmd(ctlr, 24, c, p - c);
+}
+
+static char*
+scdqueuecfg(Ctlr *ctlr, int qid, int tid, int on, int ssn)
+{
+	uchar c[12];
+
+	memset(c, 0, sizeof(c));
+	c[1] = ctlr->bss.id;		/* sta_id */
+	c[2] = tid;
+	c[3] = qid;			/* scd_queue */
+	c[4] = on;			/* enable */
+	c[5] = on;			/* aggregate */
+	c[6] = tidfifo[tid & 7];	/* tx_fifo */
+	c[7] = Framelimit;		/* window */
+	put16(c+8, ssn);
+	return cmd(ctlr, CmdScdQueueCfg, c, sizeof(c));
+}
+
+/* the TID's aggregation queue on from ssn: returns the ssn it starts at (iwm: one more for the scheduler's bug) */
+static int
+aggstart(Ctlr *ctlr, int tid, int ssn)
+{
+	TXQ *q;
+	char *err;
+	int qid, idx;
+
+	qid = Aggq0 + tid;
+	q = &ctlr->tx[qid];
+	if(q->agg)
+		return -1;
+	/*
+	 * moving the scheduler's write pointer by steps of 0x40 sticks
+	 * it (fixed from the 9000 family on, iwm_enable_txq)
+	 */
+	if(((ssn - q->i) & 0x3f) == 0 && (ssn & (Ntx-1)) != q->i)
+		ssn = (ssn + 1) & 0xfff;
+	idx = ssn & (Ntx-1);
+	if((err = niclock(ctlr)) != nil)
+		return -1;
+	csr32w(ctlr, HbusTargWptr, qid<<8 | idx);
+	nicunlock(ctlr);
+	q->i = q->atail = idx;
+	q->n = 0;
+	if((err = scdqueuecfg(ctlr, qid, tid, 1, ssn)) != nil){
+		print("#l%d: aggregation queue %d: %s\n", ctlr->edev->ctlrno, qid, err);
+		return -1;
+	}
+	ctlr->ht.aggtids |= 1<<tid;
+	if((err = setstationagg(ctlr)) != nil){
+		print("#l%d: aggregation station: %s\n", ctlr->edev->ctlrno, err);
+		ctlr->ht.aggtids &= ~(1<<tid);
+		scdqueuecfg(ctlr, qid, tid, 0, 0);
+		return -1;
+	}
+	q->agg = 1;
+	return ssn;
+}
+
+/* the TID's aggregates off: the queue drained and kept enabled (the firmware panics if disabled, iwm) */
+static void
+aggstop(Ctlr *ctlr, int tid)
+{
+	TXQ *q;
+
+	q = &ctlr->tx[Aggq0 + tid];
+	if(!q->agg)
+		return;
+	q->agg = 0;
+	ctlr->ht.aggtids &= ~(1<<tid);
+	if(ctlr->bss.id >= 0)
+		setstationagg(ctlr);
+	ilock(&ctlr->Lock);
+	aggadvance(ctlr, Aggq0 + tid, q->i);
+	iunlock(&ctlr->Lock);
+}
+
+static int
+iwlbatx(Wifi *wifi, int tid, int ssn, int on)
+{
+	Ctlr *ctlr;
+	int n;
+
+	ctlr = wifi->ether->ctlr;
+	if(tid >= 8)
+		return -1;
+	qlock(&ctlr->QLock);
+	n = -1;
+	if(on){
+		if(ctlr->ht.on && ctlr->bss.id >= 0)
+			n = aggstart(ctlr, tid, ssn);
+	} else
+		aggstop(ctlr, tid);
+	qunlock(&ctlr->QLock);
+	if(wifi->debug)
+		print("#l%d: aggregates tid %d %s: ssn %d\n", wifi->ether->ctlrno, tid, on? "on": "off", n);
+	return n;
+}
+
 static char*
 sethtlq(Ctlr *ctlr)
 {
@@ -2808,8 +3045,8 @@ setstation(Ctlr *ctlr, int id, int type, uchar addr[6], Station *sta, u32int sta
 		put32(p, staflags);	/* 9space: MIMO (bits 28-29) for HT */
 		p += 4;			/* station_flags */
 
-		put32(p, 3<<26 | 3<<28);
-		p += 4;			/* station_flags_mask */
+		put32(p, 3<<26 | 3<<28 | 7<<19 | 7<<23);
+		p += 4;			/* station_flags_mask (9space: and the aggregates' size and spacing) */
 
 		p++;			/* add_immediate_ba_tid */
 		p++;			/* remove_immediate_ba_tid */
@@ -3600,7 +3837,7 @@ postboot(Ctlr *ctlr)
 		prphwrite(ctlr, SchedChainExtEn, 0);
 	}
 
-	for(i = 0; i < nelem(ctlr->tx); i++){
+	for(i = 0; i < Nlegq; i++){	/* 9space: the aggregation queues by SCD_QUEUE_CFG (aggstart) */
 		if(i == 4 && ctlr->family < 7000 && ctlr->type == Type4965)
 			f = 4;
 		else {
@@ -3918,7 +4155,7 @@ qcmd(Ctlr *ctlr, uint qid, uint code, uchar *data, int size, Block *block)
 	uchar *d, *c;
 	TXQ *q;
 
-	assert(qid < ctlr->ntxq);
+	assert(qid < ctlr->ntxq && qid < nelem(ctlr->tx));
 
 	if((code & 0xFF00) != 0)
 		hdrlen = 8;
@@ -4200,6 +4437,14 @@ rxon(Ether *edev, Wnode *bss)
 {
 	Ctlr *ctlr = edev->ctlr;
 	char *err;
+	int i;
+
+	/* 9space: our aggregates end with the association (iwm_run_stop) */
+	for(i = 0; i < 8; i++)
+		if(ctlr->ht.aggtids & 1<<i){
+			aggstop(ctlr, i);
+			scdqueuecfg(ctlr, Aggq0+i, i, 0, 0);
+		}
 
 	if(ctlr->family >= 7000)
 		if((err = rxoff7000(edev, ctlr)) != nil)
@@ -4284,7 +4529,7 @@ rxon(Ether *edev, Wnode *bss)
 			0,
 			StaTypeLink,
 			bss->bssid,
-			&ctlr->bss, ctlr->ht.mimo? StaFlgMimo2: 0)) != nil)
+			&ctlr->bss, htstaflags(ctlr, bss))) != nil)
 			goto Out;
 
 		if(ctlr->family >= 7000){
@@ -4302,7 +4547,7 @@ Out:
 static void
 transmit(Wifi *wifi, Wnode *wn, Block *b)
 {
-	int flags, rate, ant, ht, hdrlen, pad;
+	int flags, rate, ant, ht, hdrlen, pad, qid, tid, seq;
 	uchar c[Tcmdsize], *p;
 	Ether *edev;
 	Station *sta;
@@ -4375,8 +4620,8 @@ Broken:
 	 * without it the firmware died at the first QoS frame
 	 */
 	pad = 0;
+	hdrlen = wifihdrlen(w);
 	if(ctlr->family >= 7000){
-		hdrlen = wifihdrlen(w);
 		if(hdrlen & 3){
 			pad = 4 - (hdrlen & 3);
 			b = padblock(b, pad);
@@ -4392,6 +4637,23 @@ Broken:
 	 * quality table (TFlagLinkq: iwm's IWM_TX_CMD_FLG_STA_RATE)
 	 */
 	ht = sta == &ctlr->bss && ctlr->ht.on;
+
+	/*
+	 * 9space: QoS data of a TID with aggregates goes on its queue
+	 * where the ring's next index is the frame's sequence number
+	 * (one numbered before the agreement goes the old way)
+	 */
+	qid = 0;
+	tid = 0;
+	if(ht && ctlr->ht.aggtids != 0 && (w->fc[0] & 0x8c) == 0x88 && BLEN(b) >= hdrlen){
+		tid = b->rp[hdrlen-2] & 15;
+		seq = (w->seq[0] | w->seq[1]<<8) >> 4;
+		if(tid < 8 && (ctlr->ht.aggtids & 1<<tid) && ctlr->tx[Aggq0+tid].i == (seq & (Ntx-1))){
+			qid = Aggq0 + tid;
+			bcset(ctlr, qid, seq & (Ntx-1), sta->id, BLEN(b) - pad);
+		} else
+			tid = 0;
+	}
 	if(ht){
 		flags |= TFlagLinkq;
 		if(ctlr->ht.lq != ctlr->ht.cur && (err = sethtlq(ctlr)) != nil)
@@ -4448,13 +4710,13 @@ Broken:
 
 	*p++ = 60;	/* rts ntries */
 	*p++ = 15;	/* data ntries */
-	*p++ = 0;	/* tid */
+	*p++ = tid;	/* tid (9space: an aggregate's) */
 	put16(p, 0);	/* timeout */
 	p += 2;
 	p += 2;		/* txop */
 	qunlock(&ctlr->QLock);
 
-	if((err = qcmd(ctlr, 0, 28, c, p - c, b)) != nil){
+	if((err = qcmd(ctlr, qid, 28, c, p - c, b)) != nil){
 		print("#l%d: transmit %s\n", edev->ctlrno, err);
 		freeb(b);
 	}
@@ -4519,9 +4781,9 @@ iwlifstat(void *a, char *s, char *e)
 		ctlr->nintr, ctlr->nrxintr, ctlr->nrxframe);
 	s = seprint(s, e, "hwrev: %#.8ux, firmware %s\n", ctlr->hwrev, ctlr->fwname);
 	if(ctlr->ht.on)	/* 9space */
-		s = seprint(s, e, "ht: mcs %d%s, frames %lud, retries %lud\n",
+		s = seprint(s, e, "ht: mcs %d%s, frames %lud, retries %lud, aggregates %lud of %lud frames, tids %#ux\n",
 			ctlr->ht.ladder[ctlr->ht.cur], ctlr->ht.mimo? " (2 streams)": "",
-			ctlr->ht.ntx, ctlr->ht.nretry);
+			ctlr->ht.ntx, ctlr->ht.nretry, ctlr->ht.nampdu, ctlr->ht.nampduframes, ctlr->ht.aggtids);
 	return s;
 }
 
@@ -4668,6 +4930,9 @@ iwlattach(Ether *edev)
 				/* 9space: the access point's aggregates, answered by the firmware (iwlrxba) */
 				ctlr->wifi->ba = 1;
 				ctlr->wifi->baagree = iwlrxba;
+				/* and our own aggregates (aggstart) */
+				ctlr->wifi->batx = 1;
+				ctlr->wifi->batxagree = iwlbatx;
 			}
 			/* 9space: 2.4 and 5 GHz where the NVM enables it (wifi.c only listens on DFS channels) */
 			if(ctlr->family >= 7000 && ctlr->rfcfg.band5)
@@ -4727,7 +4992,7 @@ receive(Ctlr *ctlr)
 
 		tx = nil;
 		bb = nil;
-		if((qid & 0x80) == 0 && qid < ctlr->ntxq){
+		if((qid & 0x80) == 0 && qid < Nlegq){	/* 9space: the aggregation queues free by SSN (aggadvance) */
 			tx = &ctlr->tx[qid];
 			bb = tx->b[idx];
 			tx->b[idx] = nil;
@@ -4744,6 +5009,25 @@ receive(Ctlr *ctlr)
 				break;
 			break;
 		case 28:	/* tx done */
+			/*
+			 * 9space: an aggregation queue's (iwm_rx_tx_cmd,
+			 * iwm_ampdu_tx_done): frame_count at 0, its status
+			 * entries (4 bytes) from 36, then the firmware's SSN;
+			 * one frame alone is counted for AMRR, an aggregate by
+			 * its block ack (197); the entries before the SSN done
+			 */
+			if(ctlr->family >= 7000 && (qid & 0x80) == 0 && qid >= Aggq0 && qid < nelem(ctlr->tx)){
+				int nf, ssn;
+
+				nf = d[0];
+				if(nf < 1 || len < 36 + 4*nf + 4 || !ctlr->tx[qid].agg)
+					break;
+				ssn = get32(d + 36 + 4*nf) & 0xfff;
+				if(nf == 1)
+					htcount(ctlr, 1, d[36] == 1 || d[36] == 2 ? (d[3] > 0) : 1, d[3]);
+				aggadvance(ctlr, qid, ssn);
+				break;
+			}
 			if(ctlr->family >= 7000){
 				if(len > 36)
 					htstatus(ctlr, bb, d[36] == 1 || d[36] == 2, d[3]);
@@ -4934,6 +5218,26 @@ receive(Ctlr *ctlr)
 			wifiiq(ctlr->wifi, b);
 			break;
 		case 197:	/* rx compressed ba */
+			/*
+			 * 9space: iwm_ba_notif: the station's address (6),
+			 * reserved (2), sta_id (8), tid (9), seq_ctl, bitmap
+			 * (8 bytes at 12), scd_flow (20), scd_ssn (22), txed
+			 * (24), txed_2_done (25): the aggregate's frames up to
+			 * the SSN acked (iwm_rx_compressed_ba)
+			 */
+			if(ctlr->family >= 7000 && len >= 26){
+				int bqid, btid;
+
+				btid = d[9];
+				bqid = get16(d+20);
+				if(btid < 8 && bqid == Aggq0 + btid && ctlr->tx[bqid].agg
+				&& memcmp(d, ctlr->bssid, Eaddrlen) == 0){
+					ctlr->ht.nampdu++;
+					ctlr->ht.nampduframes += d[24];
+					htcount(ctlr, d[24], d[24] - d[25], 0);
+					aggadvance(ctlr, bqid, get16(d+22) & 0xfff);
+				}
+			}
 			break;
 		}
 		freeblist(bb);

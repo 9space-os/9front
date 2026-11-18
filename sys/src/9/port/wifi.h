@@ -99,6 +99,7 @@ struct Wnode
 	ushort	htcap;
 	uchar	htrxmcs[2];
 	uchar	htprot;
+	uchar	htampdu;	/* 9space: its A-MPDU parameters (max length exponent, min spacing) */
 	ushort	qseq[Ntid];	/* 9space: the QoS data's sequence numbers, per TID */
 	ushort	txba;		/* 9space: the TIDs whose block ack agreement we made */
 	uchar	batoken;	/* the last ADDBA request's dialog token */
@@ -179,6 +180,13 @@ struct Wifi
 	int	roamfail;
 	uchar	roamfrom[Eaddrlen];
 	int	(*baagree)(Wifi*, int tid, int ssn, int win, int on);
+	/*
+	 * 9space: where set, called when our own block ack agreement is
+	 * agreed (on, ssn the TID's next sequence number) or ended; it
+	 * returns the sequence number the radio's aggregates start at
+	 * (ssn, or one more), -1 to send without aggregates
+	 */
+	int	(*batxagree)(Wifi*, int tid, int ssn, int on);
 	ulong	replays;	/* frames CCMP's (TKIP's) replay check dropped */
 
 	/*

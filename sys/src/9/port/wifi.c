@@ -563,8 +563,19 @@ recvba(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			return;
 		param = d[5] | d[6]<<8;
 		tid = param>>2 & 15;
-		if((d[3] | d[4]<<8) == 0)
+		if((d[3] | d[4]<<8) == 0){
+			/* 9space: the driver's radio aggregates from the TID's next sequence number */
+			if(wifi->batxagree != nil){
+				int ssn, n;
+
+				ssn = wn->qseq[tid] & 0xfff;
+				if((n = (*wifi->batxagree)(wifi, tid, ssn, 1)) < 0)
+					break;
+				if(n != ssn && (wn->qseq[tid] & 0xfff) == ssn)
+					wn->qseq[tid] = n;	/* the radio skips one (its scheduler's bug) */
+			}
 			wn->txba |= 1<<tid;
+		}
 		break;
 	case 2:	/* DELBA */
 		if(len < 6)
@@ -575,8 +586,11 @@ recvba(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			baoff(wifi, tid);	/* the access point's, our receiving */
 			if(wifi->baagree != nil)
 				(*wifi->baagree)(wifi, tid, 0, 0, 0);
-		} else
+		} else {
+			if((wn->txba & 1<<tid) && wifi->batxagree != nil)
+				(*wifi->batxagree)(wifi, tid, 0, 0);
 			wn->txba &= ~(1<<tid);
+		}
 		break;
 	}
 }
@@ -987,7 +1001,7 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 	wn->dtimcount = 0;
 	wn->dtimperiod = 1;
 	wn->wmm = wn->ht = wn->vht = wn->he = 0;	/* 9space: as this beacon says */
-	wn->htcap = wn->htprot = 0;
+	wn->htcap = wn->htprot = wn->htampdu = 0;
 	wn->htrxmcs[0] = wn->htrxmcs[1] = 0;
 
 	rsnset = 0;
@@ -1047,6 +1061,7 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			wn->ht = 1;
 			if(x - d >= 5){	/* info (2), A-MPDU parameters (1), MCS set (16) */
 				wn->htcap = d[0] | d[1]<<8;
+				wn->htampdu = d[2];
 				wn->htrxmcs[0] = d[3];
 				wn->htrxmcs[1] = d[4];
 			}
