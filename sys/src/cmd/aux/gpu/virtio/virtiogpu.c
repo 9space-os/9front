@@ -501,6 +501,68 @@ segmode(char *name, ulong perm)
 }
 
 /*
+ * 9space: our segments go with us (ORCLOSE) once the kernel resets the
+ * device when we end, however we end (gpu(3) onexit: exitreset): the
+ * device then reads and writes none of their pages any more.  Their
+ * directories stay open here; closing one removes it (rmseg).
+ */
+static int segorclose;
+static struct {
+	char	name[32];
+	int	fd;
+} *segfds;
+static int nsegfds, maxsegfds;
+static Lock segfdlk;
+
+static void	rmseg(char*);
+
+static int
+segcreate(char *name, int perm)
+{
+	char path[64];
+	int fd;
+
+	snprint(path, sizeof path, "#g/%s", name);
+	if((fd = create(path, OREAD|OCEXEC|(segorclose ? ORCLOSE : 0), DMDIR|perm)) < 0)
+		return 0;	/* there already (or an error the ctl's open tells) */
+	if(!segorclose){
+		close(fd);
+		return 1;
+	}
+	lock(&segfdlk);
+	if(nsegfds == maxsegfds){
+		maxsegfds += 64;
+		segfds = erealloc9p(segfds, maxsegfds * sizeof segfds[0]);
+	}
+	snprint(segfds[nsegfds].name, sizeof segfds[nsegfds].name, "%s", name);
+	segfds[nsegfds].fd = fd;
+	nsegfds++;
+	unlock(&segfdlk);
+	return 1;
+}
+
+/*
+ * the device reset when our ctl file closes: virtio 1.0 §4.1.4.3, the
+ * device status (common configuration, byte 20) written 0, then read
+ * until 0 (the reset done: §2.1.2)
+ */
+static void
+exitreset(void)
+{
+	uvlong off;
+
+	off = cap[Capcommon].off + Cstatus;
+	fprint(gctlfd, "onexit clear");
+	if(fprint(gctlfd, "onexit w8 %d %#llux 0", cap[Capcommon].bar, off) < 0
+	|| fprint(gctlfd, "onexit wait8 %d %#llux 0xff 0 1000", cap[Capcommon].bar, off) < 0){
+		fprint(2, "%s: no reset at exit (%r): the segments stay until the next start\n", argv0);
+		fprint(gctlfd, "onexit clear");
+		return;
+	}
+	segorclose = 1;
+}
+
+/*
  * a fixed (physically contiguous) #g segment: create it unless it
  * exists, return its physical address, and its address in *va if va
  * is not nil (the kernel's choice).
@@ -511,13 +573,9 @@ fixedseg(char *name, ulong size, int perm, uintptr *va)
 	char buf[256], path[64], *f[6];
 	int fd, n;
 
-	snprint(path, sizeof path, "#g/%s", name);
-	if((fd = create(path, OREAD, DMDIR|perm)) >= 0){
-		close(fd);
-		if(segmode(name, perm) < 0){
-			remove(path);
-			return 0;
-		}
+	if(segcreate(name, perm) && segmode(name, perm) < 0){
+		rmseg(name);
+		return 0;
 	}
 	snprint(path, sizeof path, "#g/%s/ctl", name);
 	if((fd = open(path, ORDWR)) < 0)
@@ -541,7 +599,17 @@ static void
 rmseg(char *name)
 {
 	char path[64];
+	int i;
 
+	lock(&segfdlk);
+	for(i = 0; i < nsegfds; i++)
+		if(strcmp(segfds[i].name, name) == 0){
+			close(segfds[i].fd);	/* ORCLOSE: removed */
+			segfds[i] = segfds[--nsegfds];
+			unlock(&segfdlk);
+			return;
+		}
+	unlock(&segfdlk);
 	snprint(path, sizeof path, "#g/%s", name);
 	remove(path);
 }
@@ -2021,10 +2089,11 @@ main(int argc, char **argv)
 
 	qr.l = &qlk;
 	snprint(path, sizeof path, "%s/ctl", gdir);
-	if((gctlfd = open(path, ORDWR)) < 0)
+	if((gctlfd = open(path, ORDWR|OCEXEC)) < 0)	/* OCEXEC: its close is ours (exitreset) */
 		sysfatal("open %s: %r", path);
 	fprint(gctlfd, "bme on");
 	findcaps();
+	exitreset();
 	dmainit();
 	if(!poll){
 		snprint(path, sizeof path, "%s/irq", gdir);

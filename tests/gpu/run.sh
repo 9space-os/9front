@@ -281,6 +281,33 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 	fi
 	check "contexts gone after the test" bash -c "! sed -n '/gpuctxtest: /,\$p' '$TMPD/log3d' | grep -q '^ctx '"
 
+	# 9space: the driver killed while vkcube draws (killdrv.rc): the
+	# device reset at its end (gpu(3) onexit), its #g segments gone
+	# with it (ORCLOSE), the memory back, a new driver draws; then a
+	# reset that never finishes: bus mastering off for good
+	if [ -x "$HERE/root/tests/vkcube" ]; then
+		cp "$HERE/killdrv.rc" "$HERE/root/tests/killdrv"
+		chmod +x "$HERE/root/tests/killdrv"
+		bootkill(){
+			CPU=host MEM=1024 UFS_EXTRA="$HERE/root" \
+			QEMU_EXTRA="-vga none -display egl-headless -device virtio-gpu-gl-pci,blob=true,venus=true,hostmem=256M -object memory-backend-memfd,id=mem1,size=1024M,share=on -machine memory-backend=mem1" \
+			"$ROOT/scripts/guest/boot-cli.sh" '/tests/killdrv' > "$TMPD/consolekill" 2>&1
+		}
+		check "boot with virtio-gpu-gl, kill aux/virtiogpu while vkcube draws" bootkill
+		tr -d '\r' < "$TMPD/consolekill" | grep '^killdrv: ' > "$TMPD/logkill"
+		sed 's/^/  /' "$TMPD/logkill"
+		kv(){ sed -n "s/^killdrv: $1 //p" "$TMPD/logkill" | head -1; }
+		check "killdrv: the driver's procs all gone" bash -c "[ -z \"\$(sed -n 's/^killdrv: driver left//p' '$TMPD/logkill' | tr -d ' ')\" ] && grep -q '^killdrv: driver left' '$TMPD/logkill'"
+		check "killdrv: vkcube's segments while drawing (more than the driver's queue)" bash -c "[ \"\$(sed -n 's/^killdrv: segs drawing //p' '$TMPD/logkill')\" -gt 1 ]"
+		check "killdrv: no gpu0dma/blob/ctx segment left in #g (ORCLOSE)" grep -q '^killdrv: segs after 0$' "$TMPD/logkill"
+		check "killdrv: the reset finished (no onexit message, no fault)" bash -c "! grep -q '^killdrv: kmesg: ' '$TMPD/logkill'"
+		check "killdrv: the memory back (drawing > before + 2 MB, after <= before + 2 MB)" bash -c "b=\$(sed -n 's/^killdrv: user before //p' '$TMPD/logkill'); a=\$(sed -n 's/^killdrv: user after //p' '$TMPD/logkill'); d=\$(sed -n 's/^killdrv: user drawing //p' '$TMPD/logkill'); echo before \$b drawing \$d after \$a; [ -n \"\$a\" ] && [ \$a -le \$((b + 512)) ] && [ \$d -gt \$((b + 512)) ]"
+		check "killdrv: a new driver serves the device and draws" bash -c "grep -q '^killdrv: restart status device virtio-gpu' '$TMPD/logkill' && grep -q '^killdrv: restart drew$' '$TMPD/logkill'"
+		check "killdrv: a reset that never finishes: the kernel says so" grep -q '^killdrv: stuck: .*engine did not stop, bus mastering off' "$TMPD/logkill"
+		check "killdrv: ... and refuses bme on afterwards" grep -q '^killdrv: bme on refused$' "$TMPD/logkill"
+		check "killdrv: nothing hung" grep -q '^killdrv: done$' "$TMPD/logkill"
+	fi
+
 	# wsys (../9front-ui stage 2): vktri in a window of wsys hands its
 	# frames over as GPU buffers (gpu(4) export, wsys' gpubuffer; Mesa's
 	# plan9 WSI), then again by copy for comparison (wsysvk.rc)

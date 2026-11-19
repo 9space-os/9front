@@ -9,6 +9,15 @@
 
 /* the KPI started and the device of #G (gdir: "#G/0") made its PCI device; 0 or -errno */
 int	kpi_start(const char *gdir);
+/*
+ * the driver's last words (gpu(3) onexit, kpi/plan9/p9dev.c): the reset
+ * of its engines the kernel runs when the driver's ctl file closes, its
+ * steps one a line; from then on its segments are ORCLOSE (they go with
+ * it); only on a device of vendor's. Before kpi_start; 0 or -1.
+ * p9_segfds: how many are open.
+ */
+int	p9_onexit(const char *gdir, unsigned int vendor, const char *prog);
+int	p9_segfds(void);
 /* a module parameter, "name=value" as on Linux's command line; 0 or -errno (kpi_start first) */
 int	kpi_param_set(const char *s);
 /* DRM's core and helpers initialised, as Linux's module_init does; 0 or -errno */

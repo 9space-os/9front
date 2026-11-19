@@ -223,6 +223,18 @@ threadmain(int argc, char **argv)
 	atnotify(trapnote, 1);
 	threadnotify(trapnote, 1);	/* libthread passes the main proc's other notes (threaddump) only so */
 	i915_options(nodisplay, drmdebug, loglevel);
+	/*
+	 * 9space: when this process ends, however it ends, the kernel
+	 * resets the render engines (GEN6_GDRST full, twice as i915's
+	 * gen6_hw_domain_reset before 12.70, each until the bit clears)
+	 * before our pages go: then our segments may go with us (ORCLOSE)
+	 */
+	if(p9_onexit(gdir, 0x8086,
+	    "w32 0 0x941c 0x1\n"
+	    "wait 0 0x941c 0x1 0x0 500\n"
+	    "w32 0 0x941c 0x1\n"
+	    "wait 0 0x941c 0x1 0x0 500\n") < 0)
+		fprint(2, "%s: %s: no reset at exit (%r): the segments stay until the next start\n", argv0, gdir);
 	if((r = kpi_start(gdir)) < 0)
 		sysfatal("kpi: %s: error %d", gdir, -r);
 	if(selftest){

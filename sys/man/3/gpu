@@ -151,6 +151,44 @@ the GPU.  Mapped as the segments
 .BI gpu n vramw
 (write-combining), once, and only if no part of it is memory the
 kernel has (RAM, ACPI tables) or one of the device's bars.
+.PD 0
+.TP
+.BI "onexit w32 " "bar off val
+.TP
+.BI "onexit w8 " "bar off val
+.TP
+.BI "onexit wait " "bar off mask want ms
+.TP
+.BI "onexit wait8 " "bar off mask want ms
+.PD
+.TP
+.B "onexit clear
+(9space) a step of the driver's last words, kept on this open
+.B ctl
+file: when it closes (the driver ends, however it ends: the kernel
+closes a process's files before its memory goes), the steps run in
+order: a 32-bit or byte write of
+.I val
+at offset
+.I off
+of memory bar
+.IR bar ,
+or a read until
+.RI ( reg & mask )
+is
+.I want
+for at most
+.I ms
+milliseconds (5000 at most).
+A driver writes there the reset of its engines, so that the device
+reads and writes none of its pages once they are freed: its segments
+may then go with it
+.RI ( segment (3),
+.BR ORCLOSE ).
+If a wait times out, bus mastering goes off (the screen with it) and
+.B "bme on
+is refused until reboot: the device may still run where it stopped.
+Up to 32 steps; the host owner's.
 .PD
 .PP
 Opening
@@ -209,3 +247,20 @@ Only legacy interrupts; no MSI.
 The framebuffer is never freed.
 .br
 The kernel's console keeps writing on the screen.
+.br
+(9space) A driver whose
+.B onexit
+steps are wrong frees pages the device may still use.  aux/i915 resets
+the render domain (GEN6_GDRST) as Linux does before graphics 12.70,
+without the preparations Meteor Lake and later need; aux/virtiogpu
+resets the device (virtio's device status).
+If the reset does not finish, the display is gone until reboot
+(bus mastering off, for the pages freed next).  aux/amdgpu and
+aux/intelgpu write none: their segments stay after a crash until their
+next start.
+.br
+(9space) Each ORCLOSE segment is an open file of the driver's, and a
+process has at most 5000
+.RI ( MAXNFD ):
+past it the driver's next object cannot be made (its client gets the
+error).  aux/i915 shows how many it has open in its status.

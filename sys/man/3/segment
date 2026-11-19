@@ -42,6 +42,15 @@ However, the segment will continue to exist until all
 processes using it either exit or
 .I segdetach
 it.
+A directory created with
+.B ORCLOSE
+is removed when that file is closed, however its process ends; only
+that segment, not one made later in its place after a
+.I remove
+by name (9space: 9front removed whichever segment was then in its
+slot).  A GPU driver makes its segments so (see
+.IR gpu (3)'s
+.BR onexit ).
 .PP
 Within each segment directory are two files,
 .B data

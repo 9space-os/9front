@@ -6,7 +6,7 @@
  *
  *	#G/N/ctl	r: pci, id, bars, segments, framebuffer
  *			w: bme on|off, fb <bytes>, irq ack, bar <n> cached,
- *			vram <pa> <size>
+ *			vram <pa> <size>, onexit ... (below)
  *	#G/N/irq	read blocks until the device interrupts
  *	#G/N/dirty	read blocks until /dev/draw changed the
  *			framebuffer; returns "x0 y0 x1 y1": what changed
@@ -31,6 +31,16 @@
  * after it has served the device; an MSI is an edge and needs no
  * masking.  There is no mode setting, memory management or
  * firmware here.
+ *
+ * 9space: the driver's last words.  A driver in user space may die
+ * at any point (the pager kills it, a fault): the engines then still
+ * run its work, through page tables that point at its pages, which go
+ * back to the allocator with its segments (segment(3): it makes them
+ * ORCLOSE).  Before that, its ctl file closes (pexit closes the files
+ * before the address space): the register writes and waits the driver
+ * wrote as "onexit" on that open file run then, a reset of its engines
+ * the driver knows how to do.  If a wait times out, bus mastering goes
+ * off, so that nothing writes into the pages once they are freed.
  */
 #include	"u.h"
 #include	"../port/lib.h"
@@ -64,6 +74,35 @@ enum {
 
 typedef struct Gpu Gpu;
 typedef struct Fb Fb;
+typedef struct Exitop Exitop;
+typedef struct Exitprog Exitprog;
+
+enum {
+	Maxexitop	= 32,
+	Ew32	= 0,	/* w32 bar off val */
+	Ew8,		/* w8 bar off val (virtio's device status: natural width) */
+	Ewait,		/* wait bar off mask want ms: until (r32 & mask) == want */
+	Ewait8,		/* wait8 bar off mask want ms: the same, a byte read */
+};
+
+/* 9space: what runs when the driver's ctl file closes (onexit) */
+struct Exitop
+{
+	int	op;
+	int	bar;
+	ulong	off;
+	u32int	val;	/* Ew32: the value; Ewait: the value wanted */
+	u32int	mask;
+	int	ms;
+	int	width;	/* 1 or 4 bytes */
+};
+struct Exitprog
+{
+	int	n;
+	Exitop	op[Maxexitop];
+	volatile u32int *regs[nelem(((Pcidev*)0)->mem)];	/* the bars it uses, mapped */
+	ulong	size[nelem(((Pcidev*)0)->mem)];
+};
 
 /*
  * 9space: a framebuffer for devdraw (vgagpu.c), as big as the screen's
@@ -121,6 +160,8 @@ struct Gpu
 	uvlong	vramsize;
 	char	vramseg[KNAMELEN];
 	char	vramwseg[KNAMELEN];
+
+	int	stuck;		/* 9space: a driver's engines did not stop (onexit): no bus mastering until reboot */
 
 	uvlong	oppa;		/* Intel: the ACPI OpRegion (ASLS), with the VBT: page */
 	ulong	opsize;		/* and size of its segment */
@@ -364,13 +405,144 @@ gpuopen(Chan *c, int omode)
 	return c;
 }
 
+/* an onexit line: one more step of the driver's last words, on this open file */
+static void
+exitadd(Gpu *g, Chan *c, Cmdbuf *cb)
+{
+	Exitprog *x;
+	Exitop *o;
+	Pcidev *p;
+	int bar;
+
+	if(!iseve())
+		error(Eperm);
+	x = c->aux;
+	if(cb->nf == 2 && strcmp(cb->f[1], "clear") == 0){
+		if(x != nil)
+			x->n = 0;
+		return;
+	}
+	if(cb->nf < 5)
+		error(Ebadarg);
+	p = g->pci;
+	bar = atoi(cb->f[2]);
+	if(bar < 0 || bar >= nelem(p->mem) || p->mem[bar].size == 0 || p->mem[bar].bar & 1)
+		error("onexit: no such memory bar");
+	if(x == nil){
+		x = smalloc(sizeof *x);
+		c->aux = x;
+	}
+	if(x->n >= Maxexitop)
+		error("onexit: too many steps");
+	o = &x->op[x->n];
+	memset(o, 0, sizeof *o);
+	o->bar = bar;
+	o->off = strtoul(cb->f[3], 0, 0);
+	o->width = strcmp(cb->f[1], "w8") == 0 || strcmp(cb->f[1], "wait8") == 0 ? 1 : 4;
+	if(o->off & (o->width-1) || o->off + o->width > p->mem[bar].size)
+		error("onexit: offset outside the bar");
+	if((strcmp(cb->f[1], "w32") == 0 || strcmp(cb->f[1], "w8") == 0) && cb->nf == 5){
+		o->op = o->width == 1 ? Ew8 : Ew32;
+		o->val = strtoul(cb->f[4], 0, 0);
+	} else if((strcmp(cb->f[1], "wait") == 0 || strcmp(cb->f[1], "wait8") == 0) && cb->nf == 7){
+		o->op = o->width == 1 ? Ewait8 : Ewait;
+		o->mask = strtoul(cb->f[4], 0, 0);
+		o->val = strtoul(cb->f[5], 0, 0);
+		o->ms = atoi(cb->f[6]);
+		if(o->ms <= 0 || o->ms > 5000)
+			error("onexit: wait 1 to 5000 ms");
+	} else
+		error(Ebadctl);
+	/* mapped now: the close may come at any point, from pexit */
+	if(x->regs[bar] == nil){
+		x->regs[bar] = vmap(p->mem[bar].bar & ~0xFULL, p->mem[bar].size);
+		if(x->regs[bar] == nil)
+			error("onexit: cannot map the bar");
+		x->size[bar] = p->mem[bar].size;
+	}
+	x->n++;
+}
+
+static u32int
+exitrd(Exitprog *x, Exitop *o)
+{
+	volatile uchar *b;
+
+	b = (volatile uchar*)x->regs[o->bar] + o->off;
+	if(o->width == 1)
+		return *b;
+	return *(volatile u32int*)b;
+}
+
+/* the driver's ctl file closed: its last words, then nothing of it is mapped */
+static void
+exitrun(Gpu *g, Exitprog *x)
+{
+	Exitop *o;
+	volatile uchar *b;
+	int i, t, failed;
+
+	failed = 0;
+	for(i = 0; i < x->n; i++){
+		o = &x->op[i];
+		b = (volatile uchar*)x->regs[o->bar] + o->off;
+		switch(o->op){
+		case Ew32:
+			*(volatile u32int*)b = o->val;
+			coherence();
+			break;
+		case Ew8:
+			*b = o->val;
+			coherence();
+			break;
+		case Ewait:
+		case Ewait8:
+			for(t = 0; t < o->ms; t++){
+				if((exitrd(x, o) & o->mask) == o->val)
+					break;
+				delay(1);
+			}
+			if((exitrd(x, o) & o->mask) != o->val){
+				print("#G%d: onexit: bar%d %#lux & %#ux is %#ux, not %#ux after %d ms\n",
+					g->id, o->bar, o->off, o->mask, exitrd(x, o) & o->mask, o->val, o->ms);
+				failed = 1;
+			}
+			break;
+		}
+	}
+	if(failed){
+		/*
+		 * not known to be still: no DMA at all into the pages freed
+		 * next, and none later either (bme on refused): the device may
+		 * go on where it stopped
+		 */
+		print("gpu%d: engine did not stop, bus mastering off: the display is gone until reboot\n", g->id);
+		g->pci->nobme = 1;	/* every way back on: pcisetbme, #$/pci (devpci.c) */
+		pciclrbme(g->pci);
+		g->stuck = 1;
+	}
+	for(i = 0; i < nelem(x->regs); i++)
+		if(x->regs[i] != nil)
+			vunmap(x->regs[i], x->size[i]);
+	free(x);
+}
+
 static void
 gpuclose(Chan *c)
 {
 	Gpu *g;
 	Dirty *d;
+	Exitprog *x;
 	int i;
 
+	if((c->flag & COPEN) != 0 && TYPE(c->qid) == Qctl && (x = c->aux) != nil){
+		g = &gpus[GPU(c->qid)];
+		c->aux = nil;
+		qlock(g);
+		exitrun(g, x);
+		qunlock(g);
+		return;
+	}
 	if((c->flag & COPEN) == 0 || TYPE(c->qid) != Qdirty || (d = c->aux) == nil)
 		return;
 	g = &gpus[GPU(c->qid)];
@@ -726,8 +898,11 @@ gpuwrite(Chan *c, void *a, long n, vlong)
 		nexterror();
 	}
 	if(cb->nf == 2 && strcmp(cb->f[0], "bme") == 0){
-		if(strcmp(cb->f[1], "on") == 0)
+		if(strcmp(cb->f[1], "on") == 0){
+			if(g->stuck)
+				error("the last driver's engines did not stop (onexit): reboot");
 			pcisetbme(g->pci);
+		}
 		else
 			pciclrbme(g->pci);
 	} else if(cb->nf == 2 && strcmp(cb->f[0], "fb") == 0)
@@ -742,6 +917,8 @@ gpuwrite(Chan *c, void *a, long n, vlong)
 		pcicfgw16(g->pci, PciPCR, pcicfgr16(g->pci, PciPCR) & ~Intdis);
 	else if(cb->nf == 1 && strcmp(cb->f[0], "wbinvd") == 0)
 		wbinvdall();
+	else if(cb->nf >= 2 && strcmp(cb->f[0], "onexit") == 0)
+		exitadd(g, c, cb);
 	else
 		error(Ebadctl);
 	qunlock(g);

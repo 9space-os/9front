@@ -925,6 +925,8 @@ pciclrioe(Pcidev* p)
 void
 pcisetbme(Pcidev* p)
 {
+	if(p->nobme)
+		return;	/* 9space: a device that may still run where it stopped */
 	p->pcr |= MASen;
 	pcicfgw16(p, PciPCR, p->pcr);
 }

@@ -667,40 +667,50 @@ segmentopen(Chan *c, int omode)
 	return c;
 }
 
+/*
+ * take segment x out of #g; want: only if it is still that one (an
+ * ORCLOSE chan's own, 9space: its slot may hold another by now)
+ */
 static void
-segmentremove(Chan *c)
+removegseg(int x, Globalseg *want)
 {
 	Globalseg *g;
-	int x;
 
-	if(TYPE(c) != Qsegdir)
-		error(Eperm);
 	lock(&globalseglock);
-	x = SEG(c);
-	g = globalseg[x];
-	if(g != nil && strcmp(g->uid, up->user) && !iseve()){
+	g = x < nglobalseg ? globalseg[x] : nil;
+	if(g == nil || (want != nil && g != want)){
+		unlock(&globalseglock);
+		return;
+	}
+	if(want == nil && strcmp(g->uid, up->user) && !iseve()){
 		unlock(&globalseglock);
 		error(Eperm);
 	}
 	globalseg[x] = nil;
 	unlock(&globalseglock);
-	if(g != nil){
-		/* 9front-ng: an alias segment's memory is its owner's again: revoke it */
-		if(g->alias && g->Segio.s != nil)
-			segrevoke(g->Segio.s);
-		/* a pager's faults fail from now on, a queue's too */
-		if(g->Segio.s != nil && (g->Segio.s->type&SG_TYPE) == SG_PHYSICAL && g->Segio.s->pseg->pager != nil){
-			Pager *pg = g->Segio.s->pseg->pager;
+	/* 9front-ng: an alias segment's memory is its owner's again: revoke it */
+	if(g->alias && g->Segio.s != nil)
+		segrevoke(g->Segio.s);
+	/* a pager's faults fail from now on, a queue's too */
+	if(g->Segio.s != nil && (g->Segio.s->type&SG_TYPE) == SG_PHYSICAL && g->Segio.s->pseg->pager != nil){
+		Pager *pg = g->Segio.s->pseg->pager;
 
-			lock(pg);
-			pg->dead = 1;
-			unlock(pg);
-			wakeup(&pg->r);
-		}
-		if(g->q != nil)
-			pagerqdead(g->q);
-		putgseg(g);
+		lock(pg);
+		pg->dead = 1;
+		unlock(pg);
+		wakeup(&pg->r);
 	}
+	if(g->q != nil)
+		pagerqdead(g->q);
+	putgseg(g);
+}
+
+static void
+segmentremove(Chan *c)
+{
+	if(TYPE(c) != Qsegdir)
+		error(Eperm);
+	removegseg(SEG(c), nil);
 }
 
 static void
@@ -709,8 +719,17 @@ segmentclose(Chan *c)
 	if(c->flag & COPEN){
 		switch(TYPE(c)){
 		case Qsegdir:
-			if(c->flag & CRCLOSE)
-				segmentremove(c);
+			/*
+			 * 9space: the segment the chan made (segmentcreate), not
+			 * whatever is in its slot now: one removed by name
+			 * meanwhile and the slot taken by another
+			 */
+			if(c->aux != nil){
+				if(c->flag & CRCLOSE)
+					removegseg(SEG(c), c->aux);
+				putgseg(c->aux);
+				c->aux = nil;
+			}
 			break;
 		case Qdata:
 			/* 9front-ng: a pager queue's last reader gone (its driver): its faults fail */
@@ -809,6 +828,9 @@ segmentcreate(Chan *c, char *name, int omode, ulong perm)
 		free(o);
 	}
 
+	/* 9space: the chan keeps its segment (segmentclose: ORCLOSE) */
+	incref(&g->Ref);
+	c->aux = g;
 	c->qid.path = PATH(xfree, Qsegdir);
 	c->qid.type = QTDIR;
 	c->qid.vers = 0;

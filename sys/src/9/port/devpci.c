@@ -223,18 +223,29 @@ pciwrite(Chan *c, void *va, long n, vlong offset)
 		if(n+offset > 4096)
 			n = 4096-offset;
 		r = offset;
+		/*
+		 * 9space: no bus mastering on a device whose driver's engines
+		 * did not stop (gpu(3) onexit), not by a raw write either:
+		 * the command register's low byte is at PciPCR
+		 */
 		if(!(r & 3) && n == 4){
 			x = GBIT32(a);
+			if(p->nobme && r == PciPCR)
+				x &= ~MASen;
 			pcicfgw32(p, r, x);
 			return 4;
 		}
 		if(!(r & 1) && n == 2){
 			x = GBIT16(a);
+			if(p->nobme && r == PciPCR)
+				x &= ~MASen;
 			pcicfgw16(p, r, x);
 			return 2;
 		}
 		for(i = 0; i <  n; i++){
 			x = GBIT8(a);
+			if(p->nobme && r == PciPCR)
+				x &= ~MASen;
 			pcicfgw8(p, r, x);
 			a++;
 			r++;

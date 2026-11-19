@@ -72,6 +72,8 @@ enum {
 	P9SEGDMA32	= 2,
 };
 void	p9_segfree(const char *name, void *va);
+int	p9_segfds(void);	/* our ORCLOSE segments open (p9_onexit) */
+int	p9_onexit(const char *gdir, unsigned int vendor, const char *prog);
 /* an alias segment (segment(3)): page i is at offset off[i] of segment src[i]; attached here if attach */
 void	*p9_segalias(const char *name, int n, const char **src, unsigned long long *off, int attach);
 /* a part of a physical segment (a BAR's) for a client, revoked by p9_segfree: its address */
