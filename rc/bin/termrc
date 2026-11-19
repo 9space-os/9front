@@ -109,9 +109,9 @@ if(test -r /dev/battery && ! ~ $batteryguard off)
 	batteryguard &
 
 # 9space: aux/pstate, the processors' clock (P-states, pstate(8)):
-# /dev/pstate; pstate= in plan9.ini: auto (the default), high, low, or
-# off to leave the firmware's clock
-if(test -e '#P/msr' && ! ~ $pstate off && ! test -e /srv/pstate)
+# /dev/pstate; only with pstate= in plan9.ini: auto, high or low
+# (shelved for now: not started by default, the firmware's clock stays)
+if(test -e '#P/msr' && ~ $pstate auto high low && ! test -e /srv/pstate)
 	aux/pstate $pstate
 
 # 9space: aux/rtw89, the radio of a wlan(3) interface on a Realtek

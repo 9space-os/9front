@@ -87,8 +87,9 @@ if(! ps|grep -s timesync){
 }
 
 # 9space: aux/pstate, the processors' clock (P-states, pstate(8));
-# pstate= in plan9.ini: auto (the default), high, low, or off
-if(test -e '#P/msr' && ! ~ $pstate off && ! test -e /srv/pstate)
+# only with pstate= in plan9.ini: auto, high or low (shelved for now:
+# not started by default)
+if(test -e '#P/msr' && ~ $pstate auto high low && ! test -e /srv/pstate)
 	aux/pstate $pstate
 
 if(test -d /cfg/$sysname/service)

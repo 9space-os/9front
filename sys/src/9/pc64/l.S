@@ -803,6 +803,24 @@ mwait:
 _mwaitdone:
 	ret
 
+/* 9space: mwait with a C-state hint (cstate.c): mwaithint(addr, hint) */
+.globl mwaithint
+mwaithint:
+	movq	%rdi, %rax
+	movl	(%rax), %ecx
+	orl	%ecx, %ecx
+	jne	_mwaithintdone
+	xorl	%edx, %edx
+	.byte 0x0f; .byte 0x01; .byte 0xc8	/* MONITOR */
+	movl	(%rax), %ecx
+	orl	%ecx, %ecx
+	jne	_mwaithintdone
+	movl	%esi, %eax
+	xorl	%ecx, %ecx
+	.byte 0x0f; .byte 0x01; .byte 0xc9	/* MWAIT */
+_mwaithintdone:
+	ret
+
 /*
  * SIMD Floating Point.
  */

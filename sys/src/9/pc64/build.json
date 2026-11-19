@@ -225,6 +225,7 @@
                 "Link": [
                     "cputemp pci",
                     "acpisleep",
+                    "cstate",
                     "smbios",
                     "ether2114x pci",
                     "ether79c970 pci",
@@ -309,6 +310,7 @@
             "../port/alloc.c",
             "../port/allocb.c",
             "acpisleep.c",
+            "cstate.c",
             "apic.c",
             "archacpi.c",
             "archgeneric.c",

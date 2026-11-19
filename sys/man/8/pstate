@@ -41,11 +41,17 @@ where it serves one file,
 .I Termrc
 and
 .I cpurc
-start it unless
-.B pstate=off
-is in
-.IR plan9.ini (8);
-the variable's other values are the first policy.
+start it only when
+.IR plan9.ini (8)
+sets
+.B pstate=
+to
+.BR auto ,
+.B high
+or
+.BR low ,
+the first policy; without it (the default for now) the clock stays as
+the firmware set it.
 .PP
 The method follows the processor:
 .TF intel-eist

@@ -618,6 +618,23 @@ TEXT mwait(SB), 1, $-4
 _mwaitdone:
 	RET
 
+/* 9space: mwait with a C-state hint (cstate.c): mwaithint(addr, hint) */
+TEXT mwaithint(SB), 1, $-4
+	MOVQ	RARG, AX
+	MOVL	(AX), CX
+	ORL	CX, CX
+	JNZ	_mwaithintdone
+	XORL	DX, DX
+	BYTE $0x0f; BYTE $0x01; BYTE $0xc8	/* MONITOR */
+	MOVL	(AX), CX
+	ORL	CX, CX
+	JNZ	_mwaithintdone
+	MOVL	hint+8(FP), AX
+	XORL	CX, CX
+	BYTE $0x0f; BYTE $0x01; BYTE $0xc9	/* MWAIT */
+_mwaithintdone:
+	RET
+
 /*
  * SIMD Floating Point.
  * Note: for x87 instructions which have both a 'wait' and 'nowait' version,

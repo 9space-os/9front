@@ -956,6 +956,8 @@ timerset(Tval x)
  *  and it reduces lock contention (thus system time and real time)
  *  on many-core systems with large values of NPROC.
  */
+void (*idlemwait)(void);	/* 9space: deeper C-states (pc64/cstate.c) */
+
 void
 idlehands(void)
 {
@@ -963,6 +965,8 @@ idlehands(void)
 
 	if(conf.nmach == 1)
 		halt();
+	else if(idlemwait != nil)
+		idlemwait();
 	else if(m->cpuidcx & Monitor)
 		mwait(&nrdy);
 	else if(idle_spin == 0)
