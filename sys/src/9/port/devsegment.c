@@ -206,25 +206,36 @@ segmentopen(Chan *c, int omode)
 	return c;
 }
 
+/*
+ * take segment x out; want: only if it is still that one (the
+ * ORCLOSE chan's own: the slot may hold another by now)
+ */
 static void
-segmentremove(Chan *c)
+removegseg(int x, Globalseg *want)
 {
 	Globalseg *g;
-	int x;
 
-	if(TYPE(c) != Qsegdir)
-		error(Eperm);
 	lock(&globalseglock);
-	x = SEG(c);
 	g = globalseg[x];
-	if(g != nil && strcmp(g->uid, up->user) && !iseve()){
+	if(g == nil || want != nil && g != want){
+		unlock(&globalseglock);
+		return;
+	}
+	if(want == nil && strcmp(g->uid, up->user) && !iseve()){
 		unlock(&globalseglock);
 		error(Eperm);
 	}
 	globalseg[x] = nil;
 	unlock(&globalseglock);
-	if(g != nil)
-		putgseg(g);
+	putgseg(g);
+}
+
+static void
+segmentremove(Chan *c)
+{
+	if(TYPE(c) != Qsegdir)
+		error(Eperm);
+	removegseg(SEG(c), nil);
 }
 
 static void
@@ -233,8 +244,17 @@ segmentclose(Chan *c)
 	if(c->flag & COPEN){
 		switch(TYPE(c)){
 		case Qsegdir:
-			if(c->flag & CRCLOSE)
-				segmentremove(c);
+			/*
+			 * the segment the chan made (segmentcreate), not
+			 * whatever is in its slot now: one removed by name
+			 * meanwhile and the slot taken by another
+			 */
+			if(c->aux != nil){
+				if(c->flag & CRCLOSE)
+					removegseg(SEG(c), c->aux);
+				putgseg(c->aux);
+				c->aux = nil;
+			}
 			break;
 		case Qctl:
 		case Qdata:
@@ -292,6 +312,9 @@ segmentcreate(Chan *c, char *name, int omode, ulong perm)
 	unlock(&globalseglock);
 	poperror();
 
+	/* the chan keeps its segment (segmentclose: ORCLOSE) */
+	incref(g);
+	c->aux = g;
 	c->qid.path = PATH(xfree, Qsegdir);
 	c->qid.type = QTDIR;
 	c->qid.vers = 0;
