@@ -817,7 +817,20 @@ fb_clears_apply_or_discard_internal(struct zink_context *ctx, struct pipe_resour
          struct zink_framebuffer_clear_data *clear = zink_fb_clear_element(fb_clear, j);
          struct u_rect scissor = {clear->scissor.minx, clear->scissor.maxx,
                                   clear->scissor.miny, clear->scissor.maxy};
-         if (!clear->has_scissor || zink_blit_region_covers(region, scissor) || !depth_fills) {
+         /*
+          * a read (invert: apply_region) needs every clear it sees any of:
+          * a clear's scissor that meets the region, not only one the region
+          * lies within (a column read across rows cleared with scissors
+          * read them uncleared)
+          */
+         bool hit;
+         if (invert) {
+            struct u_rect r = {MIN2(region.x0, region.x1), MAX2(region.x0, region.x1),
+                               MIN2(region.y0, region.y1), MAX2(region.y0, region.y1)};
+            hit = u_rect_test_intersection(&r, &scissor);
+         } else
+            hit = zink_blit_region_covers(region, scissor);
+         if (!clear->has_scissor || hit || !depth_fills) {
             /* this is a clear that isn't fully covered by our pending write */
             if (!discard_only)
                fb_clears_apply_internal(ctx, pres, i);

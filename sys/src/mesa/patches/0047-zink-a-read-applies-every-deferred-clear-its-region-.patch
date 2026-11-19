@@ -1,0 +1,46 @@
+From 9e2c9e856154ae9180e5f61760783fe0298efd22 Mon Sep 17 00:00:00 2001
+From: port <port@localhost>
+Date: Thu, 19 Nov 2026 23:10:55 +0100
+Subject: [PATCH] zink: a read applies every deferred clear its region meets,
+ not only those whose scissor contains it
+
+zink_fb_clears_apply_region (blits and copies reading a framebuffer
+attachment: glReadPixels) applied the pending clears only if one had no
+scissor or the read region lay within its scissor. A read of a column
+across rows cleared with scissors (several scissored clears, as a
+program redrawing only what changed does) read the rows uncleared. A
+read now applies them when a scissor meets the region; a write keeps
+the test it had.
+---
+ src/gallium/drivers/zink/zink_clear.c | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/drivers/zink/zink_clear.c b/src/gallium/drivers/zink/zink_clear.c
+index aa29cab..714c3da 100644
+--- a/src/gallium/drivers/zink/zink_clear.c
++++ b/src/gallium/drivers/zink/zink_clear.c
+@@ -817,7 +817,20 @@ fb_clears_apply_or_discard_internal(struct zink_context *ctx, struct pipe_resour
+          struct zink_framebuffer_clear_data *clear = zink_fb_clear_element(fb_clear, j);
+          struct u_rect scissor = {clear->scissor.minx, clear->scissor.maxx,
+                                   clear->scissor.miny, clear->scissor.maxy};
+-         if (!clear->has_scissor || zink_blit_region_covers(region, scissor) || !depth_fills) {
++         /*
++          * a read (invert: apply_region) needs every clear it sees any of:
++          * a clear's scissor that meets the region, not only one the region
++          * lies within (a column read across rows cleared with scissors
++          * read them uncleared)
++          */
++         bool hit;
++         if (invert) {
++            struct u_rect r = {MIN2(region.x0, region.x1), MAX2(region.x0, region.x1),
++                               MIN2(region.y0, region.y1), MAX2(region.y0, region.y1)};
++            hit = u_rect_test_intersection(&r, &scissor);
++         } else
++            hit = zink_blit_region_covers(region, scissor);
++         if (!clear->has_scissor || hit || !depth_fills) {
+             /* this is a clear that isn't fully covered by our pending write */
+             if (!discard_only)
+                fb_clears_apply_internal(ctx, pres, i);
+-- 
+2.56.0
+
