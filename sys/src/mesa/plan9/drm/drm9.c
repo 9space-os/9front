@@ -49,6 +49,10 @@
 #include "amdgpu9.h"
 #include "gpuagain.h"
 
+/* plan9/lib/plan9compat.c: munmap asks drm9 for GEM_MMAP's pointers */
+extern int (*plan9_munmap_hook)(void*, size_t);
+static int gemmunmap(void*, size_t);
+
 /* as Mesa's build has it (meson: -DETIME=ETIMEDOUT) */
 #ifndef ETIME
 #define ETIME	ETIMEDOUT
@@ -94,6 +98,8 @@ struct Fence {
 
 struct Gem {
 	int	used;
+	int	closed;		/* GEM_CLOSE'd while mapped: goes at the last munmap */
+	int	nmap;		/* GEM_MMAPs not yet munmapped */
 	int	id;		/* the driver's */
 	char	seg[32];
 	uint64_t	va, size;
@@ -238,6 +244,7 @@ scan(void)
 	if(ngpu >= 0)
 		return;
 	ngpu = 0;
+	plan9_munmap_hook = gemmunmap;
 	for(i = 0; i < Maxdev; i++){
 		snprintf(path, sizeof path, "/dev/gpu/%d/status", i);
 		/* its driver started again: its files over the dead ones (gpuagain) */
@@ -652,7 +659,7 @@ now(void)
 static Gem*
 getgem(Dev *d, uint32_t h)
 {
-	if(h == 0 || h > d->ngem || !d->gem[h-1].used)
+	if(h == 0 || h > d->ngem || !d->gem[h-1].used || d->gem[h-1].closed)
 		return NULL;
 	return &d->gem[h-1];
 }
@@ -689,6 +696,21 @@ gemreply(Dev *d, int i, char *reply, char *word, uint32_t *handle)
 		f[n++] = p;
 	if(n < 5 || strcmp(f[0], word) != 0)
 		return seterr(ENOMEM);
+	/*
+	 * an object this context holds already (imported again: the driver
+	 * gives its id again): its handle, as Linux's PRIME import gives the
+	 * same handle for the same buffer (Mesa's drivers count the
+	 * references of a handle themselves); slot i stays free
+	 */
+	for(n = 0; n < d->ngem; n++)
+		if(n != i && d->gem[n].used && d->gem[n].id == atoi(f[1])){
+			if(strcmp(word, "import") != 0)
+				fprintf(stderr, "drm9: %s gave id %s, held already as handle %d\n", word, f[1], n+1);
+			/* closed but still mapped (gemclose): its handle again */
+			d->gem[n].closed = 0;
+			*handle = n+1;
+			return 0;
+		}
 	g = &d->gem[i];
 	memset(g, 0, sizeof *g);
 	g->used = 1;
@@ -763,6 +785,8 @@ gemmap(Gem *g)
 	return g->p;
 }
 
+static void gemfree(Dev*, Gem*);
+
 static int
 gemclose(Dev *d, uint32_t h)
 {
@@ -770,11 +794,67 @@ gemclose(Dev *d, uint32_t h)
 
 	if((g = getgem(d, h)) == NULL)
 		return seterr(ENOENT);
+	/*
+	 * mapped (GEM_MMAP) and not munmapped: on Linux the mapping stays
+	 * valid after GEM_CLOSE until munmap (hasvk relies on it: the old map
+	 * of a grown pool is left mapped); the handle goes now, the object at
+	 * its last munmap (gemmunmap)
+	 */
+	if(g->nmap > 0){
+		g->closed = 1;
+		return 0;
+	}
+	gemfree(d, g);
+	return 0;
+}
+
+/* the object and its segment go: the driver's free */
+static void
+gemfree(Dev *d, Gem *g)
+{
 	if(g->p != NULL)
 		_SEGDETACH(g->p);
 	ctl(d, NULL, 0, "free %d", g->id);
 	memset(g, 0, sizeof *g);
-	return 0;
+}
+
+/*
+ * munmap of a GEM_MMAP's pointer (plan9compat.c's munmap, by
+ * plan9_munmap_hook): the mapping counted off; at the last the segment
+ * is detached, and a GEM_CLOSE'd object freed. 0 if p was one, -1 else
+ */
+static int
+gemmunmap(void *a, size_t n)
+{
+	char *p;
+	Dev *d;
+	Gem *g;
+	int i, j;
+
+	(void)n;
+	p = a;
+	pthread_mutex_lock(&lk);
+	for(i = 0; i < Maxfd; i++){
+		if(fds[i].kind != Kdev || (d = fds[i].dev) == NULL)
+			continue;
+		for(j = 0; j < d->ngem; j++){
+			g = &d->gem[j];
+			if(!g->used || g->p == NULL || g->nmap == 0 || p < g->p || p >= g->p + g->size)
+				continue;
+			if(--g->nmap == 0){
+				if(g->closed)
+					gemfree(d, g);
+				else{
+					_SEGDETACH(g->p);
+					g->p = NULL;
+				}
+			}
+			pthread_mutex_unlock(&lk);
+			return 0;
+		}
+	}
+	pthread_mutex_unlock(&lk);
+	return -1;
 }
 
 /*
@@ -1317,6 +1397,7 @@ i915ioctl(Dev *d, unsigned long req, void *arg)
 			return seterr(EINVAL);
 		}
 		m->addr_ptr = (uintptr_t)(p + m->offset);
+		g->nmap++;
 		pthread_mutex_unlock(&lk);
 		return 0;
 	}

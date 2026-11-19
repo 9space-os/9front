@@ -64,11 +64,14 @@ mmap(void *a, size_t n, int prot, int flags, int fd, off_t off)
 	return MAP_FAILED;
 }
 
+/* plan9/drm/drm9.c's, when it is linked and used: GEM_MMAP's pointers */
+int (*plan9_munmap_hook)(void*, size_t);
+
 int
 munmap(void *a, size_t n)
 {
-	(void)a;
-	(void)n;
+	if(plan9_munmap_hook != NULL && plan9_munmap_hook(a, n) == 0)
+		return 0;
 	errno = EINVAL;
 	return -1;
 }
