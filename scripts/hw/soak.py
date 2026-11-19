@@ -18,7 +18,8 @@ Out: $CLI_DIR/soak/<date>/ with host.log (this one's lines), log and
 kmesg (the machine's), summary.txt.  -n: only say what it would do.
 
 env: MCPURL (default http://H:8090/mcp), MCPTOKEN (default the PXE
-root's token, $CLI_DIR/pxe/mcptoken)."""
+root's token, $PXE_DIR/mcptoken), PXE_DIR (default $CLI_DIR/pxe: the
+machine's root, as pxe.sh's; another machine's, e.g. pxe-thinkbook)."""
 import argparse, os, shutil, socket, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -27,7 +28,7 @@ sys.path.insert(0, os.path.join(ROOT, 'scripts', 'lib'))
 import paths
 
 CLI = paths.get('CLI_DIR')
-PXE = os.path.join(CLI, 'pxe')
+PXE = os.environ.get('PXE_DIR') or os.path.join(CLI, 'pxe')	# the machine's root (scripts/hw/pxe.sh)
 UFS = os.path.join(PXE, 'ufsroot')
 MCP = os.path.join(ROOT, 'scripts', 'guest', 'mcp.py')
 

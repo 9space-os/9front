@@ -1,7 +1,7 @@
 /*
  * gpuimport: one dma-buf imported twice into a context (gpu(4)'s export
- * and import, aux/i915 and aux/amdgpu's ctx ctl: bo, export, import,
- * free): the second import is the same object (the same id, as Linux's
+ * and import, aux/i915's ctx ctl: bo, export, import, free; aux/amdgpu's
+ * export takes a GEM handle, RADV's own): the second import is the same object (the same id, as Linux's
  * PRIME gives the same handle, not counted), its pages there, and one
  * free ends it.  The X1's soak (2026-11-19):
  * a second id shared the object and freeing it took the first's pages
@@ -62,12 +62,13 @@ cmd(int fd, char *reply, int nreply, char **f, int nf, char *fmt, ...)
 	return tokenize(reply, f, nf);
 }
 
-static int
-catch(void*, char *msg)
+/* a fault while peeking: back to peek's setjmp (notejmp needs the note's Ureg) */
+static void
+catch(void *ur, char *msg)
 {
 	if(strstr(msg, "sys: trap: fault") != nil)
-		notejmp(nil, fault, 1);
-	return 0;
+		notejmp(ur, fault, 1);
+	noted(NDFLT);
 }
 
 /* the word at p, or -1 if reading it faults */
@@ -88,7 +89,7 @@ main(void)
 
 	a = newctx();
 	b = newctx();
-	atnotify(catch, 1);
+	notify(catch);
 
 	n = cmd(a, r1, sizeof r1, f, nelem(f), "bo 65536");
 	if(n < 5 || strcmp(f[0], "bo") != 0){

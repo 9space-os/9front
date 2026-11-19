@@ -13,9 +13,10 @@
 #	term			term(1) with an rc that lists and dates in a loop
 #	foot			Wayland (wlsys(4)) with the same rc
 # all alive at the half and at the end, then killed; ten seconds later
-# no process Broken, the window system and aux/i915 alive, no more
+# no process Broken, the window system and the GPU's driver (aux/i915,
+# aux/amdgpu, ...: $drv) alive, no more
 # processes than after round 2 (3 more at most) and no more memory in use
-# (64 MB more at most), and aux/i915
+# (64 MB more at most), and the driver
 # idle (the CPU time of its procs over ten seconds: a driver spinning
 # after its clients went is how the xarray walk showed, 2026-11-18).
 # Each round logs the kernel's new messages, the memory in use, the
@@ -108,10 +109,14 @@ fn killprogs {
 		for(pid in `{ps | awk '$NF == "'$p'" {print $2}'})
 			note2 $pid kill
 }
-# CPU time (ms, user and system) of aux/i915's procs, 0 without them
-fn i915ms {
+# the GPU's driver: the program serving /dev/gpu/0 (its procs' name)
+drv=`{ps | awk '$NF ~ /^(i915|amdgpu|intelgpu|virtiogpu)$/ {print $NF; exit}'}
+if(~ $#drv 0)
+	drv=i915
+# CPU time (ms, user and system) of the driver's procs, 0 without them
+fn drvms {
 	t=0
-	for(pid in `{ps | awk '$NF == "i915" {print $2}'})
+	for(pid in `{ps | awk '$NF == "'$drv'" {print $2}'})
 		t=`{awk '{print '$t' + $4 + $5}' /proc/$pid/status >[2]/dev/null}
 	echo $t
 }
@@ -140,7 +145,7 @@ killprogs
 sleep 2
 kn=`{wc -l </dev/kmesg}
 end=`{echo `{date -n} + $mins '*' 60 | hoc}
-log start soak $mins minutes, rounds of $secs s, window system $ws, ncpu `{wc -l </dev/sysstat}
+log start soak $mins minutes, rounds of $secs s, window system $ws, driver $drv, ncpu `{wc -l </dev/sysstat}
 while(test `{date -n} -lt $end){
 	round=`{echo $round + 1 | hoc}
 	rm -f $out/err/*
@@ -173,23 +178,23 @@ while(test `{date -n} -lt $end){
 		fail still there 10 s after kill: $left
 
 	# idle: the driver, and nothing else, must spin on
-	a=`{i915ms}
+	a=`{drvms}
 	ps >$out/ps.a
 	sleep 10
-	b=`{i915ms}
+	b=`{drvms}
 	bz=`{busy $out/ps.a}
 	if(! ~ $#bz 0)
 		fail busy while idle '(name:s of 10 s)': $bz
 	d=`{echo $b - $a | hoc}
 	if(test $d -gt 2000)
-		fail aux/i915 busy while idle: $d ms CPU in 10 s
+		fail aux/$drv busy while idle: $d ms CPU in 10 s
 	if not
-		ok aux/i915 idle: $d ms CPU in 10 s
+		ok aux/$drv idle: $d ms CPU in 10 s
 
 	br=`{ps | grep Broken | awk '{print $2 ":" $NF}'}
 	if(! ~ $#br 0)
 		fail Broken processes: $br
-	for(p in wsys i915)
+	for(p in wsys $drv)
 		if(! alive $p)
 			fail $p is gone
 
