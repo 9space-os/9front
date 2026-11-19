@@ -23,8 +23,10 @@
 # temperatures, the battery and the clock. -w: listeners on the WLAN
 # address for the host's transfers (port 5001 sends 50 MB, 5002
 # swallows). Out in -o dir (default /usr/glenda/soak): log (lines
-# "time ok|FAIL|note round N: ..."), kmesg, err/ (each program's
-# standard error).
+# "time ok|FAIL|note round N: ..."), kmesg, drvlog (the driver's new
+# lines: the kpi's printk goes to the driver's standard error, which
+# gpustart keeps in /sys/log/DRIVERboot or the stick's DRIVERboot.log,
+# never to kmesg), err/ (each program's standard error).
 rfork e
 mins=480
 secs=120
@@ -120,6 +122,16 @@ fn drvms {
 		t=`{awk '{print '$t' + $4 + $5}' /proc/$pid/status >[2]/dev/null}
 	echo $t
 }
+# the driver's log, as gpustart writes it (rc/bin/gpustart)
+dlog=/sys/log/$drv^boot
+if(! test -f $dlog && test -e /srv/gpu.esp && mount -c /srv/gpu.esp /n/esp >[2]/dev/null)
+	dlog=/n/esp/$drv^boot.log
+if(! test -f $dlog)
+	dlog=()
+fn dlines {
+	if(~ $#dlog 1) wc -l <$dlog
+	if not echo 0
+}
 # every program (its procs together: a driver spins in several) busy
 # 3 s or more of the 10 since the file $1 (ps' times, whole seconds;
 # procs there in both): name:seconds
@@ -144,8 +156,10 @@ if(~ $#wlan 1){
 killprogs
 sleep 2
 kn=`{wc -l </dev/kmesg}
+dn=`{dlines}
+rm -f $out/drvlog
 end=`{echo `{date -n} + $mins '*' 60 | hoc}
-log start soak $mins minutes, rounds of $secs s, window system $ws, driver $drv, ncpu `{wc -l </dev/sysstat}
+log start soak $mins minutes, rounds of $secs s, window system $ws, driver $drv, log $dlog, ncpu `{wc -l </dev/sysstat}
 while(test `{date -n} -lt $end){
 	round=`{echo $round + 1 | hoc}
 	rm -f $out/err/*
@@ -228,6 +242,19 @@ while(test `{date -n} -lt $end){
 			note kmesg: $l
 	}
 	kn=$k
+
+	# the driver's new lines: the same, and every context freed with
+	# objects still bound (i915's freelog)
+	d=`{dlines}
+	if(test $d -gt $dn){
+		sed -n `{echo $dn + 1 | hoc}^',$p' $dlog >$out/drvlog.new
+		cat $out/drvlog.new >>$out/drvlog
+		for(l in `{grep -i -n -e panic -e fault -e fatal -e 'timed* *out' -e error -e 'freed with' $out/drvlog.new | sed 5q | sed 's/ /_/g'})
+			note drvlog: $l
+	}
+	if not if(test $d -lt $dn)
+		note drvlog: shorter, $d lines after $dn
+	dn=$d
 
 	# a ramfs: 16 MB copied and compared
 	ramfs -m /n/soak
