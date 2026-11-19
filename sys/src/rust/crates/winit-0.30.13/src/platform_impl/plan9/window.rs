@@ -31,6 +31,16 @@ fn os(e: std::io::Error) -> error::OsError {
     os_error!(OsError::new(e))
 }
 
+/// what a window's frame (wctl's rectangle, rio(4)) has around the contents
+/// of dx x dy, across and down: rio's border on both sides, wsys' with its
+/// title bar too; 2b each without the frame (wctl's resize -dx -dy take the frame)
+fn frame_extra(w: &p9win::Window, dx: i32, dy: i32, b: i32) -> (i32, i32) {
+    match w.rect() {
+        Some((x0, y0, x1, y1)) if x1 - x0 >= dx && y1 - y0 >= dy => (x1 - x0 - dx, y1 - y0 - dy),
+        _ => (2 * b, 2 * b),
+    }
+}
+
 fn wctl_in(w: &p9win::Window, msg: &str) {
     if let Err(e) = w.wctl(msg) {
         tracing::warn!("plan9: wctl {msg}: {e}");
@@ -115,7 +125,9 @@ impl Window {
                 // logical sizes at the window system's scale (wsys' dpi)
                 if let Some(size) = attrs.inner_size {
                     let (w, h): (u32, u32) = size.to_physical::<u32>(scale).into();
-                    wctl_in(&win, &format!("resize -dx {} -dy {}", w as i32 + 2 * b, h as i32 + 2 * b));
+                    let c = draw.content();
+                    let (ex, ey) = frame_extra(&win, c.dx(), c.dy(), b);
+                    wctl_in(&win, &format!("resize -dx {} -dy {}", w as i32 + ex, h as i32 + ey));
                 }
                 if let Some(pos) = attrs.position {
                     let (x, y): (i32, i32) = pos.to_physical::<i32>(scale).into();
@@ -296,8 +308,9 @@ impl Window {
     #[inline]
     pub fn request_inner_size(&self, size: Size) -> Option<PhysicalSize<u32>> {
         let (w, h): (u32, u32) = size.to_physical::<u32>(self.scale_factor()).into();
-        let b = self.border();
-        self.wctl(&format!("resize -dx {} -dy {}", w as i32 + 2 * b, h as i32 + 2 * b));
+        let c = self.content();
+        let (ex, ey) = frame_extra(&self.st.win, c.dx(), c.dy(), self.border());
+        self.wctl(&format!("resize -dx {} -dy {}", w as i32 + ex, h as i32 + ey));
         // the window system's answer comes as a resize the event loop sees
         None
     }

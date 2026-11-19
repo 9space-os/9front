@@ -2072,7 +2072,17 @@ impl Wsys {
             "resize" | "move" => {
                 let o = opts(&words[1..], false)?;
                 let (b, t) = (self.wins[&n].border, self.wins[&n].title);
-                let f = place(self.wins[&n].frame(), &o, cmd == "move");
+                let mut f = place(self.wins[&n].frame(), &o, cmd == "move");
+                // only a new size (-dx, -dy): the window kept on its monitor's
+                // work area, moved as little as it takes (its top left there
+                // when it is bigger)
+                let sizeonly = cmd == "resize" && o.r.is_none() && o.minx.is_none() && o.miny.is_none()
+                    && o.maxx.is_none() && o.maxy.is_none() && (o.dx.is_some() || o.dy.is_some());
+                if sizeonly && !self.wins[&n].bar {
+                    let wa = self.workarea(self.outoffr(self.wins[&n].frame()));
+                    let fit = |lo: i32, hi: i32, wlo: i32, whi: i32| if hi > whi { (whi - hi).max(wlo - lo) } else { 0 };
+                    f = f.add(fit(f.x0, f.x1, wa.x0, wa.x1), fit(f.y0, f.y1, wa.y0, wa.y1));
+                }
                 self.wins.get_mut(&n).unwrap().unmax = None;
                 self.wins.get_mut(&n).unwrap().home = None;
                 let r = self.setrect(n, inner(f, b, t));

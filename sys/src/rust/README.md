@@ -38,6 +38,9 @@ Their master is this tree (crates.sh leaves `xilem/` alone).
   again and of those moved (where they were and are), all of it when the
   layers change; `RenderRoot::take_damage` gives them to the renderer,
   which draws only that again (`ui`).
+- `masonry-0.4.0` (Apache-2.0): ProgressBar's min-content is its label's
+  width, not its default 400 pixels (its preferred width): a bar with flex
+  in a row no longer keeps the row wider than a narrower window.
 - `masonry_imaging-0.4.0` (Apache-2.0): wgpu and imaging_wgpu only with the
   GPU backends (feature `wgpu`, which `imaging_vello`, `imaging_vello_hybrid`
   and `imaging_skia` turn on): `imaging_vello_cpu` alone links no Vulkan, so

@@ -287,7 +287,8 @@ a child of the root only, its one child its contents:
 .B width
 and
 .B height
-(its contents', logical pixels; 400 by 300),
+(its contents', logical pixels; 400 by 300; changed, the window is
+resized to them),
 .B x
 and
 .B y
@@ -308,7 +309,13 @@ in
 .I parent
 (default
 .BR root ,
-a column) at
+a column; its
+.B width
+and
+.B height
+size ui's window, as a window node's do: the window system's size until
+they are set; the program asks for what its contents need, ui does not fit
+the window to them) at
 .I index
 (default: the end).
 Ids are letters, digits and
@@ -444,8 +451,6 @@ The window's events, Masonry's signals and what wgpu logs, on standard error.
 .IR acme (4)
 .SH BUGS
 A window node's
-.BR width ,
-.BR height ,
 .BR x ,
 .B y
 and

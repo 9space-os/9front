@@ -830,6 +830,8 @@ struct Gui {
     reducer: WindowEventReducer,
     background: masonry::peniko::Color, // the frame's, the theme's window colour (look.rs)
     drawn: Option<(u32, u32, [f32; 4])>, // the size and background of the picture shown: the same, only what changed is drawn again
+    hidden: bool,                        // hidden by the window system (winit's Occluded): not drawn meanwhile
+    asked: Option<(f64, f64)>,           // the size its node (root or window) asked for last, logical: asked again only when it changes
     pointer: (f64, f64),                 // where the pointer is in the window
     b3at: Option<(f64, f64)>,            // button 3 pressed there: a click plumbs (as acme)
     wheel: (f64, f64),                   // the wheel's pixels not given to the widgets yet
@@ -873,6 +875,24 @@ const FRAME: std::time::Duration = std::time::Duration::from_micros(16_667);
 /// part of what is left each frame, so a scroll starts at once and slows down
 const WHEELLINE: f64 = 120.0;
 const WHEELPART: f64 = 0.35;
+
+/// the window's size as its node asks (width height, logical pixels: the
+/// root's for ui's window, a window node's), when that changed; one of them
+/// alone keeps the other as the window is. The window system's answer comes
+/// as a resize; the user may resize the window afterwards.
+fn asksize(g: &mut Gui, n: &scene::Node) {
+    let (w, h) = (n.num("width"), n.num("height"));
+    if w.is_none() && h.is_none() {
+        return;
+    }
+    let cur = g.window.inner_size().to_logical::<f64>(g.window.scale_factor());
+    let want = (w.unwrap_or(cur.width).max(1.0), h.unwrap_or(cur.height).max(1.0));
+    if g.asked == Some(want) {
+        return;
+    }
+    g.asked = Some(want);
+    let _ = g.window.request_inner_size(winit::dpi::LogicalSize::new(want.0, want.1));
+}
 
 struct App {
     anims: HashMap<(String, &'static str), Anim>,
@@ -979,7 +999,7 @@ impl App {
         if node == ROOT {
             self.fs.size = (size.width, size.height);
         }
-        Some(Gui {
+        let mut g = Gui {
             node: node.to_string(),
             window,
             painter,
@@ -987,11 +1007,22 @@ impl App {
             reducer: WindowEventReducer::default(),
             background: palette.background,
             drawn: None,
+            hidden: false,
+            asked: None,
             pointer: (0.0, 0.0),
             b3at: None,
             wheel: (0.0, 0.0),
             layers: Vec::new(),
-        })
+        };
+        // the size the node asks for (a window node's: made so already)
+        if let Some(n) = self.fs.scene.nodes.get(node) {
+            if node == ROOT {
+                asksize(&mut g, n);
+            } else {
+                g.asked = Some((n.num("width").unwrap_or(400.0), n.num("height").unwrap_or(300.0)));
+            }
+        }
+        Some(g)
     }
 
     /// the windows as the scene has them: one made for each window node new,
@@ -1097,13 +1128,18 @@ impl App {
                     continue;
                 }
                 let Some(n) = self.fs.scene.nodes.get(&id) else { continue };
-                if n.kind == Kind::Window {
-                    // its title; the rest when it is made
-                    let t = n.prop("title").unwrap_or(&id).to_string();
-                    if let Some(g) = self.gui(&id) {
-                        g.window.set_title(&t);
+                if n.kind == Kind::Window || id == ROOT {
+                    // a window's size (the root's, a window node's), a window node's title
+                    let n = n.clone();
+                    if let Some(g) = self.guis.iter_mut().find(|g| g.node == id) {
+                        asksize(g, &n);
+                        if n.kind == Kind::Window {
+                            g.window.set_title(n.prop("title").unwrap_or(&id));
+                        }
                     }
-                    continue;
+                    if n.kind == Kind::Window {
+                        continue;
+                    }
                 }
                 let Some(&wid) = self.ids.widget.get(&id) else { continue };
                 let text = n.prop("text").unwrap_or("").to_string();
@@ -1518,6 +1554,9 @@ impl App {
     fn redraw(&mut self, gi: usize) {
         self.tick();
         let Some(g) = self.guis.get_mut(gi) else { return };
+        if g.hidden {
+            return;
+        }
         let size = g.window.inner_size();
         let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else {
             return;
@@ -1763,6 +1802,14 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WinitWindowEvent::Focused(f) => {
                 g.root.handle_text_event(TextEvent::WindowFocusChange(f));
+            }
+            // hidden (wsys' Hide, wctl hide): nothing drawn, animations wait; shown
+            // again: what changed meanwhile is drawn, the animations go on
+            WinitWindowEvent::Occluded(o) => {
+                g.hidden = o;
+                if !o {
+                    g.window.request_redraw();
+                }
             }
             WinitWindowEvent::RedrawRequested => self.redraw(gi),
             // the root's window: ui ends; a window node's: its client is told

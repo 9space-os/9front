@@ -11,6 +11,9 @@
 //	title text
 //	clear				all but root
 //
+// (the root's width and height: the size of ui's window, as a window
+// node's are its own window's)
+//
 // kinds: column row label button textbox checkbox progress slider scroll box
 // list (a column that scrolls, widgets only for the children seen: long lists)
 // image (its picture written to nodes/id/image: PNG or image(6)) select (a

@@ -314,7 +314,7 @@ fn app(s: &mut State) -> impl UiView<State> + use<> {
 }
 
 fn main() {
-    let ui = match Ui::new("widgets: Rust") {
+    let mut ui = match Ui::new("widgets: Rust") {
         Ok(u) => u,
         Err(e) => {
             eprintln!("uiwidgets: {e}");
@@ -344,6 +344,11 @@ fn main() {
         svg: SVG.as_bytes().into(),
         face,
     };
+    // its window as big as its widest section needs (logical pixels: ui
+    // does not fit the window to the contents)
+    if let Err(e) = ui.ctl("set root width 980\nset root height 560") {
+        eprintln!("uiwidgets: {e}");
+    }
     // ready once the scene is there
     if let Err(e) = uiview::run_on_with(ui, st, move |_| println!("ready {srv}"), app) {
         eprintln!("uiwidgets: {e}");

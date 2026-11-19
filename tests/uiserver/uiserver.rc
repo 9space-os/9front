@@ -580,6 +580,44 @@ if(grep -s '^text ta ''a\\nb''$' /tmp/ev4 && grep -s '^set ta text ''a\\nb''$' /
 if not fail textarea: `{grep '^(text|enter) ta' /tmp/ev4} tree `{grep 'ta text' /mnt/ui/tree}
 echo kill >/proc/$evpid4/note
 
+# the window's size: the root's width and height (logical pixels, scale 1
+# here); a size alone that would reach past the screen's bottom moves the
+# window up onto it (wsys); a progress bar with flex shrinks with a narrow
+# window (its min-content its label's, not its 400 pixels)
+echo 'clear
+set root width 500
+set root height 300' >/mnt/ui/ctl
+fn wsize { c=`{cat /mnt/wsys/1/ctl}; echo $c(6) $c(7) }
+fn issize { ws=`{wsize}; ~ $"ws $1 }
+n=0
+while(! issize '500 300' && test $n -lt 50){ sleep 0.1; n=`{echo $n+1 | hoc} }
+ws=`{wsize}
+check 'root width height: the window 500x300' '500 300' $"ws
+sh=`{dd -if /mnt/wsys/screen -bs 60 -count 1 >[2]/dev/null}
+echo resize -r 100 `{echo $sh(5)-250 | hoc} 620 `{echo $sh(5)-20 | hoc} >/mnt/wsys/1/wctl
+sleep 0.5
+echo 'set root height 400' >/mnt/ui/ctl
+n=0
+while(! issize '500 400' && test $n -lt 50){ sleep 0.1; n=`{echo $n+1 | hoc} }
+f=`{grep '^1 ' /mnt/wsys/stack}
+if(issize '500 400' && test $f(5) -le $sh(5)) ok 'a size near the bottom: on the screen,' frame $f(2-5)
+if not fail 'a size near the bottom:' `{wsize} frame $f(2-5) screen $sh(2-5)
+echo 'new pr row
+new pl label pr
+set pl text progress
+new pb progress pr
+set pb flex 1
+set pb value 0.5
+set root width 300
+set root height 200' >/mnt/ui/ctl
+n=0
+while(! issize '300 200' && test $n -lt 50){ sleep 0.1; n=`{echo $n+1 | hoc} }
+sleep 0.5
+pb=`{cat /mnt/ui/nodes/pb/rect}
+if(issize '300 200' && ! ~ $#pb 0 && test $pb(3) -le 300) ok 'a progress bar in a 300 wide window: to' $pb(3)
+if not fail 'a progress bar in a 300 wide window:' rect $pb, window `{wsize}
+echo clear >/mnt/ui/ctl
+
 # the window deleted: wsys ends ui with a note (as rio); its /srv/uitest goes
 # with it (ORCLOSE), a read of event ends
 cat /mnt/ui/event >/tmp/ev2 &
