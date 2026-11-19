@@ -34,6 +34,7 @@ TARG=\
 	nfsmount\
 	olefs\
 	pcmcia\
+	power\
 	portmap\
 	pstate\
 	rdwr\

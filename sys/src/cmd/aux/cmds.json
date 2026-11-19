@@ -85,6 +85,7 @@
 			"nfsmount.c",
 			"olefs.c",
 			"pcmcia.c",
+			"power.c",
 			"portmap.c",
 			"pstate.c",
 			"rdwr.c",
