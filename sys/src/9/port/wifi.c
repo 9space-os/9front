@@ -408,6 +408,13 @@ setstatus(Wifi *wifi, Wnode *wn, char *new)
 
 	old = wn->status;
 	wn->status = new;
+	/*
+	 * the link is up once the access point is ours, not at
+	 * wifsproc's next round (up to 500 ms later): what was sent in
+	 * between was dropped (devether's oq while the link is down)
+	 */
+	if(wn == wifi->bss && (new == Sassoc || new == Sblocked))
+		ethersetlink(wifi->ether, 1);
 	if(wifi->debug && new != old)
 		print("#l%d: status %E: %.12ld %.12ld: %s -> %s (from pc=%#p)\n",
 			wifi->ether->ctlrno, 
