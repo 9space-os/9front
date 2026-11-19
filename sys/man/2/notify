@@ -73,6 +73,24 @@ the second is a pointer to the note itself,
 a null-terminated string with no more than
 .L ERRLEN
 characters in it including the terminal NUL.
+The handler is the process's own: a process that shares the memory
+.RB ( RFMEM ,
+.IR fork (2))
+and calls
+.I notify
+changes only its own.
+On amd64 and arm64 the kernel enters the handler as its compilers expect a
+function: the arguments where 9front's compilers pass them (in
+.B BP
+or
+.BR R0 ,
+and on the stack) and also in the registers of the System V and AAPCS
+calling conventions (\c
+.BR DI ,
+.BR SI ;
+.BR R0 ,
+.BR R1 ),
+on a stack aligned to 16 bytes; 9front's kernels do only the first.
 The
 .B Ureg
 argument is usually not needed; it is provided to help recover from traps such
@@ -230,6 +248,8 @@ and
 portions of the notes are machine-dependent.
 .SH SOURCE
 .B /sys/src/libc/9syscall
+.br
+.B /sys/src/9/*/trap.c
 .br
 .B /sys/src/libc/port/atnotify.c
 .SH SEE ALSO
