@@ -183,8 +183,29 @@ while(test `{date -n} -lt $end){
 	sleep 10
 	b=`{drvms}
 	bz=`{busy $out/ps.a}
-	if(! ~ $#bz 0)
+	if(! ~ $#bz 0){
 		fail busy while idle '(name:s of 10 s)': $bz
+		# where they are: each one's procs, their state and kernel
+		# registers (kregs: the pc where a kproc last left the
+		# processor), twice a second apart, in $out/busy.round
+		for(x in $bz){
+			n=`{echo $x | sed 's/:[0-9]+$//'}
+			for(k in 1 2){
+				for(pid in `{ps | awk '$NF == "'$n'" {print $2}'}){
+					echo '== '$n $pid sample $k
+					ps -a | awk '$2 == "'$pid'"'
+					xd -8x /proc/$pid/kregs >[2]/dev/null
+				}
+				sleep 1
+			}
+		} >>$out/busy.$round >[2=1]
+		note busy: state and kregs in $out/busy.$round
+	}
+	# the kernel's WLAN and network procs' CPU so far (s): a burst shows
+	# in the round it came in (#l1wifi, 2026-11-19)
+	kp=`{ps | awk '$NF ~ /^#l[0-9]/ {split($3, u, ":"); split($4, s, ":"); t = u[1]*60 + u[2] + s[1]*60 + s[2]; if(t > 0) print $NF ":" t}'}
+	if(! ~ $#kp 0)
+		note kprocs: $kp
 	d=`{echo $b - $a | hoc}
 	if(test $d -gt 2000)
 		fail aux/$drv busy while idle: $d ms CPU in 10 s
