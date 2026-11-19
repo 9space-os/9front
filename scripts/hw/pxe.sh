@@ -36,7 +36,15 @@
 #   env:	IFACE	the LAN interface (default: the one of the default route)
 #	HOSTIP	this host's address on it (default: IFACE's)
 #	UFS_PORT	the root's port (5650)
-#	PXE_DIR	the work dir (default $CLI_DIR/pxe)
+#	PXE_DIR	the work dir (default $CLI_DIR/pxe): the root, keys, token
+#		of this machine; a second machine at once gets its own
+#		(e.g. PXE_DIR=$CLI_DIR/pxe-thinkbook UFS_PORT=5651), the TFTP
+#		dir and dnsmasq.conf stay shared ($CLI_DIR/pxe): one dnsmasq
+#		for all machines with a cfg there, each its own kernel file
+#		(amd64/9pc64, another PXE_DIR's amd64/9pc64.<mac>)
+#	KERNEL	the kernel to boot (default the tree's amd64/9pc64)
+#	ROOTFROM	a root to start from instead of the tree's build
+#		(another machine's: its programs, without its own files)
 #	DNSMASQ	the dnsmasq in the printed command (default: dnsmasq)
 #	PLAN9	the tree of the system to boot (default this one; e.g. a
 #		worktree of another branch: ../tree-nix), built and with
@@ -72,20 +80,23 @@ FSIP=$HOSTIP
 UFS_PORT=${UFS_PORT:-5650}
 UFS=${UFS:-$(command -v ufs 2>/dev/null || echo "$HOME/go/bin/ufs")}
 [ -x "$UFS" ] || die "ufs missing (see scripts/guest/boot-cli.sh)"
-KERNEL=$ROOT/amd64/9pc64
+KERNEL=${KERNEL:-$ROOT/amd64/9pc64}
 for f in "$ROOT/386/bootx64.efi" "$ROOT/386/9bootpxe" "$KERNEL"; do
 	[ -s "$f" ] || die "$f missing: the build and scripts/guest/build-boot.sh"
 done
 
 P=${PXE_DIR:-$CLI_DIR/pxe}
-T=$P/tftp
-mkdir -p "$T/amd64" "$T/cfg/pxe"
+# the TFTP dir and dnsmasq's conf: one for every machine (one dnsmasq)
+T=$CLI_DIR/pxe/tftp
+mkdir -p "$P" "$T/amd64" "$T/cfg/pxe"
 cp "$ROOT/386/bootx64.efi" "$T/bootx64.efi"
 cp "$ROOT/386/9bootpxe" "$T/9bootpxe.0"	# the ROM adds the layer, .0
-cp "$KERNEL" "$T/amd64/9pc64"
+KNAME=9pc64
+[ "$P" = "$CLI_DIR/pxe" ] || KNAME=9pc64.$(echo "$MAC" | tr -d :)
+cp "$KERNEL" "$T/amd64/$KNAME.new" && mv "$T/amd64/$KNAME.new" "$T/amd64/$KNAME"
 # 9boot asks for /cfg/pxe/ and the MAC in hex, without colons
 {
-	echo "bootfile=/amd64/9pc64"
+	echo "bootfile=/amd64/$KNAME"
 	echo "nobootprompt=tcp"
 	echo "fs=$FSIP"
 	echo "auth=$FSIP"
@@ -155,6 +166,7 @@ done
 # the programs of each test dir that wants them on the stick (hwstick:
 # tests/hw's hwfreq, nix's nixtest, ...), as scripts/hw/mkstick.sh
 for t in "$ROOT"/tests/*/build.json; do
+	[ -z "$ROOTFROM" ] || break	# the tests come with that root
 	td=$(dirname "$t")
 	case $td in */guest) continue ;; esac
 	[ -f "$td/hwstick" ] || continue
@@ -229,17 +241,39 @@ if [ -s "$P/wlan.conf" ]; then
 fi
 
 echo "pxe: the root in $P/ufsroot"
-# this tree's generator (with extra dirs), the system's files
-PLAN9="$ROOT" bash "$HERE/scripts/guest/gen-ufs-root.sh" "$P/ufsroot" "$X" > /dev/null
+if [ -n "$ROOTFROM" ]; then
+	# another machine's root, without what is that machine's own
+	[ -d "$ROOTFROM/amd64/bin" ] || die "ROOTFROM $ROOTFROM: not a root"
+	mkdir -p "$P/ufsroot"
+	rsync -a --delete \
+		--exclude=/usr/glenda/lib/keys --exclude=/usr/glenda/lib/nvram \
+		--exclude=/usr/glenda/lib/mcptoken --exclude=/usr/glenda/lib/wlan \
+		--exclude=/usr/glenda/lib/webcookies --exclude=/usr/glenda/lib/L.webcookies \
+		--exclude=/usr/glenda/soak --exclude=/usr/glenda/tmp --exclude=/adm/keyseed \
+		--exclude=/rc/bin/termrc.local --exclude='*.prev' \
+		"$ROOTFROM/" "$P/ufsroot/"
+	mkdir -p "$P/ufsroot/usr/glenda/tmp"
+	rsync -a "$X/" "$P/ufsroot/"
+else
+	# this tree's generator (with extra dirs), the system's files
+	PLAN9="$ROOT" bash "$HERE/scripts/guest/gen-ufs-root.sh" "$P/ufsroot" "$X" > /dev/null
+fi
 
-cat > "$P/dnsmasq.conf" <<EOF
-# scripts/hw/pxe.sh: proxy DHCP and TFTP for $MAC only, no DNS
+# dnsmasq: every machine with a cfg in the TFTP dir
+macs=$(ls "$T/cfg/pxe" | grep -E '^[0-9a-f]{12}$' | sed 's/../&:/g; s/:$//')
+D=$CLI_DIR/pxe/dnsmasq.conf
+
+{
+cat <<EOF
+# scripts/hw/pxe.sh: proxy DHCP and TFTP for the machines of $T/cfg/pxe, no DNS
 port=0
 interface=$IFACE
 bind-interfaces
 user=$(id -un)
 dhcp-range=$HOSTIP,proxy
-dhcp-host=$MAC,set:9space
+EOF
+for m in $macs; do echo "dhcp-host=$m,set:9space"; done
+cat <<EOF
 dhcp-match=set:efi64,option:client-arch,7
 dhcp-match=set:efi64,option:client-arch,9
 # dnsmasq offers only the services of the client's arch; without one the
@@ -254,6 +288,7 @@ tftp-root=$T
 log-dhcp
 log-facility=-
 EOF
+} > "$D"
 
 if [ "${QEMU:-0}" = 1 ]; then
 	"$UFS" -root="$P/ufsroot" -user=glenda -addr="127.0.0.1:$UFS_PORT" > "$P/ufs.log" 2>&1 &
@@ -299,7 +334,8 @@ if [ -n "$dvr" ] && [ "$(printf '%s\n2.93\n' "$dvr" | sort -V | tail -1)" = 2.93
 fi
 cat <<EOF
 pxe: run in another terminal (as root: ports 67, 69, 4011):
-	sudo $DNSMASQ --no-daemon --conf-file=$P/dnsmasq.conf
+	sudo $DNSMASQ --no-daemon --conf-file=$D
+(one dnsmasq for $(echo $macs): restart it when a machine is new)
 then let $MAC boot from the network (UEFI IPv4).
 pxe: or boot it from a USB stick (wired network still needed):
 	sudo dd if=$S of=/dev/sdX bs=4M conv=fsync status=progress
