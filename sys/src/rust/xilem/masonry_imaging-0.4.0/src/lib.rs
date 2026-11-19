@@ -185,6 +185,9 @@ pub struct PreparedFrame<'a> {
     pub base: &'a Scene,
     /// Overlay layers in painter order.
     pub overlays: &'a [Layer<'a>],
+    /// 9space: the frame's top left in the window (physical pixels): a part
+    /// of it, `width` x `height` from there (`region`); (0, 0) all of it.
+    pub origin: (u32, u32),
 }
 
 impl<'a> PreparedFrame<'a> {
@@ -204,7 +207,18 @@ impl<'a> PreparedFrame<'a> {
             background_color,
             base,
             overlays,
+            origin: (0, 0),
         }
+    }
+
+    /// 9space: only the part w x h at x y of the frame (physical pixels): a
+    /// renderer draws that alone, into a target as big (what changed: a
+    /// window's damage), the content moved so that x y comes at 0 0.
+    pub fn region(mut self, x: u32, y: u32, w: u32, h: u32) -> Self {
+        self.origin = (x, y);
+        self.width = w;
+        self.height = h;
+        self
     }
 }
 
@@ -222,7 +236,8 @@ impl RenderSource for PreparedFrame<'_> {
             );
         }
 
-        let scale = Affine::scale(self.scale_factor);
+        let scale = Affine::translate((-f64::from(self.origin.0), -f64::from(self.origin.1)))
+            * Affine::scale(self.scale_factor);
         replay_transformed(self.base, sink, scale);
         for layer in self.overlays {
             replay_transformed(layer.scene, sink, scale * layer.transform);

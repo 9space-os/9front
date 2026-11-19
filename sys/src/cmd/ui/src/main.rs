@@ -766,39 +766,56 @@ impl Painter {
         (Painter::Cpu { surface, renderer, rgba: Vec::new() }, "cpu".into())
     }
 
-    fn paint(&mut self, mut frame: PreparedFrame<'_>) {
+    /// frame (fw x fh) into the window: all of it, or only part (x y w h:
+    /// what changed), the rest as it was
+    fn paint(&mut self, frame: PreparedFrame<'_>, fw: u32, fh: u32, part: Option<(u32, u32, u32, u32)>) {
         match self {
             #[cfg(feature = "gpu")]
             Painter::Gpu(g) => {
-                if let Err(e) = g.render(frame) {
+                if let Err(e) = g.render(frame, fw, fh, part) {
                     eprintln!("ui: render: {e}");
                 }
             }
             Painter::Cpu { surface, renderer, rgba } => {
-                let (Some(w), Some(h)) = (NonZeroU32::new(frame.width), NonZeroU32::new(frame.height)) else {
+                let (Some(w), Some(h)) = (NonZeroU32::new(fw), NonZeroU32::new(fh)) else {
                     return;
                 };
-                let n = w.get() as usize * h.get() as usize;
-                rgba.resize(n * 4, 0);
-                let target = ImageBufferTarget {
-                    data: rgba,
-                    width: w.get(),
-                    height: h.get(),
-                    bytes_per_row: w.get() as usize * 4,
-                    format: ImageBufferFormat::Rgba8Unorm,
-                };
-                if let Err(e) = renderer.render_source_into(&mut frame, target) {
-                    eprintln!("ui: render: {e}");
-                    return;
-                }
                 if surface.resize(w, h).is_err() {
                     return;
                 }
                 let Ok(mut buf) = surface.buffer_mut() else { return };
-                for (p, c) in buf.iter_mut().zip(rgba.chunks_exact(4)) {
-                    *p = (c[0] as u32) << 16 | (c[1] as u32) << 8 | c[2] as u32;
+                // the buffer keeps the last frame (age 1): else all of it
+                let (x, y, pw, ph) = match part {
+                    Some(p) if buf.age() == 1 => p,
+                    _ => (0, 0, fw, fh),
+                };
+                let n = pw as usize * ph as usize;
+                rgba.resize(n * 4, 0);
+                let target = ImageBufferTarget {
+                    data: rgba,
+                    width: pw,
+                    height: ph,
+                    bytes_per_row: pw as usize * 4,
+                    format: ImageBufferFormat::Rgba8Unorm,
+                };
+                let mut frame = if (pw, ph) == (fw, fh) { frame } else { frame.region(x, y, pw, ph) };
+                if let Err(e) = renderer.render_source_into(&mut frame, target) {
+                    eprintln!("ui: render: {e}");
+                    return;
                 }
-                let _ = buf.present();
+                for (row, src) in rgba.chunks_exact(pw as usize * 4).enumerate() {
+                    let o = (y as usize + row) * fw as usize + x as usize;
+                    for (p, c) in buf[o..o + pw as usize].iter_mut().zip(src.chunks_exact(4)) {
+                        *p = (c[0] as u32) << 16 | (c[1] as u32) << 8 | c[2] as u32;
+                    }
+                }
+                let damage = softbuffer::Rect {
+                    x,
+                    y,
+                    width: NonZeroU32::new(pw).unwrap(),
+                    height: NonZeroU32::new(ph).unwrap(),
+                };
+                let _ = buf.present_with_damage(&[damage]);
             }
         }
     }
@@ -812,6 +829,7 @@ struct Gui {
     root: RenderRoot,
     reducer: WindowEventReducer,
     background: masonry::peniko::Color, // the frame's, the theme's window colour (look.rs)
+    drawn: Option<(u32, u32, [f32; 4])>, // the size and background of the picture shown: the same, only what changed is drawn again
     pointer: (f64, f64),                 // where the pointer is in the window
     b3at: Option<(f64, f64)>,            // button 3 pressed there: a click plumbs (as acme)
     wheel: (f64, f64),                   // the wheel's pixels not given to the widgets yet
@@ -968,6 +986,7 @@ impl App {
             root,
             reducer: WindowEventReducer::default(),
             background: palette.background,
+            drawn: None,
             pointer: (0.0, 0.0),
             b3at: None,
             wheel: (0.0, 0.0),
@@ -1543,9 +1562,36 @@ impl App {
         let Some(root) = layers.root_layer() else { return };
         let VisualLayerKind::Scene(base) = &root.kind else { return };
         let scale = g.root.scale_factor();
-        let frame = PreparedFrame::new(w.get(), h.get(), scale, g.background, base, &overlays);
-        g.painter.paint(frame);
-        self.fs.frames += 1;
+        // only what changed (Masonry's damage, in the window's pixels), when the
+        // picture shown is the window's size and background; nothing if nothing did
+        let (fw, fh) = (w.get(), h.get());
+        let damage = g.root.take_damage();
+        let same = g.drawn == Some((fw, fh, g.background.components));
+        let part = match damage {
+            _ if !same => Some(None),
+            None => None,
+            Some(None) => Some(None),
+            Some(Some(r)) => {
+                // a pixel more around it (antialiasing reaches past the boxes)
+                let x0 = ((r.x0 * scale).floor() as i64 - 1).clamp(0, fw as i64) as u32;
+                let y0 = ((r.y0 * scale).floor() as i64 - 1).clamp(0, fh as i64) as u32;
+                let x1 = ((r.x1 * scale).ceil() as i64 + 1).clamp(0, fw as i64) as u32;
+                let y1 = ((r.y1 * scale).ceil() as i64 + 1).clamp(0, fh as i64) as u32;
+                if x1 <= x0 || y1 <= y0 {
+                    None
+                } else if (x1 - x0) as u64 * (y1 - y0) as u64 * 2 > fw as u64 * fh as u64 {
+                    Some(None) // most of it: all of it at once
+                } else {
+                    Some(Some((x0, y0, x1 - x0, y1 - y0)))
+                }
+            }
+        };
+        if let Some(part) = part {
+            let frame = PreparedFrame::new(fw, fh, scale, g.background, base, &overlays);
+            g.painter.paint(frame, fw, fh, part);
+            g.drawn = Some((fw, fh, g.background.components));
+            self.fs.frames += 1;
+        }
         // something moving: another frame, a FRAME after this one began
         let moving = !self.anims.is_empty() || g.root.needs_anim() || g.wheel != (0.0, 0.0);
         self.lastframe = moving.then_some(now);

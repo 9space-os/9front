@@ -25,6 +25,7 @@ pub struct Gpu {
     queue: wgpu::Queue,
     target: wgpu::Texture,
     view: wgpu::TextureView,
+    part: Option<(u32, u32, wgpu::Texture, wgpu::TextureView)>, // a damaged part's (its size), drawn alone
     blitter: TextureBlitter,
     renderer: Renderer,
     pub name: String,
@@ -53,6 +54,7 @@ fn target(device: &wgpu::Device, w: u32, h: u32) -> (wgpu::Texture, wgpu::Textur
         usage: wgpu::TextureUsages::STORAGE_BINDING
             | wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::COPY_SRC
             | wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: wgpu::TextureFormat::Rgba8Unorm,
         view_formats: &[],
@@ -127,6 +129,7 @@ impl Gpu {
             queue,
             target,
             view,
+            part: None,
             blitter,
             renderer: Renderer::new(),
             name: i.name,
@@ -138,12 +141,16 @@ impl Gpu {
         self.config.height = h;
         self.surface.configure(&self.device, &self.config);
         (self.target, self.view) = target(&self.device, w, h);
+        self.part = None;
     }
 
-    pub fn render(&mut self, frame: PreparedFrame<'_>) -> Result<(), String> {
-        let (w, h) = (frame.width, frame.height);
+    /// the frame w x h into the window: all of it, or only part (x y w h:
+    /// what changed), drawn alone and copied into the picture kept (target)
+    pub fn render(&mut self, frame: PreparedFrame<'_>, w: u32, h: u32, part: Option<(u32, u32, u32, u32)>) -> Result<(), String> {
+        let mut part = part;
         if (w, h) != (self.config.width, self.config.height) {
             self.resize(w, h);
+            part = None; // a new target: all of it
         }
         let tex = match self.surface.get_current_texture() {
             Ok(t) => t,
@@ -153,19 +160,46 @@ impl Gpu {
             }
             Err(e) => return Err(format!("surface: {e}")),
         };
-        self.renderer
-            .render_to_texture(
-                RenderTarget {
-                    adapter: &self.adapter,
-                    device: &self.device,
-                    queue: &self.queue,
-                    texture: &self.target,
-                    view: &self.view,
-                },
-                frame,
-            )
-            .map_err(|e| format!("vello: {e}"))?;
         let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("ui blit") });
+        match part {
+            None => self
+                .renderer
+                .render_to_texture(
+                    RenderTarget {
+                        adapter: &self.adapter,
+                        device: &self.device,
+                        queue: &self.queue,
+                        texture: &self.target,
+                        view: &self.view,
+                    },
+                    frame,
+                )
+                .map_err(|e| format!("vello: {e}"))?,
+            Some((x, y, pw, ph)) => {
+                // the part alone (vello's work as big as it), then into the picture kept
+                if !matches!(&self.part, Some((cw, ch, _, _)) if (*cw, *ch) == (pw, ph)) {
+                    let (t, v) = target(&self.device, pw, ph);
+                    self.part = Some((pw, ph, t, v));
+                }
+                let (_, _, pt, pv) = self.part.as_ref().unwrap();
+                self.renderer
+                    .render_to_texture(
+                        RenderTarget { adapter: &self.adapter, device: &self.device, queue: &self.queue, texture: pt, view: pv },
+                        frame.region(x, y, pw, ph),
+                    )
+                    .map_err(|e| format!("vello: {e}"))?;
+                enc.copy_texture_to_texture(
+                    pt.as_image_copy(),
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &self.target,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d { x, y, z: 0 },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::Extent3d { width: pw, height: ph, depth_or_array_layers: 1 },
+                );
+            }
+        }
         let out = tex.texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.blitter.copy(&self.device, &mut enc, &self.view, &out);
         self.queue.submit([enc.finish()]);

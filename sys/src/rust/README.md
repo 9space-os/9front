@@ -33,6 +33,11 @@ revision in `../cmd/ui/Cargo.toml`) changed for the tree's builds; the
 workspace takes them by `[patch."https://github.com/linebender/xilem"]`.
 Their master is this tree (crates.sh leaves `xilem/` alone).
 
+- `masonry_core-0.4.0` (Apache-2.0): damage regions (Xilem's issue 789,
+  a TODO in its paint pass): the bounding boxes of the widgets painted
+  again and of those moved (where they were and are), all of it when the
+  layers change; `RenderRoot::take_damage` gives them to the renderer,
+  which draws only that again (`ui`).
 - `masonry_imaging-0.4.0` (Apache-2.0): wgpu and imaging_wgpu only with the
   GPU backends (feature `wgpu`, which `imaging_vello`, `imaging_vello_hybrid`
   and `imaging_skia` turn on): `imaging_vello_cpu` alone links no Vulkan, so
