@@ -313,6 +313,17 @@ struct Tap {
 }
 const TAPMAX: usize = 32;
 
+/// how many lines the text moved up between two drawings of a window (old's
+/// rows against new's): the most rows that stay, at least half the window's,
+/// else 0 (draw each changed row where it is)
+fn scrolledby(old: &[RowSig], new: &[RowSig]) -> usize {
+    let n = old.len().min(new.len());
+    if old[..n] == new[..n] {
+        return 0; // the same lines where they were (repeated lines would match moved too)
+    }
+    (1..n).find(|&k| n - k >= n / 2 && old[k..n] == new[..n - k]).unwrap_or(0)
+}
+
 /// A client's buffer, a segment of wsys's (every thread has it: std's threads
 /// are procs of one memory image, segattach(2)). The main loop owns it (Rc).
 struct Buf {
@@ -881,6 +892,7 @@ struct Wsys {
     mlast: Option<u32>,          // the window the last mouse event went to
     hlast: Option<u32>,          // the window without the focus the pointer was over (its event file's m)
     tap: Tap,                    // the keyboard's tap (kbdtap)
+    textdue: std::collections::BTreeSet<u32>, // text windows to draw at the end of the batch (drawdue)
 }
 
 fn qid(k: Kind) -> Qid {
@@ -1264,6 +1276,10 @@ impl Wsys {
             }
             T::Read { fid, offset, count } => {
                 let count = count.min(self.msize - ninep::IOHDRSZ);
+                // a picture of the screen or a window: with the text drawn that waits
+                if offset == 0 && self.fids.get(&fid).is_some_and(|f| matches!(f.kind, Kind::Screen | Kind::File(_, F::Screen | F::Window))) {
+                    self.drawdue();
+                }
                 let Some(f) = self.fids.get(&fid) else { return e("unknown fid") };
                 if !f.open {
                     return e("not open");
@@ -3960,7 +3976,26 @@ impl Wsys {
     /// a text window shows the end of its text and the line being typed (none
     /// while a program has its mouse: then the program draws), the selection on
     /// a pale background; where each rune went is kept for the mouse
+    /// window n's text drawn at the end of this batch of events (drawdue):
+    /// output that comes line by line draws once, not once a line. On a
+    /// display over the network each draw ends in a flush, a round trip
+    /// (drawterm: 3000 lines of output were 3000 of them, 113 s at 33 ms)
     fn drawtext(&mut self, n: u32) {
+        self.textdue.insert(n);
+    }
+
+    /// the text windows' drawing that waits (drawtext): before the batch goes
+    /// out, and before what needs their lines where they are now (the mouse, the
+    /// keyboard, a read of the screen)
+    fn drawdue(&mut self) {
+        for n in std::mem::take(&mut self.textdue) {
+            self.textnow(n);
+        }
+    }
+
+    /// window n's text now (drawtext waits for the batch's end)
+    fn textnow(&mut self, n: u32) {
+        self.textdue.remove(&n);
         // what was drawn before; not drawn now (a program draws there): all, next time
         let prev = self.wins.get_mut(&n).and_then(|w| w.drawn.take());
         let Some(w) = self.wins.get(&n) else { return };
@@ -4080,10 +4115,20 @@ impl Wsys {
                 d.draw(l, &scrollr, scrollbg, 0, 0)?;
                 d.draw(l, &thumb, white, 0, 0)?;
             }
+            // the text moved up by k lines (output at the end): what is still
+            // shown copied up in the window's image, as rio's frame scrolls; only
+            // the lines that came drawn, not every glyph of the window again
+            let k = old.as_ref().map(|o| scrolledby(&o.rows, &sigs)).unwrap_or(0);
+            if k > 0 {
+                let keep = sigs.len().min(old.as_ref().unwrap().rows.len() - k) as i32;
+                let to = Rect::new(inner.x0, inner.y0, inner.x1, inner.y0 + keep * h).clip(&inner);
+                d.draw(l, &to, l, inner.x0, inner.y0 + k as i32 * h)?;
+            }
+            let was = |row: usize| old.as_ref().and_then(|o| o.rows.get(row + k));
             for (row, (line, lend)) in lines[begin..end].iter().enumerate() {
                 let y = inner.y0 + row as i32 * h;
                 rows.push(Row { y, runes: line.iter().map(|r| (inner.x0 + r.1, r.2, r.3)).collect(), end: *lend });
-                if old.as_ref().is_some_and(|o| o.rows.get(row) == Some(&sigs[row])) {
+                if was(row) == Some(&sigs[row]) {
                     continue;
                 }
                 let rowr = Rect::new(inner.x0, y, inner.x1, y + h).clip(&inner);
@@ -4113,6 +4158,7 @@ impl Wsys {
             }
             // rows shown before, now none
             if let Some(o) = &old {
+                // (after a copy up the same: rows past the new ones hold old text)
                 for row in sigs.len()..o.rows.len() {
                     let y = inner.y0 + row as i32 * h;
                     d.draw(l, &Rect::new(inner.x0, y, inner.x1, y + h).clip(&inner), white, 0, 0)?;
@@ -4136,6 +4182,7 @@ impl Wsys {
     /// button but in window n's scroll bar at y, as rio's: 1 back and 3 on by the
     /// lines from the top of the bar to the mouse, 2 to that place of the text
     fn scrollstep(&mut self, n: u32, but: i32, y: i32) {
+        self.drawdue(); // the lines shown, the bar
         let h = self.wfonth(n);
         let Some(w) = self.wins.get_mut(&n) else { return };
         let s = w.scrollr;
@@ -4218,6 +4265,7 @@ impl Wsys {
     }
 
     fn mouse(&mut self, x: i32, y: i32, b: i32, ms: u32) {
+        self.drawdue(); // the lines where they are shown
         (self.mx, self.my, self.ms) = (x, y, ms);
         self.cursorat();
         if self.menu.as_ref().is_some_and(|m| m.client.is_some()) {
@@ -4736,6 +4784,7 @@ impl Wsys {
     /// tap when one reads it (a z and the window's number first when the
     /// keys go to another window now), else to the focused window
     fn kbd(&mut self, msgs: Vec<Vec<u8>>) {
+        self.drawdue(); // PgUp, PgDn: the lines shown
         let msgs = self.kbdmod4(msgs);
         if msgs.is_empty() {
             return;
@@ -5097,12 +5146,12 @@ impl Wsys {
             return;
         }
         let before = w.shown.0;
-        self.drawtext(n);
+        self.textnow(n);
         if let Some(w) = self.wins.get_mut(&n) {
             let added = w.shown.0.saturating_sub(before);
             if added > 0 {
                 w.scroll += added;
-                self.drawtext(n);
+                self.textnow(n);
             }
         }
     }
@@ -5877,6 +5926,7 @@ fn main() {
         mlast: None,
         hlast: None,
         tap: Tap::default(),
+        textdue: Default::default(),
         tabstop: std::env::var("tabstop").ok().and_then(|t| t.trim().parse().ok()).filter(|&t: &i32| t > 0).unwrap_or(4),
         // rio's snarf, when wsys runs in a window of rio
         parentsnarf: std::fs::metadata("/dev/snarf").is_ok() && std::fs::metadata("/dev/wctl").is_ok(),
@@ -6060,13 +6110,19 @@ fn main() {
             }
         }
         if presented.elapsed() < PRESENTGAP {
-            if let Ok(ev) = rx.try_recv() {
+            // text to draw (output coming line by line): what comes within the
+            // gap joins it, else each line would be a batch of its own (its
+            // writer's next line arrives just after the reply) and a round trip
+            // on a display over the network
+            let wait = if ws.textdue.is_empty() { std::time::Duration::ZERO } else { PRESENTGAP.saturating_sub(presented.elapsed()) };
+            if let Ok(ev) = rx.recv_timeout(wait) {
                 next = Some(ev);
                 continue;
             }
         }
-        // after whatever changed: the window on the overlay plane may have to leave it;
-        // with -g, what the GPU composes
+        // after whatever changed: the text windows' drawing; the window on the
+        // overlay plane may have to leave it; with -g, what the GPU composes
+        ws.drawdue();
         ws.corepresent();
         ws.ovcheck();
         ws.compsync();
