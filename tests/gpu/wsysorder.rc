@@ -1,0 +1,33 @@
+#!/bin/rc
+# run by wsys -x -i (tests/gpu/run.sh, -g): the order of the frames on the
+# screen as composed (/mnt/wsys/screen): vktri with VKTRI_COUNTER (its
+# background's green is the frame's number) presents for 8 s; meanwhile
+# its pixel is read again and again, and must never show an older frame
+# than one seen before (old content flickering back: servoshell on the
+# X1). Lines "order: ...".
+fn peek { # x y: rrggbb of the screen
+	hdr=`{dd -if /mnt/wsys/screen -bs 60 -count 1 >[2]/dev/null}
+	off=`{echo 60+'('$2-$hdr(3)')*('$hdr(4)-$hdr(2)')*4+('$1-$hdr(2)')*4' | hoc}
+	px=`{dd -if /mnt/wsys/screen -bs 4 -iseek `{echo $off/4 | hoc} -count 1 >[2]/dev/null | xd -1x | sed 1q}
+	echo $px(4)^$px(3)^$px(2)
+}
+rm -f /tmp/wo.log /tmp/wo.px
+# window(1) gives the command wsys' environment: the variable in a script of its own
+echo '#!/bin/rc
+VKTRI_COUNTER=1 exec /tests/wsysvktri $*' >/tmp/vkcounter
+chmod +x /tmp/vkcounter
+window -r 20 20 500 380 /tmp/vkcounter /tmp/wo.log comp 8
+sleep 2
+# its corner (inside the border: the background, not the triangle)
+for(i in `{seq 1 200}){
+	peek 40 40 >>/tmp/wo.px
+}
+awk 'function hex(s,  i, v) { v = 0; for(i = 1; i <= length(s); i++) v = v*16 + index("0123456789abcdef", substr(s, i, 1)) - 1; return v }
+	BEGIN { back = 0; n = 0 }
+	{ g = hex(substr($1, 3, 2)); n++
+	  if(n > 1 && g < last && last - g < 100){ back++; if(back <= 5) print "order: back from " last " to " g " at sample " n }
+	  last = g }
+	END { print "order: " n " samples, " back " back" }' /tmp/wo.px
+n=0
+while(! grep -s '^wsysvk: exit' /tmp/wo.log && test $n -lt 200){ sleep 0.1; n=`{echo $n+1 | hoc} }
+grep '^ok [0-9]+ frames' /tmp/wo.log | sed 's/^/order: /'

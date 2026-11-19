@@ -10,6 +10,9 @@
  * usage: vktri [seconds]
  * VKTRI_AGAIN=1: on VK_ERROR_OUT_OF_DATE_KHR a new swapchain and on (a window
  * that outlives its wsys: tests/gpu/wsysagain.rc), not the end
+ * VKTRI_COUNTER=1: the background's green the frame's number (40 + frame mod
+ * 200, of 255): what the screen shows must never go back to an older frame
+ * (tests/gpu/wsysorder.rc)
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -119,11 +122,12 @@ main(int argc, char **argv)
 	VkSurfaceKHR surf;
 	VkSwapchainKHR sc;
 	uint32_t n, i, qf, nimg, frames, apiver, nrebuilt = 0;
-	int again;
+	int again, counter;
 	double secs, t0;
 
 	secs = argc > 1 ? atof(argv[1]) : 3;
 	again = getenv("VKTRI_AGAIN") != NULL;
+	counter = getenv("VKTRI_COUNTER") != NULL;
 
 	/* the global commands, and one through vkGetInstanceProcAddr */
 	PFN_vkEnumerateInstanceVersion EnumerateInstanceVersion =
@@ -401,6 +405,8 @@ main(int argc, char **argv)
 		};
 		CHECK(vkBeginCommandBuffer(cb, &cbi), "begin");
 		VkClearValue clear = { .color = { .float32 = { 0.0f, 0.0f, 0.4f, 1.0f } } };
+		if(counter)
+			clear.color.float32[1] = (40 + frames % 200) / 255.0f;
 		VkRenderPassBeginInfo rbi = {
 			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 			.renderPass = rp,

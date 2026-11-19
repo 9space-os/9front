@@ -417,6 +417,15 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		cp "$TMPD/logagain" "$HERE/console-wsysagain.log"
 		check "wsys gone: vktri goes on in the next wsys, twice, its triangle in the last: all passed" grep -q '^wsysagain: all passed' "$TMPD/logagain"
 		grep -E '^(ok|FAIL) ' "$TMPD/logagain" | sed 's/^/  /'
+		# the order of the frames on the screen as composed: never an older
+		# frame after a newer one (vktri's VKTRI_COUNTER; wsysorder.rc)
+		cp "$HERE/wsysorder.rc" "$HERE/root/tests/wsysorder"
+		chmod +x "$HERE/root/tests/wsysorder"
+		check "boot with virtio-gpu-gl, wsys -g: the frames' order on the screen" bootwsys "WSYSDEBUG=comp /tests/wsys ${WSYSFLAGS:-} -x -i /tests/wsysorder"
+		tr -d '\r' < "$TMPD/consolewsys" > "$TMPD/logorder"
+		cp "$TMPD/logorder" "$HERE/console-wsysorder.log"
+		check "wsys order: never an older frame on the screen after a newer one" grep -q '^order: [0-9]* samples, 0 back' "$TMPD/logorder"
+		grep '^order: ' "$TMPD/logorder" | sed 's/^/  /'
 		# the driver killed while wsys composes on the GPU and started again
 		# (wsysback.rc, as killdrv.rc): venus reports the device lost (Mesa
 		# 0045), wsys composes on the processor meanwhile, on the GPU again
