@@ -247,7 +247,11 @@ fi
 qmp=()
 [ -z "$SCREENSHOT" ] || { rm -f "$CLI_DIR/qmp.sock"; qmp=(-qmp "unix:$CLI_DIR/qmp.sock,server,nowait"); }
 [ "$VNC" != 1 ] || { rm -f "$CLI_DIR/vnc.sock"; qmp+=(-vnc "unix:$CLI_DIR/vnc.sock"); }
-${egl:+setsid} "${qemu[@]}" -serial pty "${qmp[@]}" $QEMU_EXTRA > "$CLI_DIR/qemu.log" 2>&1 &
+# the serial line also to serial.log, written by QEMU itself: a console
+# that stays empty here (seen now and then right after another guest)
+# shows there whether the guest said nothing or the pty lost it (QEMU's
+# pty drops what it writes while it takes the other side as closed)
+${egl:+setsid} "${qemu[@]}" -chardev pty,id=ser0,logfile="$CLI_DIR/serial.log",logappend=off -serial chardev:ser0 "${qmp[@]}" $QEMU_EXTRA > "$CLI_DIR/qemu.log" 2>&1 &
 pids+=($!)
 qemupid=$!
 # the guest powered itself off (fshalt, scram): nothing more to wait for
@@ -359,7 +363,7 @@ noprompt=
 if [ "$SERVICE" = cpu ] && ! prompted; then
 	noprompt=$CLI_DIR/noprompt.$(date +%Y%m%d-%H%M%S)
 	mkdir -p "$noprompt"
-	cp "$CLI_DIR/console.log" "$CLI_DIR/qemu.log" "$noprompt/" 2>/dev/null || true
+	cp "$CLI_DIR/console.log" "$CLI_DIR/qemu.log" "$CLI_DIR/serial.log" "$noprompt/" 2>/dev/null || true
 	echo "boot-cli: no rc prompt after ${BOOTWAIT:-300} s, logs in $noprompt" >&2
 	cmds=() WAITFOR=
 fi
