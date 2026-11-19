@@ -801,6 +801,7 @@ static struct {
 	int	pm1cnt;		/* PM1a's control block: SCI_EN */
 	int	pm1bcnt;	/* PM1b's control block (9space: sleep) */
 	uvlong	facs;		/* the FACS (9space: the waking vector) */
+	int	suspending;	/* 9space: a sleep from sleepevents to wakeevents */
 	int	smicmd;		/* SMI_CMD, and what switches to ACPI mode */
 	int	acpienable;
 	int	gpe[2];		/* GPE0, GPE1 blocks: status, then enable */
@@ -865,6 +866,11 @@ acpiintr(Ureg*, void*)
 			continue;
 		ps = ins(acpiev.pm1[b]);
 		pe = ins(acpiev.pm1[b] + acpiev.pm1len);
+		if(acpiev.suspending && (ps & pe & (1<<9 | 1<<8)) != 0){
+			/* 9space: the button that wakes the machine (wakeevents) */
+			outs(acpiev.pm1[b], ps & pe & (1<<9 | 1<<8));
+			ps &= ~(1<<9 | 1<<8);
+		}
 		if((pp = ps & pe) == 0)
 			continue;
 		outs(acpiev.pm1[b] + acpiev.pm1len, pe & ~pp);
@@ -880,17 +886,12 @@ acpievpending(void*)
 	return acpiev.npend > 0 || acpiev.pm1pend != 0;
 }
 
+/* ACPI mode (SCI_EN) by SMI_CMD if the firmware has not set it: at the first open, after a wake */
 static void
-acpievon(void)
+acpimode(void)
 {
-	int b, i;
+	int i;
 
-	qlock(&acpiev.ql);
-	if(acpiev.on){
-		qunlock(&acpiev.ql);
-		return;
-	}
-	/* ACPI mode: SCI_EN, else no event comes as an SCI */
 	if(acpiev.pm1cnt != 0 && (ins(acpiev.pm1cnt) & 1) == 0){
 		if(acpiev.smicmd == 0 || acpiev.acpienable == 0)
 			print("acpiev: not in ACPI mode, no SMI_CMD to switch\n");
@@ -902,6 +903,20 @@ acpievon(void)
 				print("acpiev: SCI_EN still clear after ACPI_ENABLE\n");
 		}
 	}
+}
+
+static void
+acpievon(void)
+{
+	int b, i;
+
+	qlock(&acpiev.ql);
+	if(acpiev.on){
+		qunlock(&acpiev.ql);
+		return;
+	}
+	/* ACPI mode: SCI_EN, else no event comes as an SCI */
+	acpimode();
 	ilock(&acpiev);
 	for(b = 0; b < 2; b++)
 		for(i = 0; acpiev.gpe[b] != 0 && i < acpiev.gpelen[b]; i++){
@@ -1067,6 +1082,62 @@ acpisleepenter(void*)
 
 static QLock sleeplock;
 
+/*
+ * the events around a sleep (as OpenBSD's acpi_sleep_state): the
+ * enables saved, every GPE off and its status cleared but the wake
+ * GPEs aux/acpi names (from the devices' _PRW), PM1's enables kept
+ * (the power button wakes); after the wake the enables as they were
+ */
+enum { Ngpebyte = 128 };
+static struct {
+	uchar	gpe[2][Ngpebyte];
+	ushort	pm1[2];
+} sleepen;
+
+static void
+sleepevents(Cmdbuf *cb)
+{
+	int b, i, port, bit;
+
+	ilock(&acpiev);
+	acpiev.suspending = 1;
+	for(b = 0; b < 2; b++){
+		if(acpiev.pm1[b] != 0)
+			sleepen.pm1[b] = ins(acpiev.pm1[b] + acpiev.pm1len);
+		for(i = 0; acpiev.gpe[b] != 0 && i < acpiev.gpelen[b] && i < Ngpebyte; i++){
+			sleepen.gpe[b][i] = inb(acpiev.gpe[b] + acpiev.gpelen[b] + i);
+			outb(acpiev.gpe[b] + acpiev.gpelen[b] + i, 0);
+			outb(acpiev.gpe[b] + i, 0xFF);
+		}
+	}
+	for(i = 3; i < cb->nf; i++){
+		port = gpeport(strtol(cb->f[i], nil, 0), 1, &bit);
+		if(port >= 0)
+			outb(port, inb(port) | bit);
+	}
+	iunlock(&acpiev);
+}
+
+static void
+wakeevents(void)
+{
+	int b, i;
+
+	acpimode();
+	ilock(&acpiev);
+	for(b = 0; b < 2; b++){
+		/* the button that woke the machine is no event (as Linux, OpenBSD): its status and WAK_STS cleared */
+		if(acpiev.pm1[b] != 0){
+			outs(acpiev.pm1[b], 1<<15 | 1<<9 | 1<<8);
+			outs(acpiev.pm1[b] + acpiev.pm1len, sleepen.pm1[b]);
+		}
+		for(i = 0; acpiev.gpe[b] != 0 && i < acpiev.gpelen[b] && i < Ngpebyte; i++)
+			outb(acpiev.gpe[b] + acpiev.gpelen[b] + i, sleepen.gpe[b][i]);
+	}
+	acpiev.suspending = 0;
+	iunlock(&acpiev);
+}
+
 static long
 acpisleepwrite(Chan*, void *a, long n, vlong)
 {
@@ -1080,8 +1151,8 @@ acpisleepwrite(Chan*, void *a, long n, vlong)
 		free(cb);
 		nexterror();
 	}
-	if(cb->nf != 3 || strcmp(cb->f[0], "sleep") != 0)
-		error("usage: sleep slptypa slptypb");
+	if(cb->nf < 3 || strcmp(cb->f[0], "sleep") != 0)
+		error("usage: sleep slptypa slptypb [wakegpe ...]");
 	if(archsuspend == nil)
 		error("suspend not supported on this architecture");
 	slptyp[0] = strtol(cb->f[1], nil, 0) & 7;
@@ -1091,7 +1162,9 @@ acpisleepwrite(Chan*, void *a, long n, vlong)
 	qlock(&sleeplock);
 	procwired(up, 0);
 	sched();
+	sleepevents(cb);
 	e = archsuspend(acpisleepenter, nil);
+	wakeevents();
 	up->wired = 0;
 	qunlock(&sleeplock);
 	if(e != nil)

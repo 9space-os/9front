@@ -188,12 +188,17 @@ or where the firmware has no event blocks.
 .PP
 A write of
 .BI "sleep " "slptypa slptypb"
+.RI [ wakegpe " ...]"
 to
 .I acpisleep
 suspends the machine to RAM (ACPI S3): the values for the
 PM1a and PM1b control registers' SLP_TYP field, as the firmware's
 .B _S3
 object gives them.
+While it sleeps only the GPEs named are enabled (the PM1 events keep
+theirs); after the wake every enable is as before, the machine is
+in ACPI mode again, and the status of the power or sleep button that
+woke it is cleared, not reported.
 The kernel stops the other processors (each saves its state and
 halts), saves the first one's state and the PCI configuration,
 calls each device driver's power function to turn it off,
@@ -209,7 +214,10 @@ or a processor did not stop.
 The AML part of a suspend
 .RB ( _PTS ,
 .BR _WAK )
-is the caller's.
+is the caller's:
+.IR aux/acpi 's
+.B suspend
+.RI ( acpi (8)).
 Only the host owner may write it; it is there only where the FADT
 names a FACS and a PM1a control register.
 .PP

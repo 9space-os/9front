@@ -71,6 +71,10 @@ struct FACP {
 
 	ulong slpa;
 	ulong slpb;
+
+	int s3ok;	/* 9space: _S3, suspend to RAM */
+	ulong s3a;
+	ulong s3b;
 };
 
 enum {
@@ -603,6 +607,86 @@ poweroff(void)
 	return -1;
 }
 
+/*
+ * 9space: suspend to RAM (S3), as OpenBSD's acpi_sleep_state
+ * (sys/dev/acpi/acpi.c: Copyright (c) 2005 Thorsten Lockert, Jordan
+ * Hargrave; ISC): _TTS, _PTS, _SST sleeping; the kernel
+ * (#P/acpisleep) leaves only the wake GPEs on (each _PRW's that wakes
+ * from S3), saves the processors and the devices and sleeps; then
+ * _WAK, _SST waking, _TTS(0), _SST working and a line "resume" in
+ * acpievents.  With amllk held: the events wait.
+ */
+static void evpost(char*, ...);
+
+static int
+addwakegpe(void *dot, void *arg)
+{
+	Fmt *f;
+	void *r, **a;
+
+	f = arg;
+	r = nil;
+	if(amleval(dot, "", &r) < 0 || amltag(r) != 'p' || amllen(r) < 2)
+		return 1;
+	a = amlval(r);
+	/* a GPE block device's (a package) is not a FADT GPE */
+	if(amltag(a[0]) != 'i' && amltag(a[0]) != 'I')
+		return 1;
+	if(amlint(a[1]) >= 3)
+		fmtprint(f, " %lld", amlint(a[0]));
+	return 1;
+}
+
+static void
+sst(int v)
+{
+	void *x;
+
+	if((x = amlwalk(amlroot, "\\_SI._SST")) != nil)
+		amleval(x, "i", v, nil);
+}
+
+static int
+suspend(void)
+{
+	void *x;
+	char *gpes;
+	Fmt f;
+	int fd, rv;
+
+	if(!facp.s3ok){
+		werrstr("no _S3");
+		return -1;
+	}
+	if((fd = open("#P/acpisleep", OWRITE)) < 0)
+		return -1;
+	fmtstrinit(&f);
+	amlenum(amlroot, "_PRW", addwakegpe, &f);
+	gpes = fmtstrflush(&f);
+
+	if((x = amlwalk(amlroot, "_TTS")) != nil)
+		amleval(x, "i", 3, nil);
+	if((x = amlwalk(amlroot, "_PTS")) != nil)
+		amleval(x, "i", 3, nil);
+	sst(3);			/* sleeping */
+
+	rv = 0;
+	if(fprint(fd, "sleep %lud %lud%s", facp.s3a, facp.s3b, gpes != nil ? gpes : "") < 0)
+		rv = -1;
+	close(fd);
+	free(gpes);
+
+	if((x = amlwalk(amlroot, "_WAK")) != nil)
+		amleval(x, "i", 3, nil);
+	sst(2);			/* waking */
+	if((x = amlwalk(amlroot, "_TTS")) != nil)
+		amleval(x, "i", 0, nil);
+	sst(1);			/* working */
+	if(rv == 0)
+		evpost("resume");
+	return rv;
+}
+
 static void
 pmctlread(char *s, char *e)
 {
@@ -698,6 +782,8 @@ fswrite(Req *r)
 		qlock(&amllk);
 		if(nf == 2 && strcmp(f[0], "power") == 0 && strcmp(f[1], "off") == 0)
 			rv = poweroff();	/* should not go any further here */
+		else if(nf == 1 && strcmp(f[0], "suspend") == 0)
+			rv = suspend();
 		else if(nf == 4 && strcmp(f[0], "charge") == 0)
 			rv = tpclampcharge(f[1], atoi(f[2]), atoi(f[3]));
 		else {
@@ -1218,6 +1304,7 @@ amlrequest(char *buf, int n, char **reply)
  *				ThinkPad's hotkeys 0x1010, 0x1011
  *	hotkey 0xN		a ThinkPad's other hotkeys (MHKP)
  *	button power|sleep	PM1's fixed buttons, PNP0C0C, PNP0C0E
+ *	resume			the machine woke from a suspend (pmctl)
  *	lid open|closed		PNP0C0D (_LID)
  *	ac online|offline	ACPI0003 (_PSR)
  *	battery			PNP0C0A changed
@@ -2004,6 +2091,12 @@ threadmain(int argc, char **argv)
 		rr = amlval(r);
 		facp.slpa = amlint(rr[0]);
 		facp.slpb = amlint(rr[1]);
+	}
+	if(amleval(amlwalk(amlroot, "_S3"), "", &r) >= 0 && amltag(r) == 'p' && amllen(r) >= 2){
+		rr = amlval(r);
+		facp.s3a = amlint(rr[0]);
+		facp.s3b = amlint(rr[1]);
+		facp.s3ok = 1;
 	}
 	close(fd);
 

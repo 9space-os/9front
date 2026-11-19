@@ -96,6 +96,26 @@ Writing
 to
 .B pmctl
 will turn off the power.
+Writing
+.I suspend
+suspends the machine to RAM (ACPI S3) and returns when it wakes:
+.BR _TTS ,
+.B _PTS
+and
+.B \e_SI._SST
+before, then the kernel's
+.B sleep
+.RI ( arch (3))
+with the GPEs of the devices whose
+.B _PRW
+wakes from S3, then
+.BR _WAK ,
+.B _SST
+and
+.BR _TTS (0);
+.B acpievents
+gets a line
+.BR resume .
 Writing 
 .I charge bat min max
 to
@@ -223,6 +243,12 @@ and
 .BR MHKC );
 .TP
 .BR "button power" ", " "button sleep"
+.TP
+.B resume
+the machine woke from a
+.I suspend
+written to
+.BR pmctl ;
 .TP
 .BR "lid open" ", " "lid closed"
 .TP
