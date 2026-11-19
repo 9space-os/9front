@@ -10,8 +10,9 @@
  * usage: vktri [seconds]
  * VKTRI_AGAIN=1: on VK_ERROR_OUT_OF_DATE_KHR a new swapchain and on (a window
  * that outlives its wsys: tests/gpu/wsysagain.rc), not the end
- * VKTRI_COUNTER=1: the background's green the frame's number (40 + frame mod
- * 200, of 255): what the screen shows must never go back to an older frame
+ * VKTRI_COUNTER=1: the background the frame's number, 16 bits: red its high
+ * byte, green its low one, blue 0x66 as ever (the theme's #777777 is no frame):
+ * what the screen shows must never go back to an older frame
  * (tests/gpu/wsysorder.rc)
  */
 #include <stdio.h>
@@ -405,8 +406,10 @@ main(int argc, char **argv)
 		};
 		CHECK(vkBeginCommandBuffer(cb, &cbi), "begin");
 		VkClearValue clear = { .color = { .float32 = { 0.0f, 0.0f, 0.4f, 1.0f } } };
-		if(counter)
-			clear.color.float32[1] = (40 + frames % 200) / 255.0f;
+		if(counter){
+			clear.color.float32[0] = ((frames >> 8) & 0xff) / 255.0f;
+			clear.color.float32[1] = (frames & 0xff) / 255.0f;
+		}
 		VkRenderPassBeginInfo rbi = {
 			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 			.renderPass = rp,

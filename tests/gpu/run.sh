@@ -428,7 +428,7 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		check "boot with virtio-gpu-gl, wsys -g: the frames' order on the screen" bootwsys "WSYSDEBUG=comp,damage /tests/wsys ${WSYSFLAGS:-} -x -i /tests/wsysorder"
 		tr -d '\r' < "$TMPD/consolewsys" > "$TMPD/logorder"
 		cp "$TMPD/logorder" "$HERE/console-wsysorder.log"
-		check "wsys order: never an older frame on the screen after a newer one" grep -q '^order: [0-9]* samples, 0 back' "$TMPD/logorder"
+		check "wsys order: every sample a frame of vktri, never an older one after a newer one" grep -Eq '^order: ([5-9][0-9]|[1-9][0-9][0-9]) samples, 0 back, 0 not a frame' "$TMPD/logorder"
 		check "glage in a window of wsys -g (buffer age, partial redraw: no older content): all passed" grep -q '^order: glage: all passed' "$TMPD/logorder"
 		# incremental present: glage's frames change a stripe of its window
 		# (480x360): wsys composes about that, not the window (WSYSDEBUG=damage)
