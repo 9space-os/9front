@@ -248,7 +248,8 @@ vn_ring_wait_seqno(struct vn_ring *ring, uint32_t seqno)
    struct vn_relax_state relax_state = vn_relax_init(ring->instance, reason);
    int64_t next_kick = os_time_get_nano() + VN_RING_IDLE_TIMEOUT_NS;
    do {
-      if (vn_ring_get_seqno_status(ring, seqno)) {
+      if (vn_ring_get_seqno_status(ring, seqno) ||
+          vn_instance_is_lost(ring->instance)) {
          vn_relax_fini(&relax_state);
          return;
       }
@@ -302,6 +303,13 @@ vn_ring_wait_space(struct vn_ring *ring, uint32_t size)
          if (vn_ring_has_space(ring, size, &head)) {
             vn_relax_fini(&relax_state);
             return head;
+         }
+         /* lost: what is written goes nowhere (vn_ring_submit_locked
+          * submits nothing more after this)
+          */
+         if (vn_instance_is_lost(ring->instance)) {
+            vn_relax_fini(&relax_state);
+            return vn_ring_load_head(ring);
          }
       } while (true);
    }
@@ -512,6 +520,11 @@ vn_ring_submit_internal(struct vn_ring *ring,
    for (uint32_t i = 0; i < cs->buffer_count; i++) {
       const struct vn_cs_encoder_buffer *buf = &cs->buffers[i];
       cur_seqno = vn_ring_wait_space(ring, buf->committed_size);
+      /* lost while waiting for space: the ring is full and nobody reads
+       * it, nothing more is written (vn_ring_submit_locked fails)
+       */
+      if (vn_instance_is_lost(ring->instance))
+         break;
       vn_ring_write_buffer(ring, buf->base, buf->committed_size);
    }
 
@@ -524,8 +537,12 @@ vn_ring_submit_internal(struct vn_ring *ring,
    vn_ring_store_tail(ring);
    const VkRingStatusFlagsMESA status = vn_ring_load_status(ring);
    if (status & VK_RING_STATUS_FATAL_BIT_MESA) {
-      vn_log(NULL, "vn_ring_submit abort on fatal");
-      abort();
+      if (VN_DEBUG(LOST)) {
+         vn_instance_set_lost(ring->instance, "ring fatal error on submit");
+      } else {
+         vn_log(NULL, "vn_ring_submit abort on fatal");
+         abort();
+      }
    }
 
    vn_ring_retire_submits(ring, cur_seqno);
@@ -694,6 +711,9 @@ vn_ring_submit_locked(struct vn_ring *ring,
                       struct vn_renderer_shmem *extra_shmem,
                       uint32_t *ring_seqno)
 {
+   if (vn_instance_is_lost(ring->instance))
+      return VK_ERROR_DEVICE_LOST;
+
    const bool direct = vn_ring_submission_can_direct(ring, cs);
    if (!direct && cs->storage_type == VN_CS_ENCODER_STORAGE_POINTER) {
       cs = vn_ring_cs_upload_locked(ring, cs);
@@ -721,6 +741,9 @@ vn_ring_submit_locked(struct vn_ring *ring,
    }
 
    vn_ring_submission_cleanup(&submit);
+
+   if (vn_instance_is_lost(ring->instance))
+      return VK_ERROR_DEVICE_LOST;
 
    if (ring_seqno)
       *ring_seqno = seqno;
@@ -811,6 +834,12 @@ vn_ring_submit_command(struct vn_ring *ring,
          submit->reply =
             VN_CS_DECODER_INITIALIZER(reply_ptr, submit->reply_size);
          vn_ring_wait_seqno(ring, submit->ring_seqno);
+         /* lost while waiting: no reply to decode (the call fails) */
+         if (vn_instance_is_lost(ring->instance)) {
+            vn_renderer_shmem_unref(ring->instance->renderer,
+                                    submit->reply_shmem);
+            submit->reply_shmem = NULL;
+         }
       } else {
          vn_renderer_shmem_unref(ring->instance->renderer,
                                  submit->reply_shmem);

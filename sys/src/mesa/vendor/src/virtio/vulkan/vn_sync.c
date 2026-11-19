@@ -175,8 +175,10 @@ vn_update_sync_result(struct vn_device *dev,
 {
    switch (result) {
    case VK_NOT_READY:
-      if (abs_timeout != OS_TIMEOUT_INFINITE &&
-          os_time_get_nano() >= abs_timeout)
+      if (vn_instance_is_lost(dev->instance))
+         result = VK_ERROR_DEVICE_LOST;
+      else if (abs_timeout != OS_TIMEOUT_INFINITE &&
+               os_time_get_nano() >= abs_timeout)
          result = VK_TIMEOUT;
       else
          vn_relax(relax_state);
@@ -516,7 +518,7 @@ vn_get_semaphore_counter_value(VkDevice dev_handle,
           */
          VkResult result = vn_call_vkGetSemaphoreCounterValue(
             dev->primary_ring, dev_handle, sem_handle, out_value);
-         if (result == VK_ERROR_DEVICE_LOST) {
+         if (result == VK_ERROR_DEVICE_LOST && !VN_DEBUG(LOST)) {
             vn_log(dev->instance, "aborting on sfb device lost");
             abort();
          }

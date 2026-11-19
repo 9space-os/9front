@@ -50,6 +50,8 @@ struct vn_instance {
       struct list_head tls_rings;
 
       struct vn_watchdog watchdog;
+      /* VN_DEBUG=lost: the renderer died (vn_instance_set_lost) */
+      uint32_t lost;
    } ring;
 
    /* Between the driver and the app, VN_MAX_API_VERSION is what we advertise

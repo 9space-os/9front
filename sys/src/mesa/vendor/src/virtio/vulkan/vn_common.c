@@ -37,6 +37,7 @@ static const struct debug_control vn_debug_options[] = {
    { "mem_budget", VN_DEBUG_MEM_BUDGET },
    { "no_desc_heap", VN_DEBUG_NO_DESC_HEAP },
    { "no_drm_syncobj", VN_DEBUG_NO_DRM_SYNCOBJ },
+   { "lost", VN_DEBUG_LOST },
    { NULL, 0 },
    /* clang-format on */
 };
@@ -71,6 +72,13 @@ vn_env_init_once(void)
       parse_debug_string(os_get_option("VN_DEBUG"), vn_debug_options);
    vn_env.perf =
       parse_debug_string(os_get_option("VN_PERF"), vn_perf_options);
+#if DETECT_OS_PLAN9
+   /* 9front: a GPU's driver killed and started again (gpu(3)) is a lost
+    * device to its programs, as on other drivers, not the end of every
+    * Vulkan program (wsys composes on the processor meanwhile)
+    */
+   vn_env.debug |= VN_DEBUG_LOST;
+#endif
 }
 
 void
@@ -226,6 +234,19 @@ vn_relax_get_profile(enum vn_relax_reason reason)
    UNREACHABLE("unhandled vn_relax_reason");
 }
 
+void
+vn_instance_set_lost(struct vn_instance *instance, const char *why)
+{
+   if (!p_atomic_xchg(&instance->ring.lost, 1))
+      vn_log(instance, "the renderer is lost (%s): device lost", why);
+}
+
+bool
+vn_instance_is_lost(struct vn_instance *instance)
+{
+   return p_atomic_read(&instance->ring.lost);
+}
+
 struct vn_relax_state
 vn_relax_init(struct vn_instance *instance, enum vn_relax_reason reason)
 {
@@ -261,12 +282,18 @@ vn_relax(struct vn_relax_state *state)
    if (unlikely(*iter % (1 << warn_order) == 0)) {
       struct vn_instance *instance = state->instance;
       state->warn = true;
+      if (vn_instance_is_lost(instance))
+         return;
       vn_log(instance, "stuck in %s wait with iter at %d", state->reason_str,
              *iter);
 
       struct vn_ring *ring = instance->ring.ring;
       const uint32_t status = vn_ring_load_status(ring);
       if (status & VK_RING_STATUS_FATAL_BIT_MESA) {
+         if (VN_DEBUG(LOST)) {
+            vn_instance_set_lost(instance, "ring fatal error");
+            return;
+         }
          vn_log(instance, "aborting on ring fatal error at iter %d", *iter);
          abort();
       }
@@ -276,6 +303,10 @@ vn_relax(struct vn_relax_state *state)
       if (vn_watchdog_acquire(watchdog, alive))
          vn_ring_unset_status_bits(ring, VK_RING_STATUS_ALIVE_BIT_MESA);
 
+      if (vn_watchdog_timeout(watchdog) && VN_DEBUG(LOST)) {
+         vn_instance_set_lost(instance, "expired ring alive status");
+         return;
+      }
       if (vn_watchdog_timeout(watchdog) && !VN_DEBUG(NO_ABORT)) {
          vn_log(instance, "aborting on expired ring alive status at iter %d",
                 *iter);

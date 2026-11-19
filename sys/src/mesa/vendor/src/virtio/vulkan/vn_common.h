@@ -132,6 +132,7 @@ enum vn_debug {
    VN_DEBUG_MEM_BUDGET = 1ull << 11,
    VN_DEBUG_NO_DESC_HEAP = 1ull << 12,
    VN_DEBUG_NO_DRM_SYNCOBJ = 1ull << 13,
+   VN_DEBUG_LOST = 1ull << 14,
 };
 
 enum vn_perf {
@@ -443,6 +444,17 @@ vn_relax(struct vn_relax_state *state);
 
 void
 vn_relax_fini(struct vn_relax_state *state);
+
+/* VN_DEBUG=lost: a renderer that died (its ring's fatal bit, or no sign of
+ * life until the watchdog expires) makes the instance lost instead of
+ * aborting the process: the ring's waits end, nothing more is submitted,
+ * and the calls and waits return VK_ERROR_DEVICE_LOST
+ */
+void
+vn_instance_set_lost(struct vn_instance *instance, const char *why);
+
+bool
+vn_instance_is_lost(struct vn_instance *instance);
 
 static inline bool
 vn_relax_warn(struct vn_relax_state *state)

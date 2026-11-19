@@ -336,7 +336,7 @@ vn_get_query_pool_feedback(VkDevice device,
          /* Emit synchronous call to catch renderer device lost */
          result = vn_get_query_pool_results(device, queryPool, firstQuery,
                                             queryCount, pData, stride, flags);
-         if (result == VK_ERROR_DEVICE_LOST) {
+         if (result == VK_ERROR_DEVICE_LOST && !VN_DEBUG(LOST)) {
             vn_log(dev->instance, "aborting on qfb device lost");
             abort();
          }
