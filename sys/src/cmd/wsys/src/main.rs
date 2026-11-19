@@ -517,6 +517,7 @@ struct Menu {
     layer: u32,
     cur: Option<usize>,
     client: Option<Waiting>, // a program's, through its window's menu file
+    sc: f64, // the scale of the monitor it opened on: its font and sizes
 }
 
 /// a program's menu: where its buttons are
@@ -3784,6 +3785,17 @@ impl Wsys {
         }
     }
 
+    /// the monitor with x y on it: its rectangle and scale (the screen
+    /// and the theme's without monitors)
+    fn monat(&self, x: i32, y: i32) -> (Rect, f64) {
+        self.outs.get(self.outat(x, y)).map_or((self.d.r, self.theme.scale), |o| (o.1, o.2))
+    }
+
+    /// the menu's font, at the scale of its monitor
+    fn menufont(&mut self, sc: f64) -> Option<&mut font::Font> {
+        Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, theme::dpi(sc))
+    }
+
     /// the monitor with x y on it, else the first
     fn outat(&self, x: i32, y: i32) -> usize {
         self.outs.iter().position(|o| o.1.contains(x, y)).unwrap_or(0)
@@ -5474,10 +5486,11 @@ impl Wsys {
     /// button 2's menu, its item cur lit
     fn drawmenu(&mut self) {
         let Some(m) = &self.menu else { return };
-        let (l, r, items, cur, left) = (m.layer, m.r, m.items.clone(), m.cur, m.client.is_some());
+        let (l, r, items, cur, left, sc) = (m.layer, m.r, m.items.clone(), m.cur, m.client.is_some(), m.sc);
         let (white, black, hi, border) = (self.white, self.black, self.menuhi, self.cfocus);
-        let (mb, pad) = (self.sz(MENUBORDER), self.sz(MENUPAD));
-        let (font, d) = (self.font.as_mut().unwrap(), &mut self.d);
+        let (mb, pad) = (self.szat(sc, MENUBORDER), self.szat(sc, MENUPAD));
+        let Some(font) = Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, theme::dpi(sc)) else { return };
+        let d = &mut self.d;
         let h = font.height;
         let res = (|| -> std::io::Result<()> {
             d.draw(l, &r, border, 0, 0)?;
@@ -5508,18 +5521,21 @@ impl Wsys {
 
     /// button b's menu at x, y for window n: the first item under the mouse
     fn openmenu(&mut self, n: Option<u32>, b: i32, items: Vec<String>, hidden: Vec<u32>, x: i32, y: i32) {
-        let (mb, pad) = (self.sz(MENUBORDER), self.sz(MENUPAD));
-        let Some(font) = self.font.as_mut() else { return };
-        let h = font.height;
-        let d = &mut self.d;
-        let wd = items.iter().map(|it| it.chars().map(|c| font.width(d, c)).sum::<i32>()).max().unwrap_or(0) + 2 * pad + 2 * mb;
+        // in the scale and font of the monitor it opens on, kept on it
+        let (s, sc) = self.monat(x, y);
+        let (mb, pad) = (self.szat(sc, MENUBORDER), self.szat(sc, MENUPAD));
+        let (h, wd) = {
+            let Some(font) = Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, theme::dpi(sc)) else { return };
+            let d = &mut self.d;
+            let wd = items.iter().map(|it| it.chars().map(|c| font.width(d, c)).sum::<i32>()).max().unwrap_or(0);
+            (font.height, wd + 2 * pad + 2 * mb)
+        };
         let ht = items.len() as i32 * h + 2 * mb;
-        let s = self.d.r;
         let mut r = Rect::new(x - wd / 2, y - h / 2 - mb, x - wd / 2 + wd, y - h / 2 - mb + ht);
         let (dx, dy) = ((s.x0 - r.x0).max(0) + (s.x1 - r.x1).min(0), (s.y0 - r.y0).max(0) + (s.y1 - r.y1).min(0));
         r = r.add(dx, dy);
         let Ok(layer) = self.d.allocwindow(self.scr, r, 0xFFFF_FFFF) else { return };
-        self.menu = Some(Menu { win: n, button: b, items, hidden, r, layer, cur: None, client: None });
+        self.menu = Some(Menu { win: n, button: b, items, hidden, r, layer, cur: None, client: None, sc });
         self.menumove(x, y);
     }
 
@@ -5536,19 +5552,21 @@ impl Wsys {
         if at.len() != 2 || items.is_empty() {
             return Err("bad menu: x y, then an item a line".into());
         }
-        let (mb, pad) = (self.sz(MENUBORDER), self.sz(MENUPAD));
-        let Some(font) = self.font.as_mut() else { return Err("no font".into()) };
-        let h = font.height;
-        let d = &mut self.d;
-        let wd = items.iter().map(|it| it.chars().map(|c| font.width(d, c)).sum::<i32>()).max().unwrap_or(0) + 2 * pad + 2 * mb;
-        let s = self.d.r;
+        let (s, sc) = self.monat(at[0], at[1]);
+        let (mb, pad) = (self.szat(sc, MENUBORDER), self.szat(sc, MENUPAD));
+        let (h, wd) = {
+            let Some(font) = Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, theme::dpi(sc)) else { return Err("no font".into()) };
+            let d = &mut self.d;
+            let wd = items.iter().map(|it| it.chars().map(|c| font.width(d, c)).sum::<i32>()).max().unwrap_or(0);
+            (font.height, wd + 2 * pad + 2 * mb)
+        };
         let mut r = Rect::new(at[0], at[1], at[0] + wd, at[1] + items.len() as i32 * h + 2 * mb);
         let (dx, dy) = ((s.x0 - r.x0).max(0) + (s.x1 - r.x1).min(0), (s.y0 - r.y0).max(0) + (s.y1 - r.y1).min(0));
         r = r.add(dx, dy);
         let layer = self.d.allocwindow(self.scr, r, 0xFFFF_FFFF).map_err(|e| e.to_string())?;
         self.wins.get_mut(&n).unwrap().menuout = None;
         let client = if self.buttons != 0 { Waiting::Held { first: true } } else { Waiting::Open };
-        self.menu = Some(Menu { win: Some(n), button: 0, items, hidden: vec![], r, layer, cur: None, client: Some(client) });
+        self.menu = Some(Menu { win: Some(n), button: 0, items, hidden: vec![], r, layer, cur: None, client: Some(client), sc });
         let (mx, my) = (self.mx, self.my);
         self.menumove(mx, my);
         Ok(())
@@ -5591,8 +5609,9 @@ impl Wsys {
     }
 
     fn menumove(&mut self, x: i32, y: i32) {
-        let h = self.font.as_ref().map(|f| f.height).unwrap_or(1).max(1);
-        let mb = self.sz(MENUBORDER);
+        let Some(sc) = self.menu.as_ref().map(|m| m.sc) else { return };
+        let h = self.menufont(sc).map(|f| f.height).unwrap_or(1).max(1);
+        let mb = self.szat(sc, MENUBORDER);
         let Some(m) = &mut self.menu else { return };
         let inner = m.r.inset(mb);
         let cur = if inner.contains(x, y) { Some(((y - inner.y0) / h) as usize).filter(|&i| i < m.items.len()) } else { None };
