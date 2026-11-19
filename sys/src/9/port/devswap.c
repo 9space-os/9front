@@ -129,7 +129,14 @@ kickpager(void)
 	wakeup(&swapalloc.r);
 }
 
-static void
+/*
+ * kill the biggest process that may be killed: Killed when one goes,
+ * Exiting when one killed before has not ended yet (it may wait for a
+ * server that waits for pages: a mount's flush), else Nokill
+ */
+enum { Nokill, Killed, Exiting };
+
+static int
 killbig(void)
 {
 	int i;
@@ -143,7 +150,7 @@ killbig(void)
 		if(p->state <= New || p->kp || p->parentpid == 0)
 			continue;
 		if(p->procctl == Proc_exitbig)
-			return;	/* try later when done exiting */
+			return Exiting;	/* try later when done exiting */
 		if((p->noswap || (p->procmode & 0222) == 0) && strcmp(eve, p->user) == 0)
 			continue;
 		l = procpagecount(p);
@@ -153,17 +160,17 @@ killbig(void)
 		}
 	}
 	if(kp == nil)
-		return;
+		return Nokill;
 	if(!canqlock(&kp->debug))
-		return;
+		return Exiting;
 	if(!canqlock(&kp->seglock)){
 		qunlock(&kp->debug);
-		return;
+		return Exiting;
 	}
 	if(!needpages(nil)){
 		qunlock(&kp->seglock);
 		qunlock(&kp->debug);
-		return;
+		return Killed;
 	}
 	s = kp->seg[BSEG];
 	killproc(kp, Proc_exitbig);
@@ -177,6 +184,7 @@ killbig(void)
 		}
 	}
 	qunlock(&kp->seglock);
+	return Killed;
 }
 
 static int
@@ -203,15 +211,17 @@ pager(void*)
 {
 	Proc *p;
 	Segment *s;
-	int x, i;
+	int x, i, stuck;
 
 	while(waserror())
 		;
 
 	x = 0;
+	stuck = 0;
 	for(;;){
 		up->psstate = "Reclaim";
 		if(reclaim()){
+			stuck = 0;
 			up->psstate = "Idle";
 			sleep(&swapalloc.r, needpages, nil);
 			continue;
@@ -219,9 +229,36 @@ pager(void*)
 
 		if(swapimage == nil || swapimage->c == nil || swapalloc.free == 0){
 		Killbig:
-			if(!freebroken())
-				killbig();
-			sched();
+			/*
+			 * 9space: when nothing is freed and nobody killed,
+			 * wait before the next pass, as FreeBSD's pagedaemon
+			 * does when vm_pageout_oom finds no process: spinning
+			 * here (sched, reclaim, killbig at once again) took a
+			 * processor for good and freed nothing.  Nokill: only
+			 * the host owner's noswap processes are left.
+			 * Exiting: the one killed is stuck on its way out (a
+			 * mount's flush to a server that waits for pages).
+			 */
+			if(freebroken()){
+				sched();
+				continue;
+			}
+			switch(killbig()){
+			case Killed:
+				sched();
+				break;
+			case Exiting:
+				up->psstate = "Exitbig";
+				tsleep(&up->sleep, return0, nil, 100);
+				break;
+			case Nokill:
+				if(!stuck)
+					print("pager: out of memory, no process to kill\n");
+				stuck = 1;
+				up->psstate = "Nomem";
+				tsleep(&up->sleep, return0, nil, 1000);
+				break;
+			}
 			continue;
 		}
 
