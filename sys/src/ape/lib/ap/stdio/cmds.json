@@ -28,6 +28,7 @@
 			"fgetc.c",
 			"fgetpos.c",
 			"fgets.c",
+			"flockfile.c",
 			"fileno.c",
 			"fopen.c",
 			"fprintf.c",

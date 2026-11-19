@@ -9,7 +9,7 @@
 #include <errno.h>
 #include <sys/types.h>
 
-ssize_t getdelim(char **linep, size_t *np, int delim, FILE *f){
+static ssize_t getdelim_l(char **linep, size_t *np, int delim, FILE *f){
 	size_t len, m;
 	char *p;
 	int c;
@@ -31,7 +31,7 @@ ssize_t getdelim(char **linep, size_t *np, int delim, FILE *f){
 			*linep=p;
 			*np=m;
 		}
-		if((c=getc(f))==EOF)
+		if((c=getc_unlocked(f))==EOF)
 			break;
 		(*linep)[len++]=c;
 		if(c==delim)
@@ -45,4 +45,16 @@ ssize_t getdelim(char **linep, size_t *np, int delim, FILE *f){
 
 ssize_t getline(char **linep, size_t *np, FILE *f){
 	return getdelim(linep, np, '\n', f);
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+ssize_t
+getdelim(char **linep, size_t *np, int delim, FILE *f)
+{
+	ssize_t r;
+
+	_IO_lock(f);
+	r = getdelim_l(linep, np, delim, f);
+	_IO_unlock(f);
+	return r;
 }

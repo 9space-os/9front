@@ -2,7 +2,7 @@
  * pANS stdio -- fseek
  */
 #include "iolib.h"
-int fseek(FILE *f, long offs, int type){
+static int fseek_l(FILE *f, long offs, int type){
 	switch(f->state){
 	case ERR:
 	case CLOSED:
@@ -21,4 +21,16 @@ int fseek(FILE *f, long offs, int type){
 	if(f->state!=OPEN)
 		f->state=RDWR;
 	return 0;
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+int
+fseek(FILE *f, long offs, int type)
+{
+	int r;
+
+	_IO_lock(f);
+	r = fseek_l(f, offs, type);
+	_IO_unlock(f);
+	return r;
 }

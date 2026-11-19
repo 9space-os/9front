@@ -2,7 +2,7 @@
  * pANS stdio -- ungetc
  */
 #include "iolib.h"
-int ungetc(int c, FILE *f){
+static int ungetc_l(int c, FILE *f){
 	if(c==EOF) return EOF;
 	switch(f->state){
 	default:	/* WR */
@@ -30,4 +30,16 @@ int ungetc(int c, FILE *f){
 			*--f->rp=c;
 		return (char)c;
 	}
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+int
+ungetc(int c, FILE *f)
+{
+	int r;
+
+	_IO_lock(f);
+	r = ungetc_l(c, f);
+	_IO_unlock(f);
+	return r;
 }

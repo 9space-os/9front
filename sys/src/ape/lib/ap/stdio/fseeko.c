@@ -2,7 +2,7 @@
  * pANS stdio -- fseeko
  */
 #include "iolib.h"
-int fseeko(FILE *f, off_t offs, int type){
+static int fseeko_l(FILE *f, off_t offs, int type){
 	switch(f->state){
 	case ERR:
 	case CLOSED:
@@ -21,4 +21,16 @@ int fseeko(FILE *f, off_t offs, int type){
 	if(f->state!=OPEN)
 		f->state=RDWR;
 	return 0;
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+int
+fseeko(FILE *f, off_t offs, int type)
+{
+	int r;
+
+	_IO_lock(f);
+	r = fseeko_l(f, offs, type);
+	_IO_unlock(f);
+	return r;
 }

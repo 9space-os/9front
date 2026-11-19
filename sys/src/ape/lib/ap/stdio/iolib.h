@@ -45,5 +45,8 @@ FILE *_IO_sopenw(void);
 char *_IO_sclose(FILE *);
 int _IO_memsync(FILE *);
 FILE *_IO_newfile(void);
+/* 9space: the stream's lock, only once a second thread runs (flockfile.c) */
+#define	_IO_lock(f)	do{ if(__isthreaded) flockfile(f); }while(0)
+#define	_IO_unlock(f)	do{ if(__isthreaded) funlockfile(f); }while(0)
 FILE *_IO_nextfile(FILE *);
 FILE *_IO_reopen(const char *, const char *, FILE *);

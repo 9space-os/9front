@@ -6,7 +6,7 @@
 
 #define BIGN (BUFSIZ/2)
 
-size_t fread(void *p, size_t recl, size_t nrec, FILE *f){
+static size_t fread_l(void *p, size_t recl, size_t nrec, FILE *f){
 	char *s;
 	int n, d, c;
 
@@ -43,4 +43,16 @@ size_t fread(void *p, size_t recl, size_t nrec, FILE *f){
 		return (s-(char*)p)/recl;
 	else
 		return s-(char*)p;
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+size_t
+fread(void *p, size_t recl, size_t nrec, FILE *f)
+{
+	size_t r;
+
+	_IO_lock(f);
+	r = fread_l(p, recl, nrec, f);
+	_IO_unlock(f);
+	return r;
 }

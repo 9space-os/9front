@@ -2,7 +2,7 @@
  * pANS stdio -- fflush
  */
 #include "iolib.h"
-int fflush(FILE *f){
+static int fflush_l(FILE *f){
 	int error, cnt;
 	if(f==NULL){
 		error=0;
@@ -31,4 +31,16 @@ int fflush(FILE *f){
 		f->state=RDWR;
 		return 0;
 	}
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+int
+fflush(FILE *f)
+{
+	int r;
+
+	if(f != NULL) _IO_lock(f);
+	r = fflush_l(f);
+	if(f != NULL) _IO_unlock(f);
+	return r;
 }

@@ -53,14 +53,14 @@ icvt_x,	0,	0,	0,	0,	0,	0,	0,	/*  x  y  z  {  |  }  ~ ^? */
 0,	0,	0,	0,	0,	0,	0,	0,
 
 };
-#define	ngetc(f)		(nread++, getc(f))
+#define	ngetc(f)		(nread++, getc_unlocked(f))	/* 9space: the stream is locked (vfscanf) */
 #define	nungetc(c, f)		(--nread, ungetc((c), f))
 #define	wgetc(c, f, out)	if(width--==0) goto out; (c)=ngetc(f)
 #define	wungetc(c, f)		(++width, nungetc(c, f))
 static int nread, ncvt;
 static const char *fmtp;
 
-int vfscanf(FILE *f, const char *s, va_list args0)
+static int vfscanf_l(FILE *f, const char *s, va_list args0)
 {
 	int c, width, type, store;
 	va_list args;	/* GCC port: the System V va_list parameter is a pointer, &args0 no va_list* */
@@ -427,4 +427,16 @@ icvt_sq(FILE *f, va_list *args, int store, int width, int)
 Done:
 	if(store) *s='\0';
 	return nn > 0;
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+int
+vfscanf(FILE *f, const char *s, va_list args0)
+{
+	int r;
+
+	_IO_lock(f);
+	r = vfscanf_l(f, s, args0);
+	_IO_unlock(f);
+	return r;
 }

@@ -127,16 +127,29 @@ extern char *fgets(char *, int, FILE *);
 extern int fputc(int, FILE *);
 extern int fputs(const char *, FILE *);
 extern int getc(FILE *);
-#define	getc(f)	((f)->rp>=(f)->wp?_IO_getc(f):*(f)->rp++&_IO_CHMASK)
 extern int _IO_getc(FILE *f);
 extern int getchar(void);
-#define	getchar()	getc(stdin)
 extern char *gets(char *);
 extern int putc(int, FILE *);
-#define	putc(c, f) ((f)->wp>=(f)->rp?_IO_putc(c, f):(int)(*(unsigned char*)(f)->wp++=(c)&_IO_CHMASK))
 extern int _IO_putc(int, FILE *);
 extern int putchar(int);
+/*
+ * 9space: the macros reach into the FILE only while one thread runs;
+ * then the functions, which lock it (as OpenBSD's stdio.h).  The
+ * _unlocked ones (POSIX) never lock: the caller holds flockfile.
+ */
+extern int __isthreaded;
+#define	getc_unlocked(f)	((f)->rp>=(f)->wp?_IO_getc(f):*(f)->rp++&_IO_CHMASK)
+#define	putc_unlocked(c, f)	((f)->wp>=(f)->rp?_IO_putc(c, f):(int)(*(unsigned char*)(f)->wp++=(c)&_IO_CHMASK))
+#define	getchar_unlocked()	getc_unlocked(stdin)
+#define	putchar_unlocked(c)	putc_unlocked(c, stdout)
+#define	getc(f)	(__isthreaded?(getc)(f):getc_unlocked(f))
+#define	putc(c, f)	(__isthreaded?(putc)(c, f):putc_unlocked(c, f))
+#define	getchar()	getc(stdin)
 #define	putchar(c)	putc(c, stdout)
+extern void flockfile(FILE *);
+extern int ftrylockfile(FILE *);
+extern void funlockfile(FILE *);
 extern int puts(const char *);
 extern int ungetc(int, FILE *);
 extern size_t fread(void *, size_t, size_t, FILE *);

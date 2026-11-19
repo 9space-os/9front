@@ -12,7 +12,7 @@
  * w+ w+b wb+	open to read and write, truncating
  * a+ a+b ab+	open to read and write, positioned at eof, creating if non-existant.
  */
-FILE *freopen(const char *name, const char *mode, FILE *f){
+static FILE *freopen_l(const char *name, const char *mode, FILE *f){
 	if(f->state!=CLOSED){
 		fclose(f);
 /* premature; fall through and see what happens */
@@ -77,4 +77,16 @@ FILE *_IO_reopen(const char *name, const char *mode, FILE *f){
 	f->wp=0;
 	f->lp=0;
 	return f;
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+FILE *
+freopen(const char *name, const char *mode, FILE *f)
+{
+	FILE * r;
+
+	_IO_lock(f);
+	r = freopen_l(name, mode, f);
+	_IO_unlock(f);
+	return r;
 }

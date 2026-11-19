@@ -2,7 +2,7 @@
  * pANS stdio -- fclose
  */
 #include "iolib.h"
-int fclose(FILE *f){
+static int fclose_l(FILE *f){
 	int d, error=0;
 	char *p;
 
@@ -30,4 +30,16 @@ int fclose(FILE *f){
 	f->state=CLOSED;
 	f->flags=0;
 	return error;
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+int
+fclose(FILE *f)
+{
+	int r;
+
+	_IO_lock(f);
+	r = fclose_l(f);
+	_IO_unlock(f);
+	return r;
 }

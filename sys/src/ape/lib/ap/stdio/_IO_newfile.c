@@ -100,3 +100,16 @@ FILE *_IO_nextfile(FILE *f)
 	unlock(&fl);
 	return f;
 }
+
+/*
+ * 9space: fork's child (plan9/fork.c): the list's lock free, and the
+ * streams' (flockfile.c); their holders, threads of the parent, do not
+ * run in the child (POSIX: only the thread that forked)
+ */
+void _IO_forkchild(void)
+{
+	extern void _IO_flockforkchild(void);
+
+	fl.val = 0;
+	_IO_flockforkchild();
+}

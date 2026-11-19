@@ -18,6 +18,7 @@ OFILES=\
 	fgetc.$O\
 	fgetpos.$O\
 	fgets.$O\
+	flockfile.$O\
 	fileno.$O\
 	fopen.$O\
 	fprintf.$O\

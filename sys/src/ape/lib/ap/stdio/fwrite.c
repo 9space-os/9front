@@ -6,7 +6,7 @@
 
 #define BIGN (BUFSIZ/2)
 
-size_t fwrite(const void *p, size_t recl, size_t nrec, FILE *f){
+static size_t fwrite_l(const void *p, size_t recl, size_t nrec, FILE *f){
 	char *s;
 	int n, d;
 
@@ -54,4 +54,16 @@ size_t fwrite(const void *p, size_t recl, size_t nrec, FILE *f){
 		return (s-(char*)p)/recl;
 	else
 		return s-(char*)p;
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+size_t
+fwrite(const void *p, size_t recl, size_t nrec, FILE *f)
+{
+	size_t r;
+
+	_IO_lock(f);
+	r = fwrite_l(p, recl, nrec, f);
+	_IO_unlock(f);
+	return r;
 }

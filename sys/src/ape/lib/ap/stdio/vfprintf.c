@@ -149,8 +149,8 @@ ocvt_x,	0,	0,	0,	0,	0,	0,	0,	/*  x  y  z  {  |  }  ~ ^? */
 
 static int nprint;
 
-int
-vfprintf(FILE *f, const char *s, va_list args0)
+static int
+vfprintf_l(FILE *f, const char *s, va_list args0)
 {
 	int tfl, flags, width, precision;
 	va_list args;	/* GCC port: the System V va_list parameter is a pointer, &args0 no va_list* */
@@ -159,7 +159,7 @@ vfprintf(FILE *f, const char *s, va_list args0)
 	nprint = 0;
 	while(*s){
 		if(*s != '%'){
-			putc(*s++, f);
+			putc_unlocked(*s++, f);
 			nprint++;
 			continue;
 		}
@@ -205,7 +205,7 @@ vfprintf(FILE *f, const char *s, va_list args0)
 		}
 		if(ocvt[*s]) nprint += (*ocvt[*s++])(f, &args, flags, width, precision);
 		else if(*s){
-			putc(*s++, f);
+			putc_unlocked(*s++, f);
 			nprint++;
 		}
 	}
@@ -225,9 +225,9 @@ ocvt_c(FILE *f, va_list *args, int flags, int width, int)
 {
 	int i;
 
-	if(!(flags&LEFT)) for(i=1; i<width; i++) putc(' ', f);
-	putc((unsigned char)va_arg(*args, int), f);
-	if(flags&LEFT) for(i=1; i<width; i++) putc(' ', f);
+	if(!(flags&LEFT)) for(i=1; i<width; i++) putc_unlocked(' ', f);
+	putc_unlocked((unsigned char)va_arg(*args, int), f);
+	if(flags&LEFT) for(i=1; i<width; i++) putc_unlocked(' ', f);
 	return width<1 ? 1 : width;
 }
 
@@ -246,24 +246,24 @@ ocvt_s(FILE *f, va_list *args, int flags, int width, int precision)
 		else
 			for(i=0; s[i]; i++);
 		for(; i<width; i++){
-			putc(' ', f);
+			putc_unlocked(' ', f);
 			n++;
 		}
 	}
 	if(precision >= 0){
 		for(i=0; i!=precision && *s; i++){
-			putc(*s++, f);
+			putc_unlocked(*s++, f);
 			n++;
 		}
 	} else{
 		for(i=0;*s;i++){
-			putc(*s++, f);
+			putc_unlocked(*s++, f);
 			n++;
 		}
 	}
 	if(flags&LEFT){
 		for(; i<width; i++){
-			putc(' ', f);
+			putc_unlocked(' ', f);
 			n++;
 		}
 	}
@@ -351,33 +351,33 @@ ocvt_fixed(FILE *f, va_list *args, int flags, int width, int precision,
 			fputs(sign, f);
 			fputs(prefix, f);
 			while(npad){
-				putc('0', f);
+				putc_unlocked('0', f);
 				--npad;
 			}
 		} else{
 			while(npad){
-				putc(' ', f);
+				putc_unlocked(' ', f);
 				--npad;
 			}
 			fputs(sign, f);
 			fputs(prefix, f);
 		}
 		while(nlzero){
-			putc('0', f);
+			putc_unlocked('0', f);
 			--nlzero;
 		}
-		while(dp!=digits) putc(*--dp, f);
+		while(dp!=digits) putc_unlocked(*--dp, f);
 	}
 	else{
 		fputs(sign, f);
 		fputs(prefix, f);
 		while(nlzero){
-			putc('0', f);
+			putc_unlocked('0', f);
 			--nlzero;
 		}
-		while(dp != digits) putc(*--dp, f);
+		while(dp != digits) putc_unlocked(*--dp, f);
 		while(npad){
-			putc(' ', f);
+			putc_unlocked(' ', f);
 			--npad;
 		}
 	}
@@ -541,37 +541,49 @@ ocvt_flt(FILE *f, va_list *args, int flags, int width, int precision, char afmt)
 	}
 	if(!(flags&ZPAD) && !(flags&LEFT))
 		while(nout < width){
-			putc(' ', f);
+			putc_unlocked(' ', f);
 			nout++;
 		}
-	if(sign) putc('-', f);
-	else if(flags&SIGN) putc('+', f);
-	else if(flags&SPACE) putc(' ', f);
+	if(sign) putc_unlocked('-', f);
+	else if(flags&SIGN) putc_unlocked('+', f);
+	else if(flags&SPACE) putc_unlocked(' ', f);
 	if((flags&ZPAD) && !(flags&LEFT))
 		while(nout < width){
-			putc('0', f);
+			putc_unlocked('0', f);
 			nout++;
 		}
 	if(fmt == 'f'){
-		for(i=0; i<exponent; i++) putc(i<ndig?digits[i]:'0', f);
-		if(i == 0) putc('0', f);
-		if(precision>0 || flags&ALT) putc('.', f);
+		for(i=0; i<exponent; i++) putc_unlocked(i<ndig?digits[i]:'0', f);
+		if(i == 0) putc_unlocked('0', f);
+		if(precision>0 || flags&ALT) putc_unlocked('.', f);
 		for(i=0; i!=precision; i++)
-			putc(0<=i+exponent && i+exponent<ndig?digits[i+exponent]:'0', f);
+			putc_unlocked(0<=i+exponent && i+exponent<ndig?digits[i+exponent]:'0', f);
 	}
 	else{
-		putc(digits[0], f);
-		if(precision>0 || flags&ALT) putc('.', f);
-		for(i=0; i!=precision; i++) putc(i<ndig-1?digits[i+1]:'0', f);
+		putc_unlocked(digits[0], f);
+		if(precision>0 || flags&ALT) putc_unlocked('.', f);
+		for(i=0; i!=precision; i++) putc_unlocked(i<ndig-1?digits[i+1]:'0', f);
 	}
 	if(fmt != 'f'){
-		putc(echr, f);
-		putc(exponent<=0?'-':'+', f);
-		while(eptr>ebuf) putc(*--eptr, f);
+		putc_unlocked(echr, f);
+		putc_unlocked(exponent<=0?'-':'+', f);
+		while(eptr>ebuf) putc_unlocked(*--eptr, f);
 	}
 	while(nout < width){
-		putc(' ', f);
+		putc_unlocked(' ', f);
 		nout++;
 	}
 	return nout;
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+int
+vfprintf(FILE *f, const char *s, va_list args0)
+{
+	int r;
+
+	_IO_lock(f);
+	r = vfprintf_l(f, s, args0);
+	_IO_unlock(f);
+	return r;
 }

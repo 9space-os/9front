@@ -53,6 +53,10 @@ struct Wblock {
 static Wblock *wblocks;
 static Lock wlock;
 
+/* 9space: a stream's lock while a second thread runs (stdio/flockfile.c) */
+#define	LOCK(f)	do{ if(__isthreaded) flockfile(f); }while(0)
+#define	UNLOCK(f)	do{ if(__isthreaded) funlockfile(f); }while(0)
+
 static Wstream *
 lookup(FILE *f, int make)
 {
@@ -161,8 +165,8 @@ fwide(FILE *f, int mode)
 	return w->orient;
 }
 
-wint_t
-fgetwc(FILE *f)
+static wint_t
+fgetwc_l(FILE *f)
 {
 	mbstate_t st;
 	wchar_t wc;
@@ -199,8 +203,8 @@ getwchar(void)
 	return fgetwc(stdin);
 }
 
-wint_t
-ungetwc(wint_t c, FILE *f)
+static wint_t
+ungetwc_l(wint_t c, FILE *f)
 {
 	mbstate_t st;
 	char mb[4];
@@ -242,8 +246,8 @@ putwchar(wchar_t c)
 	return fputwc(c, stdout);
 }
 
-wchar_t *
-fgetws(wchar_t *s, int n, FILE *f)
+static wchar_t *
+fgetws_l(wchar_t *s, int n, FILE *f)
 {
 	wint_t c;
 	int i, e;
@@ -270,8 +274,8 @@ fgetws(wchar_t *s, int n, FILE *f)
 	return s;
 }
 
-int
-fputws(const wchar_t *s, FILE *f)
+static int
+fputws_l(const wchar_t *s, FILE *f)
 {
 	for(; *s != 0; s++)
 		if(fputwc(*s, f) == WEOF)
@@ -279,8 +283,8 @@ fputws(const wchar_t *s, FILE *f)
 	return 0;
 }
 
-int
-vfwprintf(FILE *f, const wchar_t *fmt, va_list arg)
+static int
+vfwprintf_l(FILE *f, const wchar_t *fmt, va_list arg)
 {
 	int n;
 
@@ -341,8 +345,8 @@ swprintf(wchar_t *s, size_t size, const wchar_t *fmt, ...)
 	return n;
 }
 
-int
-vfwscanf(FILE *f, const wchar_t *fmt, va_list arg)
+static int
+vfwscanf_l(FILE *f, const wchar_t *fmt, va_list arg)
 {
 	int n;
 
@@ -449,4 +453,76 @@ wcsftime(wchar_t *s, size_t n, const wchar_t *fmt, const struct tm *tm)
 	free(f);
 	free(b);
 	return l;
+}
+
+/* 9space: under the stream's lock */
+wint_t
+fgetwc(FILE *f)
+{
+	wint_t r;
+
+	LOCK(f);
+	r = fgetwc_l(f);
+	UNLOCK(f);
+	return r;
+}
+
+/* 9space: under the stream's lock */
+wint_t
+ungetwc(wint_t c, FILE *f)
+{
+	wint_t r;
+
+	LOCK(f);
+	r = ungetwc_l(c, f);
+	UNLOCK(f);
+	return r;
+}
+
+/* 9space: under the stream's lock */
+wchar_t *
+fgetws(wchar_t *s, int n, FILE *f)
+{
+	wchar_t * r;
+
+	LOCK(f);
+	r = fgetws_l(s, n, f);
+	UNLOCK(f);
+	return r;
+}
+
+/* 9space: under the stream's lock */
+int
+fputws(const wchar_t *s, FILE *f)
+{
+	int r;
+
+	LOCK(f);
+	r = fputws_l(s, f);
+	UNLOCK(f);
+	return r;
+}
+
+/* 9space: under the stream's lock */
+int
+vfwprintf(FILE *f, const wchar_t *fmt, va_list arg)
+{
+	int r;
+
+	LOCK(f);
+	r = vfwprintf_l(f, fmt, arg);
+	UNLOCK(f);
+	return r;
+}
+
+/* 9space: under the stream's lock */
+int
+vfwscanf(FILE *f, const wchar_t *fmt, va_list arg)
+{
+	int r;
+
+	LOCK(f);
+	r = vfwscanf_l(f, fmt, arg);
+	UNLOCK(f);
+	return r;
 }

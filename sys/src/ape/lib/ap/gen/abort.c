@@ -7,6 +7,8 @@
  * go, this one ends with a trap and stays Broken (its stack for acid) */
 extern _Noreturn void __plan9_abort(void) __attribute__((weak));
 #endif
+/* 9space: a C program's other pthreads go too (gnu/pthread.c, if linked) */
+extern void __pthread_killothers(void) __attribute__((weak));
 
 _Noreturn void
 abort(void)
@@ -15,5 +17,7 @@ abort(void)
 	if(__plan9_abort)
 		__plan9_abort();
 #endif
+	if(__pthread_killothers)
+		__pthread_killothers();
 	kill(getpid(), SIGABRT);
 }

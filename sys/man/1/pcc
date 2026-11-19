@@ -140,6 +140,38 @@ Operating System Interface standard (POSIX, 1003.1-1990, ISO 9945-1).
 In order to access the POSIX routines, source programs should
 define the preprocessor constant
 .BR _POSIX_SOURCE .
+.PP
+Threads (9space, not in 9front:
+.B <pthread.h>
+and C11's
+.BR <threads.h> ,
+each thread a proc sharing memory):
+once a second thread runs, every
+.B stdio
+function locks the stream it works on, so that one call's output or
+input is not torn by another thread's;
+.BR flockfile ,
+.B ftrylockfile
+and
+.B funlockfile
+hold a stream over several calls (recursively), and
+.BR getc_unlocked ,
+.BR putc_unlocked ,
+.B getchar_unlocked
+and
+.B putchar_unlocked
+go without the lock.
+While only one thread runs,
+.BR getc ,
+.B putc
+and their kin are the macros they were, without a lock.
+.BR exit ,
+.B _exit
+and
+.B abort
+in any thread end the program's other threads;
+.IR fork 's
+child has only the thread that forked, and every stream unlocked.
 .SH FILES
 .TF /$objtype/lib/ape/libap.a
 .TP
@@ -180,3 +212,11 @@ handlers are only minimally implemented.
 always fails, because Plan 9 doesn't support multiple links to a file.
 The functions related to setting effective user and group ids
 cannot be implemented because the concept doesn't exist in Plan 9.
+Code compiled before the stream locks came (9space, 2026-11-19; the
+gcc toolchain's
+.B libstdc++.a
+until it is built again) has the old
+.B getc
+and
+.B putc
+macros, which never lock.
