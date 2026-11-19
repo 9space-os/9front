@@ -249,15 +249,17 @@ kmsuser(Req *r, char **f, int n, char **e)
 	return 1;
 }
 
-/* the status: the driver's d (freed with dfree), the outputs', the screen's */
+/* the status: the driver's d (freed with dfree), its page pool's, the outputs', the screen's */
 static char*
 kmsstatus(char *d, void (*dfree)(char*))
 {
-	char *o, *sc, *s;
+	char *o, *sc, *s, pool[256];
 
+	pool[0] = 0;
+	kpi_pool_status(pool, sizeof pool);
 	o = kmsout_status();
 	sc = screenstatus();
-	s = smprint("%s%s%s", d != nil ? d : "", o != nil ? o : "", sc != nil ? sc : "");
+	s = smprint("%s%s%s%s", d != nil ? d : "", pool, o != nil ? o : "", sc != nil ? sc : "");
 	free(sc);
 	dfree(d);
 	kmsout_free(o);

@@ -197,6 +197,24 @@ firmware_selftest(void)
 	return 0;
 }
 
+/* 9space: the LinuxKPI page pool's status line (gpu(3)'s status), as the status file has it */
+int	kpi_pool_status(char *buf, int n);	/* page.c */
+
+static int
+poolstatus_selftest(void)
+{
+	char buf[256];
+	struct page *p;
+	int n;
+
+	p = alloc_page(GFP_KERNEL);	/* the pool has a chunk then */
+	n = kpi_pool_status(buf, sizeof(buf));
+	if (p)
+		put_page(p);
+	pr_info("selftest: %s", n > 0 ? buf : "no pool status\n");
+	return n > 0 && strncmp(buf, "pool chunks ", 12) == 0 ? 0 : -EIO;
+}
+
 int
 i915_kpitest(void)
 {
@@ -225,6 +243,9 @@ i915_kpitest(void)
 	if (r)
 		return r;
 	r = firmware_selftest();
+	if (r)
+		return r;
+	r = poolstatus_selftest();
 	if (r)
 		return r;
 	/* Linux's selftests of fences, chains, arrays, reservation objects; with the slab's checks */

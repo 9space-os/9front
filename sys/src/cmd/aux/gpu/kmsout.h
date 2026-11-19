@@ -52,6 +52,7 @@ int	kmsout_screen_objs(unsigned long long *front, unsigned long long *back);
 typedef int	(*Kmsgrow)(unsigned long long need, unsigned long long *maxbytes);
 const char	*kmsout_set(char *name, char *spec, unsigned long long maxbytes, Kmsgrow grow, unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff);
 void	kmsout_free(char *s);	/* a string of kmsout's */
+int	kpi_pool_status(char *buf, int n);	/* the LinuxKPI page pool's line (linux/kpi/linux/page.c) */
 /* the mouse cursor (vga hwgc gpu): its image (cursor.h's clr and set, 32 bytes each, the offset), where it is */
 int	kmsout_cursor_image(unsigned char *clr, unsigned char *set, int ox, int oy, int size);
 void	kmsout_cursor_move(int x, int y, int on);

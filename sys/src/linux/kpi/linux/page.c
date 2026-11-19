@@ -339,6 +339,33 @@ put_page(struct page *p)
 void __free_pages(struct page *p, unsigned int order) { put_page(p); }
 
 /*
+ * 9space: the pool's state, a status line (gpu(4)'s status, through
+ * kmsout.h): its chunks, how many are physically contiguous and how many
+ * scattered, its free pages, the chunks wholly free, and the chunks given
+ * back to the system and the bookkeeping waiting for readers to leave
+ * (both 0 until the pool gives chunks back: i915-pool.md (a))
+ */
+static unsigned long nreleased, ndeferred;
+
+int
+kpi_pool_status(char *buf, int n)
+{
+	struct chunk *c;
+	unsigned long nc = 0, ncontig = 0, nfree = 0, nwhole = 0;
+
+	p9_qlock(plock);
+	for (c = chunks; c; c = c->next) {
+		nc++;
+		ncontig += c->contig != 0;
+		nfree += c->nfree;
+		nwhole += c->nfree == CHUNKPAGES;
+	}
+	p9_qunlock(plock);
+	return snprintf(buf, n, "pool chunks %lu (contiguous %lu, scattered %lu), %lu MB, pages free %lu, chunks wholly free %lu, released %lu, deferred %lu\n",
+		nc, ncontig, nc - ncontig, nc * (CHUNK >> 20), nfree, nwhole, nreleased, ndeferred);
+}
+
+/*
  * 9front: a run of 2^order pages into as many pages of their own (TTM's
  * pool before it frees them one by one): each its reference, order 0
  */

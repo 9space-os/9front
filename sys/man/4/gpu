@@ -483,6 +483,23 @@ with the time spent in RC6 and the frequency running.
 leaves the power management off (forcewake held, the frequency the
 firmware set).
 .PP
+The LinuxKPI's pages (aux/i915, aux/amdgpu) come from a pool of 8 MB
+chunks, sticky
+.BR #g
+segments
+.RB ( kpi. pid . n ),
+physically contiguous where the kernel has such a run, else scattered.
+.B status
+shows it:
+.IP
+.BI "pool chunks " n " (contiguous " c ", scattered " s "), " mb " MB, pages free " f ", chunks wholly free " w ", released " r ", deferred " d
+.PP
+.I released
+counts chunks given back to the system,
+.I deferred
+those whose bookkeeping still waits (both 0: the pool never gives a
+chunk back yet).
+.PP
 The display is read as the firmware or aux/vga set it up (not changed
 yet): every output of the DDI ports, with Linux's names
 .RB ( eDP-1 ,
