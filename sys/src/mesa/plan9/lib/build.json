@@ -24,7 +24,8 @@
 			"-I../include"
 		],
 		"SourceFiles": [
-			"plan9win.c"
+			"plan9win.c",
+			"gpuagain.c"
 		]
 	}
 ]

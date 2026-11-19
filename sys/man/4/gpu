@@ -98,6 +98,39 @@ the file server.
 Every driver serves the same tree; what a family does not have is
 missing.
 .PP
+A driver killed and started again posts
+.BI /srv/ srvname
+anew; the mount of the dead one stays in the name spaces that had it (the
+window system's, and those of the programs started from it), its files
+answering
+.LR "i/o on hungup channel" .
+The Vulkan drivers' libraries (Mesa's venus for
+.IR virtiogpu ,
+libdrm9 for the others) call
+.I gpuagain(n)
+before they look for a device: when
+.BI /dev/gpu/ n /status
+cannot be opened and
+.BI /srv/gpu. n
+can, it mounts that before
+.B /dev
+in the process's name space, over the dead files, as libdraw's
+.I wsysagain
+finds a window system again
+.RI ( graphics (2)).
+A program that lost its device (VK_ERROR_DEVICE_LOST: venus's
+.B VN_DEBUG=lost
+is the default on 9front) finds the driver again with its next Vulkan
+instance; the window system
+.RI ( wsys (4))
+goes back to composing on the GPU.
+Where
+.BI /srv/gpu. n
+cannot be opened (another user's: a cpu session's), nothing is mounted and
+the device stays lost: the window system composes on the processor.
+9space's, not 9front's
+.RB ( sys/src/mesa/plan9/lib/gpuagain.c ).
+.PP
 .I Virtiogpu
 drives virtio-gpu (QEMU's
 .BR virtio-gpu-pci ,
@@ -1306,3 +1339,10 @@ through BAR 0.
 .br
 Presenting copies every frame twice (device to host memory, host to
 draw(3)); the kernel's console draws over the screen without rio.
+.PP
+Each restart of a driver leaves the dead one's mount in
+.BR /dev 's
+union of the name spaces
+.I gpuagain
+mounted the new one in (it comes first, the dead ones are not walked
+into); they go with the name space.

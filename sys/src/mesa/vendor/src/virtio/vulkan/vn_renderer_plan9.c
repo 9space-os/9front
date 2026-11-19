@@ -33,6 +33,8 @@ extern void *segattach(int, char *, void *, unsigned long);
 extern int plan9_dmabuf_fd(const char *token);
 extern int plan9_dmabuf_token(int fd, char *buf, int n);
 extern int segdetach(void *);
+/* plan9/lib/gpuagain.c: /dev/gpu/n again after its driver started anew */
+extern int gpuagain(int n);
 
 #define PLAN9_GPU_DIR "/dev/gpu/0"
 #define PLAN9_PCI_VENDOR_ID 0x1af4
@@ -926,6 +928,11 @@ vn_renderer_create_plan9(struct vn_instance *instance,
    p9->ctl_fd = -1;
    p9->submit_fd = -1;
    p9->fence_fd = -1;
+
+   /* a driver killed and started again (gpu(4)): its files over the dead
+    * ones in this name space, before they are looked for
+    */
+   gpuagain(0);
 
    VkResult result = plan9_init(p9);
    if (result != VK_SUCCESS) {

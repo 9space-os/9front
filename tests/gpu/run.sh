@@ -410,6 +410,20 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		cp "$TMPD/logagain" "$HERE/console-wsysagain.log"
 		check "wsys gone: vktri goes on in the next wsys, twice, its triangle in the last: all passed" grep -q '^wsysagain: all passed' "$TMPD/logagain"
 		grep -E '^(ok|FAIL) ' "$TMPD/logagain" | sed 's/^/  /'
+		# the driver killed while wsys composes on the GPU and started again
+		# (wsysback.rc, as killdrv.rc): venus reports the device lost (Mesa
+		# 0045), wsys composes on the processor meanwhile, on the GPU again
+		cp "$HERE/wsysback.rc" "$HERE/root/tests/wsysback"
+		chmod +x "$HERE/root/tests/wsysback"
+		check "boot with virtio-gpu-gl, wsys while its driver is killed and started again" bootwsys "WSI_PLAN9_STATS=1 WSYSDEBUG=comp /tests/wsys ${WSYSFLAGS:-} -x -i /tests/wsysback"
+		tr -d '\r' < "$TMPD/consolewsys" > "$TMPD/logback"
+		cp "$TMPD/logback" "$HERE/console-wsysback.log"
+		check "wsys back: vktri composed on the GPU before" grep -q '^back: before: vktri: all passed' "$TMPD/logback"
+		check "wsys back: the driver killed, wsys lives and the processor composes" grep -q '^back: fell back to the processor' "$TMPD/logback"
+		check "wsys back: the driver started again, the GPU composes again" grep -q '^back: the GPU composes again' "$TMPD/logback"
+		check "wsys back: vktri after it, its frames GPU buffers wsys composes: all passed" grep -q '^back: after: vktri: all passed' "$TMPD/logback"
+		check "wsys back: vktri's new buffers composed by the GPU (none refused after)" bash -c "! sed -n '/the GPU composes again/,\$p' '$TMPD/logback' | grep -q 'the GPU composes it not'"
+		grep -E '^back: |^wsys: the GPU compose' "$TMPD/logback" | grep -vE '^back: (before|after): ' | sed 's/^/  /'
 	else
 		skip "wsys with GPU buffers" "no vktri or no $objtype/bin/wsys"
 	fi

@@ -21,7 +21,10 @@ sed 's/^/back: before: /' /tmp/wba.log
 # as the pager does: a kill, no note handler runs
 for(p in `{drvpids})
 	@{echo kill >/proc/$p/note} >[2]/dev/null
-if(waitlog 'composes no longer' 100) echo back: fell back to the processor
+# a frame to compose (a window of wsys' own): the GPU's thread meets the
+# lost device only when it draws (venus: VN_DEBUG=lost, Mesa 0045)
+window -r 600 400 900 600 rc
+if(waitlog 'composes no longer' 300) echo back: fell back to the processor
 if not echo back: no fallback
 sleep 2
 aux/virtiogpu >[2]/dev/null

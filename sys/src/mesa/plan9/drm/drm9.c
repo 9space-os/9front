@@ -47,6 +47,7 @@
 #include <drm-uapi/dma-buf.h>
 
 #include "amdgpu9.h"
+#include "gpuagain.h"
 
 /* as Mesa's build has it (meson: -DETIME=ETIMEDOUT) */
 #ifndef ETIME
@@ -239,7 +240,9 @@ scan(void)
 	ngpu = 0;
 	for(i = 0; i < Maxdev; i++){
 		snprintf(path, sizeof path, "/dev/gpu/%d/status", i);
-		if(readfile(path, buf, sizeof buf) < 0)
+		/* its driver started again: its files over the dead ones (gpuagain) */
+		if(readfile(path, buf, sizeof buf) < 0 &&
+		   (gpuagain(i) <= 0 || readfile(path, buf, sizeof buf) < 0))
 			continue;
 		if((s = keyline(buf, "device")) == NULL || (strncmp(s, "intel ", 6) != 0 && strncmp(s, "amd ", 4) != 0))
 			continue;
@@ -1608,6 +1611,12 @@ drmGetDevices2(uint32_t flags, drmDevicePtr devs[], int max)
 
 	(void)flags;
 	pthread_mutex_lock(&lk);
+	/*
+	 * the devices again at each enumeration (a Vulkan instance's): a driver
+	 * killed and started since (gpu(4)) is found then; the same device
+	 * comes at the same index (the Devs of open descriptors point there)
+	 */
+	ngpu = -1;
 	scan();
 	n = 0;
 	for(i = 0; i < ngpu; i++){
