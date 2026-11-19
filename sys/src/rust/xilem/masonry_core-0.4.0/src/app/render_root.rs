@@ -161,7 +161,7 @@ pub(crate) struct RenderRootState {
     /// (window coordinates, logical pixels): the bounding boxes of the
     /// widgets painted again, where moved ones were and are; `damage_all`
     /// when that cannot be said (the layers changed).
-    pub(crate) damage: Option<kurbo::Rect>,
+    pub(crate) damage: Option<Rect>,
     pub(crate) damage_all: bool,
     /// 9space: the layers painted last, to see them change.
     pub(crate) last_layers: Vec<(WidgetId, Affine)>,
@@ -637,7 +637,7 @@ impl RenderRoot {
     /// coordinates, logical pixels): `None` nothing, `Some(None)` all of it,
     /// else the rectangle. A renderer draws only that again (the rest of
     /// the window as it was).
-    pub fn take_damage(&mut self) -> Option<Option<kurbo::Rect>> {
+    pub fn take_damage(&mut self) -> Option<Option<Rect>> {
         let all = std::mem::replace(&mut self.global_state.damage_all, false);
         let d = self.global_state.damage.take();
         if all {
