@@ -287,6 +287,7 @@ amsdu(Wifi *wifi, Block *b)
  */
 enum {
 	Batimeout = 100,	/* ms */
+	Bamaxmiss = 8,		/* old frames in a row before the window moves (OpenBSD's IEEE80211_BA_MAX_WINMISS) */
 };
 
 static int
@@ -296,6 +297,52 @@ seqdiff(int a, int b)
 }
 
 /* the frames from the head on, up to the first missing one, to *l */
+/*
+ * 9space: the TID of a frame the reorder is for, else -1: QoS data with
+ * data (not a QoS null: its numbers are none of the window's), to us
+ * (not group addressed, our address: not one the radio passes on from
+ * others), from the access point, not a fragment, acknowledged normally
+ * or by block ack (not "no ack"), as OpenBSD's ieee80211_input goes to
+ * ieee80211_input_ba
+ */
+static int
+batid(Wifi *wifi, Block *b)
+{
+	Wifipkt *w;
+	Wnode *wn;
+	int hdrlen, q;
+
+	w = (Wifipkt*)b->rp;
+	if((w->fc[0] & 0x8c) != 0x88 || (w->fc[0] & 0x40) != 0 || (w->fc[1] & 3) != 0x02)
+		return -1;
+	if((w->a1[0] & 1) != 0 || memcmp(w->a1, wifi->ether->ea, Eaddrlen) != 0)
+		return -1;
+	hdrlen = wifihdrlen(w);
+	if(BLEN(b) < hdrlen || (wn = wifi->bss) == nil || memcmp(w->a2, wn->bssid, Eaddrlen) != 0)
+		return -1;
+	if((w->seq[0] & 0xf) != 0)
+		return -1;	/* a fragment */
+	q = b->rp[hdrlen-2];
+	if((q>>5 & 3) == 1 || (q>>5 & 3) == 2)
+		return -1;	/* no ack, no explicit ack */
+	return q & 15;
+}
+
+/* 9space: the first few frames the window dropped or moved for, to the log */
+static void
+balog(Wifi *wifi, Wba *ba, Block *b, int seq, char *why)
+{
+	Wifipkt *w;
+
+	if(ba->logged >= 8)
+		return;
+	ba->logged++;
+	w = (Wifipkt*)b->rp;
+	print("#l%d: ba: %s seq %d head %d win %d fc %.2ux%.2ux a1 %E a2 %E len %ld\n",
+		wifi->ether->ctlrno, why, seq, ba->head, ba->win, w->fc[0], w->fc[1],
+		w->a1, w->a2, BLEN(b));
+}
+
 static Block**
 bainorder(Wba *ba, Block **l)
 {
@@ -423,7 +470,7 @@ bareorder(Wifi *wifi, Block *b)
 	Wifipkt *w;
 	Wnode *wn;
 	Wba *ba;
-	int hdrlen, tid, seq, d;
+	int tid, seq, d;
 
 	if(!wifi->ba || BLEN(b) < WIFIHDRSIZE)
 		goto pass;
@@ -452,12 +499,8 @@ bareorder(Wifi *wifi, Block *b)
 		freeb(b);
 		return;
 	}
-	if((w->fc[0] & 0x8c) != 0x88 || (w->fc[1] & 3) != 0x02 || (w->a1[0] & 1) != 0)
+	if((tid = batid(wifi, b)) < 0)
 		goto pass;
-	hdrlen = wifihdrlen(w);
-	if(BLEN(b) < hdrlen || (wn = wifi->bss) == nil || memcmp(w->a2, wn->bssid, Eaddrlen) != 0)
-		goto pass;
-	tid = b->rp[hdrlen-2] & 15;
 	ba = &wifi->rxba[tid];
 	if(!ba->on)
 		goto pass;
@@ -471,13 +514,47 @@ bareorder(Wifi *wifi, Block *b)
 	}
 	d = seqdiff(seq, ba->head);
 	if(d >= 2048){
-		/* before the window: had or given up */
+		/*
+		 * before the window: had or given up (retries of frames
+		 * passed on already, whole aggregates of them: the ThinkBook,
+		 * 2026-11-19, runs of consecutive ones), dropped, as both
+		 * BSDs do (OpenBSD's ba_winmiss is for frames past the end)
+		 */
+		ba->old++;
+		balog(wifi, ba, b, seq, "old");
 		unlock(&wifi->balock);
 		freeb(b);
 		return;
 	}
-	if(d >= ba->win)
+	if(d >= ba->win){
+		/*
+		 * past the window's end.  By up to a window: it slides (802.11
+		 * 10.24.7.6.2 b).  Further: only when the peer goes on from
+		 * there, Bamaxmiss frames one after the other, as OpenBSD's
+		 * ieee80211_input_ba (ba_winmiss); a lone frame with a wild
+		 * number (2026-11-19: rtw89 on the ThinkBook, the window
+		 * ran away and every later frame was "before" it) is dropped
+		 */
+		if(d - ba->win + 1 > ba->win){
+			ba->far++;
+			balog(wifi, ba, b, seq, "far");
+			if(ba->nfar > 0 && seq == ((ba->farseq + 1) & 0xfff))
+				ba->nfar++;
+			else
+				ba->nfar = 1;
+			ba->farseq = seq;
+			if(ba->nfar < Bamaxmiss){
+				unlock(&wifi->balock);
+				freeb(b);
+				return;
+			}
+			ba->nfar = 0;
+			ba->jumps++;
+		} else
+			ba->nfar = 0;
 		l = baadvance(ba, d - ba->win + 1, l);
+	} else
+		ba->nfar = 0;
 	if(ba->buf[seq % Nba] != nil){
 		/* a retry of one held */
 		*l = nil;
@@ -507,19 +584,16 @@ baframe(Wifi *wifi, Block *b)
 {
 	Wifipkt *w;
 	Wnode *wn;
-	int hdrlen;
+	int tid;
 
 	if(!wifi->ba || BLEN(b) < WIFIHDRSIZE)
 		return 0;
 	w = (Wifipkt*)b->rp;
 	if(w->fc[0] == 0x84)
 		return BLEN(b) >= 20 && (wn = wifi->bss) != nil && memcmp(w->a2, wn->bssid, Eaddrlen) == 0;
-	if((w->fc[0] & 0x8c) != 0x88 || (w->fc[1] & 3) != 0x02 || (w->a1[0] & 1) != 0)
+	if((tid = batid(wifi, b)) < 0)
 		return 0;
-	hdrlen = wifihdrlen(w);
-	if(BLEN(b) < hdrlen || (wn = wifi->bss) == nil || memcmp(w->a2, wn->bssid, Eaddrlen) != 0)
-		return 0;
-	return wifi->rxba[b->rp[hdrlen-2] & 15].on;
+	return wifi->rxba[tid].on;
 }
 
 /*
@@ -596,6 +670,8 @@ recvba(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			ba->n = 0;
 			ba->since = 0;
 			ba->held = ba->expired = 0;
+			ba->old = ba->far = ba->jumps = 0;
+			ba->nfar = ba->logged = 0;
 			ba->on = 1;
 			unlock(&wifi->balock);
 		}
@@ -2087,8 +2163,8 @@ wifistat(Wifi *wifi, char *p, char *e)
 		for(i = 0; i < Ntid; i++){
 			Wba *ba = &wifi->rxba[i];
 			if(ba->on)
-				p = seprint(p, e, "rxba: tid %d win %d held %lud expired %lud\n",
-					i, ba->win, ba->held, ba->expired);
+				p = seprint(p, e, "rxba: tid %d win %d held %lud expired %lud old %lud far %lud jumps %lud head %d\n",
+					i, ba->win, ba->held, ba->expired, ba->old, ba->far, ba->jumps, ba->head);
 		}
 		if(wn->txba)
 			p = seprint(p, e, "txba: %#ux\n", wn->txba);

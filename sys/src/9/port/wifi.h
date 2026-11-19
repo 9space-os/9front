@@ -41,6 +41,12 @@ struct Wba
 	ulong	since;		/* ticks: since when the head is missing */
 	ulong	held;		/* frames that came before ones missing */
 	ulong	expired;	/* waits over: frames given up */
+	ulong	old;		/* 9space: frames before the window, dropped */
+	ulong	jumps;		/* the window moved past a run of frames far ahead (bareorder) */
+	ulong	far;		/* frames more than a window past its end, dropped */
+	int	farseq;		/* the last of those */
+	int	nfar;		/* in a row, one after the other */
+	int	logged;		/* of those, printed (balog: the first 8) */
 	Block	*buf[Nba];
 };
 

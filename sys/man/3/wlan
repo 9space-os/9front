@@ -116,9 +116,16 @@ the access point's block ack agreements (buffer size at most 64, no
 A-MSDU in them), holds the frames of such a TID until they are in order
 (at most 100 ms for one missing), asks for one itself for TID 0, and
 takes A-MSDUs apart; the radio learns of the agreements from the ADDBA
-and DELBA frames passing through it.
+and DELBA frames passing through it.  Only QoS data with data, to this
+station, from the access point, acknowledged normally or by block ack
+and not fragmented is reordered (as OpenBSD's net80211); frames behind
+the window are dropped, and a frame more than a window past its end
+moves it only when eight such come one after the other (OpenBSD's
+ba_winmiss): a single wild sequence number no longer runs the window
+away (the ThinkBook's rtw89, 2026-11-19, whose WLAN then carried nothing).
 .B ifstats
-counts the frames held and the waits given up
+counts the frames held, the waits given up, those dropped behind the
+window and past it and the window's jumps, with its head
 .RB ( rxba: ),
 the TIDs we aggregate on
 .RB ( txba: )
