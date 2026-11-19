@@ -194,16 +194,18 @@ suspends the machine to RAM (ACPI S3): the values for the
 PM1a and PM1b control registers' SLP_TYP field, as the firmware's
 .B _S3
 object gives them.
-The kernel saves the processor's state and the PCI configuration,
+The kernel stops the other processors (each saves its state and
+halts), saves the first one's state and the PCI configuration,
 calls each device driver's power function to turn it off,
 points the FACS's waking vector at a trampoline below 1 MB and
 sets SLP_EN.
 When the machine wakes, it restores the processor, the interrupt
 controllers, the clocks, the PCI interrupt routing and configuration,
-powers the devices on again, and the write returns.
-The write fails with an error when the machine did not sleep,
-on a processor other than the first, or with more than one processor
-running.
+starts the other processors again (INIT and STARTUP, as at boot,
+back to their saved state), powers the devices on again, and the
+write returns.
+The write fails with an error when the machine did not sleep
+or a processor did not stop.
 The AML part of a suspend
 .RB ( _PTS ,
 .BR _WAK )

@@ -488,6 +488,13 @@ TEXT wbinvd(SB), 1, $-4
 	WBINVD
 	RET
 
+/* 9space: halt for good, interrupts off (a parked processor: acpisleep.c) */
+TEXT cpuhalt(SB), 1, $-4
+	CLI
+_cpuhalt:
+	HLT
+	JMP	_cpuhalt
+
 /*
  * Serialisation.
  */

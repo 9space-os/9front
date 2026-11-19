@@ -612,6 +612,13 @@ wbinvd:
 	wbinvd
 	ret
 
+/* 9space: halt for good, interrupts off (a parked processor: acpisleep.c) */
+.globl cpuhalt
+cpuhalt:
+	cli
+1:	hlt
+	jmp	1b
+
 /*
  * Serialisation.
  */
