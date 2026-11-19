@@ -16,7 +16,9 @@
 # no process Broken, the window system and the GPU's driver (aux/i915,
 # aux/amdgpu, ...: $drv) alive, no more
 # processes than after round 2 (3 more at most) and no more memory in use
-# (64 MB more at most), and the driver
+# (64 MB more at most), the driver's open files no more than after
+# round 2 (32 more at most) and below 3000 (MAXNFD is 5000: each client's
+# segments are files of the driver's, removed on close), and the driver
 # idle (the CPU time of its procs over ten seconds: a driver spinning
 # after its clients went is how the xarray walk showed, 2026-11-18).
 # Each round logs the kernel's new messages, the memory in use, the
@@ -115,6 +117,17 @@ fn killprogs {
 drv=`{ps | awk '$NF ~ /^(i915|amdgpu|intelgpu|virtiogpu)$/ {print $NF; exit}'}
 if(~ $#drv 0)
 	drv=i915
+# the driver's open files: the most any of its procs holds (they share
+# one table, or a few)
+fn drvfds {
+	n=0
+	for(pid in `{ps | awk '$NF == "'$drv'" {print $2}'}){
+		m=`{sed 1d /proc/$pid/fd >[2]/dev/null | wc -l}
+		if(test $m -gt $n)
+			n=$m
+	}
+	echo $n
+}
 # CPU time (ms, user and system) of the driver's procs, 0 without them
 fn drvms {
 	t=0
@@ -270,10 +283,12 @@ while(test `{date -n} -lt $end){
 	# 2026-11-19) shows as both growing
 	np=`{ps | wc -l}
 	up=`{awk '$2 == "user" {split($1, a, "/"); print a[1]}' /dev/swap}
+	nf=`{drvfds}
 	ps | awk '{print $NF}' | sort | uniq -c >$out/ps.names
 	if(~ $round 2){
 		np0=$np
 		up0=$up
+		nf0=$nf
 		cp $out/ps.names $out/ps.base
 	}
 	if(test $round -gt 2){
@@ -283,13 +298,17 @@ while(test `{date -n} -lt $end){
 		}
 		if(test $up -gt `{echo $up0 + 16384 | hoc})
 			fail memory grew: $up0 pages after round 2, $up now
+		if(test $nf -gt `{echo $nf0 + 32 | hoc})
+			fail $drv files grew: $nf0 after round 2, $nf now
 	}
+	if(test $nf -gt 3000)
+		fail $drv holds $nf files, MAXNFD is 5000
 
 	mem=`{awk '$2 == "user" {print $1}' /dev/swap}
 	bat=`{sed 1q /dev/battery >[2]/dev/null | awk '{print $1 "%," $12}'}
 	tmp=`{cat '#P/cputemp' >[2]/dev/null | awk '{print $1}' | sed 4q}
 	clk=`{grep cpu0 /dev/pstate >[2]/dev/null | awk '{for(i=1;i<NF;i++) if($i == "mhz") print $(i+1)}'}
-	note state: mem $mem pages, battery $bat, temp $tmp, cpu0 $clk MHz, failures $nfail
+	note state: mem $mem pages, $drv files $nf, battery $bat, temp $tmp, cpu0 $clk MHz, failures $nfail
 }
 
 for(l in $lpids)
