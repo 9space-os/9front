@@ -22,6 +22,12 @@
  * cursor is the display's (vga hwgc gpu: the kernel passes it on in
  * #G/n/cursor, cursorproc puts it on the outputs' cursor planes); soft,
  * drawn by devdraw, if the kernel or the display cannot.
+ * Where the card has room the screen is two objects (kmsout.c): the
+ * changes go into the one not shown, with the changes of the frame
+ * before (that one lacks them), then it is flipped to, at most one a
+ * vblank (flipproc; dirtyproc only collects what changed meanwhile):
+ * the display never shows a copy half done (no tearing).  With one
+ * object the changes are copied into the one shown, as they come.
  */
 #include <u.h>
 #include <libc.h>
@@ -37,11 +43,29 @@ static uchar *nextfb;		/* a new one (growfb, smaller): the screen goes onto it a
 static ulong nextsize;
 enum { Shrinkslack = 8<<20 };	/* a framebuffer this much bigger than the screen is given back */
 static uchar *bar;		/* the aperture the processor writes the screen through */
-static uchar *vram;		/* the screen's object, through it */
+static uchar *vram;		/* the screen's object shown, through it */
+static uchar *vback;		/* the one not shown, nil: one object */
 static int w, h;
 static uint pitch;
 /* the copies of devdraw's changes, for status */
 static uvlong ncopy, copybytes, copyns, copymaxns;
+
+/*
+ * what devdraw changed since the last copy (dirtyproc collects, flipproc
+ * copies): rects, all of them in one when there are more; and what the
+ * last copy had (the object not shown lacks it)
+ */
+enum { Nrect = 32 };
+typedef struct Rects Rects;
+struct Rects {
+	int	n;
+	int	r[Nrect][4];
+};
+static QLock dlock;
+static Rendez dready;
+static Rects dirt;
+static Rects lastdirt;		/* scrlock */
+static uvlong nflip, nflipfail;
 
 static void	hotplugproc(void*);
 static void	cursorproc(void*);
@@ -177,9 +201,9 @@ fbattach(ulong size)
 	return nil;
 }
 
-/* what devdraw changed, into the screen's object; scrlock held */
+/* what devdraw changed, into the screen's object dst; scrlock held */
 static void
-copyrect(int x0, int y0, int x1, int y1)
+copyto(uchar *dst, int x0, int y0, int x1, int y1)
 {
 	int y, n;
 
@@ -191,7 +215,84 @@ copyrect(int x0, int y0, int x1, int y1)
 		return;
 	n = (x1 - x0) * 4;
 	for(y = y0; y < y1; y++)
-		memmove(vram + (uvlong)y*pitch + x0*4, fb + (uvlong)y*w*4 + x0*4, n);
+		memmove(dst + (uvlong)y*pitch + x0*4, fb + (uvlong)y*w*4 + x0*4, n);
+}
+
+/* the same into the object shown */
+static void
+copyrect(int x0, int y0, int x1, int y1)
+{
+	copyto(vram, x0, y0, x1, y1);
+}
+
+/* a rect to rs: all of them in one (the box around) when it is full */
+static void
+addrect(Rects *rs, int x0, int y0, int x1, int y1)
+{
+	int i, *r;
+
+	if(x0 >= x1 || y0 >= y1)
+		return;
+	for(i = 0; i < rs->n; i++){
+		r = rs->r[i];
+		if(r[0] <= x0 && r[1] <= y0 && r[2] >= x1 && r[3] >= y1)
+			return;	/* in one already */
+	}
+	if(rs->n == Nrect){
+		r = rs->r[0];
+		for(i = 1; i < rs->n; i++){
+			if(rs->r[i][0] < r[0]) r[0] = rs->r[i][0];
+			if(rs->r[i][1] < r[1]) r[1] = rs->r[i][1];
+			if(rs->r[i][2] > r[2]) r[2] = rs->r[i][2];
+			if(rs->r[i][3] > r[3]) r[3] = rs->r[i][3];
+		}
+		rs->n = 1;
+		if(x0 < r[0]) r[0] = x0;
+		if(y0 < r[1]) r[1] = y0;
+		if(x1 > r[2]) r[2] = x1;
+		if(y1 > r[3]) r[3] = y1;
+		return;
+	}
+	r = rs->r[rs->n++];
+	r[0] = x0;
+	r[1] = y0;
+	r[2] = x1;
+	r[3] = y1;
+}
+
+/* the rects of rs into dst, counted for the status; scrlock held */
+static void
+copyrects(uchar *dst, Rects *rs)
+{
+	vlong t0, t;
+	int i, *r;
+
+	for(i = 0; i < rs->n; i++){
+		r = rs->r[i];
+		t0 = nsec();
+		copyto(dst, r[0], r[1], r[2], r[3]);
+		t = nsec() - t0;
+		ncopy++;
+		copybytes += (uvlong)(r[2] - r[0]) * (r[3] - r[1]) * 4;
+		copyns += t;
+		if(t > copymaxns)
+			copymaxns = t;
+	}
+}
+
+/* the screen's objects as kmsout has them now (after a layout: both new); scrlock held */
+static void
+screenobjs(void)
+{
+	unsigned long long front, back;
+
+	if(kmsout_screen_objs(&front, &back) == 2){
+		vram = bar + front;
+		vback = bar + back;
+	}else{
+		vram = bar + front;
+		vback = nil;
+	}
 }
 
 static void
@@ -209,26 +310,59 @@ dirtyproc(void *a)
 		}
 		buf[n] = 0;
 		if(tokenize(buf, f, nelem(f)) == 4){
-			vlong t0, t;
-			int x0, y0, x1, y1;
-
-			x0 = atoi(f[0]);
-			y0 = atoi(f[1]);
-			x1 = atoi(f[2]);
-			y1 = atoi(f[3]);
-			qlock(&scrlock);
-			t0 = nsec();
-			copyrect(x0, y0, x1, y1);
-			t = nsec() - t0;
-			if(x1 > x0 && y1 > y0){
-				ncopy++;
-				copybytes += (uvlong)(x1 - x0) * (y1 - y0) * 4;
-				copyns += t;
-				if(t > copymaxns)
-					copymaxns = t;
-			}
-			qunlock(&scrlock);
+			qlock(&dlock);
+			addrect(&dirt, atoi(f[0]), atoi(f[1]), atoi(f[2]), atoi(f[3]));
+			rwakeup(&dready);
+			qunlock(&dlock);
 		}
+	}
+}
+
+/*
+ * what changed onto the display: into the object not shown, with what
+ * the last copy had, then the flip to it (its wait: one a vblank; what
+ * changes meanwhile is collected for the next); with one object into the
+ * one shown
+ */
+static void
+flipproc(void*)
+{
+	Rects d, both;
+	uchar *t;
+	int i;
+
+	for(;;){
+		qlock(&dlock);
+		while(dirt.n == 0)
+			rsleep(&dready);
+		d = dirt;
+		dirt.n = 0;
+		qunlock(&dlock);
+
+		qlock(&scrlock);
+		if(vback == nil){
+			copyrects(vram, &d);
+			lastdirt.n = 0;
+			qunlock(&scrlock);
+			continue;
+		}
+		both = lastdirt;
+		for(i = 0; i < d.n; i++)
+			addrect(&both, d.r[i][0], d.r[i][1], d.r[i][2], d.r[i][3]);
+		copyrects(vback, &both);
+		if(kmsout_screen_flip() == 0){
+			t = vram;
+			vram = vback;
+			vback = t;
+			lastdirt = d;
+			nflip++;
+		}else{
+			/* not flipped: the one shown gets them as well, both whole again */
+			copyrects(vram, &d);
+			lastdirt.n = 0;
+			nflipfail++;
+		}
+		qunlock(&scrlock);
 	}
 }
 
@@ -243,14 +377,20 @@ screenstatus(void)
 
 	if(fb == nil)
 		return nil;
+	uvlong nf, nff;
+	int two;
+
 	qlock(&scrlock);
 	n = ncopy;
 	b = copybytes;
 	ns = copyns;
 	mx = copymaxns;
+	nf = nflip;
+	nff = nflipfail;
+	two = vback != nil;
 	qunlock(&scrlock);
-	return smprint("screen %dx%d copies %llud, %llud MB, %llud us/MB, longest %llud us\n",
-		w, h, n, b>>20, b >= 1<<20 ? ns/1000/(b>>20) : 0, mx/1000);
+	return smprint("screen %dx%d %s, flips %llud (not %llud), copies %llud, %llud MB, %llud us/MB, longest %llud us\n",
+		w, h, two ? "double" : "single", nf, nff, n, b>>20, b >= 1<<20 ? ns/1000/(b>>20) : 0, mx/1000);
 }
 
 /* devdraw's screen w x h */
@@ -300,7 +440,7 @@ screenstart(char *dir, char *name)
 	}
 	w = uw;
 	h = uh;
-	vram = bar + off;
+	screenobjs();
 	/*
 	 * #G keeps the changes for an open dirty file only: open before the
 	 * switch, the clients' drawing after it (wsys and rio draw all again
@@ -315,13 +455,18 @@ screenstart(char *dir, char *name)
 		return -1;
 	}
 	copyrect(0, 0, w, h);
+	if(vback != nil)
+		addrect(&lastdirt, 0, 0, w, h);	/* the other one lacks all of it */
+	dready.l = &dlock;
+	proccreate(flipproc, nil, 16384);
 	proccreate(dirtyproc, (void*)(uintptr)dfd, 16384);
 	if(vgactl("hwgc gpu") < 0)
 		vgactl("hwgc soft");
 	else
 		proccreate(cursorproc, nil, 1024*1024);	/* amdgpu: DC's cursor update */
 	proccreate(hotplugproc, nil, 1024*1024);	/* amdgpu: DC's modeset */
-	fprint(2, "%s: screen %dx%d (framebuffer %lud bytes)\n", drv, w, h, fbsize);
+	fprint(2, "%s: screen %dx%d, %s (framebuffer %lud bytes)\n", drv, w, h,
+		vback != nil ? "two objects (flips)" : "one object", fbsize);
 	return 0;
 }
 
@@ -338,7 +483,8 @@ newscreen(uint uw, uint uh, uint up, unsigned long long off)
 	uchar *old;
 	int fd;
 
-	vram = bar + off;
+	USED(off);
+	screenobjs();
 	pitch = up;
 	old = nil;
 	if(nextfb != nil){
@@ -360,6 +506,9 @@ newscreen(uint uw, uint uh, uint up, unsigned long long off)
 			fprint(2, "%s: screen %dx%d\n", drv, w, h);
 	}
 	copyrect(0, 0, w, h);
+	lastdirt.n = 0;
+	if(vback != nil)
+		addrect(&lastdirt, 0, 0, w, h);	/* the other one (new, or not shown) lacks all of it */
 	if(old != nil){
 		/* the old one: ours let go, the kernel frees it when no one has it */
 		segdetach(old);

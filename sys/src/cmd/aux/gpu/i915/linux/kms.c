@@ -39,7 +39,7 @@ static struct file *kms;		/* the primary node, master */
 static struct {
 	u32	handle;
 	struct i915_vma	*vma;
-} pinned[2];
+} pinned[4];	/* the screen's two objects, and a new layout's two before the old go */
 
 /* Linux 7.3: drm_open_helper wants the flag DRM's own GEM fops have */
 static const struct file_operations kms_fops = { .fop_flags = FOP_UNSIGNED_OFFSET };

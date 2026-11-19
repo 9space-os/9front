@@ -1,0 +1,59 @@
+#!/bin/rc
+# aux/amdgpu's screen as two objects (kmsout.c, kmsscreen.c): devdraw's
+# changes go into the one not shown, then a flip to it, one a vblank (no
+# tearing). The status says double; drawing (the kernel's console
+# scrolling on the screen) flips, none
+# refused; a client's picture on the display (vkcube with scanout) and
+# back, and the screen flips on after it. Lines "ok ..." or "FAIL ...".
+fn amdg { for(d in /shr/gpu/[0-9]*) if(grep -s '^device amd' $d/status >[2]/dev/null) echo $d }	# the AMD card's entry
+fn scr { grep '^screen [0-9]+x[0-9]+ ' `{amdg}^/status }
+# the flips so far, and those not done
+fn flips { scr | awk '{for(i = 1; i < NF; i++) if($i == "flips") print $(i+1)}' }
+fn notdone { scr | sed 's/.*\(not ([0-9]+)\).*/\1/' }
+# the kernel's console scrolls on the screen: lines written to it
+fn draw { for(i in `{seq 1 60}) echo amdflip: a line for the screen $i >'#c/cons' }
+bind -a '#i' /dev
+bind -a '#v' /dev
+bind -a '#m' /dev
+aux/amdgpu $* >/tmp/amd.log >[2=1]
+sleep 2
+scr | sed 's/^/flip: /'
+grep '^screen (double|single)' `{amdg}^/status | sed 's/^/flip: /'
+if(scr | grep -s ' double, ')
+	echo ok the screen is two objects
+if not
+	echo FAIL the screen is one object
+a=`{flips}
+draw
+sleep 1
+b=`{flips}
+if(test $b -gt $a)
+	echo ok drawing flips: $a before, $b after
+if not
+	echo FAIL no flips while drawing: $a before, $b after
+# a client's picture on the whole display, then the screen again
+/tests/vkcube --c 300 >/tmp/cube.log >[2=1] &
+sleep 6
+for(p in `{ps | grep vkcube | awk '{print $2}'}) echo kill >/proc/$p/note >[2]/dev/null
+sleep 2
+c=`{flips}
+draw
+sleep 1
+d=`{flips}
+if(test $d -gt $c)
+	echo ok the screen flips after the client picture: $c before, $d after
+if not
+	echo FAIL no flips after the client picture: $c before, $d after
+n=`{notdone}
+if(~ $n 0)
+	echo ok no flip refused
+if not
+	echo FAIL $n flips refused
+if(grep -s 'kmsout: (no flip event|crtc .* busy|no event of commit)' /tmp/amd.log){
+	echo FAIL kmsout lost a flip:
+	grep 'kmsout: (no flip event|crtc .* busy|no event of commit)' /tmp/amd.log | sed 3q
+}
+if not
+	echo ok every flip had its event
+grep 'WARN|error|fault|BUG' /tmp/amd.log | sed 5q
+echo TESTEND

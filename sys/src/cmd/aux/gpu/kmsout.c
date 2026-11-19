@@ -73,11 +73,20 @@ static struct out outs[Nout];
 static int nout;
 static u32 crtcs[Ncrtc];		/* GETRESOURCES' order: possible_crtcs' bits */
 static int ncrtc;
-static u32 scr_handle, scr_fb, scr_w, scr_h, scr_pitch;
-static unsigned long long scr_off;
+/*
+ * the screen: two objects of the same size and pitch where there is
+ * room (kmsscreen.c copies devdraw's changes into the one not shown,
+ * then it is flipped to: no tearing), else one (scr_fb[1] 0: the copies
+ * go into the one shown); scr_front is the one on the outputs
+ */
+static u32 scr_handle[2], scr_fb[2], scr_w, scr_h, scr_pitch;
+static unsigned long long scr_off[2];
+static int scr_front;
+static u64 nscrflip, nscrfail;		/* for the status: the screen's flips, those refused */
 static u32 shown_fb;			/* a client's picture on the display */
 static unsigned long long need;		/* the bytes of the last layout bigger than the framebuffer (apply) */
 static void takeoff(void);
+static int kmsidle(void);
 static struct file *shown_by;		/* the client's file */
 static int shown_out;			/* the output that shows it, -1: every one */
 static struct drm_mode_modeinfo shown_mode;	/* its mode there */
@@ -135,7 +144,7 @@ geom(unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *
 	*w = scr_w;
 	*h = scr_h;
 	*pitch = scr_pitch;
-	*baroff = scr_off;
+	*baroff = scr_off[scr_front];
 }
 
 static int
@@ -565,8 +574,9 @@ kmsout_status(void)
 	if (s && kms) {
 		mutex_lock(&kmslock);
 		c = ovstate();
+		t = kasprintf(GFP_KERNEL, "%sscreen %s, flips %llu, refused %llu\n%s", s,
+		    scr_fb[1] ? "double" : "single", nscrflip, nscrfail, c ? c : "");
 		mutex_unlock(&kmslock);
-		t = kasprintf(GFP_KERNEL, "%s%s", s, c ? c : "");
 		kfree(c);
 		kfree(s);
 		s = t;
@@ -715,9 +725,9 @@ static int
 apply(unsigned long long maxbytes)
 {
 	struct drm_device *dev = kmsdev();
-	u32 want[Nout], w, h, handle, fb, pitch, ofb = 0, ohandle = 0;
-	unsigned long long off;
-	int i, k, r;
+	u32 want[Nout], w, h, handle, fb, pitch, bhandle, bfb, bpitch, ofb[2] = { }, ohandle[2] = { };
+	unsigned long long off, boff;
+	int i, j, k, r;
 
 	r = bbox(&w, &h);
 	if (r)
@@ -733,29 +743,55 @@ apply(unsigned long long maxbytes)
 	r = assign(want);
 	if (r)
 		return r;
-	if (!scr_fb || w != scr_w || h != scr_h) {
+	/*
+	 * the commits on their way and latched done first: one latched may
+	 * name a screen object freed below (a flip of kmsscreen's), and a
+	 * modeset goes after them
+	 */
+	kmsidle();
+	if (!scr_fb[0] || w != scr_w || h != scr_h) {
 		r = screenalloc(w, h, &handle, &fb, &pitch, &off);
 		if (r == -ENOSPC || r == -ENOMEM) {
 			/* VRAM for one: the old screen off and away first */
 			for (i = 0; i < nout; i++)
 				if (outs[i].crtc)
 					setcrtc(outs[i].crtc, 0, 0, 0, NULL, 0);
-			screenfree(scr_fb, scr_handle);
-			scr_fb = scr_handle = 0;
+			for (j = 0; j < 2; j++) {
+				screenfree(scr_fb[j], scr_handle[j]);
+				scr_fb[j] = scr_handle[j] = 0;
+			}
 			for (i = 0; i < nout; i++)
 				outs[i].crtc = 0;
 			r = screenalloc(w, h, &handle, &fb, &pitch, &off);
 		}
 		if (r)
 			return r;
-		ofb = scr_fb;
-		ohandle = scr_handle;
-		scr_fb = fb;
-		scr_handle = handle;
+		/*
+		 * the second only where there is room beside the first (never
+		 * the screen off for it): else one, the copies into the one shown
+		 */
+		bfb = bhandle = 0;
+		boff = 0;
+		if (screenalloc(w, h, &bhandle, &bfb, &bpitch, &boff) == 0 && bpitch != pitch) {
+			screenfree(bfb, bhandle);
+			bfb = bhandle = 0;
+		}
+		if (!bfb)
+			pr_info("kmsout: screen %ux%u: one object (no room for a second): the copies may tear\n", w, h);
+		for (j = 0; j < 2; j++) {
+			ofb[j] = scr_fb[j];
+			ohandle[j] = scr_handle[j];
+		}
+		scr_fb[0] = fb;
+		scr_handle[0] = handle;
+		scr_off[0] = off;
+		scr_fb[1] = bfb;
+		scr_handle[1] = bhandle;
+		scr_off[1] = boff;
+		scr_front = 0;
 		scr_w = w;
 		scr_h = h;
 		scr_pitch = pitch;
-		scr_off = off;
 	}
 	/* first off what goes elsewhere or off, then the outputs on */
 	for (i = 0; i < nout; i++)
@@ -775,7 +811,7 @@ apply(unsigned long long maxbytes)
 	for (i = 0; i < nout; i++) {
 		if (!outs[i].on)
 			continue;
-		r = setcrtc(want[i], scr_fb, outs[i].x, outs[i].y, &outs[i].mode, outs[i].conn);
+		r = setcrtc(want[i], scr_fb[scr_front], outs[i].x, outs[i].y, &outs[i].mode, outs[i].conn);
 		if (r) {
 			pr_err("kmsout: %s: %dx%d at %d %d: %d\n", outs[i].name, outs[i].mode.hdisplay, outs[i].mode.vdisplay,
 			    outs[i].x, outs[i].y, r);
@@ -784,7 +820,8 @@ apply(unsigned long long maxbytes)
 		}
 		outs[i].crtc = want[i];
 	}
-	screenfree(ofb, ohandle);
+	for (j = 0; j < 2; j++)
+		screenfree(ofb[j], ohandle[j]);	/* SETCRTC waited for the commits that showed them */
 	/* the cursor on the outputs as they are now */
 	mutex_lock(&curlock);
 	curset();
@@ -1099,7 +1136,7 @@ kmsout_relayout(unsigned long long maxbytes, Kmsgrow grow, int *changed, unsigne
 
 	*changed = 0;
 	geom(w, h, pitch, baroff);
-	if (!kms || !scr_fb)
+	if (!kms || !scr_fb[0])
 		return "no screen";
 	mutex_lock(&kmslock);
 	memcpy(save, outs, sizeof(save));
@@ -1176,9 +1213,9 @@ kmsout_relayout(unsigned long long maxbytes, Kmsgrow grow, int *changed, unsigne
 int
 kmsout_screenfb(u32 *fb, u32 *w, u32 *h, u32 *pitch)
 {
-	if (!scr_fb)
+	if (!scr_fb[0])
 		return -ENODEV;
-	*fb = scr_fb;
+	*fb = scr_fb[scr_front];
 	*w = scr_w;
 	*h = scr_h;
 	*pitch = scr_pitch;
@@ -1614,7 +1651,7 @@ fbgone(u32 fb)
  * kmslock held, let go of while waiting.
  */
 static int
-flip(int only, u32 fb)
+flipx(int only, int skip, u32 fb)
 {
 	u64 seq[Nout];
 	int i, k, r = 0, rr;
@@ -1623,7 +1660,7 @@ flip(int only, u32 fb)
 		struct out *o = &outs[i];
 
 		seq[i] = 0;
-		if (!o->on || !o->crtc || (only >= 0 && i != only) || (k = crtcindex(o->crtc)) < 0)
+		if (!o->on || !o->crtc || (only >= 0 && i != only) || i == skip || (k = crtcindex(o->crtc)) < 0)
 			continue;
 		cs[k].pfb = fb;
 		seq[i] = commit(k);
@@ -1645,6 +1682,61 @@ flip(int only, u32 fb)
 			r = rr;
 	}
 	return r;
+}
+
+static int
+flip(int only, u32 fb)
+{
+	return flipx(only, -1, fb);
+}
+
+/*
+ * the screen's object not shown (kmsscreen.c copied into it) onto the
+ * outputs that show the screen, after the commit that shows it (one a
+ * vblank: the wait is for its event); then it is the one shown.  A
+ * client's picture on every output: only that (back() shows it when the
+ * picture goes).  0, -ENODEV (one object), or the error (the one shown
+ * stays: the caller copies into it)
+ */
+int
+kmsout_screen_flip(void)
+{
+	int nb, r = 0;
+
+	if (!kms)
+		return -ENODEV;
+	mutex_lock(&kmslock);
+	if (!scr_fb[0] || !scr_fb[1]) {
+		mutex_unlock(&kmslock);
+		return -ENODEV;
+	}
+	nb = 1 - scr_front;
+	if (!shown_fb || shown_out >= 0)
+		r = flipx(-1, shown_fb ? shown_out : -1, scr_fb[nb]);
+	if (r == 0) {
+		scr_front = nb;
+		nscrflip++;
+	} else
+		nscrfail++;
+	mutex_unlock(&kmslock);
+	return r;
+}
+
+/*
+ * where the processor writes the screen's objects (as kmsout_aperture
+ * counts): the one shown, the other; 2, or 1 (one object)
+ */
+int
+kmsout_screen_objs(unsigned long long *front, unsigned long long *back)
+{
+	int n;
+
+	mutex_lock(&kmslock);
+	*front = scr_off[scr_front];
+	*back = scr_off[1 - scr_front];
+	n = scr_fb[1] ? 2 : 1;
+	mutex_unlock(&kmslock);
+	return n;
 }
 
 /* the output with a mode w x h for a client's picture, its mode; -1 */
@@ -1674,10 +1766,10 @@ back(void)
 	struct out *o;
 
 	if (shown_out < 0)
-		return flip(-1, scr_fb);
+		return flip(-1, scr_fb[scr_front]);	/* the newest whole one: never the one being copied into */
 	o = &outs[shown_out];
 	kmsidle();	/* a modeset after the commits on their way */
-	return setcrtc(o->crtc, scr_fb, o->x, o->y, &o->mode, o->conn);
+	return setcrtc(o->crtc, scr_fb[scr_front], o->x, o->y, &o->mode, o->conn);
 }
 
 /* with kmslock: a client's picture off the display, the screen again */
@@ -1710,7 +1802,7 @@ kmsout_scanout(struct file *from, u32 handle, u32 w, u32 h, u32 stride)
 	u32 old;
 	int r, o;
 
-	if (!kms || !scr_fb)
+	if (!kms || !scr_fb[0])
 		return -ENODEV;
 	mutex_lock(&kmslock);
 	old = shown_fb;
@@ -1894,7 +1986,7 @@ kmsout_overlay_back(struct file *from, u32 w, u32 h, u32 stride, struct file **k
 	u32 pitch;
 	int i, r;
 
-	if (!kms || !scr_fb)
+	if (!kms || !scr_fb[0])
 		return -ENODEV;
 	if (w == 0 || h == 0 || stride < w * 4 || stride % 256)
 		return -EINVAL;	/* the copy is one piece: our pitch is the client's */
@@ -1974,7 +2066,7 @@ kmsout_overlay_direct(struct file *from, u32 handle, u32 w, u32 h, u32 stride, i
 	u32 kh;
 	int i, r;
 
-	if (!kms || !scr_fb)
+	if (!kms || !scr_fb[0])
 		return -ENODEV;
 	if (w == 0 || h == 0 || stride < w * 4 || stride % 256)
 		return -EINVAL;
@@ -2075,7 +2167,7 @@ ovstate(void)
 char *
 kmsout_plane(void)
 {
-	if (!scr_fb)
+	if (!scr_fb[0])
 		return kstrdup("plane none\n", GFP_KERNEL);
 	return kasprintf(GFP_KERNEL, "plane A %#x %u %u %u %u%s\n", 0, scr_pitch, 32, scr_w, scr_h,
 		shown_fb ? " (a context's on the display)" : "");

@@ -33,6 +33,15 @@ const char	*kmsout_setbacklight(char *name, char *spec);
  */
 int	kmsout_screen(unsigned long long maxbytes, unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff);
 /*
+ * two objects of the screen where there is room: the processor writes
+ * the one not shown, then flips to it (at most one a vblank: it waits
+ * for the commit); 0, -ENODEV (one object: writes go to the one shown),
+ * or the error (the one shown stays).  Their offsets (front, back;
+ * baroff above is the front's): 2, or 1
+ */
+int	kmsout_screen_flip(void);
+int	kmsout_screen_objs(unsigned long long *front, unsigned long long *back);
+/*
  * an output's mode and place: "w x h [hz] [at x y]" or "off"; nil or
  * the error; the screen as it is after
  */

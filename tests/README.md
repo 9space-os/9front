@@ -91,7 +91,7 @@ Options (environment):
   `tests/gpu/amd*.rc`: `amdall` (contexts, scanout, a submission through the requests as text: amdcs, RADV, vkcube), `amdtext` (each request
   of gpu(4)'s text interface, its reply and errors), `amdhighva` and `amdfault` (amdcs high in the address space, a
   page fault), `amdgl` (zink),
-  `amdshare` (an object between two contexts: export, import), `amdvkshare` (RADV's
+  `amdflip` (the screen as two objects: devdraw's changes into the one not shown, then a flip, one a vblank: no tearing; flips while drawing and after a client's picture, none refused), `amdshare` (an object between two contexts: export, import), `amdvkshare` (RADV's
   dma-buf and a timeline semaphore between two processes), `amdwsys` (vktri in a window
   of wsys, its frames as GPU buffers).
 - Real hardware: write the CD to a USB stick (`dd if=9front.amd64.iso of=/dev/sdX bs=1M`)
