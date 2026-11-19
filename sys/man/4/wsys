@@ -797,7 +797,8 @@ which gives
 .IR token ).
 .I Wsys
 imports it into a context of its own on the first device
-.RB ( /dev/gpu/0 )
+.RB ( /shr/gpu/0 ,
+.IR gpu (4))
 and reads the pixels where the processor sees them (the device's host
 visible memory).
 Mesa's plan9 WSI does this for Vulkan programs in a window of

@@ -4,7 +4,7 @@
  * Parts follow Linux's i915 driver (MIT); their copyright and
  * permission notices are in NOTICE.
  *
- * inteltest: checks aux/intelgpu (gpu(4) files under /dev/gpu/0) on
+ * inteltest: checks aux/intelgpu (gpu(4) files under /shr/gpu/0) on
  * an Intel GPU of generation 8: contexts, buffer objects, batches on
  * the blitter (BCS) and render (RCS) engines, fences, a fill of an
  * object and of the visible plane, two contexts at the same GPU
@@ -12,7 +12,7 @@
  * another process.  Prints ok or FAIL a line, and at the end what
  * failed.
  *
- * usage: aux/inteltest [-d /dev/gpu/0]
+ * usage: aux/inteltest [-d /shr/gpu/0]
  */
 #include <u.h>
 #include <libc.h>
@@ -43,7 +43,7 @@ struct Ctx {
 	uvlong	nfence;
 };
 
-static char *dir = "/dev/gpu/0";
+static char *dir = "/shr/gpu/0";
 static int nfail;
 static int global;	/* the driver's -G: one address space, the GTT */
 

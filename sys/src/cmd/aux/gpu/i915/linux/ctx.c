@@ -872,7 +872,7 @@ freelogstatus(char *s)
 	return t;
 }
 
-/* /dev/gpu/0/status, kmalloc'd (i915_freestr) */
+/* /shr/gpu/N/status, kmalloc'd (i915_freestr) */
 char *
 i915_status(void)
 {

@@ -22,7 +22,8 @@
  */
 int	mainstacksize = 1024*1024;
 
-void	serve(char *srvname);
+void	serve(void);
+int	served(char *gdir);
 
 /*
  * a trap in any proc (they inherit the handler): the note, the pc and
@@ -139,7 +140,7 @@ trapnote(void *v, char *note)
 static void
 usage(void)
 {
-	fprint(2, "usage: %s [-DLMSTnv] [-W secs] [-d drmdebug] [-f selftest-filter] [-p name=value]... [-g #G/n] [-s srvname]\n", argv0);
+	fprint(2, "usage: %s [-DLMSTnv] [-W secs] [-d drmdebug] [-f selftest-filter] [-p name=value]... [-g #G/n]\n", argv0);
 	threadexitsall("usage");
 }
 
@@ -150,7 +151,6 @@ threadmain(int argc, char **argv)
 	int r, nodisplay, noscreen, loglevel, selftest, noserve, mock, live, nparam, i;
 	char *param[64];
 	char *filter;
-	char *srvname;
 	ulong drmdebug;
 
 	gdir = "#G/0";
@@ -162,7 +162,6 @@ threadmain(int argc, char **argv)
 	nparam = 0;
 	filter = nil;
 	noserve = 0;
-	srvname = "gpu.0";
 	drmdebug = 0;
 	loglevel = 6;	/* KERN_INFO */
 	ARGBEGIN{
@@ -198,9 +197,6 @@ threadmain(int argc, char **argv)
 	case 'n':
 		noserve = 1;
 		break;
-	case 's':
-		srvname = EARGF(usage());
-		break;
 	case 'v':
 		loglevel = 7;	/* KERN_DEBUG */
 		break;
@@ -213,13 +209,9 @@ threadmain(int argc, char **argv)
 	if(argc != 0)
 		usage();
 	/* one driver for the device: another one's server means it runs */
-	if(!noserve && !selftest){
-		char path[64];
-
-		snprint(path, sizeof path, "/srv/%s", srvname);
-		if(access(path, AEXIST) == 0)
-			sysfatal("%s exists: another driver serves the GPU (aux/intelgpu?)", path);
-	}
+	/* (before p9_onexit: a driver refused arms no reset) */
+	if(!noserve && !selftest && served(gdir))
+		sysfatal("%s: /shr/gpu has its entry: another driver serves the GPU (aux/intelgpu?)", gdir);
 	atnotify(trapnote, 1);
 	threadnotify(trapnote, 1);	/* libthread passes the main proc's other notes (threaddump) only so */
 	i915_options(nodisplay, drmdebug, loglevel);
@@ -272,7 +264,7 @@ threadmain(int argc, char **argv)
 		fprint(2, "i915: no screen: %r\n");
 	fprint(2, "i915: started\n");
 	if(!noserve)
-		serve(srvname);
+		serve();
 	/* the driver's procs (workqueues, irq, timers) go on */
 	threadexits(nil);
 }

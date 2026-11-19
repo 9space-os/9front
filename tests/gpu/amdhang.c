@@ -13,6 +13,7 @@
  */
 #include <u.h>
 #include <libc.h>
+#include "gpufind.h"
 
 #define PACKET3(op, n)	((3U << 30) | (((op) & 0xFF) << 8) | (((n) & 0x3FFF) << 16))
 #define PACKET3_WRITE_DATA	0x37
@@ -24,7 +25,7 @@
 #define SDMA_OP_WRITE	2
 #define SDMA_OP_NOP	0
 
-static char *dev = "/dev/gpu/0";
+static char *dev;	/* gpufind's, or the argument */
 static int nfail;
 
 static void
@@ -227,6 +228,8 @@ main(int argc, char **argv)
 	Ctx h, c;
 	vlong t0;
 	int secs, done, i;
+
+	dev = gpufind("amd");
 
 	secs = 60;
 	ARGBEGIN{

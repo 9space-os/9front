@@ -14,8 +14,9 @@
  */
 #include <u.h>
 #include <libc.h>
+#include "gpufind.h"
 
-static char *dev = "/dev/gpu/0";
+static char *dev;	/* gpufind's, or the argument */
 static int nfail;
 static int cfd;
 
@@ -105,6 +106,8 @@ main(int argc, char **argv)
 	u32int *px[64], h[64];
 	vlong size, pg, back0, back1, faults0, faults1;
 	vlong t0, t1;
+
+	dev = gpufind("amd");
 
 	n = 16;
 	mb = 32;

@@ -49,5 +49,25 @@
 			"screenpx.c",
 			"screenshot.c"
 		]
+	},
+	{
+		"Name": "gpu-tests-9p",
+		"Include": [
+			"/$ARCH/cflags.json"
+		],
+		"Install": "/tests/gpu/root/tests/",
+		"Oflags": [
+			"--entry=_main"
+		],
+		"Libs": [
+			"--start-group",
+			"/$ARCH/lib.gcc/lib9p.a",
+			"/$ARCH/lib.gcc/libthread.a",
+			"/$ARCH/lib.gcc/libc.a",
+			"--end-group"
+		],
+		"SourceFilesCmd": [
+			"sharetest.c"
+		]
 	}
 ]

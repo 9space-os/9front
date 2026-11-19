@@ -8,9 +8,6 @@ gpu, virtiogpu, intelgpu, i915, amdgpu \- graphics device file system
 ] [
 .B -m
 .I width\fLx\fPheight
-] [
-.B -s
-.I srvname
 ]
 .PP
 .B aux/intelgpu
@@ -19,9 +16,6 @@ gpu, virtiogpu, intelgpu, i915, amdgpu \- graphics device file system
 ] [
 .B -g
 .I gdir
-] [
-.B -s
-.I srvname
 ]
 .PP
 .B aux/i915
@@ -39,9 +33,6 @@ gpu, virtiogpu, intelgpu, i915, amdgpu \- graphics device file system
 ] ... [
 .B -g
 .I gdir
-] [
-.B -s
-.I srvname
 ]
 .PP
 .B aux/amdgpu
@@ -62,74 +53,76 @@ gpu, virtiogpu, intelgpu, i915, amdgpu \- graphics device file system
 ] ... [
 .B -g
 .I gdir
-] [
-.B -s
-.I srvname
 ]
 .PP
 .nf
-.B /dev/gpu/0/ctl
-.B /dev/gpu/0/status
-.BI /dev/gpu/0/outputs/ conn /modes
-.BI /dev/gpu/0/outputs/ conn /mode
-.BI /dev/gpu/0/outputs/ conn /edid
-.BI /dev/gpu/0/outputs/ conn /backlight
-.BI /dev/gpu/0/caps/ id
-.B /dev/gpu/0/clone
-.BI /dev/gpu/0/ctx/ n /ctl
-.BI /dev/gpu/0/ctx/ n /submit
-.BI /dev/gpu/0/ctx/ n /fence
+.B /shr/gpu/0/ctl
+.B /shr/gpu/0/status
+.BI /shr/gpu/0/outputs/ conn /modes
+.BI /shr/gpu/0/outputs/ conn /mode
+.BI /shr/gpu/0/outputs/ conn /edid
+.BI /shr/gpu/0/outputs/ conn /backlight
+.BI /shr/gpu/0/caps/ id
+.B /shr/gpu/0/clone
+.BI /shr/gpu/0/ctx/ n /ctl
+.BI /shr/gpu/0/ctx/ n /submit
+.BI /shr/gpu/0/ctx/ n /fence
 .fi
 .SH DESCRIPTION
+.PP
 A graphics driver is a user-space file server on the hardware
 that
 .IR gpu (3)
 hands out.
-It posts
-.BI /srv/ srvname
-(default
-.BR gpu.0 )
-and mounts itself after
-.BR /dev ,
-so its files appear as
-.BR /dev/gpu/0 .
+It puts itself into
+.IR shr (3)'s
+share
+.B gpu
+as entry
+.I n
+(the
+.I n
+of the
+.BI #G/ n
+it drives, the top directory of its tree), as
+.IR nusb (4)'s
+drivers do into share
+.BR usb :
+its files are
+.BI /shr/gpu/ n
+in every name space at once, also in those made before it started.
+The first driver makes the share, the hostowner's (mode 0700); it stays
+when that driver ends, and only the entry goes with a driver
+.RB ( ORCLOSE ),
+so another GPU's driver keeps its entry.
+A driver whose GPU has an entry already (another driver serves it)
+refuses to start, before it arms its reset at exit
+.RI ( gpu (3)
+.BR onexit ).
 Control is text; data moves through shared segments, never through
 the file server.
 Every driver serves the same tree; what a family does not have is
 missing.
 .PP
-A driver killed and started again posts
-.BI /srv/ srvname
-anew; the mount of the dead one stays in the name spaces that had it (the
-window system's, and those of the programs started from it), its files
-answering
-.LR "i/o on hungup channel" .
-The Vulkan drivers' libraries (Mesa's venus for
-.IR virtiogpu ,
-libdrm9 for the others) call
-.I gpuagain(n)
-before they look for a device: when
-.BI /dev/gpu/ n /status
-cannot be opened and
-.BI /srv/gpu. n
-can, it mounts that before
-.B /dev
-in the process's name space, over the dead files, as libdraw's
-.I wsysagain
-finds a window system again
-.RI ( graphics (2)).
-A program that lost its device (VK_ERROR_DEVICE_LOST: venus's
+A driver killed and started again is in the share at once: a program
+that lost its device (VK_ERROR_DEVICE_LOST: Mesa's venus reports it as
+other drivers do, its
 .B VN_DEBUG=lost
-is the default on 9front) finds the driver again with its next Vulkan
-instance; the window system
+the default on 9front) finds the driver again with its next Vulkan
+instance, and the window system
 .RI ( wsys (4))
 goes back to composing on the GPU.
-Where
-.BI /srv/gpu. n
-cannot be opened (another user's: a cpu session's), nothing is mounted and
-the device stays lost: the window system composes on the processor.
-9space's, not 9front's
-.RB ( sys/src/mesa/plan9/lib/gpuagain.c ).
+The clients (libdrm9 and venus through
+.BR sys/src/mesa/plan9/lib/gpudir.c ,
+.IR wsys ,
+.IR wlsys )
+look for GPU
+.I n
+in
+.BI /shr/gpu. user / n
+when the user has a share of their own (below), else in
+.BI /shr/gpu/ nR.
+9space's: 9front has no GPU drivers.
 .PP
 .I Virtiogpu
 drives virtio-gpu (QEMU's
@@ -1112,30 +1105,51 @@ are its flags), its log on the boot stick's ESP as
 .IB driver boot.log ;
 VESA's if it makes none within 60 seconds.
 .SS "Users (i915, amdgpu)"
-A request is the user's whose srv file it came through, whatever
-name its attach carries (anyone who opens a srv file may send any;
-nothing proves one here).
-.BI /srv/ srvname
-is the hostowner's (mode 0600).
+A request is the user's whose share it came through, whatever name its
+attach carries (anyone who reaches a service may send any; nothing
+proves one here).
+The share
+.B gpu
+is the hostowner's (0700).
 The hostowner writes
 .BI user " name
 to the driver's
 .B ctl
-to post
-.BI /srv/ srvname . name ,
-the user's (0600); every fid of an attach through it is that user's.
-The user mounts it after
-.BR /dev :
-.IP
-.EX
-mount -a /srv/gpu.0.\fIname\fP /dev
-.EE
+to grant the user the GPU: the driver makes the empty share
+.BI gpu.grant. nameR,
+the hostowner's, as the record of the grant, and the share
+.BI gpu. nameR,
+whose entry
+.I n
+is its files for that user (every fid of an attach through it is that
+user's); then it gives
+.BI gpu. name
+to the user (0700): the user's files are
+.BI /shr/gpu. name / nR,
+theirs alone.
+The shares outlive the driver: a driver started again puts every
+granted user's entry back, for each
+.BI gpu.grant. name
+the hostowner owns, so a grant lasts until
+.BI user " name " off
+(the user's entry, share and grant removed: their opens fail from then
+on) or the reboot.
+A share
+.BI gpu. name
+proves nothing (any user but
+.B none
+may make a share, and it is theirs): a grant or a restart takes over
+one it finds, someone else's entries and itself removed and made anew,
+so another user's share of that name serves nothing of theirs to the
+user; a
+.BI gpu.grant. name
+that is not the hostowner's grants nothing.
 .PP
 A context is its creator's: its files are the creator's alone (0600),
 and so are the segments the driver makes for it (objects,
 maps: their owner the creator, mode 0600).
 .I Virtiogpu
-has no srv file per user, but its contexts' files are their creator's
+has no share per user, but its contexts' files are their creator's
 (0600) too.
 The display is the hostowner's: only it may write the driver's
 .BR ctl ,
@@ -1170,23 +1184,23 @@ reach them.
 .SH EXAMPLES
 Switch the screen to 1024x768:
 .EX
-	echo 1024x768 >/dev/gpu/0/outputs/Virtual-1/mode
+	echo 1024x768 >/shr/gpu/0/outputs/Virtual-1/mode
 .EE
 .PP
 An external monitor right of the laptop's panel, then above it, the
 panel at half brightness:
 .EX
-	echo 1920x1080 at 1920 0 >/dev/gpu/0/outputs/HDMI-A-1/mode
-	echo 1920x1080 at 0 0 >/dev/gpu/0/outputs/HDMI-A-1/mode
-	echo 1920x1080 at 0 1080 >/dev/gpu/0/outputs/eDP-1/mode
-	echo 50% >/dev/gpu/0/outputs/eDP-1/backlight
+	echo 1920x1080 at 1920 0 >/shr/gpu/0/outputs/HDMI-A-1/mode
+	echo 1920x1080 at 0 0 >/shr/gpu/0/outputs/HDMI-A-1/mode
+	echo 1920x1080 at 0 1080 >/shr/gpu/0/outputs/eDP-1/mode
+	echo 50% >/shr/gpu/0/outputs/eDP-1/backlight
 .EE
 .PP
 A context, one submission, wait for it, in C (the source tree's
 .B tests/gpu/gpuctxtest.c
 does more):
 .EX
-	fd = open("/dev/gpu/0/clone", ORDWR);
+	fd = open("/shr/gpu/0/clone", ORDWR);
 	read(fd, buf, sizeof buf);	/* ctx 1 seg gpu0ctx1 0x40000000 0x100000 */
 	cmd = segattach(0, "gpu0ctx1", nil, 0);
 	fprint(fd, "init 2");
@@ -1349,10 +1363,3 @@ through BAR 0.
 .br
 Presenting copies every frame twice (device to host memory, host to
 draw(3)); the kernel's console draws over the screen without rio.
-.PP
-Each restart of a driver leaves the dead one's mount in
-.BR /dev 's
-union of the name spaces
-.I gpuagain
-mounted the new one in (it comes first, the dead ones are not walked
-into); they go with the name space.

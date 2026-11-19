@@ -1,14 +1,16 @@
 #!/bin/rc
 # aux/amdgpu stopped and started again, no reboot: the first in a
-# namespace of its own (its mount goes with it), killed; the second's
+# namespace of its own (its share entry is everyone's all the same), killed; the second's
 # start (its log's end if it does not come up), then the checks
+fn amdg { for(d in /shr/gpu/[0-9]*) if(grep -s '^device amd' $d/status >[2]/dev/null) echo $d }	# the AMD card's entry (gpu(4): named for its #G/n)
+fn noamdg { a=`{amdg}; ~ $#a 0 }
 bind -a '#i' /dev
 bind -a '#v' /dev
 @{
 	rfork n
 	aux/amdgpu $* >/tmp/amd1.log >[2=1]
 	sleep 2
-	grep '^device|^accel' /dev/gpu/0/status
+	grep '^device|^accel' `{amdg}^/status
 	/tests/amdctxtest | grep 'passed|FAIL'
 }
 echo stopping
@@ -16,14 +18,13 @@ for(p in `{ps | awk '$7 == "amdgpu" {print $2}'})
 	echo kill >/proc/$p/ctl
 sleep 3
 echo amdgpu procs left: `{ps | grep -c ' amdgpu$'}
-rm -f /srv/gpu.0
 echo starting again
 aux/amdgpu $* >/tmp/amd2.log >[2=1] &
 # until its server is there, 90 s at most; else its log's end
 for(t in `{seq 90})
-	if(! test -e /srv/gpu.0)
+	if(noamdg)
 		sleep 1
-if(! test -e /srv/gpu.0){
+if(noamdg){
 	echo FAIL the second start: no server after 90 s
 	tail -10 /tmp/amd2.log
 	aux/i915stk -a amdgpu
@@ -32,7 +33,7 @@ if(! test -e /srv/gpu.0){
 	exit
 }
 sleep 3
-grep '^device|^accel' /dev/gpu/0/status
+grep '^device|^accel' `{amdg}^/status
 /tests/amdctxtest | grep 'passed|FAIL'
 /tests/radvtest >[2=1] | grep 'passed|FAIL'
 WSI_PLAN9_STATS=1 /tests/vkcube --c 120 >/tmp/vk.out >[2=1]; echo vkcube status $status; tail -5 /tmp/vk.out

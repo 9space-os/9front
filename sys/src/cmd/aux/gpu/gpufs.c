@@ -5,23 +5,25 @@
  * aux/virtiogpu (each driver's file server includes this file and
  * fills in drv, its Gpudrv, after it):
  *
- *	/dev/gpu/0/ctl		the driver's (drv.ctlread, drv.ctlwrite)
- *	/dev/gpu/0/status	drv.status
- *	/dev/gpu/0/outputs/conn/{edid,modes,mode,backlight}	drv.out*
- *	/dev/gpu/0/clone	a new context: open gives its ctl
- *	/dev/gpu/0/ctx/n/ctl	the context's words (drv.ctl), each
+ *	/shr/gpu/N/ctl		the driver's (drv.ctlread, drv.ctlwrite)
+ *	/shr/gpu/N/status	drv.status
+ *	/shr/gpu/N/outputs/conn/{edid,modes,mode,backlight}	drv.out*
+ *	/shr/gpu/N/clone	a new context: open gives its ctl
+ *	/shr/gpu/N/ctx/n/ctl	the context's words (drv.ctl), each
  *				request's reply the fid's own, read after it
- *	/dev/gpu/0/ctx/n/submit	drv.submit (a line as long as a write: a
+ *	/shr/gpu/N/ctx/n/submit	drv.submit (a line as long as a write: a
  *				submission may name its objects)
- *	/dev/gpu/0/ctx/n/fence	"done n" read; write k (or wait k,
+ *	/shr/gpu/N/ctx/n/fence	"done n" read; write k (or wait k,
  *				query k): the next read waits for fence k
  *				(drv.fencewait), "k done|busy"
  *
  * and the driver's own files (drv.tree, kinds Xdrv and up, drv.read,
  * drv.write).  A context is its creator's (its files 0600); it goes
  * when its last file is closed (drv.ctxfree).  Plain Plan 9 C, no
- * libthread: aux/virtiogpu serves with postmountsrv.
+ * libthread: aux/virtiogpu serves with postsharesrv.
  */
+
+#include "gpushare.c"
 
 enum {
 	Xctl = 1,
@@ -83,7 +85,7 @@ struct Gpudrv {
 	int	(*hasbacklight)(char *name);
 	char*	(*outread)(Req*, char *name, int kind);	/* fills r->ofcall; nil or the error */
 	char*	(*outwrite)(Req*, char *name, int kind, char *s);
-	void	(*tree)(File *dir, char *user);	/* its own files in /dev/gpu/0 */
+	void	(*tree)(File *dir, char *user);	/* its own files in /shr/gpu/N */
 	int	(*read)(Req*);		/* 1: done (responded) */
 	int	(*write)(Req*);		/* 1: done (responded): its own files, a request it takes as it is */
 };
@@ -429,14 +431,14 @@ done:
 static void
 mktree(int withctxs)
 {
-	File *gpu, *n, *o, *d;
+	File *n, *o, *d;
 	char *user;
 	int i;
 
 	user = getuser();
 	fs.tree = alloctree(user, user, DMDIR|0555, nil);
-	gpu = createfile(fs.tree->root, "gpu", user, DMDIR|0555, nil);
-	n = createfile(gpu, "0", user, DMDIR|0555, nil);
+	/* N at the top: the share gpu's entries are its GPUs (gpushare.c) */
+	n = createfile(fs.tree->root, gpuname, user, DMDIR|0555, nil);
 	createfile(n, "ctl", user, 0664, (void*)Xctl);
 	createfile(n, "status", user, 0444, (void*)Xstatus);
 	if(withctxs){

@@ -1,10 +1,11 @@
 #!/bin/rc
-# aux/amdgpu alone: its log after the start (without the per-ring and per-IP lines), whether it serves /dev/gpu
+# aux/amdgpu alone: its log after the start (without the per-ring and per-IP lines), whether it serves /shr/gpu
+fn amdg { for(d in /shr/gpu/[0-9]*) if(grep -s '^device amd' $d/status >[2]/dev/null) echo $d }	# the AMD card's entry (gpu(4): named for its #G/n)
 bind -a '#i' /dev
 bind -a '#v' /dev
 aux/amdgpu -t $* >/tmp/amd.log >[2=1] &
 sleep 60
 grep -v '^(ring|ip) ' /tmp/amd.log | tail -60
 echo infoframe warnings: `{grep -c 'vendor infoframe' /tmp/amd.log}
-ls /dev/gpu/0
+ls `{amdg}
 echo TESTEND

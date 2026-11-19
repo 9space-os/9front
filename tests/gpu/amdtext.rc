@@ -2,6 +2,7 @@
 # aux/amdgpu's requests as text (gpu(4), linux/req.c): each verb on a
 # context's ctl, its reply read back on the same fid (rc: a read after the
 # write), the errors by name.  CS is radvtest's (RADV through libdrm9).
+fn amdg { for(d in /shr/gpu/[0-9]*) if(grep -s '^device amd' $d/status >[2]/dev/null) echo $d }	# the AMD card's entry (gpu(4): named for its #G/n)
 rfork e
 aux/amdgpu -S $* >/tmp/amd.log >[2=1]
 sleep 2
@@ -20,9 +21,9 @@ fn expect {
 	if not
 		fail $"* '->' $r '(want' $pat')'
 }
-<>[3]/dev/gpu/0/clone {
+<>[3]`{amdg}^/clone {
 	n=`{read <[0=3]}
-	d=/dev/gpu/0/ctx/$n(2)
+	d=`{amdg}^/ctx/$n(2)
 	<>[4]$d/ctl {
 		expect '^version [0-9]+ [0-9]+ ' version
 		expect '^cap 20 1$' cap 20

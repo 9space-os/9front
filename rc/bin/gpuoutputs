@@ -6,7 +6,7 @@
 # a mode none has; a panel's backlight dimmed and back.
 # A line "passed" or "FAIL" each step: look at the monitors too.
 rfork e
-dev=/dev/gpu/0
+dev=/shr/gpu/0
 if(! ~ $#* 0)
 	dev=$1
 o=$dev/outputs

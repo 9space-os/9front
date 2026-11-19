@@ -18,6 +18,18 @@ rm -f /tmp/wba.log /tmp/wbb.log
 window -r 20 20 500 380 /tests/wsysvktri /tmp/wba.log comp
 waitexit /tmp/wba.log
 sed 's/^/back: before: /' /tmp/wba.log
+# a name space made before the restart (rfork n now): it must see the
+# new driver all the same (the drivers are in shr(3)'s share gpu)
+rm -f /tmp/oldns.go /tmp/oldns.out
+@{
+	rfork n
+	while(! test -e /tmp/oldns.go)
+		sleep 0.2
+	if(grep -s '^device' /shr/gpu/0/status)
+		echo back: an old name space sees the new driver >/tmp/oldns.out
+	if not
+		echo back: an old name space sees no driver >/tmp/oldns.out
+} &
 # as the pager does: a kill, no note handler runs
 for(p in `{drvpids})
 	@{echo kill >/proc/$p/note} >[2]/dev/null
@@ -31,6 +43,10 @@ aux/virtiogpu >[2]/dev/null
 echo back: driver again `{drvpids}
 if(waitlog 'the GPU composes again' 700) echo back: the GPU composes again
 if not echo back: the GPU composes not again
+touch /tmp/oldns.go
+n=0
+while(! test -e /tmp/oldns.out && test $n -lt 50){ sleep 0.1; n=`{echo $n+1 | hoc} }
+cat /tmp/oldns.out
 window -r 20 20 500 380 /tests/wsysvktri /tmp/wbb.log comp
 waitexit /tmp/wbb.log
 sed 's/^/back: after: /' /tmp/wbb.log

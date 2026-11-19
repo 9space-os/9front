@@ -35,7 +35,7 @@ tail -n +`{echo $kn + 1 | hoc} /dev/kmesg | grep -e onexit -e 'did not stop' -e 
 
 # a new driver on the same device draws again
 aux/virtiogpu
-grep '^device ' /dev/gpu/0/status | sed 's/^/killdrv: restart status /'
+grep '^device ' /shr/gpu/0/status | sed 's/^/killdrv: restart status /'
 if(/tests/gputest >/tmp/gputest.log >[2=1] && grep -s 'gputest: \[0 0\]' /tmp/gputest.log)
 	echo killdrv: restart drew
 if not

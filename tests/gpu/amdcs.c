@@ -11,13 +11,14 @@
  */
 #include <u.h>
 #include <libc.h>
+#include "gpufind.h"
 
 enum {
 	Varadvib	= 1<<1 | 1<<3 | 4<<5,	/* readable, executable, MTYPE_UC: RADV's IBs */
 	Vaflags	= 1<<1 | 1<<2 | 1<<3,	/* readable, writeable, executable */
 };
 
-static char *dev = "/dev/gpu/0";
+static char *dev;	/* gpufind's, or the argument */
 static int nfail;
 static int cfd, sfd;
 
@@ -113,6 +114,8 @@ main(int argc, char **argv)
 	uvlong gpu[2], base, seq;
 	int ctx, i, radv, unmapped;
 	Dir *d;
+
+	dev = gpufind("amd");
 
 	base = 0x200000000ULL;
 	radv = 0;

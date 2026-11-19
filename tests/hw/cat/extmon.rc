@@ -13,13 +13,11 @@ secs=300
 fn ok { echo ok extmon: $* }
 fn fail { echo FAIL extmon: $* }
 
-g=`{ls /srv/gpu.* >[2]/dev/null | sed 1q}
-if(~ $#g 0){
-	echo SKIP extmon: no GPU driver '(/srv/gpu.*)'
+d=`{ls -d /shr/gpu/* >[2]/dev/null | sed 1q}
+if(~ $#d 0){
+	echo SKIP extmon: no GPU driver '(/shr/gpu/*)'
 	exit ''
 }
-mount $g /n/gpu || { fail mount $g; exit mount }
-d=`{ls -d /n/gpu/gpu/* | sed 1q}
 
 fn connected { awk '$1 == "output" && $3 == "connected" {print $2}' $d/status }
 fn screensize { awk '$1 == "size" {print $2}' '#v/vgactl' }

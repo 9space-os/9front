@@ -10,6 +10,7 @@
 #include <thread.h>
 #include <9p.h>
 #include "../i915_drv.h"
+#include "../../gpushare.c"
 
 File *ctxdir;
 Srv fs;
@@ -416,17 +417,32 @@ fswrite(Req *r)
 	respond(r, nil);
 }
 
+/* the GPU of gdir is N; another driver serves it already (its entry in the share gpu) */
+int
+served(char *gdir)
+{
+	gpusetname(gdir);
+	return gpuserved();
+}
+
+/* the files into the share gpu as entry N */
+void
+serve(void)
+{
+	gpupost(&fs, 0);
+}
+
 void
 mktree(void)
 {
-	File *gpu, *n, *o;
+	File *n, *o;
 	char *user;
 	int i;
 
 	user = getuser();
 	fs.tree = alloctree(user, user, DMDIR|0555, nil);
-	gpu = createfile(fs.tree->root, "gpu", user, DMDIR|0555, nil);
-	n = createfile(gpu, "0", user, DMDIR|0555, nil);
+	/* N at the top: the share gpu's entries are its GPUs (gpushare.c) */
+	n = createfile(fs.tree->root, gpuname, user, DMDIR|0555, nil);
 	createfile(n, "ctl", user, 0664, (void*)Xctl);
 	createfile(n, "status", user, 0444, (void*)Xstatus);
 	createfile(n, "clone", user, 0666, (void*)Xclone);

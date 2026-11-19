@@ -354,6 +354,8 @@ char*ctxctl(Ctx *c, char **f, int n);
 char*devctl(char **f, int n);
 void	fswrite(Req *r);
 void	mktree(void);
+int	served(char *gdir);
+void	serve(void);
 
 /* plan9/outputs.c */
 int	addmode(char *b, int n, int len, int w, int h, int hz);

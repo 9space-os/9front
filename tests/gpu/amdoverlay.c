@@ -19,10 +19,11 @@
  */
 #include <u.h>
 #include <libc.h>
+#include "gpufind.h"
 
 enum { W = 640, H = 480, Stride = W*4 };
 
-static char *dev = "/dev/gpu/0";
+static char *dev;	/* gpufind's, or the argument */
 static int nfail;
 static int cfd;
 
@@ -109,6 +110,8 @@ main(int argc, char **argv)
 	u32int h, *px;
 	int i, n, x, y, vram;
 	vlong t0, t1;
+
+	dev = gpufind("amd");
 
 	n = 120;
 	vram = 0;

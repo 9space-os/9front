@@ -14,8 +14,9 @@
  */
 #include <u.h>
 #include <libc.h>
+#include "gpufind.h"
 
-static char *dev = "/dev/gpu/0";
+static char *dev;	/* gpufind's, or the argument */
 static int nfail;
 
 static void
@@ -153,6 +154,8 @@ main(int argc, char **argv)
 	uvlong size, gpu[2], cgpu, dgpu, at[3];
 	u32int *cmd, *dst, want;
 	uchar *pic[2];
+
+	dev = gpufind("amd");
 
 	secs = 10;
 	ARGBEGIN{

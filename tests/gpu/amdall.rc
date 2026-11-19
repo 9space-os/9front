@@ -1,5 +1,6 @@
 #!/bin/rc
 # aux/amdgpu with its screen; the context, scanout, request (amdcs), RADV (radvtest, vkcube) and draw tests; the log's warnings
+fn amdg { for(d in /shr/gpu/[0-9]*) if(grep -s '^device amd' $d/status >[2]/dev/null) echo $d }	# the AMD card's entry (gpu(4): named for its #G/n)
 bind -a '#i' /dev
 bind -a '#v' /dev
 aux/amdgpu -t $* >/tmp/amd.log >[2=1]
@@ -17,7 +18,7 @@ WSI_PLAN9_STATS=1 /tests/vkcube --c 120 >[2=1] | grep 'scanout:|copy:|rror' | se
 /tests/gputest -l >/dev/null >[2=1] &
 sleep 5
 grep irq '#G/1/ctl'
-grep '^ih |^temp|^power' /dev/gpu/0/status
+grep '^ih |^temp|^power' `{amdg}^/status
 echo fallbacks `{grep -c fallback /tmp/amd.log}
 grep 'WARN|error|fault|overflow' /tmp/amd.log
 echo TESTEND

@@ -76,14 +76,11 @@ if not{
 	}
 	sleep 5
 }
-# its files in this namespace too (a driver started at boot mounted them in termrc's)
-if(! test -e /dev/gpu/0/clone && test -e /srv/gpu.0)
-	mount -a /srv/gpu.0 /dev
 echo '## started' >>$out
 # the driver through gpu(4): contexts, objects, batches, fences
-if(test -e /dev/gpu/0/clone){
-	echo '## /dev/gpu/0/status' >>$out
-	cat /dev/gpu/0/status >>$out >[2=1]
+if(test -e /shr/gpu/0/clone){
+	echo '## /shr/gpu/0/status' >>$out
+	cat /shr/gpu/0/status >>$out >[2=1]
 	echo '## aux/inteltest' >>$out
 	aux/inteltest >>$out >[2=1]
 	echo '## status' $status >>$out
@@ -140,9 +137,9 @@ if(test -e /dev/gpu/0/clone){
 	}
 }
 # the GPU's error state, if i915 caught a hang (Mesa's aubinator_error_decode reads it)
-if(test -e /dev/gpu/0/error){
-	echo '## /dev/gpu/0/error' >>$out
-	cat /dev/gpu/0/error >>$out >[2=1]
+if(test -e /shr/gpu/0/error){
+	echo '## /shr/gpu/0/error' >>$out
+	cat /shr/gpu/0/error >>$out >[2=1]
 }
 echo '## then: procs' >>$out
 ps | grep i915 >>$out

@@ -41,7 +41,7 @@ for(c in 'vulkaninfo --summary' 'vktri 3' \
 	'WSI_PLAN9_STATS=1 vkcube --c 600' \
 	'@{rfork en; bind -b ''#i'' /dev; WSI_PLAN9_STATS=1 WSI_PLAN9_COPY=1 vkcube --c 300}' \
 	'@{rfork en; bind -b ''#i'' /dev; WSI_PLAN9_STATS=1 vkcube --c 600}' \
-	'grep scanout /dev/gpu/0/status' \
+	'grep scanout /shr/gpu/0/status' \
 	'@{rfork en; bind -b ''#i'' /dev; drawspeed}' \
 	'cat ''#v/vgactl''' \
 	'grep -i mtrr ''#P/archctl'''){
@@ -51,7 +51,7 @@ for(c in 'vulkaninfo --summary' 'vktri 3' \
 }
 echo '## #G/0/ctl' >>$log
 cat '#G/0/ctl' >>$log
-echo '## /dev/gpu/0/status' >>$log
-cat /dev/gpu/0/status >>$log
+echo '## /shr/gpu/0/status' >>$log
+cat /shr/gpu/0/status >>$log
 echo '## end' >>$log
 cat $log

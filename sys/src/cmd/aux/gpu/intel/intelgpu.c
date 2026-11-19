@@ -13,12 +13,12 @@
  * sequence numbers and the user and context switch interrupts (MSI).
  * The display stays as the firmware or aux/vga set it up.
  *
- *	/dev/gpu/0/ctl			the visible plane: plane p gpuaddr stride bpp w h
- *	/dev/gpu/0/status		device, engines, memory, contexts
- *	/dev/gpu/0/clone		a new context, ctx/n
- *	/dev/gpu/0/ctx/n/ctl		bo size, free id, map plane
- *	/dev/gpu/0/ctx/n/submit		bo offset [rcs|bcs]
- *	/dev/gpu/0/ctx/n/fence		as gpu(4)
+ *	/shr/gpu/N/ctl			the visible plane: plane p gpuaddr stride bpp w h
+ *	/shr/gpu/N/status		device, engines, memory, contexts
+ *	/shr/gpu/N/clone		a new context, ctx/n
+ *	/shr/gpu/N/ctx/n/ctl		bo size, free id, map plane
+ *	/shr/gpu/N/ctx/n/submit		bo offset [rcs|bcs]
+ *	/shr/gpu/N/ctx/n/fence		as gpu(4)
  *
  * A buffer object is a #g segment of pinned pages (sticky; their
  * addresses from #g/seg/pa), mapped into the context's address space; the client
@@ -33,7 +33,7 @@
  * when the engine is idle, and leaves it when the context status
  * buffer says it is done (no lite restore).
  *
- * usage: aux/intelgpu [-dpGU] [-g #G/n] [-s srvname]
+ * usage: aux/intelgpu [-dpGU] [-g #G/n]
  *
  * Register offsets and command formats as in Intel's PRMs (Broadwell,
  * vol. 2 and 5) and Linux's i915 for gen 8.
@@ -57,17 +57,15 @@ QLock ctxlock;		/* contexts, objects */
 void
 usage(void)
 {
-	fprint(2, "usage: %s [-3dpCGPRU] [-g #G/n] [-s srvname]\n", argv0);
+	fprint(2, "usage: %s [-3dpCGPRU] [-g #G/n]\n", argv0);
 	exits("usage");
 }
 
 void
 main(int argc, char **argv)
 {
-	char *srvname;
 	int i;
 
-	srvname = "gpu.0";
 	ARGBEGIN{
 	case 'd':
 		debug++;
@@ -93,9 +91,6 @@ main(int argc, char **argv)
 	case 'p':
 		poll = 1;
 		break;
-	case 's':
-		srvname = EARGF(usage());
-		break;
 	case 'U':
 		uncached = 1;
 		break;
@@ -104,6 +99,9 @@ main(int argc, char **argv)
 	}ARGEND
 	if(argc != 0)
 		usage();
+	/* one driver for the device: its entry in the share gpu */
+	if(served(gdir))
+		sysfatal("%s: /shr/gpu has its entry: another driver serves the GPU", gdir);
 
 	done.l = &lk;
 	i915_driver_probe();
@@ -138,6 +136,6 @@ main(int argc, char **argv)
 	fs.destroyfid = fsdestroyfid;
 	fs.end = fsend;
 	mktree();
-	postmountsrv(&fs, srvname, "/dev", MAFTER);
+	serve();
 	exits(nil);
 }

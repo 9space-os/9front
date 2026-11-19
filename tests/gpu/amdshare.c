@@ -12,6 +12,7 @@
  */
 #include <u.h>
 #include <libc.h>
+#include "gpufind.h"
 
 enum {
 	Size	= 64*1024,
@@ -23,7 +24,7 @@ struct Ctx {
 	int	cfd;
 };
 
-static char *dev = "/dev/gpu/0";
+static char *dev;	/* gpufind's, or the argument */
 static int nfail;
 
 static void
@@ -142,6 +143,8 @@ main(int argc, char **argv)
 	char buf[256], token[64], *f[8];
 	u32int ha, hb, *wa, *wb;
 	int i;
+
+	dev = gpufind("amd");
 
 	if(argc > 1)
 		dev = argv[1];

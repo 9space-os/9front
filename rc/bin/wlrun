@@ -60,7 +60,7 @@ fn part { # name cmd...
 }
 {
 	echo wlrun on $sysname `{date}
-	cat /dev/gpu/0/status >[2]/dev/null
+	cat /shr/gpu/0/status >[2]/dev/null
 	rm -f /tmp/wlclient.log /tmp/weston-simple-shm.log /tmp/wlvk.log /tmp/vkcube.log /tmp/wlgl.log /tmp/weston-simple-egl.log
 	part wlsys rc -c '/tests/wsys -x -i /tests/wlsys.rc; cat /tmp/wlclient.log; sed ''s/^/shm: /'' /tmp/weston-simple-shm.log'
 	part wlvk rc -c '/tests/wsys -x -i /tests/wlvk.rc; cat /tmp/wlvk.log; sed ''s/^/vkcube: /'' /tmp/vkcube.log; sed ''s/^/wlgl: /'' /tmp/wlgl.log; sed ''s/^/egl: /'' /tmp/weston-simple-egl.log'

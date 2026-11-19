@@ -75,6 +75,14 @@ if [ "$objtype" = amd64 ] && [ -x "$RUSTC" ] && command -v cargo >/dev/null; the
 	. "$ROOT/scripts/build/cargostd.sh"
 	cargostd "$O/rsvk" $T
 	cargostd "$BUILD/cargo/eframetest" $T
+	# cargo does not know the C libraries it links (libvulkan.a, APE's): a
+	# program older than one of them goes, and cargo links it again (as
+	# scripts/build/cargo.sh does)
+	for p in "$O/rsvk/$T/release/rsvk" "$BUILD/cargo/eframetest/$T/release/eframetest"; do
+		if [ -e "$p" ] && [ -n "$(find "$ROOT/$objtype/lib.gcc" -name '*.a' -newer "$p" -print -quit 2>/dev/null)" ]; then
+			rm -f "$p" "$(dirname "$p")/deps/$(basename "$p")"-*
+		fi
+	done
 	(cd "$HERE/rsvk" &&
 	 RUSTC="$RUSTC" RSVK_SPV="$O" CARGO_TARGET_DIR="$O/rsvk" \
 	 CARGO_TARGET_X86_64_UNKNOWN_PLAN9_LINKER="$CROSS/$TRIPLE-gcc" \

@@ -4,7 +4,7 @@
  * libdrm_amdgpu on 9front, and amdgpu's ioctls, over aux/amdgpu
  * (gpu(4)): what Mesa's RADV (src/amd/common/ac_linux_drm.c) uses.
  *
- * A descriptor is a context of aux/amdgpu, opened by /dev/gpu/N/clone
+ * A descriptor is a context of aux/amdgpu, opened by its GPU's clone
  * (drm9.c finds it).  Each ioctl RADV makes becomes a request as text
  * (gpu(4)): words written to the context's ctl (CS: its submit file),
  * the reply read back on the same fid; nothing of ours is in the
@@ -64,7 +64,7 @@ enum {
 struct Amd {
 	int	fd;		/* the context's ctl */
 	int	ctx;
-	char	dir[32];	/* /dev/gpu/N */
+	char	dir[64];	/* GPU N's: /shr/gpu/N (gpu(4)) */
 	pthread_mutex_t	lk;
 	int	tfids[2][Nfid];	/* requests: ctl's, submit's */
 	int	ntfids[2];
@@ -609,7 +609,7 @@ errnoof(const char *s)
 static int
 tfidget(Amd *a, int sub)
 {
-	char path[64];
+	char path[128];
 	int fd;
 
 	pthread_mutex_lock(&a->lk);

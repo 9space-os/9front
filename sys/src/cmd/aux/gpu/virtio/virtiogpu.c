@@ -13,14 +13,14 @@
  * reads the used ring (on #G/0/irq, or polling with -p).
  *
  * Mounted after /dev, see gpu(4):
- *	/dev/gpu/0/ctl		w: mode WxH
- *	/dev/gpu/0/status
- *	/dev/gpu/0/outputs/Virtual-1/{modes,mode,edid}
- *	/dev/gpu/0/caps/<capset id>
- *	/dev/gpu/0/clone	-> ctx/N/ctl
- *	/dev/gpu/0/ctx/N/{ctl,submit,fence}
+ *	/shr/gpu/N/ctl		w: mode WxH
+ *	/shr/gpu/N/status
+ *	/shr/gpu/N/outputs/Virtual-1/{modes,mode,edid}
+ *	/shr/gpu/N/caps/<capset id>
+ *	/shr/gpu/N/clone	-> ctx/N/ctl
+ *	/shr/gpu/N/ctx/N/{ctl,submit,fence}
  *
- * usage: aux/virtiogpu [-dp] [-m WxH] [-s srvname]
+ * usage: aux/virtiogpu [-dp] [-m WxH]
  */
 #include <u.h>
 #include <libc.h>
@@ -2052,17 +2052,16 @@ static Gpudrv drv = {
 static void
 usage(void)
 {
-	fprint(2, "usage: %s [-dp] [-m WxH] [-s srvname]\n", argv0);
+	fprint(2, "usage: %s [-dp] [-m WxH]\n", argv0);
 	exits("usage");
 }
 
 void
 main(int argc, char **argv)
 {
-	char path[64], *srvname, *m, *e;
+	char path[64], *m, *e;
 	int w, h;
 
-	srvname = "gpu.0";
 	w = h = 0;
 	ARGBEGIN{
 	case 'd':
@@ -2078,15 +2077,16 @@ main(int argc, char **argv)
 			usage();
 		h = strtol(e+1, nil, 10);
 		break;
-	case 's':
-		srvname = EARGF(usage());
-		break;
 	default:
 		usage();
 	}ARGEND
 	if(argc != 0)
 		usage();
 
+	/* one driver for the device: its entry in the share gpu (before the reset at exit is armed) */
+	gpusetname(gdir);
+	if(gpuserved())
+		sysfatal("%s: /shr/gpu has its entry: another driver serves the GPU", gdir);
 	qr.l = &qlk;
 	snprint(path, sizeof path, "%s/ctl", gdir);
 	if((gctlfd = open(path, ORDWR|OCEXEC)) < 0)	/* OCEXEC: its close is ours (exitreset) */
@@ -2136,6 +2136,6 @@ main(int argc, char **argv)
 	}
 
 	gpufsinit(features & (Fvirgl|Fctxinit));
-	postmountsrv(&fs, srvname, "/dev", MAFTER);
+	gpupost(&fs, 0);
 	exits(nil);
 }

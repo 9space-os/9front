@@ -23,7 +23,8 @@
  */
 int	mainstacksize = 1024*1024;
 
-void	serve(char *srvname);
+void	serve(void);
+int	served(char *gdir);
 
 /* the call chain by frame pointers, for addr2line on the build machine; bp between lo and hi */
 static void
@@ -140,19 +141,18 @@ findgpu(void)
 static void
 usage(void)
 {
-	fprint(2, "usage: %s [-DnStX] [-W secs] [-d drmdebug] [-l loglevel] [-p name=value]... [-g #G/n (default: the first AMD one)] [-s srvname]\n", argv0);
+	fprint(2, "usage: %s [-DnStX] [-W secs] [-d drmdebug] [-l loglevel] [-p name=value]... [-g #G/n (default: the first AMD one)]\n", argv0);
 	threadexitsall("usage");
 }
 
 void
 threadmain(int argc, char **argv)
 {
-	char *gdir, *param[64], *s, *srvname;
+	char *gdir, *param[64], *s;
 	int r, i, nparam, loglevel, noserve, poweroff, nodisplay, noscreen;
 	ulong drmdebug;
 
 	gdir = nil;
-	srvname = "gpu.0";
 	noserve = 0;
 	poweroff = 0;
 	nodisplay = 0;
@@ -193,9 +193,6 @@ threadmain(int argc, char **argv)
 	case 'X':
 		poweroff = 1;	/* after the start: the machine goes down */
 		break;
-	case 's':
-		srvname = EARGF(usage());
-		break;
 	default:
 		usage();
 	}ARGEND
@@ -204,13 +201,9 @@ threadmain(int argc, char **argv)
 
 	if(gdir == nil && (gdir = findgpu()) == nil)
 		sysfatal("no AMD GPU in #G");
-	if(!noserve){
-		char path[64];
-
-		snprint(path, sizeof path, "/srv/%s", srvname);
-		if(access(path, AEXIST) == 0)
-			sysfatal("%s exists: another driver serves a GPU there (-s)", path);
-	}
+	/* (before kpi_start: a driver refused starts nothing) */
+	if(!noserve && served(gdir))
+		sysfatal("%s: /shr/gpu has its entry: another driver serves the GPU", gdir);
 
 	atnotify(trapnote, 1);
 	threadnotify(trapnote, 1);	/* libthread passes the main proc's other notes (threaddump) only so */
@@ -236,7 +229,7 @@ threadmain(int argc, char **argv)
 	if(poweroff)
 		amdgpu_test_poweroff();
 	if(!noserve)
-		serve(srvname);
+		serve();
 	/* the driver's procs (workqueues, irq, timers) go on */
 	threadexits(nil);
 }

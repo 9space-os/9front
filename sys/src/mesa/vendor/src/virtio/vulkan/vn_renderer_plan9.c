@@ -4,7 +4,9 @@
  *
  * venus renderer on 9front: the virtio-gpu file system of gpu(4).
  *
- *   /dev/gpu/0/clone             a context (its ctl file)
+ *   /shr/gpu/N/clone             a context (its ctl file; N the virtio GPU's
+ *                                #G/N, /shr/gpu.user/N for a user granted a
+ *                                share, gpu(4))
  *   ctx/N/ctl                    init, blob, map, unref
  *   ctx/N/submit                 "offset length ring" in the command segment
  *   ctx/N/fence                  wait for or query the k-th submission
@@ -33,10 +35,9 @@ extern void *segattach(int, char *, void *, unsigned long);
 extern int plan9_dmabuf_fd(const char *token);
 extern int plan9_dmabuf_token(int fd, char *buf, int n);
 extern int segdetach(void *);
-/* plan9/lib/gpuagain.c: /dev/gpu/n again after its driver started anew */
-extern int gpuagain(int n);
 
-#define PLAN9_GPU_DIR "/dev/gpu/0"
+/* plan9/lib/gpudir.c: GPU n's directory for this process (shr(3), gpu(4)) */
+extern char *plan9_gpudir(int n, char *buf, int nbuf);
 #define PLAN9_PCI_VENDOR_ID 0x1af4
 #define PLAN9_PCI_DEVICE_ID 0x1050
 #define PLAN9_CAPSET_VENUS 4
@@ -71,6 +72,8 @@ struct plan9_sync {
 
 struct plan9 {
    struct vn_renderer base;
+
+   char dir[64]; /* GPU 0's: plan9_gpudir */
 
    struct vn_instance *instance;
 
@@ -172,9 +175,9 @@ plan9_fence(struct plan9 *p9, uint64_t k, bool wait)
 static int
 plan9_fence_wait(struct plan9 *p9, uint64_t k)
 {
-   char buf[64], path[64];
+   char buf[64], path[128];
 
-   snprintf(path, sizeof(path), PLAN9_GPU_DIR "/ctx/%d/fence", p9->ctx_id);
+   snprintf(path, sizeof(path), "%s/ctx/%d/fence", p9->dir, p9->ctx_id);
    const int fd = open(path, O_RDWR);
    if (fd < 0)
       return -1;
@@ -804,9 +807,9 @@ plan9_destroy(struct vn_renderer *renderer,
 static VkResult
 plan9_init_capset(struct plan9 *p9)
 {
-   char path[64];
+   char path[128];
 
-   snprintf(path, sizeof(path), PLAN9_GPU_DIR "/caps/%d", PLAN9_CAPSET_VENUS);
+   snprintf(path, sizeof(path), "%s/caps/%d", p9->dir, PLAN9_CAPSET_VENUS);
    const int fd = open(path, O_RDONLY);
    if (fd < 0) {
       vn_log(p9->instance, "plan9: no venus capset (%s)", path);
@@ -830,11 +833,12 @@ plan9_init_capset(struct plan9 *p9)
 static VkResult
 plan9_init_context(struct plan9 *p9)
 {
-   char buf[256], path[64], *f[8];
+   char buf[256], path[128], *f[8];
 
-   p9->ctl_fd = open(PLAN9_GPU_DIR "/clone", O_RDWR);
+   snprintf(path, sizeof(path), "%s/clone", p9->dir);
+   p9->ctl_fd = open(path, O_RDWR);
    if (p9->ctl_fd < 0) {
-      vn_log(p9->instance, "plan9: no " PLAN9_GPU_DIR "/clone");
+      vn_log(p9->instance, "plan9: no %s", path);
       return VK_ERROR_INITIALIZATION_FAILED;
    }
    /* ctx n seg name va size */
@@ -853,9 +857,9 @@ plan9_init_context(struct plan9 *p9)
    }
    p9->cmd = cmd;
 
-   snprintf(path, sizeof(path), PLAN9_GPU_DIR "/ctx/%d/submit", p9->ctx_id);
+   snprintf(path, sizeof(path), "%s/ctx/%d/submit", p9->dir, p9->ctx_id);
    p9->submit_fd = open(path, O_WRONLY);
-   snprintf(path, sizeof(path), PLAN9_GPU_DIR "/ctx/%d/fence", p9->ctx_id);
+   snprintf(path, sizeof(path), "%s/ctx/%d/fence", p9->dir, p9->ctx_id);
    p9->fence_fd = open(path, O_RDWR);
    if (p9->submit_fd < 0 || p9->fence_fd < 0)
       return VK_ERROR_INITIALIZATION_FAILED;
@@ -925,14 +929,23 @@ vn_renderer_create_plan9(struct vn_instance *instance,
       return VK_ERROR_OUT_OF_HOST_MEMORY;
 
    p9->instance = instance;
+   /* the virtio GPU among the share's entries (named for their #G/n) */
+   for (int n = 0; n < 8; n++) {
+      char st[64], path[128];
+      plan9_gpudir(n, p9->dir, sizeof(p9->dir));
+      snprintf(path, sizeof(path), "%s/status", p9->dir);
+      const int fd = open(path, O_RDONLY);
+      if (fd < 0)
+         continue;
+      const ssize_t m = read(fd, st, sizeof(st) - 1);
+      close(fd);
+      if (m > 0 && (st[m] = 0, strncmp(st, "device virtio-gpu", 17) == 0))
+         break;
+      plan9_gpudir(0, p9->dir, sizeof(p9->dir));
+   }
    p9->ctl_fd = -1;
    p9->submit_fd = -1;
    p9->fence_fd = -1;
-
-   /* a driver killed and started again (gpu(4)): its files over the dead
-    * ones in this name space, before they are looked for
-    */
-   gpuagain(0);
 
    VkResult result = plan9_init(p9);
    if (result != VK_SUCCESS) {

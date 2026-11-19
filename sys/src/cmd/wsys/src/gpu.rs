@@ -5,7 +5,7 @@
 // wsys by the token (window ctl `gpubuffer`). wsys imports it into a context of
 // its own and maps it where the processor sees it, and reads the pixels there:
 // the client copies nothing. The context is made when the first such buffer
-// comes, on the first device (/dev/gpu/0): aux/virtiogpu's (venus: a blob,
+// comes, on the first device (gpudir()/0): aux/virtiogpu's (venus: a blob,
 // in the device's host visible memory, whose segments stay attached while
 // wsys runs), aux/amdgpu's (a GEM object, a segment of its own each) or
 // aux/i915's (a GEM object, its pages a segment of its own).
@@ -27,6 +27,7 @@ pub struct Gpu {
     drv: Drv,
     ctx: Option<u32>, // the context's number (clone's "ctx n"): its ctl for another fid
     bars: HashMap<String, Seg>, // virtio: the host visible memory, by segment class
+    dir: String,                // the device's: gpudir()/n
 }
 
 /// a buffer imported into wsys's context: released there when dropped
@@ -130,22 +131,41 @@ fn bad(what: &str, reply: &str) -> io::Error {
     io::Error::other(format!("gpu: {what}: {}", reply.trim()))
 }
 
+/// where the GPUs' files are for this process (gpu(4)): the user's own
+/// share /shr/gpu.user when the hostowner granted one, else /shr/gpu (the
+/// drivers put them into shr(3)'s shares: a driver started again is there
+/// at once, also in wsys' name space)
+pub fn gpudir() -> String {
+    let user = std::fs::read_to_string("/dev/user").unwrap_or_default();
+    let own = format!("/shr/gpu.{}", user.trim());
+    if !user.trim().is_empty() && std::fs::metadata(&own).is_ok() {
+        own
+    } else {
+        "/shr/gpu".into()
+    }
+}
+
 impl Gpu {
-    /// a context of the first device's (/dev/gpu/0); on virtio-gpu for
+    /// a context of the first device's (gpudir()/n); on virtio-gpu for
     /// venus' capability set (the clients' buffers are venus')
     pub fn open() -> io::Result<Gpu> {
-        let status = std::fs::read_to_string("/dev/gpu/0/status")?;
+        // the first GPU in the share (an entry is named for its #G/n: a card
+        // passed through may be 1 behind QEMU's VGA)
+        let (dir, status) = (0..8)
+            .map(|n| format!("{}/{n}", gpudir()))
+            .find_map(|d| std::fs::read_to_string(format!("{d}/status")).ok().map(|s| (d, s)))
+            .ok_or_else(|| io::Error::other(format!("gpu: no device in {}", gpudir())))?;
         let drv = match status.lines().next().unwrap_or("") {
             l if l.starts_with("device virtio-gpu") => Drv::Virtio,
             l if l.starts_with("device amd") => Drv::Amd,
             l if l.starts_with("device intel") => Drv::Intel,
             l => return Err(io::Error::other(format!("gpu: no buffers of {l:?} yet"))),
         };
-        let ctl = Fd::open("/dev/gpu/0/clone", ORDWR)?;
+        let ctl = Fd::open(&format!("{dir}/clone"), ORDWR)?;
         let mut b = [0u8; 64];
         let n = ctl.pread(&mut b, 0).unwrap_or(0);
         let ctx = String::from_utf8_lossy(&b[..n]).split_whitespace().nth(1).and_then(|x| x.parse::<u32>().ok());
-        let g = Gpu { ctl: Rc::new(ctl), drv, ctx, bars: HashMap::new() };
+        let g = Gpu { ctl: Rc::new(ctl), drv, ctx, bars: HashMap::new(), dir };
         if drv == Drv::Virtio {
             g.req("init 4")?;
         }
@@ -157,7 +177,7 @@ impl Gpu {
     /// (gpu(4) overlay; virtio-gpu has none)
     pub fn overlay_ctl(&self) -> Option<String> {
         match (self.drv, self.ctx) {
-            (Drv::Amd | Drv::Intel, Some(n)) => Some(format!("/dev/gpu/0/ctx/{n}/ctl")),
+            (Drv::Amd | Drv::Intel, Some(n)) => Some(format!("{}/ctx/{n}/ctl", self.dir)),
             _ => None,
         }
     }

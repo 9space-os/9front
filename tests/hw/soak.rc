@@ -109,7 +109,7 @@ fn killprogs {
 		for(pid in `{ps | awk '$NF == "'$p'" {print $2}'})
 			note2 $pid kill
 }
-# the GPU's driver: the program serving /dev/gpu/0 (its procs' name)
+# the GPU's driver: the program serving /shr/gpu/N (its procs' name)
 drv=`{ps | awk '$NF ~ /^(i915|amdgpu|intelgpu|virtiogpu)$/ {print $NF; exit}'}
 if(~ $#drv 0)
 	drv=i915

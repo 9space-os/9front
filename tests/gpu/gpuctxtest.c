@@ -1,15 +1,16 @@
 /*
  * SPDX-License-Identifier: MIT
  *
- * gpuctxtest: the 3D side of /dev/gpu/0 on virtio-gpu (gpu(4)):
+ * gpuctxtest: the 3D side of /shr/gpu/0 on virtio-gpu (gpu(4)):
  * capsets, a virgl context with submissions and fences, a venus
  * context with a host blob mapped through the hostmem bar.
  * Prints "ok ..." / "FAIL ..." lines and a summary.
  */
 #include <u.h>
 #include <libc.h>
+#include "gpufind.h"
 
-static char *dev = "/dev/gpu/0";
+static char *dev;	/* gpufind's, or the argument */
 static int nfail;
 
 static void
@@ -302,6 +303,7 @@ Out:
 void
 main(void)
 {
+	dev = gpufind("virtio-gpu");
 	listcaps();
 	if(havecap(2))
 		virgltest(2);

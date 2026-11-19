@@ -64,7 +64,8 @@ It offers
 (the clipboard),
 .B zxdg_decoration_manager_v1
 and, when there is a GPU
-.RB ( /dev/gpu/0 ),
+.RB ( /shr/gpu/0 ,
+.IR gpu (4)),
 .B zwp_linux_dmabuf_v1
 (version 3),
 .B wp_viewporter

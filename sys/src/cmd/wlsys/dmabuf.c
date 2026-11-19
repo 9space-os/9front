@@ -259,12 +259,27 @@ dmabufbind(struct wl_client *c, void *data, uint32_t version, uint32_t id)
 	}
 }
 
-/* only when there is a GPU: wsys imports the buffers from /dev/gpu/0 */
+/*
+ * only when there is a GPU: wsys imports the buffers from the first one,
+ * the user's own share's (/shr/gpu.user/n) or the hostowner's (/shr/gpu/n, gpu(4))
+ */
 void
 dmabufinit(void)
 {
-	if(access("/dev/gpu/0", 0) < 0){
-		dprint("no /dev/gpu/0: no linux-dmabuf\n");
+	char path[128], *u;
+	int n;
+
+	u = getenv("user");
+	for(n = 0; n < 8; n++){
+		snprintf(path, sizeof path, "/shr/gpu.%s/%d", u != NULL ? u : "", n);
+		if(access(path, 0) == 0)
+			break;
+		snprintf(path, sizeof path, "/shr/gpu/%d", n);
+		if(access(path, 0) == 0)
+			break;
+	}
+	if(n == 8){
+		dprint("no GPU in /shr/gpu: no linux-dmabuf\n");
 		return;
 	}
 	wl_global_create(display, &zwp_linux_dmabuf_v1_interface, 3, NULL, dmabufbind);

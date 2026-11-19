@@ -16,7 +16,7 @@ if(~ $1 comp)
 rm -f /tmp/wvo.log
 window -r 100 100 740 580 /tests/wsysvktri /tmp/wvo.log $peek
 sleep 2
-grep '^overlay' /dev/gpu/0/status | sed 's/^/during: /'
+grep '^overlay' /shr/gpu/0/status | sed 's/^/during: /'
 # wsys goes on while the display waits (the overlay's thread): 50 requests' time
 t0=`{awk '{print $2}' /dev/time}
 for(i in `{seq 1 50}) ls /mnt/wsys >/dev/null
@@ -26,11 +26,11 @@ echo during: 50 ls of /mnt/wsys in `{echo '('$t1-$t0')/1000000' | hoc} ms
 # off the plane, the WSI makes buffers wsys reads again
 window -r 600 500 900 700 sleep 5
 sleep 1
-grep '^overlay' /dev/gpu/0/status | sed 's/^/covered: /'
+grep '^overlay' /shr/gpu/0/status | sed 's/^/covered: /'
 n=0
 while(! grep -s '^wsysvk: exit' /tmp/wvo.log && test $n -lt 600){ sleep 0.1; n=`{echo $n+1 | hoc} }
 sleep 1
-grep '^overlay' /dev/gpu/0/status | sed 's/^/after: /'
+grep '^overlay' /shr/gpu/0/status | sed 's/^/after: /'
 grep 'frames|wsys has|wsys says|swapchain|screen at|passed|FAIL|exit' /tmp/wvo.log | sed 's/^/overlay: /'
 # again, vktri ignoring VK_SUBOPTIMAL_KHR (as many apps): covered, its images
 # in VRAM, the WSI must say out of date (vktri: "window changed size")
@@ -63,17 +63,17 @@ chmod +x /tmp/cube.rc
 window -r 100 100 740 580 /tmp/cube.rc
 sleep 2
 w=`{ls -p /mnt/wsys | grep '^[0-9]+$' | sort -n | tail -1}
-grep '^overlay' /dev/gpu/0/status | sed 's/^/full before: /'
+grep '^overlay' /shr/gpu/0/status | sed 's/^/full before: /'
 echo fullscreen >/mnt/wsys/$w/wctl
 sleep 2
 c=`{cat /mnt/wsys/$w/ctl}
 echo full: content $c(2-5)
-grep '^overlay' /dev/gpu/0/status | sed 's/^/full: /'
+grep '^overlay' /shr/gpu/0/status | sed 's/^/full: /'
 echo unfullscreen >/mnt/wsys/$w/wctl
 sleep 2
 c=`{cat /mnt/wsys/$w/ctl}
 echo full after: content $c(2-5)
-grep '^overlay' /dev/gpu/0/status | sed 's/^/full after: /'
+grep '^overlay' /shr/gpu/0/status | sed 's/^/full after: /'
 n=0
 while(! grep -s '^cube: exit' /tmp/cube.log && test $n -lt 600){ sleep 0.1; n=`{echo $n+1 | hoc} }
 grep 'wsys says|per frame|exit' /tmp/cube.log | sed 's/^/full: /'

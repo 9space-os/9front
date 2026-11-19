@@ -26,7 +26,6 @@ struct Kmsdrv {
 	void	(*ctxfree)(void *lc);
 };
 static Kmsdrv kdrv;	/* the driver's, defined after this file */
-static char *srvname9;	/* serve's: /srv/srvname, /srv/srvname.user */
 
 #include "usersrv.c"
 
@@ -230,16 +229,23 @@ kmsctlread(void)
 	return s;
 }
 
-/* ctl's user: /srv/srvname.user, gpu(4) for that user; 1 if it was the word, *e its error */
+/*
+ * ctl's "user name": the share gpu.name, gpu(4) for that user (usersrv.c);
+ * "user name off" takes it back; 1 if it was the word, *e its error
+ */
 static int
 kmsuser(Req *r, char **f, int n, char **e)
 {
-	if(n != 2 || strcmp(f[0], "user") != 0)
+	if((n != 2 && n != 3) || strcmp(f[0], "user") != 0)
 		return 0;
 	if(!iseve9p(r->fid->uid))
 		*e = "permission denied: the hostowner's";
+	else if(n == 3 && strcmp(f[2], "off") == 0)
+		*e = revokeuser(f[1]);
+	else if(n == 3)
+		*e = "usage: user name [off]";
 	else
-		*e = postuser(&fs, srvname9, f[1]);
+		*e = grantuser(&fs, f[1]);
 	return 1;
 }
 
@@ -258,18 +264,18 @@ kmsstatus(char *d, void (*dfree)(char*))
 	return s;
 }
 
-/* serve gpu(4) as srvname, mounted after /dev, for several users */
+/* serve gpu(4): /shr/gpu/N (gpushare.c), and every user granted before (usersrv.c) */
 static void
-kmsserve(char *srvname)
+kmsserve(void)
 {
 	int i;
 
 	gpufsinit(1);
 	fs.attach = srvattach;
-	fs.aux = estrdup9p(getuser());	/* /srv/srvname is the hostowner's */
-	srvname9 = estrdup9p(srvname);
+	fs.aux = estrdup9p(getuser());	/* the share gpu is the hostowner's */
 	kmsc = chancreate(sizeof(void*), 0);
 	for(i = 0; i < Nkmsproc; i++)
 		proccreate(kmsproc, nil, 1024*1024);
-	threadpostmountsrv(&fs, srvname, "/dev", MAFTER);
+	gpupost(&fs, 1);
+	repostusers(&fs);
 }

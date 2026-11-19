@@ -2,7 +2,7 @@
 # gpu: PoC of the user-space GPU driver on virtio-gpu (QEMU -device
 # virtio-gpu-pci, no other display). Boots the built pc64 kernel (#G,
 # vga type gpu), starts aux/virtiogpu, draws with /tests/gputest (no
-# rio), switches the mode through /dev/gpu/0, and checks QEMU's screen
+# rio), switches the mode through /shr/gpu/0, and checks QEMU's screen
 # dump: size of the new mode, the three rectangles at their places.
 # gputest -l keeps redrawing them: the kernel console also writes on
 # the screen (see gputest.c).
@@ -135,14 +135,16 @@ boot(){
 	"$ROOT/scripts/guest/boot-cli.sh" \
 		"cat '#G/0/ctl'" \
 		'aux/virtiogpu' \
-		'cat /dev/gpu/0/status' \
-		'cat /dev/gpu/0/outputs/Virtual-1/modes' \
-		'echo 1024x768 >/dev/gpu/0/outputs/Virtual-1/mode' \
-		'cat /dev/gpu/0/outputs/Virtual-1/mode' \
+		'cat /shr/gpu/0/status' \
+		'cat /shr/gpu/0/outputs/Virtual-1/modes' \
+		'echo 1024x768 >/shr/gpu/0/outputs/Virtual-1/mode' \
+		'cat /shr/gpu/0/outputs/Virtual-1/mode' \
 		"bind -a '#i' /dev" \
 		'/tests/gputest -l &' \
 		'sleep 2' \
 		"cat '#G/0/ctl'" \
+		"ls -ld '#σc/gpu' '#σc/gpu/0'" \
+		"bind -q '#σ' /shr; /tests/sharetest" \
 		'sleep 1' > "$TMPD/console" 2>&1
 }
 check "boot with virtio-gpu, start aux/virtiogpu, draw" boot
@@ -152,10 +154,15 @@ cp "$TMPD/log" "$HERE/console.log"
 
 check "#G lists the device" grep -q '^id 1af4/1050' "$TMPD/log"
 check "driver started" grep -q '^aux/virtiogpu: [0-9]*x[0-9]*, fb ' "$TMPD/log"
-check "status served under /dev/gpu/0" grep -q '^device virtio-gpu' "$TMPD/log"
+check "status served under /shr/gpu/0" grep -q '^device virtio-gpu' "$TMPD/log"
 check "mode switched to 1024x768" grep -q '^1024x768$' "$TMPD/log"
 check "gputest drew on the whole screen" grep -q 'gputest: \[0 0\] \[1024 768\] chan x8r8g8b8' "$TMPD/log"
 check "interrupts arrive" grep -Eq '^irq [0-9]+ on [1-9][0-9]*' "$TMPD/log"
+# 9space: the driver in shr(3)'s share gpu (gpu(4)); the users' shares
+# (sharetest: aux/gpu's usersrv.c, a grant, a squatter, a restart, off)
+check "the share gpu is the hostowner's, 0700" grep -Eq "^d-?rwx------ .*/gpu'?\$" "$TMPD/log"
+check "sharetest: grant, squatter taken over, restart, off: none failed" grep -q '^sharetest: done, 0 failed' "$TMPD/log"
+grep -E '^(ok|FAIL) ' "$TMPD/log" | sed 's/^/  /'
 
 pixels(){
 	python3 - "$shot" <<'PY'
@@ -216,9 +223,9 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		QEMU_EXTRA="-vga none -display egl-headless -device virtio-gpu-gl-pci,blob=true,venus=true,hostmem=256M -object memory-backend-memfd,id=mem1,size=1024M,share=on -machine memory-backend=mem1" \
 		"$ROOT/scripts/guest/boot-cli.sh" \
 			'aux/virtiogpu' \
-			'cat /dev/gpu/0/status' \
+			'cat /shr/gpu/0/status' \
 			'/tests/gpuctxtest' \
-			'cat /dev/gpu/0/status' \
+			'cat /shr/gpu/0/status' \
 			"test ! -x /tests/vktest || /tests/vktest" \
 			"bind -a '#i' /dev" \
 			"test ! -x /tests/vkdraw || WSI_PLAN9_COPY=1 /tests/vkdraw 3" \
@@ -236,7 +243,7 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 			"test ! -x /tests/glwin || /tests/glwin 60 >[2=1]" \
 			"test ! -x /tests/vkdraw || /tests/vkdraw 30 >/dev/null >[2=1] &" \
 			"sleep 8" \
-			"grep '^scanout' /dev/gpu/0/status" > "$TMPD/console3d" 2>&1
+			"grep '^scanout' /shr/gpu/0/status" > "$TMPD/console3d" 2>&1
 	}
 	check "boot with virtio-gpu-gl (virgl, venus), run gpuctxtest" boot3d
 	tr -d '\r' < "$TMPD/console3d" > "$TMPD/log3d"
@@ -422,6 +429,7 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		check "wsys back: the driver killed, wsys lives and the processor composes" grep -q '^back: fell back to the processor' "$TMPD/logback"
 		check "wsys back: the driver started again, the GPU composes again" grep -q '^back: the GPU composes again' "$TMPD/logback"
 		check "wsys back: vktri after it, its frames GPU buffers wsys composes: all passed" grep -q '^back: after: vktri: all passed' "$TMPD/logback"
+		check "wsys back: a name space made before the restart sees the new driver (shr)" grep -q '^back: an old name space sees the new driver' "$TMPD/logback"
 		check "wsys back: vktri's new buffers composed by the GPU (none refused after)" bash -c "! sed -n '/the GPU composes again/,\$p' '$TMPD/logback' | grep -q 'the GPU composes it not'"
 		grep -E '^back: |^wsys: the GPU compose' "$TMPD/logback" | grep -vE '^back: (before|after): ' | sed 's/^/  /'
 	else

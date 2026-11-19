@@ -119,7 +119,7 @@ extern int	drmCommandWriteRead(int, unsigned long, void*, unsigned long);	/* 0 o
 extern int	drmCommandWrite(int, unsigned long, void*, unsigned long);
 extern int	drmCommandRead(int, unsigned long, void*, unsigned long);
 
-/* where Linux has its DRM nodes; there are none here (gpu(4) is /dev/gpu/N): probes find nothing */
+/* where Linux has its DRM nodes; there are none here (gpu(4) is /shr/gpu/N): probes find nothing */
 #define DRM_DIR_NAME	"/dev/dri"
 extern drmVersionPtr	drmGetVersion(int);
 extern char	*drmGetFormatModifierName(uint64_t modifier);	/* malloc'd, or NULL: not known */

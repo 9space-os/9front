@@ -94,7 +94,7 @@ fn half { echo 'int(('$1'+'$2')/2)' | hoc }
 
 {
 	echo deskrun on $sysname `{date} wsysflags $wsysflags
-	cat /dev/gpu/0/status >[2]/dev/null | sed 1q
+	cat /shr/gpu/0/status >[2]/dev/null | sed 1q
 	hdr=`{dd -if /mnt/wsys/screen -bs 60 -count 1 >[2]/dev/null}
 	sx0=$hdr(2); sy0=$hdr(3); sx1=$hdr(4); sy1=$hdr(5)
 	echo screen $hdr

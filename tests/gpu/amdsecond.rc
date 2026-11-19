@@ -1,0 +1,18 @@
+#!/bin/rc
+# after amdrestart.rc (its second driver runs): a third start for the
+# same GPU is refused, before it arms its reset at exit (gpu(4): the
+# card's entry in the share gpu); the running driver keeps its entry
+fn amdg { for(d in /shr/gpu/[0-9]*) if(grep -s '^device amd' $d/status >[2]/dev/null) echo $d }
+bind -a '#i' /dev
+bind -a '#v' /dev
+aux/amdgpu >/tmp/second.log >[2=1]
+if(grep -s 'has its entry: another driver serves the GPU' /tmp/second.log)
+	echo passed a second driver for the GPU refused
+if not
+	echo FAIL second driver: `{cat /tmp/second.log}
+if(grep -s '^device amd' `{amdg}^/status)
+	echo passed the running driver keeps its entry: `{amdg}
+if not
+	echo FAIL no entry of the running driver
+ls -l /shr/gpu
+echo TESTEND

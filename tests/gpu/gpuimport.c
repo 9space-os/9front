@@ -35,8 +35,8 @@ newctx(void)
 	char buf[256];
 	int fd, n;
 
-	if((fd = open("/dev/gpu/0/clone", ORDWR)) < 0)
-		sysfatal("open /dev/gpu/0/clone: %r");
+	if((fd = open("/shr/gpu/0/clone", ORDWR)) < 0)
+		sysfatal("open /shr/gpu/0/clone: %r");
 	if((n = read(fd, buf, sizeof buf-1)) <= 0)
 		sysfatal("read clone: %r");
 	buf[n] = 0;

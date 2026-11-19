@@ -410,14 +410,22 @@ static Kmsdrv kdrv = {
 	amdgpu_ctx_free,
 };
 
-/* serve gpu(4) as srvname, mounted after /dev */
+/* main.c's: the GPU of gdir (#G/N) is N, and another driver serves it already (gpushare.c) */
+int
+served(char *gdir)
+{
+	gpusetname(gdir);
+	return gpuserved();
+}
+
+/* serve gpu(4): /shr/gpu/N, and the users' shares (gpukms.c) */
 void
-serve(char *srvname)
+serve(void)
 {
 	int i;
 
 	reqc = chancreate(sizeof(void*), 0);
 	for(i = 0; i < Nreqproc; i++)
 		proccreate(reqproc, nil, 1024*1024);
-	kmsserve(srvname);
+	kmsserve();
 }

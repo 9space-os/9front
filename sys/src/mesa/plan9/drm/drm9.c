@@ -4,8 +4,8 @@
  * libdrm on 9front: the DRM interface Mesa's drivers made for Linux
  * use (xf86drm.h, the i915 ioctls), over gpu(4).
  *
- * A device is /dev/gpu/N served by a driver for it (aux/intelgpu); its
- * render node is /dev/gpu/N/clone, so that every open is a context of
+ * A device is /shr/gpu/N (or /shr/gpu.user/N) served by a driver for it (aux/intelgpu); its
+ * render node is N's clone, so that every open is a context of
  * its own, as a DRM file descriptor with its GEM objects and address
  * space is. The file descriptor is the context's ctl file; the first
  * ioctl on it finds the context (ctl's reply, ctx n) and opens its
@@ -47,7 +47,7 @@
 #include <drm-uapi/dma-buf.h>
 
 #include "amdgpu9.h"
-#include "gpuagain.h"
+#include "gpudir.h"
 
 /* plan9/lib/plan9compat.c: munmap asks drm9 for GEM_MMAP's pointers */
 extern int (*plan9_munmap_hook)(void*, size_t);
@@ -65,7 +65,7 @@ extern int	_ERRSTR(char*, unsigned int);
 extern int	_FD2PATH(int, char*, int);
 
 enum {
-	Maxdev	= 8,		/* /dev/gpu/N */
+	Maxdev	= 8,		/* /shr/gpu/N */
 	Maxfd	= 256,		/* descriptors we know */
 	Ncpts	= 64,		/* points of a timeline syncobj kept */
 	Cs_hz	= 12500000,	/* gen 8's command streamer timestamp */
@@ -78,10 +78,10 @@ typedef struct Sync Sync;
 typedef struct Fd Fd;
 typedef struct Gpu Gpu;
 
-/* a device as /dev/gpu/N says */
+/* a device as its status says */
 struct Gpu {
 	int	n;
-	char	dir[32];
+	char	dir[64];
 	uint16_t	vendor, device, subvendor, subdevice;
 	uint8_t	revision;
 	uint8_t	bus, dev, func;
@@ -231,11 +231,11 @@ keyline(char *buf, char *key)
 	return NULL;
 }
 
-/* the devices: /dev/gpu/N whose driver says device intel vvvv/dddd */
+/* the devices: GPU N whose driver says device intel vvvv/dddd */
 static void
 scan(void)
 {
-	char buf[4096], path[64], *s;
+	char buf[4096], dir[64], path[80], *s;
 	unsigned v, d, b, dv, fn;
 	unsigned char raw[64];
 	Gpu *g;
@@ -246,20 +246,25 @@ scan(void)
 	ngpu = 0;
 	plan9_munmap_hook = gemmunmap;
 	for(i = 0; i < Maxdev; i++){
-		snprintf(path, sizeof path, "/dev/gpu/%d/status", i);
-		/* its driver started again: its files over the dead ones (gpuagain) */
-		if(readfile(path, buf, sizeof buf) < 0 &&
-		   (gpuagain(i) <= 0 || readfile(path, buf, sizeof buf) < 0))
+		/* /shr/gpu.user/N or /shr/gpu/N: shr(3), a driver started again is there */
+		plan9_gpudir(i, dir, sizeof dir);
+		snprintf(path, sizeof path, "%s/status", dir);
+		if(readfile(path, buf, sizeof buf) < 0)
 			continue;
-		if((s = keyline(buf, "device")) == NULL || (strncmp(s, "intel ", 6) != 0 && strncmp(s, "amd ", 4) != 0))
+		dbg("scan: %s: %.60s", dir, buf);
+		if((s = keyline(buf, "device")) == NULL || (strncmp(s, "intel ", 6) != 0 && strncmp(s, "amd ", 4) != 0)){
+			dbg("scan: %s: not an Intel or AMD device", dir);
 			continue;
-		if(sscanf(s + (s[0] == 'a' ? 4 : 6), "%x/%x", &v, &d) != 2)
+		}
+		if(sscanf(s + (s[0] == 'a' ? 4 : 6), "%x/%x", &v, &d) != 2){
+			dbg("scan: %s: no vendor/device in its device line", dir);
 			continue;
+		}
 		g = &gpus[ngpu];
 		memset(g, 0, sizeof *g);
 		g->amd = s[0] == 'a';
 		g->n = i;
-		snprintf(g->dir, sizeof g->dir, "/dev/gpu/%d", i);
+		snprintf(g->dir, sizeof g->dir, "%s", dir);
 		g->vendor = v;
 		g->device = d;
 		g->slicemask = 1;
@@ -347,7 +352,7 @@ livefd(Dev *d, int fd)
 /*
  * the context behind a descriptor, found by its first ioctl: the
  * clone's ctl says ctx n. The descriptor keeps the name it was opened
- * by (/dev/gpu/N/clone, fd2path), the qid is its context's ctl's, which
+ * by (N's clone, fd2path), the qid is its context's ctl's, which
  * no other file has: a descriptor closed and its number used again
  * tells by that.
  */
@@ -1659,19 +1664,19 @@ mkdevice(Gpu *g)
 	char *s;
 	int i;
 
-	d = calloc(1, sizeof *d + DRM_NODE_MAX*sizeof(char*) + DRM_NODE_MAX*64 +
+	d = calloc(1, sizeof *d + DRM_NODE_MAX*sizeof(char*) + DRM_NODE_MAX*80 +
 		sizeof(drmPciBusInfo) + sizeof(drmPciDeviceInfo));
 	if(d == NULL)
 		return NULL;
 	d->nodes = (char**)(d + 1);
 	s = (char*)(d->nodes + DRM_NODE_MAX);
 	for(i = 0; i < DRM_NODE_MAX; i++){
-		d->nodes[i] = s + i*64;
-		snprintf(d->nodes[i], 64, "%s/clone", g->dir);
+		d->nodes[i] = s + i*80;
+		snprintf(d->nodes[i], 80, "%s/clone", g->dir);
 	}
 	d->available_nodes = 1<<DRM_NODE_PRIMARY | 1<<DRM_NODE_RENDER;
 	d->bustype = DRM_BUS_PCI;
-	d->businfo.pci = (drmPciBusInfoPtr)(s + DRM_NODE_MAX*64);
+	d->businfo.pci = (drmPciBusInfoPtr)(s + DRM_NODE_MAX*80);
 	d->deviceinfo.pci = (drmPciDeviceInfoPtr)(d->businfo.pci + 1);
 	d->businfo.pci->domain = 0;
 	d->businfo.pci->bus = g->bus;
@@ -1699,6 +1704,7 @@ drmGetDevices2(uint32_t flags, drmDevicePtr devs[], int max)
 	 */
 	ngpu = -1;
 	scan();
+	dbg("drmGetDevices2: %d device(s)", ngpu);
 	n = 0;
 	for(i = 0; i < ngpu; i++){
 		if(devs != NULL && n < max)
@@ -1750,7 +1756,7 @@ int
 drmGetDeviceFromDevId(dev_t id, uint32_t flags, drmDevicePtr *dev)
 {
 	struct stat st;
-	char path[64];
+	char path[128];
 	int i;
 
 	(void)flags;

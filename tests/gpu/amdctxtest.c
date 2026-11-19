@@ -13,6 +13,7 @@
  */
 #include <u.h>
 #include <libc.h>
+#include "gpufind.h"
 
 /* PM4 (nvd.h): type 3 packets */
 #define PACKET3(op, n)	((3U << 30) | (((op) & 0xFF) << 8) | (((n) & 0x3FFF) << 16))
@@ -24,7 +25,7 @@
 #define SDMA_OP_WRITE	2
 #define SDMA_OP_NOP	0
 
-static char *dev = "/dev/gpu/0";
+static char *dev;	/* gpufind's, or the argument */
 static int nfail;
 static jmp_buf faultjb;
 
@@ -203,6 +204,8 @@ main(int argc, char **argv)
 	char path[128], buf[256], *f[4];
 	int cfd, sfd, ffd, n, ctx;
 	Bo cmd, dst, vdst;
+
+	dev = gpufind("amd");
 
 	ARGBEGIN{
 	}ARGEND

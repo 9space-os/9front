@@ -178,7 +178,7 @@ ctlwrite(Req *r, char **f, int n)
 	return "unknown ctl message";
 }
 
-/* /dev/gpu/0/error: the GPU's error state, read; a write clears it */
+/* /shr/gpu/N/error: the GPU's error state, read; a write clears it */
 static void
 tree(File *dir, char *user)
 {
@@ -254,9 +254,17 @@ static Kmsdrv kdrv = {
 	i915_ctx_free,
 };
 
-/* serve gpu(4) as srvname, mounted after /dev */
-void
-serve(char *srvname)
+/* main.c's: the GPU of gdir (#G/N) is N, and another driver serves it already (gpushare.c) */
+int
+served(char *gdir)
 {
-	kmsserve(srvname);
+	gpusetname(gdir);
+	return gpuserved();
+}
+
+/* serve gpu(4): /shr/gpu/N, and the users' shares (gpukms.c) */
+void
+serve(void)
+{
+	kmsserve();
 }

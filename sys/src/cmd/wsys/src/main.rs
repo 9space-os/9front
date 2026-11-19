@@ -3620,7 +3620,7 @@ impl Wsys {
         let s = self.d.r;
         let mut v: Vec<(String, Rect, f64)> = vec![];
         if self.ownscreen {
-            for g in std::fs::read_dir("/dev/gpu").into_iter().flatten().flatten() {
+            for g in std::fs::read_dir(gpu::gpudir()).into_iter().flatten().flatten() {
                 for o in std::fs::read_dir(g.path().join("outputs")).into_iter().flatten().flatten() {
                     let m = std::fs::read_to_string(o.path().join("mode")).unwrap_or_default();
                     if let Some(r) = parsemode(&m) {
@@ -5685,7 +5685,7 @@ fn autoscale(ownscreen: bool, width: i32) -> f64 {
     if !ownscreen {
         return 1.0;
     }
-    let Ok(gpus) = std::fs::read_dir("/dev/gpu") else { return 1.0 };
+    let Ok(gpus) = std::fs::read_dir(gpu::gpudir()) else { return 1.0 };
     for g in gpus.flatten() {
         let Ok(outs) = std::fs::read_dir(g.path().join("outputs")) else { continue };
         for o in outs.flatten() {
