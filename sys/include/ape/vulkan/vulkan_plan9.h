@@ -29,7 +29,7 @@ typedef struct VkPlan9SurfaceCreateInfoPLAN9 {
     VkStructureType                   sType;
     const void*                       pNext;
     VkPlan9SurfaceCreateFlagsPLAN9    flags;
-    const char*                       pWindowName;	/* NULL: /dev/winname, else the screen */
+    const char*                       pWindowName;	/* NULL: the process's window (/dev/winname, the screen without one); a path: a window's directory of wsys (/dev/wsys/n); else a window image's name */
 } VkPlan9SurfaceCreateInfoPLAN9;
 
 typedef VkResult (VKAPI_PTR *PFN_vkCreatePlan9SurfacePLAN9)(VkInstance instance, const VkPlan9SurfaceCreateInfoPLAN9* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface);

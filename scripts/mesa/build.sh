@@ -17,6 +17,9 @@
 # the drivers and libmesaplan9 in it; programs link -lvulkan -lz -ldraw -l9
 # -lfmt -lutf.
 # Extra arguments go to ninja.
+# A release build (b_ndebug=true: NDEBUG, Mesa's asserts off), as
+# distributions build Mesa; MESA_ASSERTS=1 builds with the asserts (a
+# developer's build: b_ndebug=false), the next run without it goes back.
 set -e
 . "$(dirname "$0")/common.sh"
 [ -d "$SRC/.git" ] || "$(dirname "$0")/prepare.sh"
@@ -31,7 +34,7 @@ objs=
 for c in "$P9"/lib/*.c; do
 	o=$BUILD/plan9/$(basename "$c" .c).o
 	case $c in
-	*/plan9win.c)	flags="-D_PLAN9_SOURCE -I$ROOT/sys/src/ape/lib/9 -I$P9/include" ;;
+	*/plan9win.c|*/gpudir.c)	flags="-D_PLAN9_SOURCE -I$ROOT/sys/src/ape/lib/9 -I$P9/include" ;;
 	*)		flags="-I$P9/include" ;;
 	esac
 	"$CROSS/$TRIPLE-gcc" -std=c11 -O2 -Wall $flags -c -o "$o" "$c"
@@ -155,17 +158,25 @@ if [ -f "$BUILD/mesa/build.ninja" ] && { ! cmp -s "$BUILD/cross.ini" "$BUILD/mes
 	meson setup --wipe "$BUILD/mesa" "$SRC" --cross-file "$BUILD/cross.ini"
 	cp "$BUILD/cross.ini" "$BUILD/mesa/cross.ini.setup"
 fi
+# NDEBUG (Mesa's asserts off) unless MESA_ASSERTS=1
+NDEBUG=true
+[ "${MESA_ASSERTS:-}" = 1 ] && NDEBUG=false
 if [ ! -f "$BUILD/mesa/build.ninja" ]; then
 	meson setup "$BUILD/mesa" "$SRC" --cross-file "$BUILD/cross.ini" \
 		-Dplatforms=$PLATFORMS -Dvulkan-drivers=$DRIVERS $GL \
 		-Dglx=disabled -Dgbm=disabled -Dgles1=disabled \
 		-Dllvm=disabled -Dmesa-clc=system -Dzstd=disabled -Dexpat=disabled -Dxmlconfig=disabled \
 		-Dvalgrind=disabled -Dlibunwind=disabled -Dbuild-tests=false -Dtools= \
-		-Dvulkan-layers= -Ddefault_library=static -Dshader-cache=disabled
+		-Dvulkan-layers= -Ddefault_library=static -Dshader-cache=disabled \
+		-Db_ndebug=$NDEBUG
 	cp "$BUILD/cross.ini" "$BUILD/mesa/cross.ini.setup"
 elif [ "$(python3 -c 'import json, sys; print(",".join(*[o["value"] for o in json.load(open(sys.argv[1])) if o["name"] == "vulkan-drivers"]))' "$BUILD/mesa/meson-info/intro-buildoptions.json")" != $DRIVERS ]; then
 	# a build made before a driver was added (RADV: 2026-11)
 	meson configure "$BUILD/mesa" -Dvulkan-drivers=$DRIVERS
+fi
+if [ "$(python3 -c 'import json, sys; print(*[o["value"] for o in json.load(open(sys.argv[1])) if o["name"] == "b_ndebug"])' "$BUILD/mesa/meson-info/intro-buildoptions.json")" != $NDEBUG ]; then
+	# a build with the other choice (or from before b_ndebug was set: if-release, asserts on)
+	meson configure "$BUILD/mesa" -Db_ndebug=$NDEBUG
 fi
 if [ "$(python3 -c 'import json, sys; print(",".join(*[o["value"] for o in json.load(open(sys.argv[1])) if o["name"] == "gallium-drivers"]))' "$BUILD/mesa/meson-info/intro-buildoptions.json")" != zink ]; then
 	# a build made before zink (2026-11)
