@@ -14,7 +14,7 @@
 #	foot			Wayland (wlsys(4)) with the same rc
 # all alive at the half and at the end, then killed; ten seconds later
 # no process Broken, the window system and aux/i915 alive, no more
-# processes than after round 1 (3 more at most) and no more memory in use
+# processes than after round 2 (3 more at most) and no more memory in use
 # (64 MB more at most), and aux/i915
 # idle (the CPU time of its procs over ten seconds: a driver spinning
 # after its clients went is how the xarray walk showed, 2026-11-18).
@@ -212,23 +212,24 @@ while(test `{date -n} -lt $end){
 	unmount /n/soak
 
 	# no leak: the processes and the memory after the programs are
-	# gone, against round 1's (its caches warm): a program's server left
-	# behind each round (ui -s, 2026-11-19) shows as both growing
+	# gone, against round 2's (round 1 warms the caches and the driver's
+	# page pool): a program's server left behind each round (ui -s,
+	# 2026-11-19) shows as both growing
 	np=`{ps | wc -l}
 	up=`{awk '$2 == "user" {split($1, a, "/"); print a[1]}' /dev/swap}
 	ps | awk '{print $NF}' | sort | uniq -c >$out/ps.names
-	if(~ $round 1){
+	if(~ $round 2){
 		np0=$np
 		up0=$up
 		cp $out/ps.names $out/ps.base
 	}
-	if not {
+	if(test $round -gt 2){
 		if(test $np -gt `{echo $np0 + 3 | hoc}){
 			more=`{awk 'FNR == NR {b[$2] = $1; next} $1 > b[$2] {print $2 "+" $1 - b[$2]}' $out/ps.base $out/ps.names}
-			fail processes grew: $np0 after round 1, $np now: $more
+			fail processes grew: $np0 after round 2, $np now: $more
 		}
 		if(test $up -gt `{echo $up0 + 16384 | hoc})
-			fail memory grew: $up0 pages after round 1, $up now
+			fail memory grew: $up0 pages after round 2, $up now
 	}
 
 	mem=`{awk '$2 == "user" {print $1}' /dev/swap}
