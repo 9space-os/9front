@@ -328,7 +328,6 @@ static void
 flipproc(void*)
 {
 	Rects d, both;
-	uchar *t;
 	int i;
 
 	for(;;){
@@ -340,6 +339,7 @@ flipproc(void*)
 		qunlock(&dlock);
 
 		qlock(&scrlock);
+		screenobjs();	/* which one is shown, as kmsout knows it (a late flip) */
 		if(vback == nil){
 			copyrects(vram, &d);
 			lastdirt.n = 0;
@@ -351,17 +351,18 @@ flipproc(void*)
 			addrect(&both, d.r[i][0], d.r[i][1], d.r[i][2], d.r[i][3]);
 		copyrects(vback, &both);
 		if(kmsout_screen_flip() == 0){
-			t = vram;
-			vram = vback;
-			vback = t;
 			lastdirt = d;
 			nflip++;
 		}else{
-			/* not flipped: the one shown gets them as well, both whole again */
+			/*
+			 * not on the display (refused, or its event not yet come):
+			 * the one shown gets them as well, both whole again
+			 */
 			copyrects(vram, &d);
 			lastdirt.n = 0;
 			nflipfail++;
 		}
+		screenobjs();
 		qunlock(&scrlock);
 	}
 }

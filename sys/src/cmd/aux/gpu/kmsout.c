@@ -82,7 +82,7 @@ static int ncrtc;
 static u32 scr_handle[2], scr_fb[2], scr_w, scr_h, scr_pitch;
 static unsigned long long scr_off[2];
 static int scr_front;
-static u64 nscrflip, nscrfail;		/* for the status: the screen's flips, those refused */
+static u64 nscrflip, nscrfail, nscrunseen;	/* for the status: the screen's flips, those refused, those not on the display after */
 static u32 shown_fb;			/* a client's picture on the display */
 static unsigned long long need;		/* the bytes of the last layout bigger than the framebuffer (apply) */
 static void takeoff(void);
@@ -98,6 +98,7 @@ static struct drm_mode_modeinfo shown_mode;	/* its mode there */
  */
 static u32 ovplane[Ncrtc];
 static u32 primary[Ncrtc];		/* each CRTC's primary plane (atomic commits) */
+static u32 crtcfb[Ncrtc];		/* the framebuffer each CRTC's primary plane shows (SETCRTC, a commit's event) */
 static bool atomic;			/* the driver takes atomic commits (DRM_CLIENT_CAP_ATOMIC) */
 static struct file *ov_by;		/* the client's file, NULL: none */
 static u32 ov_handle[2], ov_fb[2];	/* ours, in VRAM */
@@ -574,8 +575,8 @@ kmsout_status(void)
 	if (s && kms) {
 		mutex_lock(&kmslock);
 		c = ovstate();
-		t = kasprintf(GFP_KERNEL, "%sscreen %s, flips %llu, refused %llu\n%s", s,
-		    scr_fb[1] ? "double" : "single", nscrflip, nscrfail, c ? c : "");
+		t = kasprintf(GFP_KERNEL, "%sscreen %s, flips %llu, refused %llu, not on the display after %llu\n%s", s,
+		    scr_fb[1] ? "double" : "single", nscrflip, nscrfail, nscrunseen, c ? c : "");
 		mutex_unlock(&kmslock);
 		kfree(c);
 		kfree(s);
@@ -608,6 +609,7 @@ static int
 setcrtc(u32 crtc, u32 fb, int x, int y, struct drm_mode_modeinfo *m, u32 conn)
 {
 	struct drm_mode_crtc c = { .crtc_id = crtc };
+	int k, r;
 
 	if (fb) {
 		c.fb_id = fb;
@@ -618,7 +620,12 @@ setcrtc(u32 crtc, u32 fb, int x, int y, struct drm_mode_modeinfo *m, u32 conn)
 		c.set_connectors_ptr = (u64)(uintptr_t)&conn;
 		c.count_connectors = 1;
 	}
-	return kioctl(kms, DRM_IOCTL_MODE_SETCRTC, &c);
+	r = kioctl(kms, DRM_IOCTL_MODE_SETCRTC, &c);
+	/* SETCRTC waits: what the CRTC shows from now on */
+	for (k = 0; k < ncrtc; k++)
+		if (crtcs[k] == crtc && r == 0)
+			crtcfb[k] = fb;
+	return r;
 }
 
 /*
@@ -1257,6 +1264,7 @@ static struct {
 	int	err;
 	u64	next;		/* the latched changes' number, 0: none */
 	u32	pfb;		/* latched: the primary plane's fb, 0 none */
+	u32	spfb;		/* the commit on its way: the primary plane's fb it names, 0 none */
 	bool	ov, ovon;	/* latched: the overlay plane, on or off */
 	u32	ofb;
 	int	ox, oy;
@@ -1318,7 +1326,9 @@ submit(int k)
 		return;
 	cs[k].sent = cs[k].next;
 	cs[k].next = 0;
+	cs[k].spfb = 0;
 	if (cs[k].pfb && primary[k]) {
+		cs[k].spfb = cs[k].pfb;
 		objs[no] = primary[k];
 		counts[no++] = 1;
 		props[np] = mc->prop_fb_id->base.id;
@@ -1427,6 +1437,8 @@ commitdone(int k, s64 vbl)
 		return;
 	cs[k].busy = false;
 	cs[k].done = cs[k].sent;
+	if (cs[k].spfb)
+		crtcfb[k] = cs[k].spfb;	/* its event: on the display now */
 	ndone++;
 	msdone += jiffies_to_msecs(jiffies - cs[k].at);
 	cs[k].due = jiffies + untilnext(k, vbl);
@@ -1691,6 +1703,26 @@ flip(int only, u32 fb)
 }
 
 /*
+ * whether every output that shows the screen (not a client's picture)
+ * shows fb; kmslock held
+ */
+static bool
+screenon(u32 fb)
+{
+	int i, k;
+
+	for (i = 0; i < nout; i++) {
+		struct out *o = &outs[i];
+
+		if (!o->on || !o->crtc || (shown_fb && (shown_out < 0 || shown_out == i)))
+			continue;
+		if ((k = crtcindex(o->crtc)) < 0 || crtcfb[k] != fb)
+			return false;
+	}
+	return true;
+}
+
+/*
  * the screen's object not shown (kmsscreen.c copied into it) onto the
  * outputs that show the screen, after the commit that shows it (one a
  * vblank: the wait is for its event); then it is the one shown.  A
@@ -1713,10 +1745,20 @@ kmsout_screen_flip(void)
 	nb = 1 - scr_front;
 	if (!shown_fb || shown_out >= 0)
 		r = flipx(-1, shown_fb ? shown_out : -1, scr_fb[nb]);
+	/*
+	 * a swap only when every output that shows the screen shows the new
+	 * one (its commit's event came, or a SETCRTC): else the processor
+	 * would copy into the one on the display (a commit timed out, latched
+	 * behind another, refused, or none named it)
+	 */
+	if (r == 0 && !screenon(scr_fb[nb]))
+		r = -EAGAIN;
 	if (r == 0) {
 		scr_front = nb;
 		nscrflip++;
-	} else
+	} else if (r == -EAGAIN)
+		nscrunseen++;
+	else
 		nscrfail++;
 	mutex_unlock(&kmslock);
 	return r;
@@ -1732,6 +1774,9 @@ kmsout_screen_objs(unsigned long long *front, unsigned long long *back)
 	int n;
 
 	mutex_lock(&kmslock);
+	/* a flip whose event came late (after its wait): that one is on the display */
+	if (scr_fb[1] && !shown_fb && !screenon(scr_fb[scr_front]) && screenon(scr_fb[1 - scr_front]))
+		scr_front = 1 - scr_front;
 	*front = scr_off[scr_front];
 	*back = scr_off[1 - scr_front];
 	n = scr_fb[1] ? 2 : 1;
