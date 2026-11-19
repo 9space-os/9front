@@ -31,10 +31,13 @@ struct Win {
 	Image	*img;
 	int	border;		/* a rio window's border is not ours */
 	ulong	used;
+	uchar	*last;		/* the picture put last (w x h, x8r8g8b8, rows of w*4) */
+	int	lw, lh;
 };
 static Win wins[Nwin];
 static ulong usegen;
 static Image *win;		/* the one window() gave last */
+static Win *curwin;		/* its entry (nil: the screen, no rio) */
 static char curname[128];	/* its image's name */
 static int winborder;
 
@@ -145,6 +148,7 @@ window(const char *name)
 		windir(name, path, sizeof path);
 		strncat(path, "/winname", sizeof path - strlen(path) - 1);
 		n = readkept(path, wname, sizeof wname - 1, OREAD);
+		curwin = nil;
 		if(n < 0){
 			win = nil;
 			curname[0] = 0;
@@ -177,6 +181,9 @@ window(const char *name)
 	w = lru;
 	if(w->img != nil)
 		freeimage(w->img);
+	/* another window: what it shows is not known */
+	free(w->last);
+	w->last = nil;
 	w->img = namedimage(disp, wname);
 	if(w->img == nil){
 		w->key[0] = 0;
@@ -191,6 +198,7 @@ Found:
 		border = i;
 	w->border = border;
 	w->used = ++usegen;
+	curwin = w;
 	win = w->img;
 	winborder = w->border;
 	snprint(curname, sizeof curname, "%s", w->name);
@@ -235,39 +243,146 @@ plan9win_isscreen(const char *name)
 	return r;
 }
 
-/* the pixels at the top left of r: whole if they fit as they are, else by rows */
-static int
-load(Image *i, Rectangle r, const void *pixels, int w, int stride)
-{
-	const uchar *p;
-	int y;
+enum { Nrect = 16, Gap = 16 };
 
-	p = pixels;
-	if(stride == w*4 && Dx(r) == w)
-		return loadimage(i, r, (uchar*)p, stride*Dy(r));
-	for(y = r.min.y; y < r.max.y; y++, p += stride)
-		if(loadimage(i, Rect(r.min.x, y, r.max.x, y+1), (uchar*)p, Dx(r)*4) < 0)
-			return -1;
-	return 0;
+/*
+ * the rectangles (in the picture's pixels) where pixels differ from last
+ * (the picture put before, rows of w*4): bands of changed rows (gaps of
+ * fewer than Gap rows bridged), each as wide as its changes; all of it
+ * when there is no last; none, nothing changed
+ */
+static int
+changed(const uchar *last, const uchar *px, int w, int h, int stride, Rectangle *rs)
+{
+	const ulong *a, *b;
+	int y, x, n, x0, x1, y0, gap, e;
+
+	if(last == nil){
+		rs[0] = Rect(0, 0, w, h);
+		return 1;
+	}
+	n = 0;
+	y0 = -1;
+	x0 = w;
+	x1 = 0;
+	gap = 0;
+	for(y = 0; y <= h; y++){
+		if(y < h && memcmp(last + y*w*4, px + y*stride, w*4) != 0){
+			a = (const ulong*)(last + y*w*4);
+			b = (const ulong*)(px + y*stride);
+			for(x = 0; x < w && a[x] == b[x]; x++)
+				;
+			if(x < x0)
+				x0 = x;
+			for(x = w; x > 0 && a[x-1] == b[x-1]; x--)
+				;
+			if(x > x1)
+				x1 = x;
+			if(y0 < 0)
+				y0 = y;
+			gap = 0;
+			continue;
+		}
+		if(y0 < 0)
+			continue;
+		if(y < h && ++gap < Gap)
+			continue;
+		/* the band ends after its last changed row (y-gap+1 when Gap
+		 * unchanged rows ended it, y-gap at the bottom) */
+		e = y < h ? y - gap + 1 : y - gap;
+		if(n == Nrect){
+			/* too many: one around them all */
+			rs[0] = Rect(0, rs[0].min.y, w, e);
+			n = 1;
+		}else
+			rs[n++] = Rect(x0, y0, x1, e);
+		y0 = -1;
+		x0 = w;
+		x1 = 0;
+		gap = 0;
+	}
+	return n;
 }
 
+/*
+ * a display far away (drawterm's /dev/draw, rcpu's /mnt/term/dev/draw:
+ * a mount, not devdraw): its loads compressed, the bytes and writes the
+ * link carries are what costs
+ */
+static int
+faraway(void)
+{
+	static int far = -1;
+	Dir *d;
+
+	if(far < 0){
+		far = 0;
+		if((d = dirfstat(disp->fd)) != nil){
+			far = d->type != 'i';
+			free(d);
+		}
+	}
+	return far;
+}
+
+/* rectangle r of i from the pixels of sr in the picture (rows of stride) */
+static int
+load(Image *i, Rectangle r, const uchar *px, int stride, Rectangle sr)
+{
+	static uchar *tmp;
+	static int ntmp;
+	const uchar *p;
+	int y, bpl;
+
+	bpl = Dx(sr)*4;
+	if(ntmp < bpl*Dy(sr)){
+		free(tmp);
+		ntmp = bpl*Dy(sr);
+		if((tmp = malloc(ntmp)) == nil){
+			ntmp = 0;
+			return -1;
+		}
+	}
+	p = px + sr.min.y*stride + sr.min.x*4;
+	for(y = 0; y < Dy(sr); y++, p += stride)
+		memmove(tmp + y*bpl, p, bpl);
+	if(faraway())
+		return zloadimage(i, r, tmp, bpl*Dy(sr)) < 0 ? -1 : 0;
+	return loadimage(i, r, tmp, bpl*Dy(sr)) < 0 ? -1 : 0;
+}
+
+/*
+ * the picture (w x h, x8r8g8b8, rows of stride) into the window at its
+ * top left: only what changed since the last one put there (Vulkan's
+ * swapchain does not say what changed), compressed to a display far away
+ */
 int
 plan9win_put(const char *name, const void *pixels, int w, int h, int stride)
 {
-	Image *i;
-	Rectangle r;
+	Image *i, *dst;
+	Rectangle r, rs[Nrect], d;
+	Win *cw;
+	uchar *last;
+	int k, n, y;
 
 	lock(&lk);
 	if((i = window(name)) == nil)
 		goto Err;
+	cw = curwin;
 	r = area(i);
 	r.max.x = r.min.x + w < r.max.x ? r.min.x + w : r.max.x;
 	r.max.y = r.min.y + h < r.max.y ? r.min.y + h : r.max.y;
-	if(i->chan == XRGB32 || i->chan == ARGB32){
-		/* straight into the window: no copy of our own */
-		if(load(i, r, pixels, w, stride) < 0)
-			goto Err;
-	}else{
+	w = Dx(r);
+	h = Dy(r);
+	if(w <= 0 || h <= 0)
+		goto Done;
+	last = cw != nil && cw->last != nil && cw->lw == w && cw->lh == h ? cw->last : nil;
+	n = changed(last, pixels, w, h, stride, rs);
+	if(n == 0)
+		goto Done;
+	dst = i;
+	if(i->chan != XRGB32 && i->chan != ARGB32){
+		/* through an image of the picture's size */
 		if(buf == nil || Dx(buf->r) != w || Dy(buf->r) != h){
 			if(buf != nil)
 				freeimage(buf);
@@ -275,15 +390,41 @@ plan9win_put(const char *name, const void *pixels, int w, int h, int stride)
 			if(buf == nil)
 				goto Err;
 		}
-		if(load(buf, buf->r, pixels, w, stride) < 0)
+		dst = buf;
+	}
+	for(k = 0; k < n; k++){
+		d = dst == i ? rectaddpt(rs[k], r.min) : rs[k];
+		if(load(dst, d, pixels, stride, rs[k]) < 0)
 			goto Err;
-		draw(i, r, buf, nil, ZP);
+		if(dst != i)
+			draw(i, rectaddpt(rs[k], r.min), buf, nil, rs[k].min);
 	}
 	if(flushimage(disp, 1) < 0)
 		goto Err;
+	/* what the window shows now */
+	if(cw != nil){
+		if(cw->last == nil || cw->lw != w || cw->lh != h){
+			free(cw->last);
+			cw->last = malloc(w*h*4);
+			cw->lw = w;
+			cw->lh = h;
+			for(k = 0; k < n; k++)
+				rs[k] = Rect(0, 0, w, h);
+			n = cw->last != nil;
+		}
+		if(cw->last != nil)
+			for(k = 0; k < n; k++)
+				for(y = rs[k].min.y; y < rs[k].max.y; y++)
+					memmove(cw->last + y*w*4, (const uchar*)pixels + y*stride, w*4);
+	}
+Done:
 	unlock(&lk);
 	return 0;
 Err:
+	if(curwin != nil){
+		free(curwin->last);	/* not known what it shows */
+		curwin->last = nil;
+	}
 	unlock(&lk);
 	return -1;
 }

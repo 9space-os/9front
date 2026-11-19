@@ -44,3 +44,60 @@ cloadimage(Image *i, Rectangle r, uchar *data, int ndata)
 	}
 	return m;
 }
+
+/*
+ * 9space: rectangle r of i from the uncompressed data (rows of
+ * bytesperline(r, depth) bytes, as loadimage's), compressed here into
+ * image(6)'s blocks, each a 'Y' message as big as the display's buffer:
+ * fewer bytes, and fewer writes, to a display far away (drawterm, rcpu);
+ * a line that does not get smaller goes as loadimage's
+ */
+int
+zloadimage(Image *i, Rectangle r, uchar *data, int ndata)
+{
+	uchar *out;
+	int bpl, miny, nl, n, nout;
+	Display *d;
+
+	if(!rectinrect(r, i->r)){
+		werrstr("zloadimage: bad rectangle");
+		return -1;
+	}
+	bpl = bytesperline(r, i->depth);
+	if(ndata < bpl*Dy(r)){
+		werrstr("zloadimage: buffer too small");
+		return -1;
+	}
+	d = i->display;
+	nout = d->bufsize - (1+4+4*4) - 32;
+	if(nout < 64)
+		return loadimage(i, r, data, ndata);
+	out = malloc(nout);
+	if(out == nil)
+		return -1;
+	for(miny = r.min.y; miny < r.max.y; miny += nl){
+		n = _compresslines(data+(miny-r.min.y)*bpl, bpl, r.max.y-miny, out, nout, &nl);
+		if(n < 0){
+			free(out);
+			return -1;
+		}
+		if(nl == 0 || n >= nl*bpl){
+			/* not one line fits compressed, or no smaller: as it is */
+			nl = nl == 0 ? 1 : nl;
+			if(loadimage(i, Rect(r.min.x, miny, r.max.x, miny+nl), data+(miny-r.min.y)*bpl, nl*bpl) < 0){
+				free(out);
+				return -1;
+			}
+			continue;
+		}
+		_lockdisplay(d);
+		if(drawcmd(d, "blllll<", 'Y', i->id, r.min.x, miny, r.max.x, miny+nl, n, out) < 0){
+			_unlockdisplay(d);
+			free(out);
+			return -1;
+		}
+		_unlockdisplay(d);
+	}
+	free(out);
+	return ndata;
+}

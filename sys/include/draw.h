@@ -390,6 +390,7 @@ extern void	_wsysremake(void);
 extern Display*	initdisplay(char*, char*, void(*)(Display*, char*));
 extern int	loadimage(Image*, Rectangle, uchar*, int);
 extern int	cloadimage(Image*, Rectangle, uchar*, int);
+extern int	zloadimage(Image*, Rectangle, uchar*, int);	/* 9space */
 extern int	getwindow(Display*, int);
 extern int	scalesize(Display*, int);
 extern int	gengetwindow(Display*, char*, Image**, Screen**, int);
@@ -583,6 +584,7 @@ extern	int	_cursorfd;
 #define	NCBLOCK	6000		/* size of compressed blocks */
 extern	void	_twiddlecompressed(uchar*, int);
 extern	int	_compblocksize(Rectangle, int);
+extern	int	_compresslines(uchar*, int, int, uchar*, int, int*);	/* 9space */
 
 extern	ulong	drawld2chan[];
 extern	void	drawsetdebug(int);

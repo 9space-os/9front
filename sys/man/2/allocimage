@@ -1,6 +1,6 @@
 .TH ALLOCIMAGE 2
 .SH NAME
-allocimage, allocimagemix, freeimage, nameimage, namedimage, setalpha, loadimage, cloadimage, unloadimage, readimage, writeimage, bytesperline, wordsperline \- allocating, freeing, reading, writing images
+allocimage, allocimagemix, freeimage, nameimage, namedimage, setalpha, loadimage, cloadimage, zloadimage, unloadimage, readimage, writeimage, bytesperline, wordsperline \- allocating, freeing, reading, writing images
 .SH SYNOPSIS
 .nf
 .PP
@@ -38,6 +38,9 @@ int	loadimage(Image *i, Rectangle r, uchar *data, int ndata)
 .PP
 .B
 int	cloadimage(Image *i, Rectangle r, uchar *data, int ndata)
+.PP
+.B
+int	zloadimage(Image *i, Rectangle r, uchar *data, int ndata)
 .PP
 .B
 int	unloadimage(Image *i, Rectangle r, uchar *data, int ndata)
@@ -282,8 +285,27 @@ it should start with the
 .B y
 coordinate and data length for the block. 
 .PP
+.I Zloadimage
+takes the same uncompressed
+.I data
+as
+.I loadimage
+and compresses it into
+.IR image (6)'s
+blocks itself, each sent as a message of its own as big as the
+display's buffer: fewer bytes and fewer writes to a display far away
+(under
+.IR drawterm (1)
+or
+.IR rcpu (1),
+where each write is a round trip), more processor time; a line that
+does not get smaller goes as it is.
+.I Zloadimage
+is 9space's, not in 9front.
+.PP
 .IR Loadimage ,
 .IR cloadimage ,
+.IR zloadimage ,
 and
 .I unloadimage
 return the number of bytes copied.
