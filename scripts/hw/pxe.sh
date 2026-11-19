@@ -206,6 +206,15 @@ FWDIR=${FWDIR:-/usr/lib/firmware}
 	done
 	[ -n "$found" ] || die "no firmware $FWDIR/$pat"
 done
+# the CA roots, as the CD has them (scripts/guest/stage-dist.sh): every
+# TLS client of the machine (webfs, hget, git, Go, rustls) checks with them
+ca=$(ls "$DISTFILES"/cacert-*.pem 2>/dev/null | sort | tail -1)
+if [ -n "$ca" ]; then
+	mkdir -p "$X/sys/lib/tls"
+	install -m 644 "$ca" "$X/sys/lib/tls/ca.pem"
+else
+	echo "pxe: no CA roots ($DISTFILES/cacert-*.pem, dist/bin/fetch): no https on the machine" >&2
+fi
 [ -s "$P/mcptoken" ] || head -c 18 /dev/urandom | base64 | tr -d '/+=' > "$P/mcptoken"
 cp "$P/mcptoken" "$X/usr/glenda/lib/mcptoken"
 # the MCP server started at boot (MCP=0: not): termrc reads termrc.local
