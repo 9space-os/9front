@@ -27,7 +27,7 @@ put(){ bash "$HERE/putstripped.sh" "$CROSS/$TRIPLE-strip" "$1" "$HERE/root/tests
 for s in tri.vert tri.frag; do
 	glslc -O -mfmt=c -o "$O/$s.inc" "$HERE/shaders/$s"
 done
-for p in vktest vkdraw vktri vkspeed vkshare radvtest vktimeline gltest gldesk glwin; do
+for p in vktest vkdraw vktri vkspeed vkshare radvtest vktimeline gltest gldesk glwin glage; do
 	extra=
 	case $p in
 	vkdraw|vktri)	extra="$O/btassert.o $O/screenpeek.o" ;;

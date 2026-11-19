@@ -250,6 +250,14 @@ dri2_initialize_plan9(_EGLDisplay *disp)
       return _eglError(EGL_NOT_INITIALIZED, "plan9: zink did not start");
    }
    dri2_setup_screen(disp);
+   /*
+    * kopper counts the images' ages and takes the damage
+    * (VK_KHR_incremental_present to the WSI), as on X11 (dri2_initialize_x11's
+    * kopper): without them a program that redraws only what changed (WebRender)
+    * draws all of every frame
+    */
+   disp->Extensions.EXT_buffer_age = EGL_TRUE;
+   disp->Extensions.EXT_swap_buffers_with_damage = EGL_TRUE;
    plan9_add_configs(disp);
    dri2_dpy->min_swap_interval = 0;
    dri2_dpy->max_swap_interval = 1;

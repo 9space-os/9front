@@ -4,7 +4,9 @@
 # background's green is the frame's number) presents for 8 s; meanwhile
 # its pixel is read again and again, and must never show an older frame
 # than one seen before (old content flickering back: servoshell on the
-# X1). Lines "order: ...".
+# X1). Then glage (buffer age and partial redraw, as WebRender: Servo)
+# in a window: its frames rebuilt from what the age says must be whole.
+# Lines "order: ...".
 fn peek { # x y: rrggbb of the screen
 	hdr=`{dd -if /mnt/wsys/screen -bs 60 -count 1 >[2]/dev/null}
 	off=`{echo 60+'('$2-$hdr(3)')*('$hdr(4)-$hdr(2)')*4+('$1-$hdr(2)')*4' | hoc}
@@ -31,3 +33,12 @@ awk 'function hex(s,  i, v) { v = 0; for(i = 1; i <= length(s); i++) v = v*16 + 
 n=0
 while(! grep -s '^wsysvk: exit' /tmp/wo.log && test $n -lt 200){ sleep 0.1; n=`{echo $n+1 | hoc} }
 grep '^ok [0-9]+ frames' /tmp/wo.log | sed 's/^/order: /'
+
+# buffer age in a window of wsys -g, GL through zink and kopper
+echo '#!/bin/rc
+exec /tests/glage -s 600 >/tmp/ga.log >[2=1]' >/tmp/glage
+chmod +x /tmp/glage
+window -r 20 20 500 380 /tmp/glage
+n=0
+while(! grep -s '^glage: (all passed|FAILED)|^FAIL' /tmp/ga.log && test $n -lt 600){ sleep 0.1; n=`{echo $n+1 | hoc} }
+sed 's/^/order: /' /tmp/ga.log

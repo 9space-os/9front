@@ -241,6 +241,7 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 			"test ! -x /tests/gltest || /tests/gltest -s >[2=1] | sed 's/^/surfaceless: /'" \
 			"test ! -x /tests/gldesk || /tests/gldesk >[2=1]" \
 			"test ! -x /tests/glwin || /tests/glwin 60 >[2=1]" \
+			"test ! -x /tests/glage || /tests/glage 300 >[2=1]" \
 			"test ! -x /tests/vkdraw || /tests/vkdraw 30 >/dev/null >[2=1] &" \
 			"sleep 8" \
 			"grep '^scanout' /shr/gpu/0/status" > "$TMPD/console3d" 2>&1
@@ -285,6 +286,8 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		check "gltest -s (the same on EGL's surfaceless platform): all passed" grep -q '^surfaceless: gltest: all passed' "$TMPD/log3d"
 		check "gldesk (desktop GL 4.6: compatibility and core profile): all passed" grep -q '^gldesk: all passed' "$TMPD/log3d"
 		check "glwin (EGL's plan9 platform, the frames on the display): all passed" grep -q '^glwin: all passed' "$TMPD/log3d"
+		check "glage (buffer age and partial redraw, as WebRender; on the screen): all passed" grep -q '^glage: all passed' "$TMPD/log3d"
+		grep -E '^(ages|glage: [0-9])' "$TMPD/log3d" | sed 's/^/  /'
 	fi
 	check "contexts gone after the test" bash -c "! sed -n '/gpuctxtest: /,\$p' '$TMPD/log3d' | grep -q '^ctx '"
 
@@ -421,10 +424,16 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		# frame after a newer one (vktri's VKTRI_COUNTER; wsysorder.rc)
 		cp "$HERE/wsysorder.rc" "$HERE/root/tests/wsysorder"
 		chmod +x "$HERE/root/tests/wsysorder"
-		check "boot with virtio-gpu-gl, wsys -g: the frames' order on the screen" bootwsys "WSYSDEBUG=comp /tests/wsys ${WSYSFLAGS:-} -x -i /tests/wsysorder"
+		check "boot with virtio-gpu-gl, wsys -g: the frames' order on the screen" bootwsys "WSYSDEBUG=comp,damage /tests/wsys ${WSYSFLAGS:-} -x -i /tests/wsysorder"
 		tr -d '\r' < "$TMPD/consolewsys" > "$TMPD/logorder"
 		cp "$TMPD/logorder" "$HERE/console-wsysorder.log"
 		check "wsys order: never an older frame on the screen after a newer one" grep -q '^order: [0-9]* samples, 0 back' "$TMPD/logorder"
+		check "glage in a window of wsys -g (buffer age, partial redraw: no older content): all passed" grep -q '^order: glage: all passed' "$TMPD/logorder"
+		# incremental present: glage's frames change a stripe of its window
+		# (480x360): wsys composes about that, not the window (WSYSDEBUG=damage)
+		check "wsys -g composes only what changed (glage's damage: under 40000 pixels a frame)" \
+			bash -c "grep -a '^wsys: damage: ' '$TMPD/logorder' | awk '{ if(\$5 + 0 > 1000 && \$5 + 0 < 40000) ok = 1 } END { exit !ok }'"
+		grep -a '^wsys: damage: ' "$TMPD/logorder" | tail -3 | sed 's/^/  /'
 		grep '^order: ' "$TMPD/logorder" | sed 's/^/  /'
 		# the driver killed while wsys composes on the GPU and started again
 		# (wsysback.rc, as killdrv.rc): venus reports the device lost (Mesa
