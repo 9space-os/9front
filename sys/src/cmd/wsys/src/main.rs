@@ -1260,7 +1260,13 @@ impl Wsys {
                 }
                 match k {
                     Kind::File(n, F::Kbd) => self.wins.get_mut(&n).unwrap().kbdopen += 1,
-                    Kind::File(n, F::Mouse) => self.wins.get_mut(&n).unwrap().mouseopen += 1,
+                    Kind::File(n, F::Mouse) => {
+                        // a program takes the window (draw(3)): what the text
+                        // drew before is gone under its drawing
+                        let w = self.wins.get_mut(&n).unwrap();
+                        w.mouseopen += 1;
+                        w.drawn = None;
+                    }
                     // the events so far (made before anyone read them: the first
                     // r, f) to the first reader, those after to every reader
                     Kind::File(n, F::Event) => evq = Some(std::mem::take(&mut self.wins.get_mut(&n).unwrap().events)),
@@ -1679,7 +1685,12 @@ impl Wsys {
                     self.setraw(n, false);
                 }
                 if matches!(f.kind, Kind::File(_, F::Mouse)) {
-                    // the program let go of the window: its text again
+                    // the program let go of the window: its text again, all of
+                    // it (the program drew over every row; drawn of before the
+                    // program would keep its pixels where the rows are the same)
+                    if let Some(w) = self.wins.get_mut(&n) {
+                        w.drawn = None;
+                    }
                     self.paint(n, None);
                     self.drawtext(n);
                 }

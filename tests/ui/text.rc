@@ -69,6 +69,7 @@ echo ok Del interrupted sleep
 
 # a draw(3) program from the shell takes the window, q gives it back
 rm -f /tmp/dt2.log
+bd=`{black}
 key '/tests/drawtest /tmp/dt2.log'
 key '
 '
@@ -82,8 +83,13 @@ wait1 eval '! ps | grep -s '' drawtest$''' || fail drawtest did not quit
 sleep 0.5
 c=`{/tests/uipeek 590,390 | awk '{print $2}'}
 ~ $c ffffff || fail the text window not back: $c at 590,390
-test `{black} -gt 0 || fail no text after drawtest
-echo ok the text window back after drawtest
+# all of it drawn again (kbmap on the X1, 2026-11-19: what the text drew
+# before the program, kept, left the program's pixels where its rows were the same)
+r=`{/tests/uipeek -n 104,104,596,396 ff0000}
+~ $r 0 || fail the red of drawtest left in the text window: $r pixels
+ba=`{black}
+test $ba -ge $bd || fail not all the text again after drawtest: $bd black pixels before, $ba after
+echo ok the text window back after drawtest, all of it: no red, $ba black pixels, $bd before
 
 # the keyboard's tap (kbdtap): its reader gets the keys (first z and the
 # window's number), the window none; a second reader is refused; a program
