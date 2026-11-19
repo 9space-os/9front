@@ -23,7 +23,9 @@
  *	export id		PRIME_HANDLE_TO_FD: the object as a dma-buf,
  *				named by a token
  *	import token		PRIME_FD_TO_HANDLE of that dma-buf: the same
- *				object, an object of this context (not bound)
+ *				object, an object of this context (not bound);
+ *				one the context has already: its id again
+ *				(one free ends it, as GEM_CLOSE a PRIME handle)
  */
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -141,10 +143,43 @@ findbo(struct gctx *c, int id)
 	return &c->bo[id - 1];
 }
 
+/*
+ * 9space: the last objects freed, with why (the X1's soak, 2026-11-19:
+ * a ui server faulted on an object of its own that the driver had
+ * freed); in the status, and a context freed with objects in the log
+ */
+enum { Nfreelog = 32, Freereq = 0, Freectx };
+static struct {
+	char	seg[32];
+	int	why;
+	unsigned long	t;	/* jiffies */
+} freelog[Nfreelog];
+static unsigned long nfreelog, nfreereq, nfreectx;
+static DEFINE_SPINLOCK(freeloglk);
+
 static void
-bofree(struct gctx *c, struct bo *b)
+logfree(struct bo *b, int why)
+{
+	unsigned long i;
+
+	spin_lock(&freeloglk);
+	i = nfreelog++ % Nfreelog;
+	strscpy(freelog[i].seg, b->seg, sizeof(freelog[i].seg));
+	freelog[i].why = why;
+	freelog[i].t = jiffies;
+	if (why == Freectx)
+		nfreectx++;
+	else
+		nfreereq++;
+	spin_unlock(&freeloglk);
+}
+
+static void
+bofree(struct gctx *c, struct bo *b, int why)
 {
 	struct drm_gem_close cl = { .handle = b->handle };
+
+	logfree(b, why);
 
 	/*
 	 * removing the alias segment revokes it (segment(3)): a client that
@@ -164,7 +199,7 @@ i915_ctx_free(void *v)
 {
 	struct gctx *c = v;
 	struct drm_device *dev = c->file->minor->dev;
-	int i;
+	int i, n;
 
 	kmsout_scanout(c->filp, 0, 0, 0, 0);	/* its picture off the display */
 	unexport(c);
@@ -173,9 +208,14 @@ i915_ctx_free(void *v)
 			dma_fence_wait_timeout(c->fence[i], false, 5 * HZ);
 			dma_fence_put(c->fence[i]);
 		}
+	n = 0;
 	for (i = 0; i < c->nbo; i++)
-		if (c->bo[i].used)
-			bofree(c, &c->bo[i]);
+		if (c->bo[i].used) {
+			bofree(c, &c->bo[i], Freectx);
+			n++;
+		}
+	if (n)
+		pr_info("i915: context %d freed with %d objects\n", c->id, n);
 	kfree(c->bo);
 	/* drm_close_helper */
 	mutex_lock(&dev->filelist_mutex);
@@ -401,6 +441,27 @@ i915_bo_import(void *v, const char *token, int *id, char *seg, int nseg, u64 *va
 	close_fd(fd);
 	if (r)
 		goto out;
+	/*
+	 * 9space: a dma-buf this context has already: PRIME gives the same
+	 * handle (drm_prime's lookup per file), so the same object: its id
+	 * again, not counted, as Linux's handle; one free ends it (the
+	 * client counts, as anv's bo cache does).  Before, a second id
+	 * shared the handle, and freeing either revoked the other's
+	 * segment (the X1's soak, 2026-11-19: a ui server faulted)
+	 */
+	for (i = 0; i < c->nbo; i++) {
+		struct bo *o = &c->bo[i];
+
+		if (o != b && o->used && o->handle == p.handle) {
+			memset(b, 0, sizeof(*b));
+			*id = o - c->bo + 1;
+			strscpy(seg, o->seg, nseg);
+			*va = o->va;
+			*rsize = o->size;
+			mutex_unlock(&c->lock);
+			return 0;
+		}
+	}
 	b->handle = p.handle;
 	r = bomap(c, b);
 	if (r) {
@@ -469,7 +530,7 @@ i915_bo_free(void *v, int id)
 	if (!b)
 		r = -ENOENT;
 	else
-		bofree(c, b);	/* i915 keeps it while the GPU uses it */
+		bofree(c, b, Freereq);	/* i915 keeps it while the GPU uses it */
 	mutex_unlock(&c->lock);
 	return r;
 }
@@ -786,6 +847,31 @@ rcs_workarounds(struct intel_gt *gt)
 	return s;
 }
 
+/* 9space: the status's lines of the objects freed (logfree), after s, which it frees */
+static char *
+freelogstatus(char *s)
+{
+	char *t;
+	unsigned long i, n, k;
+
+	spin_lock(&freeloglk);
+	t = kasprintf(GFP_ATOMIC, "%sfrees: by request %lu, with their context %lu\n", s, nfreereq, nfreectx);
+	n = nfreelog < Nfreelog ? nfreelog : Nfreelog;
+	for (k = 0; t && k < n; k++) {
+		i = (nfreelog - n + k) % Nfreelog;
+		kfree(s);
+		s = t;
+		t = kasprintf(GFP_ATOMIC, "%sfree: %s %s %u ms ago\n", s, freelog[i].seg,
+			freelog[i].why == Freectx ? "context" : "request",
+			jiffies_to_msecs(jiffies - freelog[i].t));
+	}
+	spin_unlock(&freeloglk);
+	if (!t)
+		return s;
+	kfree(s);
+	return t;
+}
+
 /* /dev/gpu/0/status, kmalloc'd (i915_freestr) */
 char *
 i915_status(void)
@@ -833,6 +919,8 @@ i915_status(void)
 		intel_gpu_freq(rps, rps->rp1_freq), intel_gpu_freq(rps, rps->max_freq_softlimit),
 		p9_segfds());
 	kfree(wa);
+	if (r)
+		r = freelogstatus(r);
 	return r;
 }
 

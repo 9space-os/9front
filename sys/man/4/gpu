@@ -601,6 +601,16 @@ export from the context; good while the context lives) and
 the object as one of this context's, not bound, its pages a segment of
 its own), as amdgpu's: so Mesa's dma-bufs go between processes
 (libdrm9's PRIME: the token as a descriptor).
+An object the context has already (imported before, or its own) is the
+same id again, not counted, as Linux's PRIME gives the same handle: one
+.B free
+ends it, and the client counts its own references (9space: before, a
+second id shared the object, and freeing either took the other's pages).
+.B Status
+also counts the objects freed, by request and with their context, and
+lists the last 32
+.RB ( "free: " "segment request|context ms" " ago" );
+a context freed with objects says so in the kernel's log.
 .B Status
 has the lines of
 .IR intelgpu :

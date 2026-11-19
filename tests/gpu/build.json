@@ -25,7 +25,8 @@
 			"amdpager.c",
 			"amdshare.c",
 			"amdhang.c",
-			"segrevoke.c"
+			"segrevoke.c",
+			"gpuimport.c"
 		]
 	},
 	{
