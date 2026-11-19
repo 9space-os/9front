@@ -2713,6 +2713,9 @@ impl Wsys {
         if self.comp.is_none() || !w.bufs.get(&b).is_some_and(|x| x.comp) {
             return false;
         }
+        if wsysdebug("release") {
+            eprintln!("wsys: window {n}: present {b} damage {:?}", r.flatten());
+        }
         // the presents since the thread was told add up
         w.cdamage = match (w.cdamage, r.flatten()) {
             (Some(None), _) | (_, None) => Some(None),
@@ -3942,7 +3945,13 @@ impl Wsys {
         if f.next() != Some("present") {
             return false;
         }
-        let (Some(b), None) = (f.next().and_then(|x| x.parse::<u32>().ok()), f.next()) else { return false };
+        // present n, or present n x0 y0 x1 y1 (what changed: the WSI's
+        // VK_KHR_incremental_present); the plane shows the buffer whole
+        let Some(b) = f.next().and_then(|x| x.parse::<u32>().ok()) else { return false };
+        let rest: Vec<&str> = f.collect();
+        if !(rest.is_empty() || rest.len() == 4 && rest.iter().all(|x| x.parse::<i32>().is_ok())) {
+            return false;
+        }
         if let Some(why) = self.ovwhynot(n, b) {
             // WSYSDEBUG=overlay: why not, once for each change
             if wsysdebug("overlay") && self.ovwhy != Some(why) {

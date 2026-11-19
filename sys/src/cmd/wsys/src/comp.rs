@@ -903,6 +903,11 @@ impl Vkc {
         let fresh = std::mem::replace(&mut self.fresh[idx], false);
         let base = if fresh { Some(all) } else { self.pending[idx].take().map(|r| r.clip(&all)).filter(|r| !r.empty()) };
         self.pending[idx] = None;
+        // WSYSDEBUG=release: each frame's image, what of it is drawn again, the buffers in it
+        if std::env::var("WSYSDEBUG").is_ok_and(|v| v.split(',').any(|w| w == "release")) {
+            let keys: Vec<Key> = self.scene.iter().map(|s| s.key).collect();
+            eprintln!("wsys: frame {}: image {idx}{}, drawn {base:?}, {keys:?}", self.frames, if fresh { " (fresh)" } else { "" });
+        }
         let range = vk::ImageSubresourceRange { aspect_mask: vk::ImageAspectFlags::COLOR, base_mip_level: 0, level_count: 1, base_array_layer: 0, layer_count: 1 };
         let layers = vk::ImageSubresourceLayers { aspect_mask: vk::ImageAspectFlags::COLOR, mip_level: 0, base_array_layer: 0, layer_count: 1 };
         let barrier = |old, new, src, dst| {
