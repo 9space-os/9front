@@ -1,0 +1,40 @@
+From b47726bd09918d66782262220eded5cdbc23256a Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 19 Nov 2026 11:13:56 +0100
+Subject: [PATCH 49/59] archacpi: a PCI root bridge without _BBN or _ADR is bus
+ 0
+
+pcibusno failed for a root bridge (PNP0A03, PNP0A08) that names
+neither _BBN nor _ADR; ACPI lets _BBN be left out there, meaning bus 0,
+and QEMU's generated DSDT does exactly that. Every _PRT under it was
+then dropped (no bus number), and PCI interrupts were not routed by
+ACPI.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/pc/archacpi.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/sys/src/9/pc/archacpi.c b/sys/src/9/pc/archacpi.c
+index 9e0d51f96..b905e073f 100644
+--- a/sys/src/9/pc/archacpi.c
++++ b/sys/src/9/pc/archacpi.c
+@@ -296,8 +296,13 @@ pcibusno(void *dot)
+ 		if((p = amlval(x)) != nil)
+ 			id = amleisaid(p);
+ 	if((x = amlwalk(dot, "^_BBN")) == nil)
+-		if((x = amlwalk(dot, "^_ADR")) == nil)
+-			return -1;
++		x = amlwalk(dot, "^_ADR");
++	if(x == nil){
++		/* a root bridge without _BBN is bus 0 (ACPI: _BBN may be left out) */
++		if(id != nil && (strcmp(id, "PNP0A03")==0 || strcmp(id, "PNP0A08")==0))
++			return 0;
++		return -1;
++	}
+ 	p = nil;
+ 	if(amleval(x, "", &p) < 0)
+ 		return -1;
+-- 
+2.56.0
+

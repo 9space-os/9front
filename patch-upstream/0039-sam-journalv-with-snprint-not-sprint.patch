@@ -1,7 +1,7 @@
-From a5973b54b41599e82f514bff3b8d52353669695a Mon Sep 17 00:00:00 2001
+From d3e4274f957bf3a0958fbc4d4221476f893509eb Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Mon, 16 Nov 2026 16:21:41 +0100
-Subject: [PATCH 39/47] sam: journalv with snprint, not sprint
+Subject: [PATCH 39/59] sam: journalv with snprint, not sprint
 
 With DEBUG, journalv gave sprint the buffer's size as its format, and
 the journal (/tmp/sam.out) crashed at the first vlong it wrote (the

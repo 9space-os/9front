@@ -1,7 +1,7 @@
-From b05f0f66d259d7bb0936089490210f8bf39b17f3 Mon Sep 17 00:00:00 2001
+From 686b4564ff6044640079457ca47ffc7afaeb5911 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Wed, 18 Nov 2026 12:28:14 +0100
-Subject: [PATCH 47/47] etheriwl: send the binding's time quota where the
+Subject: [PATCH 47/59] etheriwl: send the binding's time quota where the
  firmware has no DYNAMIC_QUOTA, not only where it has
 
 setbindingquotas sent the TIME_QUOTA command only when the firmware

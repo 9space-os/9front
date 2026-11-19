@@ -1,7 +1,7 @@
-From a498455c555a75a676176e22bc11e9d0e1e74c8e Mon Sep 17 00:00:00 2001
+From 10df73ae880561187aa1a4747adde0ceb26cc874 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Mon, 16 Nov 2026 16:35:37 +0100
-Subject: [PATCH 40/47] sam: a file that does not exist yet is new, not an
+Subject: [PATCH 40/59] sam: a file that does not exist yet is new, not an
  error, when first read
 
 Under samterm a file is read when a command first needs it, and that

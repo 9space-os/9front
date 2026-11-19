@@ -1,7 +1,7 @@
-From 73fe426ca9fa4ef93896d8398e045d3e696bfc0d Mon Sep 17 00:00:00 2001
+From 77766140d800ecc1a847c1163efcb5328db44a91 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Wed, 18 Nov 2026 08:11:54 +0100
-Subject: [PATCH 46/47] nusb/cam: format WxHxBPP-FOURCC in ctl: skip the '-'
+Subject: [PATCH 46/59] nusb/cam: format WxHxBPP-FOURCC in ctl: skip the '-'
  before the fourcc
 
 Writing back what ctl reads, "format 640x480x16-YUY2", failed with

@@ -1,0 +1,39 @@
+From ef5ee57b594c779a7a47c29540ef3e6b87e3ea35 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 19 Nov 2026 11:16:22 +0100
+Subject: [PATCH 59/59] wifi: the link is up as soon as the access point is
+ associated
+
+"associated" (or "blocked", waiting for the WPA handshake) showed in
+the status up to 500 ms before ethersetlink(1), which only wifsproc's
+next round made. devether drops what is sent while the link is down:
+the first packet after the association was lost (the first ping on a
+new access point). setstatus raises the link when the bss becomes
+associated or blocked.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/port/wifi.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/sys/src/9/port/wifi.c b/sys/src/9/port/wifi.c
+index efeec8573..cccbb2d9a 100644
+--- a/sys/src/9/port/wifi.c
++++ b/sys/src/9/port/wifi.c
+@@ -408,6 +408,13 @@ setstatus(Wifi *wifi, Wnode *wn, char *new)
+ 
+ 	old = wn->status;
+ 	wn->status = new;
++	/*
++	 * the link is up once the access point is ours, not at
++	 * wifsproc's next round (up to 500 ms later): what was sent in
++	 * between was dropped (devether's oq while the link is down)
++	 */
++	if(wn == wifi->bss && (new == Sassoc || new == Sblocked))
++		ethersetlink(wifi->ether, 1);
+ 	if(wifi->debug && new != old)
+ 		print("#l%d: status %E: %.12ld %.12ld: %s -> %s (from pc=%#p)\n",
+ 			wifi->ether->ctlrno, 
+-- 
+2.56.0
+

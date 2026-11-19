@@ -1,0 +1,30 @@
+From d85d223c4cf2fa79bf4eec394d6244ef869d8232 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 19 Nov 2026 11:15:01 +0100
+Subject: [PATCH 54/59] ape: a page fault's note is SIGSEGV
+
+The kernel's note for a page fault is "sys: trap: fault read addr=..."
+(port/fault.c); APE's table had only the older texts (bus error,
+address error, TLB), so a fault never reached a program's SIGSEGV
+handler: it ended the program instead.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/ape/lib/ap/plan9/signal.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/sys/src/ape/lib/ap/plan9/signal.c b/sys/src/ape/lib/ap/plan9/signal.c
+index ac5a46e06..6251340a1 100644
+--- a/sys/src/ape/lib/ap/plan9/signal.c
++++ b/sys/src/ape/lib/ap/plan9/signal.c
+@@ -24,6 +24,7 @@ static struct {
+ 	{"exit",				SIGKILL},
+ 	{"die",					SIGKILL},
+ 	{"kill",				SIGKILL},
++	{"sys: trap: fault",			SIGSEGV},	/* port/fault.c: "sys: trap: fault read addr=..." */
+ 	{"sys: trap: bus error",		SIGSEGV},
+ 	{"sys: trap: address error",		SIGSEGV},
+ 	{"sys: trap: TLB",			SIGSEGV},
+-- 
+2.56.0
+

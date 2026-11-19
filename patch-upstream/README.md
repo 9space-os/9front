@@ -3,16 +3,17 @@
 Fixes made on the `gcc` branch (the gcc port of 9front) that are not about
 gcc: they apply to 9front as it is, built with its own compilers.  Two
 more (0026, 0027) come from the `main` branch's (then `ui`) HiDPI work and are useful
-on 9front by themselves. Each one
+on 9front by themselves; some later ones come from `main`'s own work too
+(the drivers, APE, the pager). Each one
 is a patch for [9front](https://github.com/9front/9front) branch `front`,
 in `git format-patch` form, one change per patch, without the port's
 `/* GCC port: ... */` markers.
 
-They stay on the `gcc` branch as well (marked there) until 9front has
-taken or declined them.
+They stay on the branch they come from as well (marked there) until
+9front has taken or declined them.
 
-- Base: `origin/front` at `6ae667969` (2026-11-15, "mlkem(2): correct
-  encapsulation description").
+- Base: `origin/front` at `cb9e5e7e9` (2026-11-18, "ssh: fix buffer
+  size off-by-one, add early size check to make sure padding fits").
 - Source: branch `upstream` of this repository (worktree
   `../tree-upstream`, see `dist/docs/upstream.md`), one commit per patch on top of `origin/front`.
 - Regenerate after a change or a rebase of `upstream` onto a newer
@@ -31,8 +32,8 @@ All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 `82ddeb288`, 2026-11-10, at `00d3043a2`, 2026-11-12, and at `eb49f1f87`,
 2026-11-12); 0032 to 0034 on them at `eb49f1f87` (2026-11-14); all 38 at
 `6ae667969` (2026-11-15), 0039 to 0044 on them there (2026-11-16), 0045
-on them there (2026-11-17), 0046 and 0047 on them there (2026-11-18). Each
-applies alone too, except:
+on them there (2026-11-17), 0046 and 0047 on them there (2026-11-18);
+all 59 at `cb9e5e7e9` (2026-11-19). Each applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
 - 0010 needs 0007 and 0009,
@@ -57,6 +58,16 @@ made with an AI assistant); drop it if 9front does not want it.
   `6c -FTVw` (from pc64); `9/ip/devip.c` (0025) with `6c -FTVw` (pc64)
   and `8c -FTVw` (pc); `9/port/fault.c` (0023) with `6c -FTVw`
   (pc64), `8c -FTVw` (pc) and `7c -FTVw` (arm64). No errors, no warnings.
+- **9front's compilers, 0048 to 0059**: on the `upstream` branch's
+  sources and headers bound over the guest's, in 9space's system booted
+  in QEMU (its `6c`, `8c` and `pcc` are 9front's compilers, built by
+  gcc), each changed file's object made by its own mkfile:
+  `archacpi`, `devswap`, `wifi` and `ethervgbe` for pc64 (`6c`) and pc
+  (`8c`); APE's `sigset` (`6c` and `8c`), `sigprocmask`, `signal`,
+  `fcntl`, `setvbuf` (`6c`), `ape/lib/9`'s `getenv` (`6c` and `8c`),
+  `ape/lib/draw`'s `newwindow` and `scroll` (`6c`); reform's `shortcuts`
+  (`6c`); and a `#if` on `INT8_MIN` to `INT64_MIN` with `pcc`. No errors,
+  no warnings. 0048 changes comments only.
 - **Not done**: a kernel and ext4srv built with 9front's compilers and run
   with these patches. The kernel conf (0014), riostart (0015) and the
   dist mkfile (0024) are not compiled code; the gcc branch makes its CD
@@ -114,6 +125,18 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0045 | usbohci: bufferRounding on the last Td of an input transfer: a short last packet ends it | bug fix |
 | 0046 | nusb/cam: format WxHxBPP-FOURCC in ctl: skip the '-' before the fourcc | bug fix |
 | 0047 | etheriwl: send the binding's time quota where the firmware has no DYNAMIC_QUOTA, not only where it has | bug fix |
+| 0048 | kernel: the sources named instead of "stolen from" (comments) | provenance |
+| 0049 | archacpi: a PCI root bridge without _BBN or _ADR is bus 0 | bug fix |
+| 0050 | ape: sigaddset refused most signals; sigprocmask with a nil set | bug fix |
+| 0051 | ape: stdint.h's INTn_MIN usable in #if | bug fix |
+| 0052 | ape: setvbuf with no buffer and size 0 wrote past malloc(0) | bug fix (memory) |
+| 0053 | ape/lib/9: getenv returns a copy the caller frees, as Plan 9's | bug fix (memory) |
+| 0054 | ape: a page fault's note is SIGSEGV | bug fix |
+| 0055 | ape: fcntl with an unknown command fails with EINVAL | bug fix |
+| 0056 | devswap: the pager waits instead of spinning when nothing can be freed or killed | bug fix |
+| 0057 | reform/shortcuts: volume and mute under audio(3) as well | bug fix |
+| 0058 | wifi: putrates wrote all rates again into the extended element | bug fix |
+| 0059 | wifi: the link is up as soon as the access point is associated | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -700,6 +723,106 @@ etheriwl also has 802.11n and 5 GHz): with the quota ~1 ms and ~22
 Mbit/s each way. The entries carry `low_latency` where the firmware's
 API has QUOTA_LOW_LATENCY (38), as `iwm_update_quotas`. Not done:
 compiled with 9front's own compilers; run on 9front's own driver.
+
+### 0048 kernel: name the sources instead of "stolen from"
+
+Comments only. `ethervgbe.c`'s register layout follows FreeBSD's vge(4)
+(`if_vgereg.h`); Bill Paul's BSD notice is now kept in full. The omap and
+mt7688 `fpi.c` name their origin: Plan 9 from Bell Labs' ARM kernels,
+after an original by ark (Plan 9 Foundation, 9front authors; MIT).
+
+### 0049 archacpi: a PCI root bridge without _BBN or _ADR is bus 0
+
+`pcibusno` failed for a root bridge (PNP0A03, PNP0A08) with neither
+`_BBN` nor `_ADR`. ACPI allows `_BBN` to be left out there, and then it
+means bus 0; QEMU's generated DSDT does exactly that. Every `_PRT` under
+such a bridge was dropped, so ACPI routed no PCI interrupts.
+
+### 0050 ape: sigaddset takes every signal; sigprocmask with no set changes nothing
+
+`stdsigs` or'ed the signals' numbers, not their bits:
+`SIGHUP|...|SIGUSR2` is 15. So `sigaddset` refused every signal whose bit
+is not in 15 (SIGTERM, SIGCHLD and others), and `sigfillset` filled in
+15. It now holds each signal's bit, the job-control signals included.
+`sigprocmask(how, nil, &old)`, POSIX's way to read the mask, read
+`*set` through the nil pointer.
+
+### 0051 ape: stdint.h's INTn_MIN usable in #if
+
+`INT8_MIN` to `INT64_MIN` were casts, which `#if` refuses; C99 7.18.2
+wants them usable there (libxkbcommon's `state.c` tests them). They are
+now written as the most negative values without a cast, and their types
+stay as before (int, long long).
+
+### 0052 ape: setvbuf with no buffer and size 0 allocates BUFSIZ
+
+`setvbuf(f, nil, _IOFBF or _IOLBF, 0)` asks stdio to choose the buffer.
+It did `malloc(0)` with a buffer length of 0, and the writes then ran
+past it into the heap (SDL does this call). Now it allocates BUFSIZ.
+
+### 0053 ape/lib/9: Plan 9's getenv for Plan 9's sources, a copy the caller frees
+
+libdraw built for APE (`newwindow.c`, `scroll.c`) frees what `getenv`
+returns, as with Plan 9's `getenv`. APE's `getenv`, however, returns the
+string inside the environment, which was then freed and used again.
+`ape/lib/9`'s `libc.h` now maps `getenv` to `_getenv9`, with Plan 9's
+semantics: the `/env` file is read at the call into a copy of its own,
+and a list's NULs become blanks.
+
+### 0054 ape: a page fault's note is SIGSEGV
+
+For a page fault the kernel posts "sys: trap: fault read addr=..."
+(`port/fault.c`). APE's table had only the older texts (bus error,
+address error, TLB), so the fault never reached a SIGSEGV handler and
+ended the program instead.
+
+### 0055 ape: fcntl with an unknown command fails with EINVAL
+
+`fcntl`'s switch had no default case: an unknown command returned 0.
+Mesa's `os_dupfd_cloexec` asks for F_DUPFD_CLOEXEC, which APE lacks, and
+took the 0 as the new descriptor (stdin). POSIX wants EINVAL.
+
+### 0056 devswap: the pager waits instead of spinning when nothing can be freed or killed
+
+The pager could hold a processor for good when memory was full and
+only the host owner's noswap processes were left. Either `killbig` found
+nobody to kill and the pager tried again at once, or the process it had
+killed could not exit (its mount RPC waited for the flush of a server
+that was itself waiting for pages) and `killbig` said "try later" over
+and over. `killbig` now returns Killed, Exiting or Nokill. The pager
+waits 100 ms for an exit, and 1 s when nobody may be killed, printing
+"pager: out of memory, no process to kill" once. FreeBSD's pagedaemon
+likewise goes on to its next pass when `vm_pageout_oom` finds no
+process. Shown in QEMU (256 MB, a ramfs filled past memory, every
+process noswap): QEMU used 2000 ticks of processor time in 20 s before,
+14 after. The deadlock itself remains (the server holds the pages), but
+it no longer burns a processor.
+
+### 0057 reform/shortcuts: volume and mute under audio(3) as well
+
+`shortcuts` assumed reform's audio driver. Under audio(3), "master +3"
+sets the volume to 3%, not 3 more, and there is no "master toggle".
+Volume up and down now try "mix" first; otherwise they set master from
+what `/dev/volume` says, kept between 0 and 100. Mute remembers the
+volume and restores it where the device has no toggle.
+
+### 0058 wifi: putrates writes the rates past 8 into the extended element, not all of them again
+
+With more than 8 rates, `putrates` cut the supported rates element to 8
+and then wrote all n rates again into the extended supported rates
+element (50), with length n. The first 8 rates appeared twice, and probe
+and association requests grew n bytes longer than their rates. The
+extended element now holds the rates after the first 8, with the basic
+rates first in both elements as before.
+
+### 0059 wifi: the link is up as soon as the access point is associated
+
+The status showed "associated" (or "blocked", waiting for the WPA
+handshake) up to 500 ms before `ethersetlink(1)`, which only came with
+`wifsproc`'s next round. devether drops what is sent while the link is
+down, so the first packet after an association was lost (the first ping
+to a new access point). `setstatus` now raises the link when the bss
+becomes associated or blocked.
 
 ## Not included
 
