@@ -85,6 +85,9 @@
 //		compression; the default where /dev/draw is the terminal's of a cpu
 //		session, /mnt/term's: drawterm's)
 // WSYSDEBUG=compress: at the end, the bytes of pixels copied and of the messages
+// WSYSDEBUG=damage: every 120 frames of -g, the windows' pixels copied a frame
+// (a client's present n x0 y0 x1 y1, Mesa's VK_KHR_incremental_present: only
+// what changed is composed again, in each of the swapchain's images)
 
 #[cfg(feature = "gpu")]
 mod comp;
@@ -98,6 +101,7 @@ mod comp {
         pub at: (i32, i32),
         pub rects: Vec<crate::draw::Rect>,
         pub blend: bool,
+        pub damage: Option<crate::draw::Rect>,
     }
     #[allow(dead_code)] // made by the GPU's comp only; main matches on it
     pub enum Done {
@@ -439,6 +443,9 @@ struct Win {
     // its way shows (held: the client gets it back when another is shown)
     shownb: Option<u32>,
     held: Option<u32>,
+    // what its presents since the GPU's thread was last told changed in it (the
+    // buffer's coordinates): none, Some(None) all of it, Some(Some(r)) r
+    cdamage: Option<Option<Rect>>,
     // layers: what the window shows, bottom to top (none: a buffer presented);
     // its buffers stay wsys' while listed. lgpu: composed by the GPU, lheld the
     // buffers of the last frame on the display, lqueued those listed with new
@@ -1967,7 +1974,7 @@ impl Wsys {
             kbd: VecDeque::new(), kbdopen: 0, mouseopen: 0, mouse: VecDeque::new(), resized: false,
             cursor: vec![], state: 1, textwin: text, scroll: 0, scrolling: false, sel: (0, 0), rows: vec![], drawn: None, hidden: false,
             hold: false, want: None, stale: false,
-            scrollr: Rect::default(), shown: (1, 0, 1), lastb: None, inside: false, nooverlay: false, ovsent: None, shownb: None, held: None, queued: vec![], ovheld: None,
+            scrollr: Rect::default(), shown: (1, 0, 1), lastb: None, inside: false, nooverlay: false, ovsent: None, shownb: None, held: None, cdamage: None, queued: vec![], ovheld: None,
             layers: vec![], lgpu: false, lheld: vec![], lqueued: vec![], scratch: None,
         });
         self.z.push(n);
@@ -2444,7 +2451,7 @@ impl Wsys {
                 self.map(n);
                 self.unlayer(n, Some(b));
                 let r = if nums.len() == 5 { Some(Rect::new(nums[1], nums[2], nums[3], nums[4])) } else { None };
-                if self.compshow(n, b) {
+                if self.compshow(n, b, Some(r)) {
                     return Ok(());
                 }
                 self.uncompose(n);
@@ -2688,11 +2695,19 @@ impl Wsys {
         Ok(id)
     }
 
-    fn compshow(&mut self, n: u32, b: u32) -> bool {
+    /// buffer b of window n shown by the GPU; r: what changed in it since the
+    /// buffer presented before (Some(None): not said, all of it)
+    fn compshow(&mut self, n: u32, b: u32, r: Option<Option<Rect>>) -> bool {
         let Some(w) = self.wins.get_mut(&n) else { return false };
         if self.comp.is_none() || !w.bufs.get(&b).is_some_and(|x| x.comp) {
             return false;
         }
+        // the presents since the thread was told add up
+        w.cdamage = match (w.cdamage, r.flatten()) {
+            (Some(None), _) | (_, None) => Some(None),
+            (None, Some(r)) => Some(Some(r)),
+            (Some(Some(a)), Some(r)) => Some(Some(Rect::new(a.x0.min(r.x0), a.y0.min(r.y0), a.x1.max(r.x1), a.y1.max(r.y1)))),
+        };
         if w.held == Some(b) {
             w.held = None; // presented again while shown: shown again
         }
@@ -2771,17 +2786,27 @@ impl Wsys {
             if w.hidden {
                 // nothing of it seen, but its frames go back at the display's rate
                 // (else its client would wait for ever)
-                scene.push(comp::Shown { key: (n, b), at: (w.r.x0, w.r.y0), rects: vec![], blend: false });
+                scene.push(comp::Shown { key: (n, b), at: (w.r.x0, w.r.y0), rects: vec![], blend: false, damage: None });
                 continue;
             }
             let mine = Rect::new(w.r.x0, w.r.y0, w.r.x0 + buf.w.min(w.r.dx()), w.r.y0 + buf.h.min(w.r.dy())).clip(&self.d.r);
             let rects = self.uncovered(i, mine);
-            scene.push(comp::Shown { key: (n, b), at: (w.r.x0, w.r.y0), rects, blend: false });
+            // what changed in it since the thread was told, on the screen (empty:
+            // nothing, None: all of it); the same buffer presented again changed too
+            let damage = match w.cdamage {
+                None => Some(Rect::default()),
+                Some(None) => None,
+                Some(Some(d)) => Some(d.add(w.r.x0, w.r.y0)),
+            };
+            scene.push(comp::Shown { key: (n, b), at: (w.r.x0, w.r.y0), rects, blend: false, damage });
         }
         if scene == self.compscene && !self.compdirty {
             return;
         }
         self.compdirty = false;
+        for w in self.wins.values_mut() {
+            w.cdamage = None;
+        }
         self.compscene = scene.clone();
         if !self.comp.as_ref().unwrap().scene(scene) {
             self.compfailed("its thread is gone".into());
@@ -2826,7 +2851,7 @@ impl Wsys {
                 let mine = Rect::new(at.0, at.1, at.0 + buf.w, at.1 + buf.h).clip(&w.r).clip(&self.d.r);
                 self.uncovered(i, mine)
             };
-            v.push(comp::Shown { key: (n, l.b), at, rects, blend: k > 0 && buf.alpha });
+            v.push(comp::Shown { key: (n, l.b), at, rects, blend: k > 0 && buf.alpha, damage: None });
         }
         v
     }
@@ -3948,7 +3973,7 @@ impl Wsys {
                 self.ov = None;
             }
             // the GPU composes it, else the processor copies it
-            let r = if self.compshow(win, b) {
+            let r = if self.compshow(win, b, None) {
                 Ok(())
             } else {
                 let r = self.copybuf(win, b, None);
@@ -4020,7 +4045,7 @@ impl Wsys {
         }
         if let Some(b) = lastb {
             if self.wins.contains_key(&n) {
-                if self.compshow(n, b) {
+                if self.compshow(n, b, None) {
                     // the GPU composes what the plane showed: its buffer stays wsys'
                     let w = self.wins.get_mut(&n).unwrap();
                     if w.ovheld == Some(b) {

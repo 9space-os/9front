@@ -352,6 +352,7 @@ struct wsi_plan9_swapchain {
    bool scanout;     /* the frames go to the display directly */
    int wsys;         /* the frames go to wsys(4) as GPU buffers: its ctl; -1 not */
    int shown;        /* the image on the display, kept busy; -1 none */
+   bool presented;   /* presented once: a present's damage is relative to the one before */
    bool overlay;     /* in wsys, the images in VRAM for its overlay plane: no copy, no view */
    uint32_t bufbase; /* its buffers' numbers in wsys: bufbase + image */
    struct wsys_win *ww; /* its window's (wsys != -1) */
@@ -782,10 +783,33 @@ wsi_plan9_swapchain_queue_present(struct wsi_swapchain *wsi_chain,
 
    /* in wsys: it reads the buffer itself */
    if (chain->wsys >= 0) {
-      char msg[32];
+      char msg[80];
+      int32_t x0, y0, x1, y1;
 
       t[1] = t[2] = os_time_get_nano();
-      snprintf(msg, sizeof msg, "present %u", chain->bufbase + image_index);
+      /*
+       * what changed since the swapchain's last present
+       * (VK_KHR_incremental_present): its box, for wsys to compose only
+       * there; none (or nothing in the image): all of it
+       */
+      x0 = y0 = INT32_MAX;
+      x1 = y1 = INT32_MIN;
+      for (uint32_t i = 0; damage != NULL && i < damage->rectangleCount; i++) {
+         const VkRectLayerKHR *r = &damage->pRectangles[i];
+         x0 = MIN2(x0, r->offset.x);
+         y0 = MIN2(y0, r->offset.y);
+         x1 = MAX2(x1, r->offset.x + (int32_t)r->extent.width);
+         y1 = MAX2(y1, r->offset.y + (int32_t)r->extent.height);
+      }
+      x0 = MAX2(x0, 0);
+      y0 = MAX2(y0, 0);
+      x1 = MIN2(x1, (int32_t)chain->extent.width);
+      y1 = MIN2(y1, (int32_t)chain->extent.height);
+      if (chain->presented && damage != NULL && damage->rectangleCount > 0 && x0 < x1 && y0 < y1)
+         snprintf(msg, sizeof msg, "present %u %d %d %d %d", chain->bufbase + image_index, x0, y0, x1, y1);
+      else
+         snprintf(msg, sizeof msg, "present %u", chain->bufbase + image_index);
+      chain->presented = true;
       /* wsys' until it gives it back (b n, maybe before the write returns) */
       mtx_lock(&chain->lock);
       chain->images[image_index].inwsys = true;

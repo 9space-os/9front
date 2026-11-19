@@ -84,6 +84,9 @@ pub struct Shown {
     pub at: (i32, i32),
     pub rects: Vec<Rect>,
     pub blend: bool, // blended over what is under it (a8r8g8b8, premultiplied), else copied
+    /// what changed in it since the scene before, on the screen: an empty
+    /// rectangle nothing, None all of it (a client's present without damage)
+    pub damage: Option<Rect>,
 }
 
 static BLENDVERT: &[u8] = include_bytes!("../shaders/blend.vert.spv");
@@ -319,6 +322,7 @@ struct Vkc {
     imps: HashMap<Key, Imp>,
     scene: Vec<Shown>,
     frames: u64,
+    wpx: u64, // the windows' pixels copied or blended into frames (WSYSDEBUG=damage)
     checked: bool, // the first frame read back and compared with devdraw's screen
     blend: Option<Blend>,
     drawable: bool, // the swapchain's images may be drawn into (COLOR_ATTACHMENT)
@@ -414,6 +418,7 @@ impl Vkc {
             imps: HashMap::new(),
             scene: vec![],
             frames: 0,
+            wpx: 0,
             checked: false,
             blend: None,
             drawable: false,
@@ -807,13 +812,42 @@ impl Vkc {
         Some(set)
     }
 
-    /// what the GPU windows covered: devdraw's screen there again, in every image
-    fn uncover(&mut self, s: &[Shown]) {
-        for sh in s {
-            for r in &sh.rects {
-                for p in self.pending.iter_mut() {
-                    *p = join(*p, *r);
+    /// what a new scene changed against old, into every image's pending (a
+    /// frame draws each image only there: the windows' copies too).  A window
+    /// shown where it was, as it was, with its client's damage: that; one new,
+    /// moved, covered or uncovered otherwise: all it shows; one gone: devdraw's
+    /// screen again where it was.  A window is its key's window and place, so
+    /// a client's next buffer (another key) is the same window
+    fn changed(&mut self, old: &[Shown]) {
+        let mut d: Vec<Rect> = vec![];
+        let mut used = vec![false; old.len()];
+        for s in &self.scene {
+            let m = old.iter().enumerate().position(|(k, o)| !used[k] && o.key.0 == s.key.0 && o.at == s.at && o.blend == s.blend);
+            match m {
+                Some(k) if old[k].rects == s.rects => {
+                    used[k] = true;
+                    match s.damage {
+                        None => d.extend(s.rects.iter().copied()),
+                        Some(r) if !r.empty() => d.extend(s.rects.iter().map(|x| x.clip(&r)).filter(|x| !x.empty())),
+                        Some(_) => {}
+                    }
                 }
+                Some(k) => {
+                    used[k] = true;
+                    d.extend(old[k].rects.iter().copied());
+                    d.extend(s.rects.iter().copied());
+                }
+                None => d.extend(s.rects.iter().copied()),
+            }
+        }
+        for (k, o) in old.iter().enumerate() {
+            if !used[k] {
+                d.extend(o.rects.iter().copied());
+            }
+        }
+        for r in d {
+            for p in self.pending.iter_mut() {
+                *p = join(*p, r);
             }
         }
     }
@@ -905,16 +939,21 @@ impl Vkc {
                 let off = (r.y0 as usize * self.w as usize + r.x0 as usize) * 4;
                 dev.cmd_copy_buffer_to_image(cb, staging.buf, img, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &[copy(&r, off, self.w as u32)]);
             }
-            // the windows over it, bottom to top (each copy after the one under it)
+            'windows: {
+            // the windows over it, bottom to top (each copy after the one under
+            // it), only where this image changed since it was drawn last (base:
+            // devdraw's screen was copied there first)
+            let Some(upd) = base else { break 'windows };
             for s in &self.scene {
                 let Some(i) = self.imps.get(&s.key) else { continue };
-                let mine = Rect::new(s.at.0, s.at.1, s.at.0 + i.w, s.at.1 + i.h);
+                let mine = Rect::new(s.at.0, s.at.1, s.at.0 + i.w, s.at.1 + i.h).clip(&upd);
                 if let (true, Some(bl), Some(set)) = (s.blend, &self.blend, i.set) {
                     // drawn over the frame: its rectangles as scissors of one triangle each
                     let rects: Vec<Rect> = s.rects.iter().map(|r| r.clip(&mine).clip(&all)).filter(|r| !r.empty()).collect();
                     if rects.is_empty() {
                         continue;
                     }
+                    self.wpx += rects.iter().map(|r| (r.dx() * r.dy()) as u64).sum::<u64>();
                     let b = [barrier(
                         vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                         vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
@@ -955,11 +994,13 @@ impl Vkc {
                     .filter(|r| !r.empty())
                     .map(|r| copy(&r, (r.y0 - s.at.1) as usize * i.stride + (r.x0 - s.at.0) as usize * 4, (i.stride / 4) as u32))
                     .collect();
+                self.wpx += regions.iter().map(|r| (r.image_extent.width * r.image_extent.height) as u64).sum::<u64>();
                 if !regions.is_empty() {
                     let b = [barrier(vk::ImageLayout::TRANSFER_DST_OPTIMAL, vk::ImageLayout::TRANSFER_DST_OPTIMAL, vk::AccessFlags::TRANSFER_WRITE, vk::AccessFlags::TRANSFER_WRITE)];
                     dev.cmd_pipeline_barrier(cb, vk::PipelineStageFlags::TRANSFER, vk::PipelineStageFlags::TRANSFER, vk::DependencyFlags::empty(), &[], &[], &b);
                     dev.cmd_copy_buffer_to_image(cb, i.buf, img, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions);
                 }
+            }
             }
             let snap = snap.map(|r| r.clip(&all));
             let mut last = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
@@ -1080,7 +1121,7 @@ impl Vkc {
                     Job::Forget(key) => self.forget(key),
                     Job::Scene(s) => {
                         let old = std::mem::replace(&mut self.scene, s);
-                        self.uncover(&old);
+                        self.changed(&old);
                         need = true;
                     }
                     Job::Damage(r) => {
@@ -1115,6 +1156,10 @@ impl Vkc {
                         if let Err(e) = self.selfcheck() {
                             return e;
                         }
+                    }
+                    if self.frames % 120 == 0 && std::env::var("WSYSDEBUG").is_ok_and(|v| v.split(',').any(|w| w == "damage")) {
+                        eprintln!("wsys: damage: {} frames, {} pixels of windows a frame", self.frames, self.wpx / 120);
+                        self.wpx = 0;
                     }
                     if self.frames % 3600 == 0 {
                         say!("wsys: composing on the GPU: {} frames, {} GPU buffers", self.frames, self.imps.len());
