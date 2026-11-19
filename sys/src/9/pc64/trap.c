@@ -548,27 +548,42 @@ Ureg*
 notify(Ureg *ureg, char *msg)
 {
 	Ureg *nureg;
-	uintptr sp;
+	uintptr sp, str;
 
 	sp = ureg->sp;
 	sp -= 256;	/* debugging: preserve context causing problem */
 	sp -= sizeof(Ureg);
+	/*
+	 * GCC port: the handler entered as a function the System V way too:
+	 * the stack 16-byte aligned before the (fake) return pc, as after a
+	 * call (a gcc-compiled handler keeps SSE values there), the arguments
+	 * also in %rdi and %rsi.  libc's notify(2) then registers the
+	 * handler itself, per process, as 9front's; the gcc port had one
+	 * trampoline for all, which called the handler of a single variable
+	 * shared by the processes of a program (rio's: one's notify(nil) and
+	 * the others died of a hangup at pc 0).  6c's handlers read %rbp and
+	 * the stack as before.
+	 */
+	sp &= ~(uintptr)15;
 
-	if(!okaddr(sp-ERRMAX-4*BY2WD, sizeof(Ureg)+ERRMAX+4*BY2WD, 1))
+	if(!okaddr(sp-ERRMAX-5*BY2WD, sizeof(Ureg)+ERRMAX+5*BY2WD, 1))
 		return nil;
 
 	nureg = (void*)sp;
 	memmove(nureg, ureg, sizeof(Ureg));
 	sp -= BY2WD+ERRMAX;
 	memmove((char*)sp, msg, ERRMAX);
-	sp -= 3*BY2WD;
-	((uintptr*)sp)[2] = sp + 3*BY2WD;	/* arg2 string */
+	str = sp;
+	sp -= 4*BY2WD;				/* GCC port: (sp+8) & 15 == 0 */
+	((uintptr*)sp)[2] = str;		/* arg2 string */
 	((uintptr*)sp)[1] = (uintptr)nureg;	/* arg1 is ureg* */
 	((uintptr*)sp)[0] = 0;			/* arg0 is pc */
 
 	ureg->sp = sp;
 	ureg->pc = (uintptr)up->notify;
 	ureg->bp = (uintptr)nureg;		/* arg1 passed in RARG */
+	ureg->di = (uintptr)nureg;		/* GCC port: and in System V's */
+	ureg->si = str;
 	ureg->cs = UESEL;
 	ureg->ss = UDSEL;
 
@@ -601,6 +616,7 @@ noted(Ureg *ureg, Ureg *nureg, int arg0)
 			return -1;
 		ureg->sp = sp;
 		ureg->bp = oureg;		/* arg 1 passed in RARG */
+		ureg->di = oureg;		/* GCC port: and in System V's */
 		((uintptr*)sp)[1] = oureg;	/* arg 1 0(FP) is ureg* */
 		((uintptr*)sp)[0] = 0;		/* arg 0 is pc */
 		break;

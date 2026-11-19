@@ -371,8 +371,13 @@ syscall(Ureg *ureg)
 	if(dosyscall(scallnr, (Sargs*)(ureg->sp+BY2WD), &ureg->r0))
 		returnto(noteret);
 
-	if(up->procctl || up->nnote)
-		donotify(ureg);
+	/*
+	 * GCC port: a note's handler entered through noteret, all registers
+	 * loaded (forkret loads only x0: the handler's x1, the message,
+	 * AAPCS's arg 2, would be lost), as pc64's syscall
+	 */
+	if((up->procctl || up->nnote) && donotify(ureg))
+		returnto(noteret);
 
 	if(up->delaysched)
 		sched();
@@ -390,7 +395,16 @@ notify(Ureg *ureg, char *msg)
 	sp = ureg->sp;
 	sp -= 256;	/* debugging: preserve context causing problem */
 	sp -= sizeof(Ureg);
-	sp = STACKALIGN(sp);
+	/*
+	 * GCC port: the handler entered as an AAPCS function too: the note's
+	 * message in x1 (nureg is in x0 already), the stack 16-byte aligned
+	 * (Ureg 16-aligned, the 160 bytes below it keep it so).  libc's
+	 * notify(2) then registers the handler itself, per process, as
+	 * 9front's; the gcc port's trampoline called the handler of one
+	 * variable shared by a program's processes (RFMEM: one's
+	 * notify(nil), the others' next note went to pc 0).
+	 */
+	sp &= ~(uintptr)15;
 
 	if(!okaddr(sp-ERRMAX-4*BY2WD, sizeof(Ureg)+ERRMAX+4*BY2WD, 1)
 	|| ((uintptr) up->notify & 3) != 0
@@ -405,6 +419,7 @@ notify(Ureg *ureg, char *msg)
 	*(uintptr*)(sp+2*BY2WD) = sp+3*BY2WD;
 	*(uintptr*)(sp+1*BY2WD) = (uintptr)nureg;
 	ureg->r0 = (uintptr)nureg;
+	ureg->r1 = sp+3*BY2WD;		/* GCC port: the message, AAPCS's arg 2 */
 	ureg->sp = sp;
 	ureg->pc = (uintptr)up->notify;
 	ureg->link = 0;

@@ -70,6 +70,8 @@ struct Aintr {
 
 	Bus*	bus;
 	Aintr*	next;			/* next in bus */
+
+	char*	from;			/* debugging */
 };
 
 typedef struct Apic {
