@@ -161,6 +161,17 @@ getts(uchar *d)
 		(uvlong)d[7]<<56;
 }
 
+/*
+ * 9space: a frame for wifiproc, woken for it: it may wait with a
+ * timeout (the block ack reorder's, batick), so not in qbread
+ */
+static void
+iqpass(Wifi *wifi, Block *b)
+{
+	qpass(wifi->iq, b);
+	wakeup(&wifi->iqr);
+}
+
 static void
 wifirecv(Wifi *wifi, Block *b)
 {
@@ -181,14 +192,14 @@ wifirecv(Wifi *wifi, Block *b)
 		goto drop;
 	if(w->fc[1] & 0x40){
 		/* encrypted */
-		qpass(wifi->iq, b);
+		iqpass(wifi, b);
 		return;
 	}
 	switch(w->fc[0] & 0x0c){
 	case 0x00:	/* management */
 		if((w->fc[1] & 3) != 0x00)	/* STA->STA */
 			break;
-		qpass(wifi->iq, b);
+		iqpass(wifi, b);
 		return;
 	case 0x04:	/* control */
 		break;
@@ -246,7 +257,9 @@ amsdu(Wifi *wifi, Block *b)
 		memmove(&s, b->rp+14, SNAPHDRSIZE);
 		if(s.dsap == 0xAA && s.ssap == 0xAA && s.control == 3
 		&& s.orgcode[0] == 0 && s.orgcode[1] == 0 && s.orgcode[2] == 0){
-			nb = allocb(ETHERHDRSIZE + n - SNAPHDRSIZE);
+			/* 9space: iallocb: wifirecv runs in the driver's interrupt too (wifiiq) */
+			if((nb = iallocb(ETHERHDRSIZE + n - SNAPHDRSIZE)) == nil)
+				break;
 			e = (Etherpkt*)nb->wp;
 			memmove(e->d, b->rp, Eaddrlen);
 			memmove(e->s, b->rp+6, Eaddrlen);
@@ -317,6 +330,9 @@ baadvance(Wba *ba, int n, Block **l)
 	return l;
 }
 
+static void	inorder(Wifi*, Block*);
+
+/* the frames in order on (in wifiproc) */
 static void
 barelease(Wifi *wifi, Block *b)
 {
@@ -325,13 +341,16 @@ barelease(Wifi *wifi, Block *b)
 	for(; b != nil; b = next){
 		next = b->next;
 		b->next = nil;
-		wifirecv(wifi, b);
+		inorder(wifi, b);
 	}
 }
 
-/* an agreement over: the frames held, in order */
+/*
+ * an agreement over: the frames held, in order (release), or dropped
+ * (the association is over: not in wifiproc, the keys gone)
+ */
 static void
-baoff(Wifi *wifi, int tid)
+baoff(Wifi *wifi, int tid, int release)
 {
 	Block *out, **l;
 	Wba *ba;
@@ -348,7 +367,10 @@ baoff(Wifi *wifi, int tid)
 	}
 	*l = nil;
 	unlock(&wifi->balock);
-	barelease(wifi, out);
+	if(release)
+		barelease(wifi, out);
+	else
+		freeblist(out);
 }
 
 /* held too long: the missing ones are given up */
@@ -378,26 +400,24 @@ batick(Wifi *wifi)
 	}
 }
 
-static void
-wifbaproc(void *arg)
+/* some agreement holds frames: wifiproc waits for batick at most 20 ms */
+static int
+baheld(Wifi *wifi)
 {
-	Wifi *wifi;
+	int i;
 
-	wifi = arg;
-	while(waserror())
-		;
-	for(;;){
-		tsleep(&up->sleep, return0, 0, 20);
-		batick(wifi);
-	}
+	for(i = 0; i < Ntid; i++)
+		if(wifi->rxba[i].on && wifi->rxba[i].n > 0)
+			return 1;
+	return 0;
 }
 
 /*
  * a frame from the radio: QoS data of the access point's under a block
  * ack agreement to its window, the rest on (wifirecv)
  */
-void
-wifiiq(Wifi *wifi, Block *b)
+static void
+bareorder(Wifi *wifi, Block *b)
 {
 	Block *out, **l;
 	Wifipkt *w;
@@ -476,8 +496,48 @@ wifiiq(Wifi *wifi, Block *b)
 	barelease(wifi, out);
 	return;
 pass:
+	inorder(wifi, b);
+}
+/*
+ * 9space: QoS data under a block ack agreement and block ack requests
+ * from the access point: the reorder's (wifiproc)
+ */
+static int
+baframe(Wifi *wifi, Block *b)
+{
+	Wifipkt *w;
+	Wnode *wn;
+	int hdrlen;
+
+	if(!wifi->ba || BLEN(b) < WIFIHDRSIZE)
+		return 0;
+	w = (Wifipkt*)b->rp;
+	if(w->fc[0] == 0x84)
+		return BLEN(b) >= 20 && (wn = wifi->bss) != nil && memcmp(w->a2, wn->bssid, Eaddrlen) == 0;
+	if((w->fc[0] & 0x8c) != 0x88 || (w->fc[1] & 3) != 0x02 || (w->a1[0] & 1) != 0)
+		return 0;
+	hdrlen = wifihdrlen(w);
+	if(BLEN(b) < hdrlen || (wn = wifi->bss) == nil || memcmp(w->a2, wn->bssid, Eaddrlen) != 0)
+		return 0;
+	return wifi->rxba[b->rp[hdrlen-2] & 15].on;
+}
+
+/*
+ * a frame from the radio, in the driver's interrupt: what the block
+ * ack reorder holds goes to wifiproc, which reorders, decrypts and
+ * passes on in one proc (the CCMP replay check sees them in order);
+ * the rest as 9front's wifiiq (wifirecv)
+ */
+void
+wifiiq(Wifi *wifi, Block *b)
+{
+	if(baframe(wifi, b)){
+		iqpass(wifi, b);
+		return;
+	}
 	wifirecv(wifi, b);
 }
+
 
 /* 9space: a block ack action frame (category 3) to the access point */
 static void
@@ -529,7 +589,7 @@ recvba(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			st = 37;
 		if(st == 0){
 			ba = &wifi->rxba[tid];
-			baoff(wifi, tid);
+			baoff(wifi, tid, 1);
 			lock(&wifi->balock);
 			ba->head = (d[7] | d[8]<<8) >> 4;
 			ba->win = size;
@@ -538,10 +598,6 @@ recvba(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			ba->held = ba->expired = 0;
 			ba->on = 1;
 			unlock(&wifi->balock);
-			if(!wifi->baproc){
-				wifi->baproc = 1;
-				kproc("wifiba", wifbaproc, wifi);
-			}
 		}
 		r[0] = 3;
 		r[1] = 1;	/* ADDBA response */
@@ -583,7 +639,7 @@ recvba(Wifi *wifi, Wnode *wn, uchar *d, int len)
 		param = d[2] | d[3]<<8;
 		tid = param>>12 & 15;
 		if(param & (1<<11)){
-			baoff(wifi, tid);	/* the access point's, our receiving */
+			baoff(wifi, tid, 1);	/* the access point's, our receiving */
 			if(wifi->baagree != nil)
 				(*wifi->baagree)(wifi, tid, 0, 0, 0);
 		} else {
@@ -1146,7 +1202,7 @@ wifideauth(Wifi *wifi, Wnode *wn)
 
 	/* 9space: the block ack agreements are over */
 	for(i = 0; i < Ntid; i++)
-		baoff(wifi, i);
+		baoff(wifi, i, 0);
 	wn->txba = 0;
 
 	/* notify driver about node aid association */
@@ -1343,6 +1399,52 @@ roamchose(Wifi *wifi, Wnode *wn)
 		print("#l%d: roamed to %E (wait now %d s)\n", wifi->ether->ctlrno, wn->bssid, Roamwait*(1+wifi->roamfail));
 }
 
+static int
+iqready(void *a)
+{
+	Wifi *wifi;
+
+	wifi = a;
+	return qcanread(wifi->iq) || qisclosed(wifi->iq);
+}
+
+/* an encrypted frame, decrypted and on (wifiproc's) */
+static void
+decryptrecv(Wifi *wifi, Block *b)
+{
+	Wifipkt *w;
+	Wnode *wn;
+
+	w = (Wifipkt*)b->rp;
+	if((wn = nodelookup(wifi, w->a2, 0)) == nil){
+		freeb(b);
+		return;
+	}
+	wn->lastseen = MACHP(0)->PMach.ticks;
+	if((b->flag & Bsignal) && wn == wifi->bss && wn->hasrssi)
+		wn->rssi = (7*wn->rssi + (schar)b->rp[-9]) / 8;	/* 9space: its data's signal too (roaming) */
+	if((b = wifidecrypt(wifi, wn, b)) == nil)
+		return;
+	w = (Wifipkt*)b->rp;
+	if(w->fc[1] & 0x40){
+		freeb(b);
+		return;
+	}
+	b->flag &= ~Btimestamp;
+	wifirecv(wifi, b);
+}
+
+/* 9space: a frame the block ack reorder lets go, in wifiproc */
+static void
+inorder(Wifi *wifi, Block *b)
+{
+	if(BLEN(b) >= WIFIHDRSIZE && (((Wifipkt*)b->rp)->fc[1] & 0x40)){
+		decryptrecv(wifi, b);
+		return;
+	}
+	wifirecv(wifi, b);
+}
+
 static void
 wifiproc(void *arg)
 {
@@ -1361,24 +1463,34 @@ wifiproc(void *arg)
 			b = nil;
 			continue;
 		}
+		/*
+		 * 9space: frames held for the block ack reorder wait at most
+		 * Batimeout (batick): then no longer than 20 ms for the queue
+		 */
+		if(!iqready(wifi)){
+			if(baheld(wifi))
+				tsleep(&wifi->iqr, iqready, wifi, 20);
+			else
+				sleep(&wifi->iqr, iqready, wifi);
+		}
+		batick(wifi);
+		if(!qcanread(wifi->iq)){
+			if(qisclosed(wifi->iq))
+				break;
+			continue;
+		}
 		if((b = qbread(wifi->iq, 100000)) == nil)
 			break;
+		if(baframe(wifi, b)){
+			bareorder(wifi, b);
+			b = nil;
+			continue;
+		}
 		w = (Wifipkt*)b->rp;
 		if(w->fc[1] & 0x40){
 			/* encrypted */
-			if((wn = nodelookup(wifi, w->a2, 0)) == nil)
-				continue;
-			wn->lastseen = MACHP(0)->PMach.ticks;
-			if((b->flag & Bsignal) && wn == wifi->bss && wn->hasrssi)
-				wn->rssi = (7*wn->rssi + (schar)b->rp[-9]) / 8;	/* 9space: its data's signal too (roaming) */
-			if((b = wifidecrypt(wifi, wn, b)) != nil){
-				w = (Wifipkt*)b->rp;
-				if(w->fc[1] & 0x40)
-					continue;
-				b->flag &= ~Btimestamp;
-				wifirecv(wifi, b);	/* 9space: in order already (wifiiq) */
-				b = nil;
-			}
+			decryptrecv(wifi, b);
+			b = nil;
 			continue;
 		}
 		/* management */

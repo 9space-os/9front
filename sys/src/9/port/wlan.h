@@ -22,6 +22,16 @@ struct Wlan {
 	ulong	ntx, nrx, ndrop;
 	uchar	caps[256];	/* the radio's capability elements (ctl caps), for wifi.c */
 	int	ncaps;
+
+	/*
+	 * ctl "irq on": the frames received go to wifiiq from a timer
+	 * function, at interrupt level, as a real radio's driver calls it
+	 * from its interrupt (tests/wlan)
+	 */
+	int	irq;
+	Lock	irqlk;
+	Block	*irqh, *irqt;
+	Timer	irqtimer;
 };
 
 extern Wlan wlans[Nwlan];

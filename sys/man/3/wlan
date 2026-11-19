@@ -76,6 +76,13 @@ hardware before the interface is used, and
 another: HT capabilities, 45; VHT, 191; HE, 255 with 35), which the
 association request carries where the access point's beacon offers the
 same.
+.B "irq on
+(and
+.BR off )
+hands the frames received to wifi.c from a timer function, at interrupt
+level, as a real radio's driver does from its interrupt handler, instead
+of from the writing process: a test of what wifi.c does there
+.RI ( tests/wlan ).
 With an access point that offers WMM the association request has WMM's
 information element and the station's data frames are QoS data (TID 0);
 the interface's

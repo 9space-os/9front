@@ -172,6 +172,32 @@ hexval(int c)
 	return -1;
 }
 
+/*
+ * the frames of "irq on", every millisecond: in the clock's interrupt
+ * (timer functions run there), so wifiiq sees what a driver's interrupt
+ * handler gives it, and meets what a proc holds at that moment
+ */
+static void
+irqrecv(Ureg*, Timer *t)
+{
+	Wlan *ctlr;
+	Block *b, *next;
+
+	ctlr = t->ta;
+	ilock(&ctlr->irqlk);
+	b = ctlr->irqh;
+	ctlr->irqh = ctlr->irqt = nil;
+	iunlock(&ctlr->irqlk);
+	for(; b != nil; b = next){
+		next = b->next;
+		b->next = nil;
+		if(ctlr->wifi != nil)
+			wifiiq(ctlr->wifi, b);
+		else
+			freeb(b);
+	}
+}
+
 static long
 radiowrite(Chan *c, void *a, long n, vlong)
 {
@@ -206,6 +232,17 @@ radiowrite(Chan *c, void *a, long n, vlong)
 			ctlr->wifi->sigs = 1;
 		}
 		ctlr->nrx++;
+		if(ctlr->irq){
+			/* to the timer function (irqrecv): wifiiq at interrupt level */
+			ilock(&ctlr->irqlk);
+			if(ctlr->irqh == nil)
+				ctlr->irqh = b;
+			else
+				ctlr->irqt->next = b;
+			ctlr->irqt = b;
+			iunlock(&ctlr->irqlk);
+			return n;
+		}
 		wifiiq(ctlr->wifi, b);
 		return n;
 	case Qctl:
@@ -245,6 +282,22 @@ radiowrite(Chan *c, void *a, long n, vlong)
 			if(ctlr->wifi != nil){
 				memmove(ctlr->wifi->caps, caps, l/2);
 				ctlr->wifi->ncaps = l/2;
+			}
+			qunlock(ctlr);
+		} else if(cb->nf == 2 && strcmp(cb->f[0], "irq") == 0){
+			/* 9space: frames to wifiiq at interrupt level (irqrecv) */
+			qlock(ctlr);
+			if(strcmp(cb->f[1], "on") == 0 && !ctlr->irq){
+				ctlr->irqtimer.tmode = Tperiodic;
+				ctlr->irqtimer.tns = 1000000;
+				ctlr->irqtimer.tf = irqrecv;
+				ctlr->irqtimer.ta = ctlr;
+				ctlr->irq = 1;
+				timeradd(&ctlr->irqtimer);
+			} else if(strcmp(cb->f[1], "off") == 0 && ctlr->irq){
+				ctlr->irq = 0;
+				timerdel(&ctlr->irqtimer);
+				irqrecv(nil, &ctlr->irqtimer);	/* what was left, here */
 			}
 			qunlock(ctlr);
 		} else

@@ -75,6 +75,33 @@ check "A-MSDU: an echo reply in one, its subframe taken out (no echo lost)" bash
 check "A-MPDU with CCMP: the older packet numbers reordered, not dropped as replays" bash -c "grep '^wlanwpaba: rxba: tid 0' '$C' | grep -qv 'held 0 ' && grep -q '^wlanwpaba: replays: 0$' '$C'"
 check "WPA2: ping through 9spacewpa, ciphered with CCMP" bash -c "grep '^wlanwpaping: ' '$C' | grep -q 'rtt\|time' && ! grep -q '^wlanwpaping: .*lost' '$C' && grep -q '9spacewpa: echo from 10.0.9.2 (ccmp)' '$C'"
 
+# 9space: the frames to wifiiq at interrupt level, as a real radio's
+# driver gives them (devwlan's "irq on": a timer function), under the
+# block ack agreement's reorder with its holes (every third echo reply's
+# s missing: the wait expires) and load: on one processor, so that the
+# interrupt meets whatever a proc of wifi.c holds (2026-11-19: the X1's
+# WLAN died in a spin lock taken by the interrupt it held off)
+rm -f "$CLI_DIR/console.log"
+wlanirqboot(){
+	SMP=1 UFS_EXTRA="$HERE/root" CMDWAIT=90 KARGS="ether1=type=wlan" \
+	bash "$ROOT/scripts/guest/boot-cli.sh" \
+		"bind -a '#ω' /dev; echo ea 020000000002 >/dev/wlan1/ctl; echo irq on >/dev/wlan1/ctl" \
+		"bind -a '#l1' /net; echo essid 9space5 >/net/ether1/clone" \
+		"/tests/wlansim -d /dev/wlan1 >[2]/tmp/sim.log &" \
+		"pfx=wlanirq; ch=36; $waitassoc" \
+		"ip/ipconfig -g 10.0.9.1 ether /net/ether1 10.0.9.2 255.255.255.0; ip/ping -i 2 -n 3000 10.0.9.1 >/tmp/ping.log >[2=1]; tail -1 /tmp/ping.log | sed 's/^/wlanirqload: /'; ip/ping -n 3 10.0.9.1 >[2=1] | sed 's/^/wlanirqping: /'" \
+		"grep 'rxba: tid 0' /net/ether1/ifstats | sed 's/^/wlanirqba: /'; grep -e 'lock [0-9a-fx]* loop' -e '^panic' /dev/kmesg | sed 3q | sed 's/^/wlanirqkmesg: /'; echo wlanirqtest: done" > "$TMPD/boot3" 2>&1
+	tr -d '\r' < "$CLI_DIR/console.log" > "$TMPD/console3"
+	grep -q '^wlanirqtest: done' "$TMPD/console3" || { grep -e 'lock .*loop' -e panic "$TMPD/console3" | sed 3q; tail -10 "$TMPD/console3"; false; }
+}
+check "wifiiq at interrupt level under the reorder's load: no hang (boot, 3000 pings at 2 ms)" wlanirqboot
+grep '^wlanirq\(load\|ping\|ba\|kmesg\): ' "$TMPD/console3" | sed 's/^/       /'
+check "... no spin lock loop, no panic" bash -c "! grep -q '^wlanirqkmesg: ' '$TMPD/console3'"
+# (the load's echoes are mostly lost: the simulated access point's
+# s+1-before-s trick reuses its sequence numbers, which a reply every
+# 2 ms makes old for the reorder; the load is the frames, not the echoes)
+check "... after the load the link works (3 echoes answered), the reorder held and expired frames" bash -c "grep '^wlanirqping: ' '$TMPD/console3' | grep -q 'rtt' && ! grep -q '^wlanirqping: .*lost' '$TMPD/console3' && grep -Eq '^wlanirqba: rxba: tid 0 win [0-9]+ held [1-9][0-9]* expired [1-9]' '$TMPD/console3'"
+
 # gpu(3)'s *userpci=: another PCI device for a user-level driver (as
 # aux/rtw89's WLAN card): QEMU's pci-testdev (1b36/0005)
 rm -f "$CLI_DIR/console.log"

@@ -160,7 +160,6 @@ struct Wifi
 	 * and asks for one itself (TID 0); else it declines them
 	 */
 	int	ba;
-	int	baproc;
 	/*
 	 * 9space: the radio sends aggregates too (batx: wifi.c asks for
 	 * a block ack agreement of its own, TID 0); baagree, where set, is
@@ -206,7 +205,8 @@ struct Wifi
 	int	scanlen;	/* channels in the scan's list */
 	ulong	candstep;	/* scanstep when the first that matches was heard */
 	int	hascand;	/* candstep is set (0: a new choice) */
-	Lock	balock;
+	Lock	balock;	/* procs only: wifiproc, the ctl; never the driver's interrupt */
+	Rendez	iqr;	/* 9space: wifiproc waits for iq on it (iqpass) */
 	Wba	rxba[Ntid];
 
 	/* effective base station */
