@@ -77,7 +77,10 @@ With
 the network becomes a known one.
 .PP
 .B Auto
-joins the strongest network in range that is known.
+joins the strongest network in range that is known, waiting up to
+.B $wlanwait
+seconds (default 30) for one to be heard: at boot the radio's scan has
+heard nothing yet.
 .I Termrc
 runs it at boot when there are known networks, unless
 .B wlan=off

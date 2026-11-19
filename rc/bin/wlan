@@ -152,11 +152,26 @@ case join
 case auto
 	findwlan
 	test -r $known || exit noknown
-	# networks' lines are strongest first: the first one known
-	best=`''{networks | awk 'FNR == NR { split($0, f, "	"); k[f[1]] = 1; next }
-		{ x = $5; for(i = 6; i <= NF; i++) x = x " " $i }
-		(x in k) { print x; exit }' $known -}
-	if(~ $#best 0 || ~ $best ''){
+	# networks' lines are strongest first: the first one known.
+	# 9space: at boot the radio's scan has heard nothing yet (its
+	# firmware just loaded): wait for one, $wlanwait s (default 30), as
+	# OpenBSD's join list waits for a network to show up
+	if(~ $#wlanwait 0)
+		wlanwait=30
+	i=0
+	best=()
+	while(~ $#best 0 && test $i -le $wlanwait){
+		best=`''{networks | awk 'FNR == NR { split($0, f, "	"); k[f[1]] = 1; next }
+			{ x = $5; for(i = 6; i <= NF; i++) x = x " " $i }
+			(x in k) { print x; exit }' $known -}
+		if(~ $best '')
+			best=()
+		if(~ $#best 0){
+			sleep 1
+			i=`{echo $i + 1 | hoc}
+		}
+	}
+	if(~ $#best 0){
 		echo wlan: no known network in range >[1=2]
 		exit nonetwork
 	}
