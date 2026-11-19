@@ -15,7 +15,8 @@
 			"--end-group"
 		],
 		"SourceFilesCmd": [
-			"uiclient.c"
+			"uiclient.c",
+			"uilat.c"
 		]
 	}
 ]
