@@ -72,6 +72,9 @@ fcntl(int fd, int cmd, ...)
 		case F_SETLKW:
 			err = EINVAL;
 			break;
+		default:
+			err = EINVAL;	/* an unknown command (POSIX) */
+			break;
 		}
 	if(err){
 		errno = err;
