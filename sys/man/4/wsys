@@ -637,6 +637,33 @@ takes the focus (as Wayland's compositors map a surface with its first
 buffer; nothing white flashes where it would be made).
 Ranges of closed windows are given again.
 .TP
+.B kbdtap
+The keyboard's tap, as
+.IR rio (4)'s
+(each window's
+.IB n /kbdtap
+is the same tap): while a program reads it, the keyboard's
+.IR kbd (3)
+messages go to it, one a read, instead of the current window (after
+.IR wsys 's
+own Mod4 keys), each after the keys went to another window a
+.B z
+and that window's number; the messages it writes (each with its NUL) go
+to the current window, unless the keys go to another window since
+.RB ( z
+messages written are ignored).
+One reader and one writer at a time (else
+.LR "file in use" ),
+usually one program,
+.IP
+.EX
+reform/shortcuts </mnt/wsys/kbdtap >/mnt/wsys/kbdtap
+.EE
+.IP
+(the volume, mute and brightness keys:
+.IR reform (1)).
+A reader 32 messages behind is passed by.
+.TP
 .B screen
 an
 .IR image (6)
@@ -672,7 +699,7 @@ The scale as dots per inch, round(96×scale), for
 .IR graphics (2)'s
 .BR display->dpi .
 .TP
-.IB n /cons ", " consctl ", " cursor ", " kbd ", " label ", " mouse ", " screen ", " snarf ", " text ", " wctl ", " wdir ", " window ", " winid ", " winname
+.IB n /cons ", " consctl ", " cursor ", " kbd ", " kbdtap ", " label ", " mouse ", " screen ", " snarf ", " text ", " wctl ", " wdir ", " window ", " winid ", " winname
 as in
 .IR rio (4):
 the mouse while it is over the window or a button is held (first an

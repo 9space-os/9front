@@ -225,9 +225,10 @@ enum F {
     Theme,
     Menu,
     Dpi,
+    Kbdtap,
 }
 
-const WINFILES: [(F, &str, u32); 19] = [
+const WINFILES: [(F, &str, u32); 20] = [
     (F::Ctl, "ctl", 0o666),
     (F::Event, "event", 0o444),
     (F::Cons, "cons", 0o666),
@@ -246,6 +247,7 @@ const WINFILES: [(F, &str, u32); 19] = [
     (F::Screen, "screen", 0o444),
     (F::Theme, "theme", 0o666),
     (F::Menu, "menu", 0o666),
+    (F::Kbdtap, "kbdtap", 0o660),
     (F::Dpi, "dpi", 0o444),
 ];
 
@@ -265,6 +267,7 @@ enum Kind {
     RootWctl,
     Stack,
     Theme, // the theme: its text; lines written change it (theme.rs)
+    Kbdtap, // the keyboard's tap (rio(4)'s kbdtap), as each window's kbdtap
     Wsys,  // a window's wsys/: all the windows (rio's /dev/wsys: winwatch)
     WinDir(u32),
     WinClone(u32), // a window's clone: a window of the same client, that one its parent
@@ -291,7 +294,24 @@ struct FidState {
     // an event file open: its own queue, every reader gets every event (a
     // program's window toolkit and its Vulkan WSI read the same window's)
     evq: Option<VecDeque<String>>,
+    tap: (bool, bool), // a kbdtap open: reading, writing (the tap's, let go at the clunk)
 }
+
+/// the keyboard's tap (rio(4)'s kbdtap): while a program reads it, the
+/// keyboard's messages go to it instead of the current window (after
+/// wsys' own Mod4 keys), each after a change of the window "z" and its
+/// number; what it writes back goes to the current window if that is still
+/// the one it was (else it is dropped). One reader and one writer at a time;
+/// a reader 32 messages behind is passed by.
+#[derive(Default)]
+struct Tap {
+    reader: bool,
+    writer: bool,
+    q: VecDeque<Vec<u8>>,  // to the reader, each with its NUL
+    cur: Option<u32>,      // the window the keys went to last
+    told: bool,            // the reader has had a z since it opened
+}
+const TAPMAX: usize = 32;
 
 /// A client's buffer, a segment of wsys's (every thread has it: std's threads
 /// are procs of one memory image, segattach(2)). The main loop owns it (Rc).
@@ -860,6 +880,7 @@ struct Wsys {
     barheld: Option<u32>,        // a button went down on this bar: the mouse is its until all are up
     mlast: Option<u32>,          // the window the last mouse event went to
     hlast: Option<u32>,          // the window without the focus the pointer was over (its event file's m)
+    tap: Tap,                    // the keyboard's tap (kbdtap)
 }
 
 fn qid(k: Kind) -> Qid {
@@ -871,6 +892,7 @@ fn qid(k: Kind) -> Qid {
         Kind::Stack => (0, 7),
         Kind::Theme => (0, 8),
         Kind::Wsys => (ninep::QTDIR, 9),
+        Kind::Kbdtap => (0, 10),
         Kind::WinDir(n) => (ninep::QTDIR, (n as u64) << 8 | 0x10),
         Kind::WinClone(n) => (0, (n as u64) << 8 | 0x11),
         Kind::File(n, f) => (0, (n as u64) << 8 | (0x20 + f as u64)),
@@ -922,6 +944,7 @@ impl Wsys {
             Kind::RootWctl => ("wctl".to_string(), 0o222),
             Kind::Stack => ("stack".to_string(), 0o444),
             Kind::Theme => ("theme".to_string(), 0o666),
+            Kind::Kbdtap => ("kbdtap".to_string(), 0o660),
             Kind::Wsys => ("wsys".to_string(), ninep::DMDIR | 0o555),
             Kind::WinDir(n) => (n.to_string(), ninep::DMDIR | 0o555),
             Kind::File(_, f) => {
@@ -956,6 +979,7 @@ impl Wsys {
                 "wctl" => Some(Kind::RootWctl),
                 "stack" => Some(Kind::Stack),
                 "theme" => Some(Kind::Theme),
+                "kbdtap" => Some(Kind::Kbdtap),
                 "draw" if self.core.is_some() => Some(Kind::Draw),
                 "winname" if self.core.is_some() => Some(Kind::RootWinname),
                 ".." => Some(Kind::Root),
@@ -1008,7 +1032,7 @@ impl Wsys {
     fn children(&self, k: Kind) -> Vec<Kind> {
         match k {
             Kind::Root => {
-                let mut v = vec![Kind::Screen, Kind::Clone, Kind::RootWctl, Kind::Stack, Kind::Theme];
+                let mut v = vec![Kind::Screen, Kind::Clone, Kind::RootWctl, Kind::Stack, Kind::Theme, Kind::Kbdtap];
                 if self.core.is_some() {
                     v.push(Kind::Draw);
                     v.push(Kind::RootWinname);
@@ -1066,7 +1090,7 @@ impl Wsys {
                 w.pinned = false;
             }
         }
-        self.fids.insert(fid, FidState { kind, open: false, dirpos: 0, win, owns: false, raw: false, seen: 0, snap: None, chan: None, evq: None });
+        self.fids.insert(fid, FidState { kind, open: false, dirpos: 0, win, owns: false, raw: false, seen: 0, snap: None, chan: None, evq: None, tap: (false, false) });
     }
 
     /// the reply, or None when it comes later (a read that waits)
@@ -1196,6 +1220,18 @@ impl Wsys {
                     k => k,
                 };
                 let mut evq = None;
+                let mut tap = (false, false);
+                if matches!(k, Kind::Kbdtap | Kind::File(_, F::Kbdtap)) {
+                    if (reading && self.tap.reader) || (writing && self.tap.writer) {
+                        return e("file in use");
+                    }
+                    if reading {
+                        self.tap.told = false;
+                    }
+                    self.tap.reader |= reading;
+                    self.tap.writer |= writing;
+                    tap = (reading, writing);
+                }
                 match k {
                     Kind::File(n, F::Kbd) => self.wins.get_mut(&n).unwrap().kbdopen += 1,
                     Kind::File(n, F::Mouse) => self.wins.get_mut(&n).unwrap().mouseopen += 1,
@@ -1206,6 +1242,7 @@ impl Wsys {
                 }
                 let f = self.fids.get_mut(&fid).unwrap();
                 f.evq = evq;
+                f.tap = tap;
                 f.kind = k;
                 f.open = true;
                 Some(R::new(113, tag).qid(qid(k)).u32(self.msize - ninep::IOHDRSZ).done())
@@ -1322,6 +1359,15 @@ impl Wsys {
                         }
                         text(&self.snarf)
                     }
+                    // the tap's: of window 0 (none) at the root
+                    Kind::Kbdtap | Kind::File(_, F::Kbdtap) => match self.taptake() {
+                        Some(b) => Some(R::new(117, tag).u32(b.len() as u32).bytes(&b).done()),
+                        None => {
+                            let win = if let Kind::File(n, _) = k { n } else { 0 };
+                            self.pending.push(Pending { tag, fid, win, f: F::Kbdtap, count });
+                            None
+                        }
+                    },
                     Kind::File(n, f @ (F::Event | F::Mouse | F::Cons | F::Kbd | F::Wctl | F::Menu)) => {
                         match self.take(fid, n, f, count) {
                             Some(b) => Some(R::new(117, tag).u32(b.len() as u32).bytes(&b).done()),
@@ -1351,6 +1397,27 @@ impl Wsys {
                     };
                     self.drawwake();
                     return r;
+                }
+                // the tap's messages back: to the current window, if the keys
+                // still go to the one they went to (rio's way); its z ignored
+                if let Kind::Kbdtap | Kind::File(_, F::Kbdtap) = k {
+                    if data.len() < 2 {
+                        return e("malformed key");
+                    }
+                    let parts: Vec<&[u8]> = data.split(|&b| b == 0).collect();
+                    let mut msgs = vec![];
+                    for (i, m) in parts.iter().enumerate() {
+                        match m.first() {
+                            None if i == parts.len() - 1 => {}
+                            None => return e("null message type"),
+                            Some(b'z') => {}
+                            Some(_) => msgs.push(m.to_vec()),
+                        }
+                    }
+                    if self.focus == self.tap.cur {
+                        self.tofocus(msgs);
+                    }
+                    return ok;
                 }
                 let s = String::from_utf8_lossy(&data).into_owned();
                 match k {
@@ -1527,6 +1594,13 @@ impl Wsys {
     fn clunk(&mut self, fid: u32) {
         let Some(mut f) = self.fids.remove(&fid) else { return };
         self.pending.retain(|p| p.fid != fid);
+        if f.open && f.tap.0 {
+            self.tap.reader = false;
+            self.tap.q.clear();
+        }
+        if f.open && f.tap.1 {
+            self.tap.writer = false;
+        }
         self.drawpend.retain(|p| p.1 != fid);
         if let Some(c) = f.chan.take() {
             drop(c); // devdraw lets go of what the client had (its windows go)
@@ -4658,10 +4732,61 @@ impl Wsys {
         self.setfocus(Some(f));
     }
 
-    /// kbd(3) messages to the focused window: all of them to its kbd file when
-    /// open, else the runes of the c messages to cons (and wsys' k events)
+    /// the keyboard's messages: wsys' Mod4 keys taken out, the rest to the
+    /// tap when one reads it (a z and the window's number first when the
+    /// keys go to another window now), else to the focused window
     fn kbd(&mut self, msgs: Vec<Vec<u8>>) {
         let msgs = self.kbdmod4(msgs);
+        if msgs.is_empty() {
+            return;
+        }
+        let focus = self.focus;
+        if self.tap.reader {
+            let z = self.tap.cur != focus || !self.tap.told;
+            let more = msgs.len() + usize::from(z);
+            if self.tap.q.len() + more <= TAPMAX {
+                if z {
+                    let mut m = format!("z{}", focus.unwrap_or(0)).into_bytes();
+                    m.push(0);
+                    self.tap.q.push_back(m);
+                }
+                self.tap.cur = focus;
+                self.tap.told = true;
+                for mut m in msgs {
+                    m.push(0);
+                    self.tap.q.push_back(m);
+                }
+                self.waketap();
+                return;
+            }
+            // the tap 32 behind: these past it
+        }
+        self.tap.cur = focus;
+        self.tofocus(msgs);
+    }
+
+    /// the tap's next message (one a read, as rio's)
+    fn taptake(&mut self) -> Option<Vec<u8>> {
+        self.tap.q.pop_front()
+    }
+
+    /// answer the reads that wait on the tap
+    fn waketap(&mut self) {
+        let mut i = 0;
+        while i < self.pending.len() {
+            if self.pending[i].f != F::Kbdtap {
+                i += 1;
+                continue;
+            }
+            let Some(b) = self.taptake() else { return };
+            let p = self.pending.remove(i);
+            self.send(R::new(117, p.tag).u32(b.len() as u32).bytes(&b).done());
+        }
+    }
+
+    /// kbd(3) messages to the focused window: all of them to its kbd file when
+    /// open, else the runes of the c messages to cons (and wsys' k events)
+    fn tofocus(&mut self, msgs: Vec<Vec<u8>>) {
         if msgs.is_empty() {
             return;
         }
@@ -5751,6 +5876,7 @@ fn main() {
         barheld: None,
         mlast: None,
         hlast: None,
+        tap: Tap::default(),
         tabstop: std::env::var("tabstop").ok().and_then(|t| t.trim().parse().ok()).filter(|&t: &i32| t > 0).unwrap_or(4),
         // rio's snarf, when wsys runs in a window of rio
         parentsnarf: std::fs::metadata("/dev/snarf").is_ok() && std::fs::metadata("/dev/wctl").is_ok(),

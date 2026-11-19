@@ -84,4 +84,28 @@ c=`{/tests/uipeek 590,390 | awk '{print $2}'}
 ~ $c ffffff || fail the text window not back: $c at 590,390
 test `{black} -gt 0 || fail no text after drawtest
 echo ok the text window back after drawtest
+
+# the keyboard's tap (kbdtap): its reader gets the keys (first z and the
+# window's number), the window none; a second reader is refused; a program
+# writing them back passes them to the window
+rm -f /tmp/tap /tmp/tap2
+cat /mnt/wsys/kbdtap >/tmp/tap &
+tp=$apid
+sleep 0.3
+cat /mnt/wsys/kbdtap >/dev/null >[2]/tmp/tap2
+grep -s 'in use' /tmp/tap2 || fail a second reader of kbdtap: `{cat /tmp/tap2}
+key 'echo tapped'; nl
+sleep 0.5
+tr '\000' '\012' </tmp/tap >/tmp/tapl
+grep -s '^z'$id'$' /tmp/tapl && grep -s '^ct$' /tmp/tapl || fail the tap read: `{cat /tmp/tapl}
+intext tapped && fail the window got the keys the tap took
+echo kill >/proc/$tp/ctl
+sleep 0.3
+cat /mnt/wsys/kbdtap >/mnt/wsys/kbdtap &
+tp=$apid
+sleep 0.3
+key 'echo through the tap'; nl
+wait1 intext '^through the tap$' || fail keys through the tap: `{tail -2 /mnt/wsys/$id/text}
+echo kill >/proc/$tp/ctl
+echo ok kbdtap: the keys to its reader, back to the window from its writer
 echo text: all passed
