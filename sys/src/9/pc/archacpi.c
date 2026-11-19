@@ -799,6 +799,8 @@ static struct {
 	int	pm1[2];		/* PM1a, PM1b event blocks: status, then enable */
 	int	pm1len;		/* bytes of each half */
 	int	pm1cnt;		/* PM1a's control block: SCI_EN */
+	int	pm1bcnt;	/* PM1b's control block (9space: sleep) */
+	uvlong	facs;		/* the FACS (9space: the waking vector) */
 	int	smicmd;		/* SMI_CMD, and what switches to ACPI mode */
 	int	acpienable;
 	int	gpe[2];		/* GPE0, GPE1 blocks: status, then enable */
@@ -1005,6 +1007,100 @@ acpievwrite(Chan*, void *a, long n, vlong)
 	return n;
 }
 
+/*
+ * 9space: sleeping, S3 (suspend to RAM).  aux/acpi evaluates _PTS and
+ * _S3's SLP_TYPa, SLP_TYPb, writes "sleep a b" here and _WAK after it
+ * returned.  The processor's part (its state, the interrupt controllers,
+ * the way back from the waking vector) is the architecture's
+ * archsuspend (pc64/acpisleep.c); it calls acpisleepenter with the
+ * waking vector set.  As OpenBSD's acpi_sleep_state and
+ * acpi_write_pmreg (dev/acpi/acpi.c, ISC).
+ */
+char*	(*archsuspend)(char* (*)(void*), void*);	/* nil, or why not */
+static int slptyp[2];
+
+/* the firmware jumps to pa in real mode on waking (FACS' waking vector) */
+void
+acpiwakevector(ulong pa)
+{
+	static uchar *f;
+
+	if(f == nil)
+		f = vmapmem(acpiev.facs, 64);
+	if(f == nil)
+		return;
+	f[12] = pa;
+	f[13] = pa>>8;
+	f[14] = pa>>16;
+	f[15] = pa>>24;
+	if(get32(f + 4) >= 32)		/* the 64-bit vector: 0, the real mode one counts */
+		memset(f + 24, 0, 8);
+}
+
+static char*
+acpisleepenter(void*)
+{
+	ushort v;
+	int i;
+
+	/* the wake status cleared, the sleep type, then it with SLP_EN */
+	outs(acpiev.pm1[0], 1<<15);
+	if(acpiev.pm1[1] != 0)
+		outs(acpiev.pm1[1], 1<<15);
+	wbinvd();
+	v = ins(acpiev.pm1cnt) & ~(7<<10 | 1<<13);
+	outs(acpiev.pm1cnt, v | slptyp[0]<<10);
+	if(acpiev.pm1bcnt != 0)
+		outs(acpiev.pm1bcnt, (ins(acpiev.pm1bcnt) & ~(7<<10 | 1<<13)) | slptyp[1]<<10);
+	outs(acpiev.pm1cnt, v | slptyp[0]<<10 | 1<<13);
+	if(acpiev.pm1bcnt != 0)
+		outs(acpiev.pm1bcnt, (ins(acpiev.pm1bcnt) & ~(7<<10 | 1<<13)) | slptyp[1]<<10 | 1<<13);
+
+	/* asleep now; a machine that did not go comes on here */
+	for(i = 0; i < 1000; i++){
+		if(ins(acpiev.pm1[0]) & 1<<15)
+			break;
+		microdelay(100);
+	}
+	return "the machine did not sleep";
+}
+
+static QLock sleeplock;
+
+static long
+acpisleepwrite(Chan*, void *a, long n, vlong)
+{
+	Cmdbuf *cb;
+	char *e;
+
+	if(!iseve())
+		error(Eperm);
+	cb = parsecmd(a, n);
+	if(waserror()){
+		free(cb);
+		nexterror();
+	}
+	if(cb->nf != 3 || strcmp(cb->f[0], "sleep") != 0)
+		error("usage: sleep slptypa slptypb");
+	if(archsuspend == nil)
+		error("suspend not supported on this architecture");
+	slptyp[0] = strtol(cb->f[1], nil, 0) & 7;
+	slptyp[1] = strtol(cb->f[2], nil, 0) & 7;
+
+	/* one at a time, on the bootstrap processor: it is the one that wakes */
+	qlock(&sleeplock);
+	procwired(up, 0);
+	sched();
+	e = archsuspend(acpisleepenter, nil);
+	up->wired = 0;
+	qunlock(&sleeplock);
+	if(e != nil)
+		error(e);
+	poperror();
+	free(cb);
+	return n;
+}
+
 /* the FADT's event blocks (I/O ports only: no hardware-reduced ACPI) */
 static void
 acpievinit(void)
@@ -1052,6 +1148,16 @@ acpievinit(void)
 		return;
 	acpiev.sci = get16(p + 46);
 	addarchfile("acpiev", 0600, acpievread, acpievwrite);
+
+	/* 9space: sleeping (S3): PM1b's control block, the FACS */
+	acpiev.pm1bcnt = get32(p + 68);
+	if(acpiev.pm1bcnt == 0 && l >= 196 && p[184] == IoSpace)
+		acpiev.pm1bcnt = get64(p + 188);
+	acpiev.facs = get32(p + 36);
+	if(acpiev.facs == 0 && l >= 140)
+		acpiev.facs = get64(p + 132);
+	if(acpiev.pm1cnt != 0 && acpiev.facs != 0)
+		addarchfile("acpisleep", 0200, nil, acpisleepwrite);
 }
 
 static void

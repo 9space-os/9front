@@ -415,6 +415,50 @@ struct Router {
 static ushort pciirqs;		/* Exclusive PCI irqs */
 static Bridge *southbridge;	/* Which southbridge to use. */
 
+/*
+ * 9space: the links the routing table uses, for suspend and resume
+ * (pc64/acpisleep.c): a chipset reset in S3 (QEMU's PIIX) loses them,
+ * and the firmware need not set them again on the way back.
+ */
+static Pcidev *sbrouter;
+static uchar sblink[32], sbirq[32];
+static int nsblink;
+
+static void
+addsblink(uchar link)
+{
+	int i;
+
+	for(i = 0; i < nsblink; i++)
+		if(sblink[i] == link)
+			return;
+	if(nsblink < nelem(sblink))
+		sblink[nsblink++] = link;
+}
+
+void
+pciroutingsave(void)
+{
+	int i;
+
+	if(sbrouter == nil)
+		return;
+	for(i = 0; i < nsblink; i++)
+		sbirq[i] = southbridge->get(sbrouter, sblink[i]);
+}
+
+void
+pciroutingrestore(void)
+{
+	int i;
+
+	if(sbrouter == nil || southbridge->set == nil)
+		return;
+	for(i = 0; i < nsblink; i++)
+		if(sbirq[i] != 0 && southbridge->get(sbrouter, sblink[i]) != sbirq[i])
+			southbridge->set(sbrouter, sblink[i], sbirq[i]);
+}
+
 static void
 pcirouting(void)
 {
@@ -453,6 +497,7 @@ pcirouting(void)
 	southbridge = &southbridges[i];
 	if(southbridge->get == nil)
 		return;
+	sbrouter = sbpci;	/* 9space: suspend and resume */
 
 	pciirqs = (r->pciirqs[1] << 8)|r->pciirqs[0];
 	for(e = (Slot *)&r[1]; (uchar *)e < p + size; e++) {
@@ -475,6 +520,7 @@ pcirouting(void)
 
 			map = &e->maps[((pin - 1) % 4) * 3];
 			link = map[0];
+			addsblink(link);	/* 9space */
 			irq = southbridge->get(sbpci, link);
 			if(irq == pci->intl)
 				continue;

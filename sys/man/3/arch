@@ -6,6 +6,7 @@ arch \- architecture-specific information and control
 .B bind -a #P /dev
 .sp 0.3v
 .B /dev/acpiev
+.B /dev/acpisleep
 .br
 .B /dev/acpitbls
 .B /dev/archctl
@@ -185,6 +186,31 @@ It is not there with
 .BR *noacpiev= ,
 or where the firmware has no event blocks.
 .PP
+A write of
+.BI "sleep " "slptypa slptypb"
+to
+.I acpisleep
+suspends the machine to RAM (ACPI S3): the values for the
+PM1a and PM1b control registers' SLP_TYP field, as the firmware's
+.B _S3
+object gives them.
+The kernel saves the processor's state and the PCI configuration,
+calls each device driver's power function to turn it off,
+points the FACS's waking vector at a trampoline below 1 MB and
+sets SLP_EN.
+When the machine wakes, it restores the processor, the interrupt
+controllers, the clocks, the PCI interrupt routing and configuration,
+powers the devices on again, and the write returns.
+The write fails with an error when the machine did not sleep,
+on a processor other than the first, or with more than one processor
+running.
+The AML part of a suspend
+.RB ( _PTS ,
+.BR _WAK )
+is the caller's.
+Only the host owner may write it; it is there only where the FADT
+names a FACS and a PM1a control register.
+.PP
 Reads from
 .I acpitbls
 return a concatenation of system ACPI tables. Each table
@@ -227,5 +253,9 @@ inportb(unsigned port)
 .EE
 .SH SOURCE
 .B /sys/src/9/pc/devarch.c
+.br
+.B /sys/src/9/pc/archacpi.c
+.br
+.B /sys/src/9/pc64/acpisleep.c
 .br
 .B /sys/src/9/pc/smbios.c

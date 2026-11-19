@@ -108,6 +108,21 @@ hpetinit(void)
 		m->cpumhz = 1;
 }
 
+/*
+ * 9space: after a sleep (S3): the counter as it was when it stopped, and
+ * counting again (hpetread's last; the time asleep comes from the RTC)
+ */
+void
+hpetresume(void)
+{
+	if(hpet.mmio == nil)
+		return;
+	hpet.mmio[Config] &= ~1;
+	hpet.mmio[Ctrlo] = hpet.last;
+	hpet.mmio[Ctrhi] = hpet.last>>32;
+	hpet.mmio[Config] |= 1;
+}
+
 uvlong
 hpetread(uvlong *hz)
 {

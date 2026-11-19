@@ -118,6 +118,8 @@ uintptr	paddr(void*);
 void	patwc(void*, int);
 int	pcibiosinit(int*, int*);
 void	pcicfginit(void);
+void	pciroutingrestore(void);
+void	pciroutingsave(void);
 void	pcimcfginit(uvlong, int, int);
 int	(*pcicfgrw8)(int, int, int, int);
 int	(*pcicfgrw16)(int, int, int, int);
