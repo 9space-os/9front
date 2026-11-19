@@ -1,0 +1,34 @@
+#!/bin/rc
+# run by wsys -x -i (tests/gpu/run.sh, WSYSDEBUG=comp, its log /tmp/wsys.log):
+# the GPU's driver killed while wsys composes on the GPU, then started
+# again (as killdrv.rc): wsys composes on the processor meanwhile and on
+# the GPU again once the driver is back; vktri's frames then GPU buffers
+# composed there, its pixels in the screen as composed. Lines "back: ...".
+fn drvpids { ps | awk '$NF == "virtiogpu" {print $2}' }
+fn waitexit { # log
+	n=0
+	while(! grep -s '^wsysvk: exit' $1 && test $n -lt 600){ sleep 0.1; n=`{echo $n+1 | hoc} }
+}
+fn waitlog { # pattern tenths
+	n=0
+	while(! grep -s $1 /tmp/wsys.log && test $n -lt $2){ sleep 0.1; n=`{echo $n+1 | hoc} }
+	grep -s $1 /tmp/wsys.log
+}
+rm -f /tmp/wba.log /tmp/wbb.log
+window -r 20 20 500 380 /tests/wsysvktri /tmp/wba.log comp
+waitexit /tmp/wba.log
+sed 's/^/back: before: /' /tmp/wba.log
+# as the pager does: a kill, no note handler runs
+for(p in `{drvpids})
+	@{echo kill >/proc/$p/note} >[2]/dev/null
+if(waitlog 'composes no longer' 100) echo back: fell back to the processor
+if not echo back: no fallback
+sleep 2
+aux/virtiogpu >[2]/dev/null
+echo back: driver again `{drvpids}
+if(waitlog 'the GPU composes again' 700) echo back: the GPU composes again
+if not echo back: the GPU composes not again
+window -r 20 20 500 380 /tests/wsysvktri /tmp/wbb.log comp
+waitexit /tmp/wbb.log
+sed 's/^/back: after: /' /tmp/wbb.log
+echo back: done

@@ -191,6 +191,8 @@ enum Ev {
     Overlay { win: u32, b: u32, tag: Option<u16>, count: u32, err: Option<String> },
     // the GPU's thread (-g): a frame on its way, or it is gone
     Comp(comp::Done),
+    // a new GPU's thread after a failure (compagain): started, or why not
+    CompStarted(Result<comp::Comp, String>),
 }
 
 /// a request for the overlay's thread: its own fid of wsys' GPU context, as the
@@ -333,6 +335,7 @@ struct Buf {
     stride: usize,
     comp: bool, // imported by the GPU's thread too (-g): it composes it
     alpha: bool, // a8r8g8b8 (premultiplied): a layer over others is blended
+    token: Option<String>, // gpubuffer's: imported again by a GPU's thread started anew
 }
 
 /// a buffer's channels, the last word of buffer and gpubuffer: x8r8g8b8 (the
@@ -884,6 +887,9 @@ struct Wsys {
     gpu: Option<gpu::Gpu>, // a context for clients' GPU buffers, made for the first
     segs: HashMap<usize, Weak<Seg>>, // the clients' segments attached, by address
     comp: Option<comp::Comp>, // -g: the GPU composes the screen
+    compwant: Option<bool>,       // the GPU may compose (Some: its verbose flag): started again after a failure
+    compretry: Option<(std::time::Instant, std::time::Duration)>, // when to try again, and the wait after that
+    compstarting: bool,           // a try on its way (its own thread: Vulkan's start would hold the main loop)
     compscene: Vec<comp::Shown>, // what it was told last
     compdirty: bool,             // a buffer presented since: a frame
     compgone: Vec<(u32, u32)>,   // buffers out of the scene: back when the next frame is composed
@@ -893,6 +899,7 @@ struct Wsys {
     hlast: Option<u32>,          // the window without the focus the pointer was over (its event file's m)
     tap: Tap,                    // the keyboard's tap (kbdtap)
     textdue: std::collections::BTreeSet<u32>, // text windows to draw at the end of the batch (drawdue)
+    outputdue: bool, // a program's output among textdue's: more may follow (the main loop waits)
 }
 
 fn qid(k: Kind) -> Qid {
@@ -2351,7 +2358,7 @@ impl Wsys {
                     }
                 };
                 let w = self.wins.get_mut(&n).unwrap();
-                w.bufs.insert(b as u32, Buf { mem: Mem::Seg(seg, off), w: bw as i32, h: bh as i32, stride: stride as usize, comp: false, alpha });
+                w.bufs.insert(b as u32, Buf { mem: Mem::Seg(seg, off), w: bw as i32, h: bh as i32, stride: stride as usize, comp: false, alpha, token: None });
                 Ok(())
             }
             "gpubuffer" => {
@@ -2368,7 +2375,15 @@ impl Wsys {
                     self.gpu = Some(gpu::Gpu::open().map_err(|e| format!("gpubuffer {b}: {e}"))?);
                 }
                 let size = (stride * (bh - 1) + bw * 4) as usize;
-                let mem = self.gpu.as_mut().unwrap().import(token, size).map_err(|e| format!("gpubuffer {b}: {e}"))?;
+                // a context of a driver gone (killed and started again: compfailed,
+                // compagain) imports nothing more: a new one, once
+                let mem = match self.gpu.as_mut().unwrap().import(token, size) {
+                    Ok(m) => m,
+                    Err(_) => {
+                        self.gpu = Some(gpu::Gpu::open().map_err(|e| format!("gpubuffer {b}: {e}"))?);
+                        self.gpu.as_mut().unwrap().import(token, size).map_err(|e| format!("gpubuffer {b}: {e}"))?
+                    }
+                };
                 self.unbuffer(n, b as u32);
                 // -g: the GPU's thread imports it too and composes it; else (or if it
                 // cannot) wsys copies it with the processor
@@ -2380,7 +2395,7 @@ impl Wsys {
                     None => false,
                 };
                 let w = self.wins.get_mut(&n).unwrap();
-                w.bufs.insert(b as u32, Buf { mem: Mem::Gpu(mem), w: bw as i32, h: bh as i32, stride: stride as usize, comp, alpha });
+                w.bufs.insert(b as u32, Buf { mem: Mem::Gpu(mem), w: bw as i32, h: bh as i32, stride: stride as usize, comp, alpha, token: Some(token.to_string()) });
                 Ok(())
             }
             "unbuffer" => {
@@ -2879,6 +2894,12 @@ impl Wsys {
     fn compfailed(&mut self, e: String) {
         eprintln!("wsys: the GPU composes no longer: {e}");
         self.comp = None;
+        // a driver that comes back (aux/i915 killed and started again, a scanout
+        // refused once): the GPU again, tried now and then (compretry)
+        if self.compwant.is_some() {
+            let first = std::time::Duration::from_secs(2);
+            self.compretry = Some((std::time::Instant::now() + first, first));
+        }
         self.compscene.clear();
         let ids: Vec<u32> = self.wins.keys().copied().collect();
         for n in ids {
@@ -2916,6 +2937,77 @@ impl Wsys {
         }
         for (n, b) in std::mem::take(&mut self.compgone) {
             self.event(n, format!("b {b}"));
+        }
+    }
+
+    /// the GPU's composing again after compfailed, when its time is due: a new
+    /// thread of comp, started by a thread of its own (Vulkan's start takes a
+    /// while where the framebuffer is there but its driver is not: the main
+    /// loop goes on), the result an event (compstarted)
+    fn compagain(&mut self) {
+        let Some((at, _)) = self.compretry else { return };
+        if self.comp.is_some() || self.compstarting || std::time::Instant::now() < at {
+            return;
+        }
+        self.compstarting = true;
+        let verbose = self.compwant.unwrap_or(false);
+        let tx = self.tx.clone();
+        thread::spawn(move || {
+            let done = tx.clone();
+            let r = comp::Comp::start(
+                Box::new(move |d| {
+                    let _ = done.send(Ev::Comp(d));
+                }),
+                verbose,
+            );
+            let _ = tx.send(Ev::CompStarted(r));
+        });
+    }
+
+    /// compagain's try done: the GPU composes again, the clients' GPU buffers
+    /// imported into it again (those it cannot take, of a driver gone, stay
+    /// the processor's until their clients give new ones), all of the screen
+    /// its first frame; else another try later, the wait doubled (a minute at
+    /// most)
+    fn compstarted(&mut self, r: Result<comp::Comp, String>) {
+        self.compstarting = false;
+        let Some((_, wait)) = self.compretry else { return };
+        let c = match r {
+            Ok(c) if self.comp.is_none() => c,
+            Ok(_) => return,
+            Err(e) => {
+                if self.compwant == Some(true) {
+                    eprintln!("wsys: the GPU composes not yet: {e}; again in {} s", wait.as_secs());
+                }
+                let next = (wait * 2).min(std::time::Duration::from_secs(60));
+                self.compretry = Some((std::time::Instant::now() + wait, next));
+                return;
+            }
+        };
+        eprintln!("wsys: the GPU composes again");
+        self.compretry = None;
+        let ids: Vec<u32> = self.wins.keys().copied().collect();
+        for n in &ids {
+            let w = self.wins.get_mut(n).unwrap();
+            for (b, buf) in w.bufs.iter_mut() {
+                if let (Mem::Gpu(_), Some(t)) = (&buf.mem, &buf.token) {
+                    buf.comp = c.import((*n, *b), t, buf.w, buf.h, buf.stride).is_ok();
+                }
+            }
+        }
+        // all of the screen in its first frame (the old thread's reader of #G's
+        // dirty file may take one rectangle more before it ends)
+        c.damage(self.d.r);
+        self.comp = Some(c);
+        self.compdirty = true;
+        // the windows drawn again: the GPU's frames show them
+        for n in ids {
+            if let Some(w) = self.wins.get_mut(&n) {
+                w.resized = true;
+            }
+            self.paintborder(n);
+            self.drawtext(n);
+            self.wake(n);
         }
     }
 
@@ -5111,6 +5203,9 @@ impl Wsys {
     /// what a program wrote to window n's cons or text: whole runes (the start
     /// of one waits for the rest), backspace takes one back
     fn output(&mut self, n: u32, data: &[u8]) {
+        // more lines are likely to follow: the main loop gathers them (not so
+        // for what the keyboard echoes, drawn at the batch's end at once)
+        self.outputdue = true;
         let w = self.wins.get_mut(&n).unwrap();
         let mut b = std::mem::take(&mut w.partial);
         b.extend_from_slice(data);
@@ -5918,6 +6013,9 @@ fn main() {
         gpu: None,
         segs: HashMap::new(),
         comp: None,
+        compwant: None,
+        compretry: None,
+        compstarting: false,
         compscene: vec![],
         compdirty: false,
         compgone: vec![],
@@ -5927,6 +6025,7 @@ fn main() {
         hlast: None,
         tap: Tap::default(),
         textdue: Default::default(),
+        outputdue: false,
         tabstop: std::env::var("tabstop").ok().and_then(|t| t.trim().parse().ok()).filter(|&t: &i32| t > 0).unwrap_or(4),
         // rio's snarf, when wsys runs in a window of rio
         parentsnarf: std::fs::metadata("/dev/snarf").is_ok() && std::fs::metadata("/dev/wctl").is_ok(),
@@ -5982,6 +6081,7 @@ fn main() {
             Some(format!("the screen is {}, not x8r8g8b8", draw::chanstr(ws.d.chan)))
         } else {
             let tx = tx.clone();
+            ws.compwant = Some(verbose);
             match comp::Comp::start(
                 Box::new(move |d| {
                     let _ = tx.send(Ev::Comp(d));
@@ -6070,6 +6170,7 @@ fn main() {
             }
             Ev::Kbd(m) => ws.kbd(m),
             Ev::Tick => {
+                ws.compagain();
                 if let Some((n, but, next)) = ws.scrolling {
                     let now = std::time::Instant::now();
                     if but != 2 && now >= next {
@@ -6090,6 +6191,7 @@ fn main() {
             }
             Ev::Overlay { win, b, tag, count, err } => ws.overlay_done(win, b, tag, count, err),
             Ev::Comp(comp::Done::Composed(keys)) => ws.composed(keys),
+            Ev::CompStarted(r) => ws.compstarted(r),
             Ev::Comp(comp::Done::Failed(e)) => {
                 if ws.comp.is_some() {
                     ws.compfailed(e);
@@ -6114,7 +6216,8 @@ fn main() {
             // gap joins it, else each line would be a batch of its own (its
             // writer's next line arrives just after the reply) and a round trip
             // on a display over the network
-            let wait = if ws.textdue.is_empty() { std::time::Duration::ZERO } else { PRESENTGAP.saturating_sub(presented.elapsed()) };
+            // (only for output: an echo of the keyboard goes out at once)
+            let wait = if ws.textdue.is_empty() || !ws.outputdue { std::time::Duration::ZERO } else { PRESENTGAP.saturating_sub(presented.elapsed()) };
             if let Ok(ev) = rx.recv_timeout(wait) {
                 next = Some(ev);
                 continue;
@@ -6123,6 +6226,7 @@ fn main() {
         // after whatever changed: the text windows' drawing; the window on the
         // overlay plane may have to leave it; with -g, what the GPU composes
         ws.drawdue();
+        ws.outputdue = false;
         ws.corepresent();
         ws.ovcheck();
         ws.compsync();
