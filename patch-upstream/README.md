@@ -33,7 +33,7 @@ All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 2026-11-12); 0032 to 0034 on them at `eb49f1f87` (2026-11-14); all 38 at
 `6ae667969` (2026-11-15), 0039 to 0044 on them there (2026-11-16), 0045
 on them there (2026-11-17), 0046 and 0047 on them there (2026-11-18);
-all 59 at `cb9e5e7e9` (2026-11-19). Each applies alone too, except:
+all 59 at `cb9e5e7e9` (2026-11-19), 0060 on them there (2026-11-19). Each applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
 - 0010 needs 0007 and 0009,
@@ -67,7 +67,8 @@ made with an AI assistant); drop it if 9front does not want it.
   `fcntl`, `setvbuf` (`6c`), `ape/lib/9`'s `getenv` (`6c` and `8c`),
   `ape/lib/draw`'s `newwindow` and `scroll` (`6c`); reform's `shortcuts`
   (`6c`); and a `#if` on `INT8_MIN` to `INT64_MIN` with `pcc`. No errors,
-  no warnings. 0048 changes comments only.
+  no warnings. 0048 changes comments only. 0060: `port/devsegment.c`
+  with `6c` (pc64) and `8c` (pc), the same way.
 - **Not done**: a kernel and ext4srv built with 9front's compilers and run
   with these patches. The kernel conf (0014), riostart (0015) and the
   dist mkfile (0024) are not compiled code; the gcc branch makes its CD
@@ -137,6 +138,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0057 | reform/shortcuts: volume and mute under audio(3) as well | bug fix |
 | 0058 | wifi: putrates wrote all rates again into the extended element | bug fix |
 | 0059 | wifi: the link is up as soon as the access point is associated | bug fix |
+| 0060 | devsegment: an ORCLOSE segment directory removed whatever was in its slot | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -823,6 +825,19 @@ handshake) up to 500 ms before `ethersetlink(1)`, which only came with
 down, so the first packet after an association was lost (the first ping
 to a new access point). `setstatus` now raises the link when the bss
 becomes associated or blocked.
+
+### 0060 devsegment: an ORCLOSE segment directory removes the segment it made, not whatever is in its slot
+
+`segmentclose` removed the segment of a chan created with ORCLOSE by
+its slot number. If that segment had been removed by name meanwhile and
+another one created in the same slot, the close removed the other one.
+The chan now keeps a reference to the segment it made and removes it
+only if the slot still holds it. Found while making 9space's GPU drivers
+create their segments ORCLOSE (so that a driver the pager kills leaves
+none behind), by reading the code: no test provokes the slot reuse
+itself. The same change runs in 9space's system in QEMU under
+tests/gpu (its killdrv check: the driver killed while vkcube draws,
+none of its segments left). Not done: run on 9front's own kernel.
 
 ## Not included
 
