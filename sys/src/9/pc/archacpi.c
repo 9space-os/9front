@@ -296,8 +296,13 @@ pcibusno(void *dot)
 		if((p = amlval(x)) != nil)
 			id = amleisaid(p);
 	if((x = amlwalk(dot, "^_BBN")) == nil)
-		if((x = amlwalk(dot, "^_ADR")) == nil)
-			return -1;
+		x = amlwalk(dot, "^_ADR");
+	if(x == nil){
+		/* a root bridge without _BBN is bus 0 (ACPI: _BBN may be left out) */
+		if(id != nil && (strcmp(id, "PNP0A03")==0 || strcmp(id, "PNP0A08")==0))
+			return 0;
+		return -1;
+	}
 	p = nil;
 	if(amleval(x, "", &p) < 0)
 		return -1;
