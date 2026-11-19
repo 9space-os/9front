@@ -4,6 +4,9 @@ ui \- a window of widgets, described through files
 .SH SYNOPSIS
 .B ui
 [
+.B -c
+.I lifeline
+] [
 .B -p
 ] [
 .B -s
@@ -40,6 +43,45 @@ posts its files in
 .BI ui. user . pid\fR,
 printed on standard output); the entry goes with
 .IR ui .
+.B -c
+makes
+.I ui
+the program's that started it:
+.I ui
+opens
+.BI /srv/ lifelineR,
+one end of a pipe the program posted (with
+.BR ORCLOSE ,
+.IR open (2)),
+and ends when it reads end of file there: when the program closed the
+other end, which it holds close-on-exec, or ended, however it ended (a
+note, a kill), wherever its name space and its mounts of
+.I ui
+are; when
+.BI /srv/ lifeline
+is gone already,
+.I ui
+ends at once. The libraries' calls that start
+.I ui
+in a new window
+.RI ( ui (2)'s
+.IR uinew ,
+uigo's
+.IR New ,
+uiview's
+.IR Ui::new )
+make the lifeline
+.BI /srv/ srvname .life
+and give it; closing the
+.I Ui
+.RI ( uiclose ,
+.IR Close ,
+the end of its Rust value) ends
+.I ui
+too. Without
+.BR -c ,
+.I ui
+stays until its window is deleted.
 Its widgets are Masonry's (linebender), drawn by vello on the GPU (wgpu's
 Vulkan:
 .IR gpu (4)

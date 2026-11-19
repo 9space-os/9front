@@ -63,6 +63,7 @@ use scene::{Kind, Scene, ROOT};
 enum UserEvent {
     NineP(Vec<u8>), // a client's message
     Hangup,         // the clients' connection ended
+    ClientGone,     // ui -c: the program that started it ended (its lifeline closed)
 }
 
 /// the fonts of the system: /lib/font/ttf (Plan 9's fonts are files); the
@@ -1714,6 +1715,7 @@ impl ApplicationHandler<UserEvent> for App {
                 self.signals(el);
             }
             UserEvent::Hangup => {}
+            UserEvent::ClientGone => el.exit(),
         }
     }
 
@@ -1866,16 +1868,21 @@ fn main() {
     let user = std::fs::read_to_string("/dev/user").unwrap_or_else(|_| "none".into());
     let mut srv = format!("ui.{}.{}", user.trim(), std::process::id());
     let mut cpu = false;
+    let mut life = None;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "-p" => cpu = true,
+            "-c" if i + 1 < args.len() => {
+                life = Some(args[i + 1].clone());
+                i += 1;
+            }
             "-s" if i + 1 < args.len() => {
                 srv = args[i + 1].clone();
                 i += 1;
             }
             _ => {
-                eprintln!("usage: ui [-p] [-s srvname]");
+                eprintln!("usage: ui [-c lifeline] [-p] [-s srvname]");
                 std::process::exit(1);
             }
         }
@@ -1906,6 +1913,21 @@ fn main() {
     };
     let input = Fd::open(&format!("#d/{}", ours.0), OREAD).expect("ui: our end");
     let proxy = el.create_proxy();
+    // -c: the program that started ui keeps the other end of the pipe in
+    // /srv/lifeline open; it reads end of file when the program ends, however
+    // it ends, and ui with it (gone already: ui goes at once)
+    if let Some(l) = life {
+        let Ok(fd) = Fd::open(&format!("/srv/{l}"), OREAD) else {
+            eprintln!("ui: /srv/{l}: its program is gone");
+            std::process::exit(0);
+        };
+        let p = proxy.clone();
+        std::thread::spawn(move || {
+            let mut b = [0u8; 64];
+            while matches!(fd.read(&mut b), Ok(n) if n > 0) {}
+            let _ = p.send_event(UserEvent::ClientGone);
+        });
+    }
     std::thread::spawn(move || reader(input, proxy));
     let (signal_tx, signals) = mpsc::channel();
     let mut app = App {

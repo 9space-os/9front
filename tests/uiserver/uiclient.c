@@ -7,18 +7,29 @@
  * after two clicks or when ui does.  A line each event, "ready" once the
  * scene is there (with where ui's files are), "count n" at the end.
  * An alarm ends it after 60 s: a test does not hang on it.
+ * -x: once ready, a child that runs another program (sleep 600; "child
+ * pid"): it must not keep ui alive when this one dies (the lifeline's end
+ * is close-on-exec, ui(2)).
  */
 #include <u.h>
 #include <libc.h>
 #include <ui.h>
 
 void
-main(void)
+main(int argc, char **argv)
 {
 	Ui *u;
 	Uievent e;
-	int count;
+	int count, child, pid;
 
+	child = 0;
+	ARGBEGIN{
+	case 'x':
+		child = 1;
+		break;
+	default:
+		sysfatal("usage: uiclient [-x]");
+	}ARGEND
 	alarm(60*1000);
 	if((u = uinew("uiclient", "/mnt/uic")) == nil)
 		sysfatal("uinew: %r");
@@ -27,6 +38,17 @@ main(void)
 		sysfatal("uictl: %r");
 	if(uiset(u, "c", "text", " check me ") < 0)	/* quoted: blanks at its ends */
 		sysfatal("uiset: %r");
+	if(child){
+		switch(pid = fork()){
+		case -1:
+			sysfatal("fork: %r");
+		case 0:
+			alarm(0);
+			execl("/bin/sleep", "sleep", "600", nil);
+			sysfatal("exec: %r");
+		}
+		print("child %d\n", pid);
+	}
 	print("ready %s %s\n", u->srv, u->mtpt);
 	count = 0;
 	while(uievent(u, &e) >= 0){

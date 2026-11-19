@@ -4,7 +4,7 @@
 // the program's own (it does not change its shell's); ui started in a new
 // window of rio or wsys (window(1)) first, as libui's uinew does (ui(2)).
 
-use std::ffi::{CString, c_char, c_int};
+use std::ffi::{CString, c_char, c_int, c_long, c_void};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::sync::{Arc, mpsc};
@@ -27,9 +27,19 @@ unsafe extern "C" {
     fn p9close(fd: c_int) -> c_int;
     #[link_name = "__p9_rerrstr"]
     fn p9rerrstr(buf: *mut c_char, n: u32);
+    #[link_name = "__p9_create"]
+    fn p9create(file: *const c_char, mode: c_int, perm: u32) -> c_int;
+    #[link_name = "__p9_write"]
+    fn p9write(fd: c_int, buf: *const c_void, n: c_long) -> c_long;
+    #[link_name = "__p9_pipe"]
+    fn p9pipe(fd: *mut c_int) -> c_int;
 }
 
+const OREAD: c_int = 0;
+const OWRITE: c_int = 1;
 const ORDWR: c_int = 2;
+const OCEXEC: c_int = 32;
+const ORCLOSE: c_int = 64;
 const MREPL: c_int = 0;
 const RFNAMEG: c_int = 1 << 0;
 
@@ -50,6 +60,46 @@ pub struct Ui {
     pub mtpt: String,
     ctl: File,
     events: Option<Events>, // taken by run_on_with's reader
+    life: Option<[c_int; 2]>, // new's: ui's lifeline (ui -c), its /srv entry and our end
+}
+
+/// ui's lifeline (ui -c): a pipe, one end posted as /srv/name (ORCLOSE: the
+/// entry goes with this program), the other kept here; ui reads the posted
+/// end and gets end of file when this program ends, however it ends (or the
+/// Ui is dropped): it ends then too. Both close-on-exec: no program this one
+/// starts keeps ui alive.
+fn lifeline(name: &str) -> io::Result<[c_int; 2]> {
+    let mut p = [0 as c_int; 2];
+    if unsafe { p9pipe(p.as_mut_ptr()) } < 0 {
+        return Err(err("pipe"));
+    }
+    let close = |fd: c_int| unsafe { p9close(fd) };
+    let s = cstr(&format!("/srv/{name}"))?;
+    let srv = unsafe { p9create(s.as_ptr(), OWRITE | ORCLOSE | OCEXEC, 0o600) };
+    if srv < 0 {
+        let e = err(&format!("/srv/{name}"));
+        close(p[0]);
+        close(p[1]);
+        return Err(e);
+    }
+    let n = p[1].to_string();
+    let w = unsafe { p9write(srv, n.as_ptr() as *const c_void, n.len() as c_long) };
+    close(p[1]);
+    if w != n.len() as c_long {
+        let e = err(&format!("/srv/{name}"));
+        close(srv);
+        close(p[0]);
+        return Err(e);
+    }
+    let d = cstr(&format!("#d/{}", p[0]))?;
+    let end = unsafe { p9open(d.as_ptr(), OREAD | OCEXEC) };
+    close(p[0]);
+    if end < 0 {
+        let e = err("the lifeline's end");
+        close(srv);
+        return Err(e);
+    }
+    Ok([srv, end])
 }
 
 /// a ui's event file, read a line at a time
@@ -100,23 +150,31 @@ impl Ui {
         }
         let ctl = File::options().write(true).open(format!("{mtpt}/ctl"))?;
         let event = File::open(format!("{mtpt}/event"))?;
-        Ok(Ui { srv: srv.into(), mtpt: mtpt.into(), ctl, events: Some(Events { event, buf: Vec::new() }) })
+        Ok(Ui { srv: srv.into(), mtpt: mtpt.into(), ctl, events: Some(Events { event, buf: Vec::new() }), life: None })
     }
 
     /// ui in a new window, titled
     pub fn new(title: &str) -> io::Result<Ui> {
         let user = std::env::var("user").unwrap_or_else(|_| "none".into());
         let srv = format!("ui.{user}.{}.0", std::process::id());
+        let life = lifeline(&format!("{srv}.life"))?;
+        let gone = |e: io::Error| {
+            for fd in life {
+                unsafe { p9close(fd) };
+            }
+            e
+        };
         // window(1) returns once the window is there; ui posts soon after
-        std::process::Command::new("/bin/window").arg(format!("/bin/ui -s {srv}")).status()?;
+        std::process::Command::new("/bin/window").arg(format!("/bin/ui -c {srv}.life -s {srv}")).status().map_err(gone)?;
         let t = Instant::now();
         while std::fs::metadata(format!("/srv/{srv}")).is_err() {
             if t.elapsed() > Duration::from_secs(10) {
-                return Err(io::Error::other(format!("no /srv/{srv} from a new ui")));
+                return Err(gone(io::Error::other(format!("no /srv/{srv} from a new ui"))));
             }
             std::thread::sleep(Duration::from_millis(100));
         }
-        let mut u = Ui::open(&srv, "/mnt/ui")?;
+        let mut u = Ui::open(&srv, "/mnt/ui").map_err(gone)?;
+        u.life = Some(life);
         u.ctl(&format!("title {}\n", crate::quote(title)))?;
         Ok(u)
     }
@@ -203,6 +261,10 @@ impl Drop for Ui {
     fn drop(&mut self) {
         if let Ok(m) = cstr(&self.mtpt) {
             unsafe { p9unmount(std::ptr::null(), m.as_ptr()) };
+        }
+        // new's ui ends
+        for fd in self.life.take().into_iter().flatten() {
+            unsafe { p9close(fd) };
         }
     }
 }

@@ -56,6 +56,11 @@ and
 .I Uinew
 starts
 .B /bin/ui
+with a lifeline
+.RB ( -c ,
+.IR ui (4):
+it ends with the program, also a killed one, or with
+.IR uiclose )
 in a new window of
 .IR rio (1)
 or

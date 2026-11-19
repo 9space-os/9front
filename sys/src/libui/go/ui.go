@@ -35,6 +35,7 @@ type Ui struct {
 	ctl   io.WriteCloser
 	ev    io.ReadCloser
 	event *bufio.Reader
+	life  func() // New's: closes ui's lifeline (ui -c), and ui ends
 }
 
 // where ui's files are: mounted, or a 9P conversation of the package's
@@ -176,5 +177,8 @@ func (u *Ui) WriteFile(name string, data []byte) error {
 func (u *Ui) Close() error {
 	u.ctl.Close()
 	u.ev.Close()
+	if u.life != nil {
+		u.life()
+	}
 	return u.fs.close()
 }

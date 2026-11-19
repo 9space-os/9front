@@ -31,6 +31,7 @@ uiopen(char *srv, char *mtpt)
 		return nil;
 	}
 	u = mallocz(sizeof *u, 1);
+	u->life[0] = u->life[1] = -1;
 	u->mtpt = strdup(mtpt);
 	u->srv = strdup(srv);
 	p = smprint("%s/ctl", mtpt);
@@ -46,21 +47,68 @@ uiopen(char *srv, char *mtpt)
 	return u;
 }
 
+/*
+ * ui's lifeline (ui -c): a pipe, one end posted in /srv (ORCLOSE: the entry
+ * goes with this program), the other kept here; ui reads the posted end
+ * and gets end of file when this program ends, however it ends (or
+ * uiclose): it ends then too.  Both close-on-exec: no program this one
+ * starts keeps ui alive.
+ */
+static int
+lifeline(char *name, int life[2])
+{
+	int p[2], fd;
+	char *s;
+
+	if(pipe(p) < 0)
+		return -1;
+	s = smprint("/srv/%s", name);
+	life[0] = create(s, OWRITE|ORCLOSE|OCEXEC, 0600);
+	free(s);
+	if(life[0] < 0 || fprint(life[0], "%d", p[1]) < 0){
+		if(life[0] >= 0)
+			close(life[0]);
+		close(p[0]);
+		close(p[1]);
+		return -1;
+	}
+	close(p[1]);
+	s = smprint("#d/%d", p[0]);
+	fd = open(s, OREAD|OCEXEC);
+	free(s);
+	close(p[0]);
+	if(fd < 0){
+		close(life[0]);
+		return -1;
+	}
+	life[1] = fd;
+	return 0;
+}
+
 /* ui in a new window of rio or wsys (window(1)); its files then */
 Ui*
 uinew(char *title, char *mtpt)
 {
 	static int n;
-	char *srv, *cmd, *s;
+	char *srv, *cmd, *s, *life;
 	Ui *u;
-	int i, pid, w;
+	int i, pid, w, lfd[2];
 
 	srv = smprint("ui.%s.%d.%d", getuser(), getpid(), n++);
-	cmd = smprint("/bin/ui -s %s", srv);
+	life = smprint("%s.life", srv);
+	if(lifeline(life, lfd) < 0){
+		free(srv);
+		free(life);
+		return nil;
+	}
+	cmd = smprint("/bin/ui -c %s -s %s", life, srv);
+	free(life);
 	switch(pid = fork()){
 	case -1:
 		free(srv);
 		free(cmd);
+		close(lfd[0]);
+		close(lfd[1]);
 		return nil;
 	case 0:
 		execl("/bin/window", "window", cmd, nil);
@@ -79,8 +127,12 @@ uinew(char *title, char *mtpt)
 	free(srv);
 	if(u == nil){
 		werrstr("ui: no new window's files: %r");
+		close(lfd[0]);	/* ui, if it came, ends */
+		close(lfd[1]);
 		return nil;
 	}
+	u->life[0] = lfd[0];
+	u->life[1] = lfd[1];
 	if(title != nil && uictl(u, "title %q", title) < 0){
 		uiclose(u);
 		return nil;
@@ -194,6 +246,10 @@ uiclose(Ui *u)
 		close(u->ev);
 	if(u->mtpt != nil)
 		unmount(nil, u->mtpt);
+	if(u->life[0] >= 0)
+		close(u->life[0]);	/* uinew's ui ends */
+	if(u->life[1] >= 0)
+		close(u->life[1]);
 	free(u->mtpt);
 	free(u->srv);
 	free(u);

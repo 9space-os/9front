@@ -15,6 +15,7 @@ struct Ui
 	int	ev;		/* mtpt/event, read */
 	char	buf[8192];	/* what event gave, not yet taken */
 	int	nbuf;
+	int	life[2];	/* uinew's: ui's lifeline, its /srv entry and our end; -1 */
 };
 
 struct Uievent

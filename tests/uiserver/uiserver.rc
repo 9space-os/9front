@@ -660,6 +660,42 @@ if not {
 }
 test -e /proc/$uicpid && echo kill >/proc/$uicpid/note
 
+# ui -c (uinew's lifeline): ui ends with its client, also a killed one,
+# though its mount stays: uiclient shares this script's name space, the
+# shell that started it lives on (as a term a user starts programs from).
+# Started and killed three times: no ui left over (a soak on the X1 ran out
+# of memory with 61 of them, 250-315 MB each)
+fn nui { ps | grep -c ' ui$' }
+fn uigone { # n: until at most n ui procs, 10 s
+	k=0
+	while(test `{nui} -gt $1 && test $k -lt 100){ sleep 0.1; k=`{echo $k+1 | hoc} }
+	test `{nui} -le $1
+}
+uigone 0 || fail 'ui -c: still running after its client was killed:' `{nui}
+for(i in 1 2 3){
+	/tests/uiclient >/tmp/uic >[2=1] </dev/null &
+	uicpid=$apid
+	waitfor /tmp/uic '^ready'
+	grep -s '^ready' /tmp/uic || fail uiclient $i: `{cat /tmp/uic}
+	echo kill >/proc/$uicpid/note
+	uigone 0 || fail 'ui -c: round' $i: `{nui} ui procs after the client was killed
+}
+ok 'ui -c: started and killed three times from one shell, no ui left over'
+# a program it started (exec) lives on: ui ends all the same (close-on-exec)
+/tests/uiclient -x >/tmp/uic >[2=1] </dev/null &
+uicpid=$apid
+waitfor /tmp/uic '^ready'
+kid=`{awk '/^child/ {print $2}' /tmp/uic}
+if(! grep -s '^ready' /tmp/uic || ~ $#kid 0) fail uiclient -x: `{cat /tmp/uic}
+if not {
+	echo kill >/proc/$uicpid/note
+	if(uigone 0 && test -e /proc/$kid) ok 'ui -c: gone with its client, the client''s child (sleep) still there'
+	if not fail 'ui -c: with a child of the client alive:' `{nui} ui procs, child `{test -e /proc/$kid && echo alive}
+	echo kill >/proc/$kid/note
+}
+ls /srv | grep -s '\.life$' && fail 'ui -c: a lifeline left in /srv:' `{ls /srv | grep '\.life$'}
+unmount /mnt/uic >[2]/dev/null
+
 # a program in Rust (uitodo: uiview, views of its state as Xilem's): its
 # window's files mounted here as well (it mounts them in a namespace of its
 # own); an item added (the button, then enter), checked, taken away; the
@@ -771,9 +807,20 @@ if(test -x /tests/gocount){
 		check 'gocount: two clicks counted' 'count 2' $"c
 		grep -s '^text count 2$' /tmp/goc && ok 'gocount: its label read back (nodes/l/props)' || fail gocount props: `{cat /tmp/goc}
 		unmount /mnt/uig
-		# over the network: the window's files exported (exportfs on tcp),
-		# a gocount there with 9P of its own (-d), one click
-		mount /srv/$s /mnt/uin
+		# over the network: a ui's files exported (exportfs on tcp), a
+		# gocount there with 9P of its own (-d), one click. A ui of its own,
+		# without -c: gocount's ended with gocount (ui(4), -c)
+		waitfor /tmp/goc '^count'
+		n=0
+		while(test -e /srv/$s && test $n -lt 100){ sleep 0.1; n=`{echo $n+1 | hoc} }
+		test -e /srv/$s && fail 'gocount ended, its ui (-c) still there'
+		w0=`{ls -p /mnt/wsys | grep '^[0-9]+$'}
+		window -r 100 100 600 450 '/tests/ui -s uinet >/tmp/uinet.log >[2=1]'
+		n=0
+		while(! test -e /srv/uinet && test $n -lt 100){ sleep 0.1; n=`{echo $n+1 | hoc} }
+		wn=()
+		for(x in `{ls -p /mnt/wsys | grep '^[0-9]+$'}) if(! ~ $x $w0) wn=($wn $x)
+		mount /srv/uinet /mnt/uin
 		aux/listen1 -t tcp!*!5640 /bin/exportfs -r /mnt/uin >[2]/dev/null &
 		lpid=$apid
 		sleep 0.5
@@ -800,6 +847,7 @@ if(test -x /tests/gocount){
 		test -e /proc/$gonpid && echo kill >/proc/$gonpid/note
 		echo kill >/proc/$lpid/note
 		unmount /mnt/uin
+		~ $#wn 1 && echo delete >/mnt/wsys/$wn/wctl
 	}
 	test -e /proc/$gocpid && echo kill >/proc/$gocpid/note
 }
