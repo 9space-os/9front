@@ -61,6 +61,15 @@ enum {
 	Maxbo	= 4096,
 };
 
+/* an object made after the driver was gone (lostioctl) */
+typedef struct Lobj Lobj;
+struct Lobj {
+	uint32_t	handle;
+	uint64_t	size;
+	void	*p;
+	Lobj	*next;
+};
+
 struct Amd {
 	int	fd;		/* the context's ctl */
 	int	ctx;
@@ -68,6 +77,10 @@ struct Amd {
 	pthread_mutex_t	lk;
 	int	tfids[2][Nfid];	/* requests: ctl's, submit's */
 	int	ntfids[2];
+	uint64_t	mnt;	/* the mount of its ctl (drm9mnt): a driver started again is another */
+	int	lost;		/* the driver gone: see amdlost */
+	Lobj	*lobj;		/* a lost context's objects: memory of the process */
+	uint32_t	nexth;	/* the next handle of a lost context's (GEM objects, contexts, syncobjs) */
 };
 
 /* DRM9DEBUG=1: the ioctls that fail, as drm9.c's */
@@ -91,6 +104,41 @@ dbg(const char *fmt, ...)
 	errno = e;
 }
 
+/*
+ * the driver gone (killed, started again: gpu(4)), as err (the last error
+ * if nil) says: its channel hung up, its files are gone, or a name of
+ * them is another driver's now (tfidget); and the context's own ctl, open
+ * since the context was made, fails too (a refusal of a driver that lives
+ * is not it). From then on the context
+ * is lost: no request goes to any driver, lostioctl answers them, as
+ * drm9.c's devlost does for Intel's: the submits fail (RADV:
+ * VK_ERROR_DEVICE_LOST), new objects are memory of the process, so what
+ * RADV does besides submitting goes on as on Vulkan's lost device
+ */
+static void
+amdlost(Amd *a, const char *err)
+{
+	char e[128], buf[64];
+	int sav;
+
+	if(a->lost)
+		return;
+	sav = errno;
+	if(err == NULL){
+		e[0] = 0;
+		_ERRSTR(e, sizeof e);
+		_ERRSTR(e, sizeof e);	/* put it back */
+		err = e;
+	}
+	if(strstr(err, "hungup") != NULL || strstr(err, "hangup") != NULL || strstr(err, "rpc error") != NULL ||
+	   strstr(err, "does not exist") != NULL || strcmp(err, "another driver's") == 0)
+		if(pread(a->fd, buf, sizeof buf, 0) < 0){
+			a->lost = 1;
+			dbg("the driver is gone (%s): the context lost", err);
+		}
+	errno = sav;
+}
+
 static int
 ctlreq(Amd *a, char *reply, int n, const char *fmt, ...)
 {
@@ -98,18 +146,22 @@ ctlreq(Amd *a, char *reply, int n, const char *fmt, ...)
 	va_list arg;
 	int m;
 
+	if(a->lost)
+		return errno = EIO, -1;
 	va_start(arg, fmt);
 	m = vsnprintf(buf, sizeof buf, fmt, arg);
 	va_end(arg);
 	pthread_mutex_lock(&a->lk);	/* the reply is the context's: one at a time */
 	if(write(a->fd, buf, m) != m){
 		pthread_mutex_unlock(&a->lk);
+		amdlost(a, NULL);
 		return -1;
 	}
 	if(reply != NULL){
 		m = pread(a->fd, reply, n-1, 0);
 		if(m < 0){
 			pthread_mutex_unlock(&a->lk);
+			amdlost(a, NULL);
 			return -1;
 		}
 		reply[m] = 0;
@@ -136,6 +188,8 @@ amd9attach(int fd, const char *dir, int ctx)
 		return NULL;
 	a->fd = fd;
 	a->ctx = ctx;
+	a->mnt = drm9mnt(fd);
+	a->nexth = 0x40000000;	/* above the driver's */
 	snprintf(a->dir, sizeof a->dir, "%s", dir);
 	pthread_mutex_init(&a->lk, NULL);
 	return a;
@@ -620,7 +674,17 @@ tfidget(Amd *a, int sub)
 	}
 	pthread_mutex_unlock(&a->lk);
 	snprintf(path, sizeof path, "%s/ctx/%d/%s", a->dir, a->ctx, sub ? "submit" : "ctl");
-	return open(path, O_RDWR);
+	if((fd = open(path, O_RDWR)) < 0){
+		amdlost(a, NULL);
+		return -1;
+	}
+	/* the name is a driver started again's now: not this context */
+	if(drm9mnt(fd) != a->mnt){
+		close(fd);
+		amdlost(a, "another driver's");
+		return errno = EIO, -1;
+	}
+	return fd;
 }
 
 static void
@@ -681,6 +745,9 @@ treq(Amd *a, int sub, Tb *b, char *rep)
 		_ERRSTR(err, sizeof err);
 		tfidput(a, sub, fd);
 		dbg("%.*s: %s", b->n, b->s, err);
+		amdlost(a, err);
+		if(a->lost)
+			return errno = EIO, -1;
 		return errno = errnoof(err), -1;
 	}
 	for(n = 0; n < Maxrep - 1; n += m)
@@ -1091,6 +1158,181 @@ tstr(char *dst, size_t len, const char *s)
 /* the ioctl as text: 0, -1 and errno, or Notext */
 static int textioctl1(Amd*, unsigned, void*, Tb*, char*);
 
+/* a lost context's object h, with a->lk */
+static Lobj*
+lobj(Amd *a, uint32_t h)
+{
+	Lobj *o;
+
+	for(o = a->lobj; o != NULL; o = o->next)
+		if(o->handle == h)
+			return o;
+	return NULL;
+}
+
+/* the memory of a lost context's GEM object, NULL if handle is none of them */
+static void*
+lostmem(Amd *a, uint32_t handle)
+{
+	Lobj *o;
+	void *p;
+
+	pthread_mutex_lock(&a->lk);
+	p = (o = lobj(a, handle)) != NULL ? o->p : NULL;
+	pthread_mutex_unlock(&a->lk);
+	return p;
+}
+
+/*
+ * a lost context's request (amdlost), answered here, none to a driver:
+ * GEM objects are zeroed memory of the process under a handle of their
+ * own; contexts and syncobjs are handles; the submits fail as Linux's
+ * amdgpu fails a lost context's (ECANCELED: RADV's VK_ERROR_DEVICE_LOST),
+ * a context's state says reset; waits are done; what asks the driver for
+ * what it knows (INFO, VERSION) fails
+ */
+static int
+lostioctl(Amd *a, unsigned nr, void *arg)
+{
+	Lobj *o, **l;
+
+	switch(nr){
+	case DRM_COMMAND_BASE + DRM_AMDGPU_GEM_CREATE: {
+		union drm_amdgpu_gem_create *g = arg;
+		uint64_t size;
+
+		size = (g->in.bo_size + 4095) & ~(uint64_t)4095;
+		if(size == 0 || (o = calloc(1, sizeof *o)) == NULL)
+			return errno = ENOMEM, -1;
+		if(posix_memalign(&o->p, 4096, size) != 0){
+			free(o);
+			return errno = ENOMEM, -1;
+		}
+		memset(o->p, 0, size);
+		o->size = size;
+		pthread_mutex_lock(&a->lk);
+		o->handle = a->nexth++;
+		o->next = a->lobj;
+		a->lobj = o;
+		pthread_mutex_unlock(&a->lk);
+		memset(&g->out, 0, sizeof g->out);
+		g->out.handle = o->handle;
+		return 0;
+	}
+	case 0x09: {	/* GEM_CLOSE: the driver's objects went with it */
+		uint32_t h = ((struct drm_gem_close*)arg)->handle;
+
+		pthread_mutex_lock(&a->lk);
+		for(l = &a->lobj; (o = *l) != NULL; l = &o->next)
+			if(o->handle == h){
+				*l = o->next;
+				break;
+			}
+		pthread_mutex_unlock(&a->lk);
+		if(o != NULL){
+			free(o->p);
+			free(o);
+		}
+		return 0;
+	}
+	case DRM_COMMAND_BASE + DRM_AMDGPU_GEM_OP: {
+		struct drm_amdgpu_gem_op *op = arg;
+		struct drm_amdgpu_gem_create_in *ci;
+
+		if(op->op != AMDGPU_GEM_OP_GET_GEM_CREATE_INFO)
+			return 0;
+		ci = P(op->value);
+		memset(ci, 0, sizeof *ci);
+		pthread_mutex_lock(&a->lk);
+		if((o = lobj(a, op->handle)) != NULL)
+			ci->bo_size = o->size;
+		pthread_mutex_unlock(&a->lk);
+		ci->domains = AMDGPU_GEM_DOMAIN_GTT;
+		return 0;
+	}
+	case DRM_COMMAND_BASE + DRM_AMDGPU_GEM_METADATA: {
+		struct drm_amdgpu_gem_metadata *m = arg;
+
+		if(m->op != AMDGPU_GEM_METADATA_OP_SET_METADATA)
+			memset(&m->data, 0, sizeof m->data);
+		return 0;
+	}
+	case DRM_COMMAND_BASE + DRM_AMDGPU_GEM_VA:
+	case DRM_COMMAND_BASE + DRM_AMDGPU_VM:
+	case 0xC0:	/* SYNCOBJ_DESTROY */
+	case 0xC4:	/* SYNCOBJ_RESET */
+	case 0xC5:	/* SYNCOBJ_SIGNAL */
+	case 0xCD:	/* SYNCOBJ_TIMELINE_SIGNAL */
+	case 0xCC:	/* SYNCOBJ_TRANSFER */
+		return 0;
+	case DRM_COMMAND_BASE + DRM_AMDGPU_GEM_WAIT_IDLE: {
+		union drm_amdgpu_gem_wait_idle *wi = arg;
+
+		memset(&wi->out, 0, sizeof wi->out);	/* idle */
+		return 0;
+	}
+	case DRM_COMMAND_BASE + DRM_AMDGPU_CTX: {
+		union drm_amdgpu_ctx *x = arg;
+
+		switch(x->in.op){
+		case AMDGPU_CTX_OP_ALLOC_CTX:
+			memset(&x->out, 0, sizeof x->out);
+			pthread_mutex_lock(&a->lk);
+			x->out.alloc.ctx_id = a->nexth++;
+			pthread_mutex_unlock(&a->lk);
+			return 0;
+		case AMDGPU_CTX_OP_QUERY_STATE2:
+			memset(&x->out, 0, sizeof x->out);
+			x->out.state.flags = AMDGPU_CTX_QUERY2_FLAGS_RESET | AMDGPU_CTX_QUERY2_FLAGS_VRAMLOST;
+			return 0;
+		case AMDGPU_CTX_OP_GET_STABLE_PSTATE:
+			memset(&x->out, 0, sizeof x->out);
+			return 0;
+		}
+		return 0;	/* FREE_CTX, SET_STABLE_PSTATE */
+	}
+	case DRM_COMMAND_BASE + DRM_AMDGPU_CS:
+		return errno = ECANCELED, -1;
+	case DRM_COMMAND_BASE + DRM_AMDGPU_WAIT_CS: {
+		union drm_amdgpu_wait_cs *x = arg;
+
+		memset(&x->out, 0, sizeof x->out);	/* done */
+		return 0;
+	}
+	case DRM_COMMAND_BASE + DRM_AMDGPU_WAIT_FENCES: {
+		union drm_amdgpu_wait_fences *x = arg;
+
+		memset(&x->out, 0, sizeof x->out);
+		x->out.status = 1;	/* signalled */
+		return 0;
+	}
+	case DRM_COMMAND_BASE + DRM_AMDGPU_FENCE_TO_HANDLE: {
+		union drm_amdgpu_fence_to_handle *x = arg;
+
+		memset(&x->out, 0, sizeof x->out);
+		pthread_mutex_lock(&a->lk);
+		x->out.handle = a->nexth++;
+		pthread_mutex_unlock(&a->lk);
+		return 0;
+	}
+	case 0xBF: {	/* SYNCOBJ_CREATE */
+		struct drm_syncobj_create *s = arg;
+
+		pthread_mutex_lock(&a->lk);
+		s->handle = a->nexth++;
+		pthread_mutex_unlock(&a->lk);
+		return 0;
+	}
+	case 0xC3:	/* SYNCOBJ_WAIT */
+		((struct drm_syncobj_wait*)arg)->first_signaled = 0;
+		return 0;
+	case 0xCA:	/* SYNCOBJ_TIMELINE_WAIT */
+		((struct drm_syncobj_timeline_wait*)arg)->first_signaled = 0;
+		return 0;
+	}
+	return errno = EIO, -1;	/* INFO, VERSION, GET_CAP, SYNCOBJ_QUERY: the driver's */
+}
+
 static int
 textioctl(Amd *a, unsigned nr, void *arg)
 {
@@ -1107,7 +1349,10 @@ textioctl(Amd *a, unsigned nr, void *arg)
 	}
 	b->n = 0;
 	b->over = 0;
-	r = textioctl1(a, nr, arg, b, rep);
+	if(a->lost)
+		r = lostioctl(a, nr, arg);
+	else if((r = textioctl1(a, nr, arg, b, rep)) < 0 && a->lost)
+		r = lostioctl(a, nr, arg);	/* the request that met the loss */
 	e = errno;
 	free(rep);
 	free(b);
@@ -2180,6 +2425,16 @@ amdgpu_bo_cpu_map(amdgpu_bo_handle b, void **cpu)
 	pthread_mutex_unlock(&b->dev->lk);
 	if((a = amd9of(b->dev->fd)) == NULL)
 		return -EBADF;
+	/* an object made after the driver was gone (lostioctl): its memory */
+	if((p = lostmem(a, b->handle)) != NULL){
+		pthread_mutex_lock(&b->dev->lk);
+		b->cpu = p;
+		b->maps = 1;
+		b->seg = 0;
+		pthread_mutex_unlock(&b->dev->lk);
+		*cpu = p;
+		return 0;
+	}
 	if(ctlreq(a, reply, sizeof reply, "map %u", b->handle) < 0){
 		int e = errno;
 

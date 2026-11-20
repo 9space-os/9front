@@ -342,8 +342,8 @@ ino(int fd)
  * the stat message (stat(5): size[2] type[2] dev[4] ...); APE's st_dev
  * keeps only dev's low byte
  */
-static uint64_t
-mnt(int fd)
+uint64_t
+drm9mnt(int fd)
 {
 	unsigned char buf[1024];	/* a stat message, its names short */
 
@@ -357,7 +357,7 @@ mnt(int fd)
 static int
 isctx(Dev *d, int fd)
 {
-	return ino(fd) == d->ino && mnt(fd) == d->mnt;
+	return ino(fd) == d->ino && drm9mnt(fd) == d->mnt;
 }
 
 /*
@@ -409,7 +409,7 @@ getdev(int fd)
 	f->kind = Knone;
 	/* a descriptor dup'd from a known one (libdrm_amdgpu dups): the same context */
 	for(i = 0; i < Maxfd; i++)
-		if(i != fd && fds[i].kind == Kdev && fds[i].dev->ino == q && fds[i].dev->mnt == mnt(fd)){
+		if(i != fd && fds[i].kind == Kdev && fds[i].dev->ino == q && fds[i].dev->mnt == drm9mnt(fd)){
 			f->kind = Kdev;
 			f->dev = fds[i].dev;
 			return livefd(f->dev, fd);
@@ -433,7 +433,7 @@ getdev(int fd)
 	d->gpu = &gpus[i];
 	d->fd = fd;
 	d->ino = q;
-	d->mnt = mnt(fd);
+	d->mnt = drm9mnt(fd);
 	d->ctx = atoi(buf+4);
 	snprintf(path, sizeof path, "%s/ctx/%d/submit", d->gpu->dir, d->ctx);
 	d->submitfd = open(path, O_WRONLY);
