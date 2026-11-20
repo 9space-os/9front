@@ -2400,6 +2400,7 @@ impl Wsys {
                     Ok(m) => m,
                     Err(_) => {
                         self.gpu = Some(gpu::Gpu::open().map_err(|e| format!("gpubuffer {b}: {e}"))?);
+                        self.overlayanew();
                         self.gpu.as_mut().unwrap().import(token, size).map_err(|e| format!("gpubuffer {b}: {e}"))?
                     }
                 };
@@ -2931,9 +2932,21 @@ impl Wsys {
     }
 
     /// the GPU's thread is gone: the processor copies the buffers again
+    /// the overlay plane's thread of a driver gone let go of (its connection
+    /// is dead: every request fails): one is made with the next driver's
+    /// context, and the windows refused the plane meanwhile may try it again
+    fn overlayanew(&mut self) {
+        self.ovtx = None;
+        self.ov = None;
+        for w in self.wins.values_mut() {
+            w.nooverlay = false;
+        }
+    }
+
     fn compfailed(&mut self, e: String) {
         eprintln!("wsys: the GPU composes no longer: {e}");
         self.comp = None;
+        self.overlayanew();
         // a driver that comes back (aux/i915 killed and started again, a scanout
         // refused once): the GPU again, tried now and then (compretry)
         if self.compwant.is_some() {
