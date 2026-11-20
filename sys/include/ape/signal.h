@@ -54,9 +54,10 @@ typedef int sig_atomic_t;
 #define SIGPROF 22  /* profiling alarm clock */
 #define SIGSYS	23	/* bad system call (note "sys: bad sys call") */
 #define SIGTRAP	24	/* breakpoint (note "sys: breakpoint"; POSIX XSI) */
+#define SIGWINCH 25	/* 9space: the terminal's size changed (note "winch" of ptyfs, to the processes that catch it) */
 
 #ifdef _BSD_EXTENSION
-#define NSIG 25
+#define NSIG 26
 #endif
 
 #ifdef __cplusplus

@@ -38,6 +38,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/time.h>
+#include <time.h>
 #include <threads.h>
 #include <getopt.h>
 #include <uchar.h>
@@ -995,6 +996,18 @@ static volatile int ptyalarm, ptyint;
 
 static void ptyonalarm(int s) { (void)s; ptyalarm = 1; }
 static void ptyonint(int s) { (void)s; ptyint = 1; }
+static volatile int ptywinch;
+static void ptyonwinch(int s) { (void)s; ptywinch++; }
+
+/* ms since an earlier ptyms() */
+static long
+ptyms(void)
+{
+	struct timespec t;
+
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return t.tv_sec * 1000 + t.tv_nsec / 1000000;
+}
 
 /*
  * the master's output until want shows (10 s at most): what came up to
@@ -1085,6 +1098,49 @@ ptychild(char *name)
 	ptysay("sig\n");
 	n = read(0, buf, sizeof buf);
 	ptysay("int %d %d\n", ptyint, n);
+
+	/* VMIN and VTIME (ptyfs' timer) */
+	t = cooked;
+	t.c_lflag &= ~(ICANON|ECHO);
+	t.c_cc[VMIN] = 3;
+	t.c_cc[VTIME] = 0;
+	tcsetattr(0, TCSANOW, &t);
+	ptysay("min3\n");
+	n = read(0, buf, sizeof buf - 1);
+	buf[n > 0 ? n : 0] = 0;
+	ptysay("min3[%s]\n", buf);
+	t.c_cc[VMIN] = 0;
+	t.c_cc[VTIME] = 3;
+	tcsetattr(0, TCSANOW, &t);
+	{
+		long t0 = ptyms(), dt;
+
+		n = read(0, buf, sizeof buf - 1);
+		dt = ptyms() - t0;
+		ptysay("time0 %d %d\n", n, dt >= 250 && dt < 2000);
+	}
+	t.c_cc[VMIN] = 5;
+	t.c_cc[VTIME] = 2;
+	tcsetattr(0, TCSANOW, &t);
+	ptysay("inter\n");
+	n = read(0, buf, sizeof buf - 1);
+	buf[n > 0 ? n : 0] = 0;
+	ptysay("inter[%s]\n", buf);
+	tcsetattr(0, TCSANOW, &cooked);
+
+	/* SIGWINCH: the size changed, the handler runs */
+	signal(SIGWINCH, ptyonwinch);
+	ptysay("winch on\n");
+	{
+		long t0 = ptyms();
+
+		while(ptywinch == 0 && ptyms() - t0 < 5000)
+			usleep(10000);
+	}
+	memset(&w, 0, sizeof w);
+	ioctl(0, TIOCGWINSZ, &w);
+	ptysay("winch %d ws %d %d\n", ptywinch, w.ws_row, w.ws_col);
+	/* rc after this exec: it must not get "winch" (it would die of it) */
 	execl("/bin/rc", "rc", "-c", "echo native; x=`{read}; echo rc got $x", NULL);
 	_exit(11);
 }
@@ -1123,7 +1179,26 @@ testpty(void)
 	check("SIGINT handler set", ptyexpect(m, "sig\r\n", got, sizeof got), "%s", got);
 	write(m, "\003", 1);
 	check("^C: interrupt to the note group (SIGINT)", ptyexpect(m, "int 1", got, sizeof got), "%s", got);
+	check("VMIN 3: raw mode set", ptyexpect(m, "min3\r\n", got, sizeof got), "%s", got);
+	write(m, "a", 1);
+	usleep(300000);
+	write(m, "bc", 2);
+	check("VMIN 3: the read waits for three bytes", ptyexpect(m, "min3[abc]", got, sizeof got), "%s", got);
+	check("VMIN 0, VTIME 3: nothing after about 0.3 s", ptyexpect(m, "time0 0 1", got, sizeof got), "%s", got);
+	check("VMIN 5, VTIME 2: set", ptyexpect(m, "inter\r\n", got, sizeof got), "%s", got);
+	write(m, "xy", 2);
+	check("VMIN 5, VTIME 2: the two bytes after a pause of 0.2 s", ptyexpect(m, "inter[xy]", got, sizeof got), "%s", got);
+	check("SIGWINCH handler set", ptyexpect(m, "winch on\r\n", got, sizeof got), "%s", got);
+	w.ws_row = 40;
+	w.ws_col = 120;
+	ioctl(m, TIOCSWINSZ, &w);
+	check("a new size: SIGWINCH to the program that catches it", ptyexpect(m, "winch 1 ws 40 120", got, sizeof got), "%s", got);
 	check("rc in the pty", ptyexpect(m, "native\r\n", got, sizeof got), "%s", got);
+	/* rc took the process over by exec: a new size must not kill it */
+	w.ws_row = 50;
+	w.ws_col = 132;
+	ioctl(m, TIOCSWINSZ, &w);
+	usleep(300000);
 	write(m, "zz\r", 3);
 	check("rc reads a line of it", ptyexpect(m, "rc got zz\r\n", got, sizeof got), "%s", got);
 	nptybuf = 0;

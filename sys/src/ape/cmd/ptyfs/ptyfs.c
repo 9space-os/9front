@@ -22,7 +22,17 @@
  * rows cols xpixels ypixels" (flags and characters in hex, as APE's
  * termios.h has them); writing "IOW iflag oflag cflag lflag cc..." sets
  * them, "IOW note pid" the note group, "IOW winsize rows cols xpixels
- * ypixels" the size.
+ * ypixels" the size; "IOW winch pid on|off" whether process pid wants
+ * the note "winch" when the size changes (APE's signal and sigaction for
+ * SIGWINCH write it): only those get it, never the note group (a native
+ * program, rc, would die of a note it does not know).
+ *
+ * Non-canonical reads keep termios' VMIN and VTIME (tenths of a second):
+ * VMIN > 0, VTIME 0: until VMIN bytes (or as many as asked for); VMIN > 0,
+ * VTIME > 0: until VMIN, or VTIME after the last byte once one came;
+ * VMIN 0, VTIME > 0: the first byte, or nothing after VTIME; both 0: what
+ * there is.  A proc of its own answers the reads whose time is up; the
+ * file server's procs and it take the lock lk.
  *
  * usage: ptyfs [-D] [-s srvname]	(default /srv/ptyfs)
  */
@@ -75,6 +85,7 @@ enum {
 	Maxline = 4096,	/* a line being edited */
 	Maxout = 256*1024,	/* output not yet read: then a writer waits */
 	Maxin = 256*1024,	/* input not yet read: then the master waits */
+	Maxwinch = 16,	/* processes that want "winch" */
 };
 
 /*
@@ -126,7 +137,18 @@ struct Pty {
 	char	*out;
 	long	nout, outcap;
 	Req	*sreads, *mreads, *swrites, *mwrites;	/* waiting */
+	vlong	lastin;	/* ms: when input last came (VTIME between bytes) */
+	vlong	sreadat;	/* ms: when the first waiting slave read began (VTIME with VMIN 0) */
+	int	winch[Maxwinch];	/* who wants "winch" */
+	int	nwinch;
+	int	dead;	/* its files gone */
+	Pty	*link;	/* all of them, for the timer */
 };
+
+static QLock lk;	/* the file server's procs and the timer's */
+static int timerpid;
+static Rendez timed;	/* the timer waits for a read with a time */
+static Pty *ptys;
 
 static Tree *tree;
 static int nextn;
@@ -244,6 +266,8 @@ addrec(Pty *p, char *s, int n, int eof, int done)
 		p->in = r;
 	p->inlast = r;
 	p->nin += n;
+	if(n > 0)
+		p->lastin = nsec() / 1000000;
 	return r;
 }
 
@@ -279,6 +303,7 @@ rawbyte(Pty *p, int c)
 	}
 	r->data[r->n++] = c;
 	p->nin++;
+	p->lastin = nsec() / 1000000;
 }
 
 static void
@@ -501,10 +526,50 @@ masterwrite(Pty *p, Req *r)
 	respond(r, nil);
 }
 
+/*
+ * a non-canonical read r: whether it is answered now (with what there is),
+ * by VMIN and VTIME; *due: when its time is up (ms), 0 if it has none
+ */
+static int
+rawdue(Pty *p, Req *r, vlong *due)
+{
+	long min, tm;
+	vlong now, t;
+
+	min = p->cc[VMIN];
+	tm = p->cc[VTIME] * 100;	/* ms */
+	if(min > r->ifcall.count)
+		min = r->ifcall.count;
+	*due = 0;
+	if(min == 0 && tm == 0)
+		return 1;
+	if(min > 0 && p->nin >= min)
+		return 1;
+	if(tm == 0)
+		return 0;	/* VMIN bytes, no timer */
+	now = nsec() / 1000000;
+	if(min == 0){
+		/* the first byte, or nothing after VTIME from the read */
+		if(p->nin > 0)
+			return 1;
+		t = p->sreadat + tm;
+	}else{
+		/* VTIME after the last byte, once one came */
+		if(p->nin == 0)
+			return 0;
+		t = p->lastin + tm;
+	}
+	if(now >= t)
+		return 1;
+	*due = t;
+	return 0;
+}
+
 /* answer what waits and can be answered now */
 static void
 kick(Pty *p)
 {
+	vlong due;
 	Req *r;
 	int again;
 
@@ -515,10 +580,19 @@ kick(Pty *p)
 			again = 1;
 		}
 		while(p->sreads != nil){
-			if(readable(p))
+			if(p->nmaster > 0 && !(p->lflag & ICANON)){
+				/* VMIN and VTIME: now, or the timer's when its time is up */
+				if(!rawdue(p, p->sreads, &due)){
+					if(due)
+						rwakeup(&timed);
+					break;
+				}
 				slaveread(p, dequeue(&p->sreads));
-			else if(p->nmaster == 0 || !(p->lflag & ICANON) && p->cc[VMIN] == 0){
-				/* hung up: end of file; VMIN 0 (and VTIME 0): what there is */
+				p->sreadat = nsec() / 1000000;	/* the next read's wait begins */
+			}else if(readable(p))
+				slaveread(p, dequeue(&p->sreads));
+			else if(p->nmaster == 0){
+				/* hung up: end of file */
 				r = dequeue(&p->sreads);
 				r->ofcall.count = 0;
 				respond(r, nil);
@@ -550,6 +624,35 @@ kick(Pty *p)
 
 /* ---- control: ptyctlN ---- */
 
+/* pid wants "winch" (on) or no more */
+static void
+winchset(Pty *p, int pid, int on)
+{
+	int i;
+
+	for(i = 0; i < p->nwinch; i++)
+		if(p->winch[i] == pid){
+			if(!on)
+				p->winch[i] = p->winch[--p->nwinch];
+			return;
+		}
+	if(on && pid > 0 && p->nwinch < Maxwinch)
+		p->winch[p->nwinch++] = pid;
+}
+
+/* the size changed: "winch" to those that want it; a gone one is dropped */
+static void
+winchnote(Pty *p)
+{
+	int i;
+
+	for(i = 0; i < p->nwinch; )
+		if(postnote(PNPROC, p->winch[i], "winch") < 0)
+			p->winch[i] = p->winch[--p->nwinch];
+		else
+			i++;
+}
+
 static char*
 ctltext(Pty *p)
 {
@@ -579,10 +682,20 @@ ctlwrite(Pty *p, char *s)
 		return nil;
 	}
 	if(n == 6 && strcmp(f[1], "winsize") == 0){
+		int changed;
+
+		changed = p->row != atoi(f[2]) || p->col != atoi(f[3]) ||
+			p->xpix != atoi(f[4]) || p->ypix != atoi(f[5]);
 		p->row = atoi(f[2]);
 		p->col = atoi(f[3]);
 		p->xpix = atoi(f[4]);
 		p->ypix = atoi(f[5]);
+		if(changed)
+			winchnote(p);
+		return nil;
+	}
+	if(n == 4 && strcmp(f[1], "winch") == 0){
+		winchset(p, atoi(f[2]), strcmp(f[3], "on") == 0);
 		return nil;
 	}
 	if(n < 5)
@@ -645,6 +758,8 @@ newpty(char *uid)
 	p->master->qid.path = ptyqid(n, Qmaster);
 	p->slave->qid.path = ptyqid(n, Qslave);
 	p->ctl->qid.path = ptyqid(n, Qctl);
+	p->link = ptys;
+	ptys = p;
 	return p;
 }
 
@@ -661,6 +776,7 @@ gone(Pty *p)
 	removefile(p->slave);
 	removefile(p->ctl);
 	removefile(p->ptyctl);
+	p->dead = 1;
 }
 
 static void
@@ -720,6 +836,8 @@ fsread(Req *r)
 		enqueue(&p->mreads, r);
 		break;
 	case Qslave:
+		if(p->sreads == nil)
+			p->sreadat = nsec() / 1000000;	/* VTIME's start (the queue's link is r->aux) */
 		enqueue(&p->sreads, r);
 		break;
 	default:
@@ -818,12 +936,61 @@ fsdestroyfid(Fid *fid)
 	gone(p);
 }
 
+/* the file server's callbacks under lk (the timer answers reads too) */
+static void lkopen(Req *r) { qlock(&lk); fsopen(r); qunlock(&lk); }
+static void lkread(Req *r) { qlock(&lk); fsread(r); qunlock(&lk); }
+static void lkwrite(Req *r) { qlock(&lk); fswrite(r); qunlock(&lk); }
+static void lkflush(Req *r) { qlock(&lk); fsflush(r); qunlock(&lk); }
+static void lkdestroyfid(Fid *f) { qlock(&lk); fsdestroyfid(f); qunlock(&lk); }
+
+/*
+ * the reads with a time (VTIME): answered when it is up; it sleeps until
+ * the next one's, or until there is one
+ */
+static void
+timer(void)
+{
+	Pty *p;
+	vlong due, next, now;
+
+	qlock(&lk);
+	for(;;){
+		next = 0;
+		for(p = ptys; p != nil; p = p->link){
+			if(p->dead || p->sreads == nil || p->nmaster == 0 || (p->lflag & ICANON))
+				continue;
+			if(rawdue(p, p->sreads, &due))
+				kick(p);
+			else if(due && (next == 0 || due < next))
+				next = due;
+		}
+		if(next == 0){
+			rsleep(&timed);
+			continue;
+		}
+		now = nsec() / 1000000;
+		qunlock(&lk);
+		if(next > now)
+			sleep(next - now > 100 ? 100 : next - now);
+		qlock(&lk);
+	}
+}
+
+/* the file server ends: the timer too */
+static void
+fsend(Srv*)
+{
+	if(timerpid > 0)
+		postnote(PNPROC, timerpid, "kill");
+}
+
 static Srv fs = {
-	.open = fsopen,
-	.read = fsread,
-	.write = fswrite,
-	.flush = fsflush,
-	.destroyfid = fsdestroyfid,
+	.end = fsend,
+	.open = lkopen,
+	.read = lkread,
+	.write = lkwrite,
+	.flush = lkflush,
+	.destroyfid = lkdestroyfid,
 };
 
 /*
@@ -901,6 +1068,13 @@ main(int argc, char **argv)
 	/* a stale one of a ptyfs gone (APE's mkserver removes it too) */
 	snprint(path, sizeof path, "/srv/%s", srv);
 	remove(path);
+	timed.l = &lk;
+	switch(timerpid = rfork(RFPROC|RFMEM|RFNOWAIT)){
+	case -1:
+		sysfatal("rfork: %r");
+	case 0:
+		timer();
+	}
 	postsrv(&fs, srv);
 	exits(nil);
 }

@@ -5,6 +5,10 @@
 #include <string.h>
 #include <setjmp.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+
+extern int _ptyctl(int, int);	/* tcgetattr.c: the pty's /dev/ptyctlN */
 
 extern sigset_t	_psigblocked;
 
@@ -38,6 +42,7 @@ static struct {
 	{"profiling alarm",			SIGPROF},
 	{"sys: bad sys call",			SIGSYS},
 	{"sys: breakpoint",			SIGTRAP},
+	{"winch",				SIGWINCH},	/* 9space: ptyfs, to the processes that asked */
 };
 #define NSIGTAB ((sizeof sigtab)/(sizeof (sigtab[0])))
 
@@ -63,6 +68,60 @@ siginfotramp(int sig, char *msg, Ureg *u)
 	(*sigaction3[sig])(sig, &si, u);
 }
 
+/*
+ * 9space: SIGWINCH.  ptyfs posts the note "winch" when the terminal's size
+ * changes, but only to the processes that asked for it: a native program
+ * in the same window (rc) would die of a note it does not know.  A process
+ * that catches SIGWINCH says so in its terminal's ptyctl ("IOW winch pid
+ * on"), and takes it back when it no longer does or execs (the new
+ * program may be a native one); a forked child that catches it says so
+ * for itself.
+ */
+static int winchon;
+
+static void
+winchtell(int on)
+{
+	char buf[48];
+	int i, c, n;
+
+	for(i = 0; i < 3; i++){
+		if((c = _ptyctl(i, 1)) < 0)	/* OWRITE */
+			continue;
+		n = snprintf(buf, sizeof buf, "IOW winch %d %s", getpid(), on ? "on" : "off");
+		_WRITE(c, buf, n);
+		_CLOSE(c);
+		break;
+	}
+	winchon = on;
+}
+
+static void
+winchset(void (*f)(int, char*, Ureg*))
+{
+	int on;
+
+	on = f != SIG_DFL && f != SIG_IGN && f != SIG_ERR;
+	if(on != winchon)
+		winchtell(on);
+}
+
+/* fork's child: its own registration, if it catches SIGWINCH */
+void
+_winchfork(void)
+{
+	winchon = 0;
+	winchset(_sighdlr[SIGWINCH]);
+}
+
+/* before exec: the program after may not catch it */
+void
+_winchexec(void)
+{
+	if(winchon)
+		winchtell(0);
+}
+
 void
 (*signal(int sig, void (*func)(int, char*, Ureg*)))(int, char*, Ureg*)
 {
@@ -76,6 +135,8 @@ void
 	if(sig == SIGKILL)
 		return oldf;	/* can't catch or ignore SIGKILL */
 	_sighdlr[sig] = func;
+	if(sig == SIGWINCH)
+		winchset(func);
 	return oldf;
 }
 
@@ -118,6 +179,8 @@ sigaction(int sig, const struct sigaction *act, struct sigaction *oact)	/* GCC p
 			_sighdlr[sig] = siginfotramp;
 		}else
 			_sighdlr[sig] = act->sa_handler;
+		if(sig == SIGWINCH)
+			winchset(_sighdlr[sig]);
 	}
 	return 0;
 }
@@ -147,7 +210,7 @@ _notehandler(void *u, char *msg)	/* GCC port: types as in the prototype, kencc i
 	for(i = 0; i<NSIGTAB; i++){
 		if(strncmp(msg, sigtab[i].msg, strlen(sigtab[i].msg)) == 0){
 			f = _sighdlr[sigtab[i].num];
-			if(f == SIG_DFL && sigtab[i].num == SIGCHLD){	/* GCC port: POSIX's default: ignored */
+			if(f == SIG_DFL && (sigtab[i].num == SIGCHLD || sigtab[i].num == SIGWINCH)){	/* GCC port: POSIX's default: ignored */
 				_NOTED(0);
 				return 0;
 			}

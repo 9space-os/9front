@@ -89,9 +89,28 @@ Output's newline becomes carriage return, newline
 .BR ONLCR ).
 Raw mode
 .RB ( ICANON
-off) passes bytes as they come;
+off) passes bytes without editing, a read as termios'
 .B VMIN
-0 makes a read return at once.
+and
+.B VTIME
+(tenths of a second) say:
+.B VMIN
+above 0 and
+.B VTIME
+0, until
+.B VMIN
+bytes (or as many as asked for);
+both above 0, until
+.B VMIN
+bytes, or
+.B VTIME
+after the last byte once one came;
+.B VMIN
+0 and
+.B VTIME
+above 0, the first byte, or nothing after
+.BR VTIME ;
+both 0, what there is at once.
 Writing
 .B rawon
 to the slave's
@@ -140,7 +159,29 @@ the note group (that of
 .I rows cols xpixels ypixels
 the size
 .RB ( TIOCSWINSZ ,
-.BR TIOCGWINSZ ).
+.BR TIOCGWINSZ ),
+.B IOW winch
+.I pid
+.BR on | off
+whether process
+.I pid
+gets the note
+.B winch
+when the size changes.
+APE's
+.I signal
+and
+.I sigaction
+write it for a process that catches
+.B SIGWINCH
+(and take it back when it no longer does or execs; a forked child that
+catches it says so for itself); only those processes get the note,
+never the note group: a native program in the same window
+.RI ( rc )
+would die of a note it does not know.
+The default action of
+.B SIGWINCH
+is to ignore it.
 .PP
 The
 .B -D
@@ -156,14 +197,6 @@ flag prints the 9P messages.
 .IR rio (4),
 .IR vt (1)
 .SH BUGS
-A changed size posts no note
-.RB ( SIGWINCH ):
-a native program would die of it; programs ask with
-.BR TIOCGWINSZ .
-.B VTIME
-is ignored, and so is
-.B VMIN
-above 1.
 Flow control
 .RB ( IXON )
 is not done.
