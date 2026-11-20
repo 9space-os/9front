@@ -96,6 +96,15 @@ to be the mouse port.
 .TP
 .B ps2
 sets the PS2 port to be the mouse port.
+9space: a Synaptics touchpad there (its identify query answers) is set
+up as by
+.B synaptic
+on its own, as OpenBSD's and FreeBSD's drivers find one; 9front does
+not look.
+.TP
+.B ps2plain
+the PS2 port without that: a touchpad stays a plain PS2 mouse
+(9space).
 .TP
 .B intellimouse
 uses the wheel on a Microsoft Intellimouse
@@ -105,7 +114,9 @@ as the middle button.
 is equivalent to a write of
 .B ps2
 followed by a write of
-.BR intellimouse .
+.BR intellimouse
+(9space: a Synaptics touchpad is set up as by
+.BR synaptic ).
 .TP
 .B synaptic
 sets the PS2 port to a Synaptics touchpad in its absolute mode

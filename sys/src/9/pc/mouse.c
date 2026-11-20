@@ -63,6 +63,7 @@ enum
 	CMsynaptic,
 	CMmidscroll,
 	CMtap,
+	CMps2plain,
 };
 
 static Cmdtab mousectlmsg[] =
@@ -80,6 +81,7 @@ static Cmdtab mousectlmsg[] =
 	CMsynaptic,		"synaptic",		1,
 	CMmidscroll,		"midscroll",		2,
 	CMtap,			"tap",			2,
+	CMps2plain,		"ps2plain",		1,	/* 9space: ps2 without the touchpad's detection */
 };
 
 /*
@@ -637,6 +639,46 @@ setabs(void)
 	i8042auxcmd(0x14);
 }
 
+/*
+ * 9space: is a Synaptics touchpad on the aux port?  Its identify query
+ * answers with 0x47 in the middle byte (OpenBSD's synaptics_knock, pms.c;
+ * pmsreg.h's SYNAPTICS_ID_MAGIC).  The stream is stopped first: a packet
+ * would come between the answer's bytes
+ */
+static int
+synpresent(void)
+{
+	uint id;
+
+	disstream();
+	if(synquery(SynQidentify, &id) == 0 && ((id >> 8) & 0xff) == 0x47)
+		return 1;
+	/* the query set the resolution four times: a mouse's defaults again (pms_reset) */
+	i8042auxcmd(0xF6);
+	return 0;
+}
+
+/* 9space: the Synaptics touchpad's mode (absolute, W), its packets to synmouseputc */
+static void
+synenable(void)
+{
+	intellimouse = 0;
+	disstream();
+	synhwinfo();
+	setabs();
+	synaptic = 1;
+	packetsize = 6;
+	mousehwaccel = 0;
+	i8042auxenable(synmouseputc);
+	i8042auxcmd(0xF3);
+	i8042auxcmd(0xC8);
+	i8042auxcmd(0xF3);
+	i8042auxcmd(0x64);
+	i8042auxcmd(0xF3);
+	i8042auxcmd(0x50);
+	i8042auxcmd(0xF4);
+}
+
 void
 mousectl(Cmdbuf *cb)
 {
@@ -666,28 +708,29 @@ mousectl(Cmdbuf *cb)
 		setstream(1);
 		break;
 	case CMps2:
+		/*
+		 * 9space: a Synaptics touchpad on the PS/2 port is one
+		 * (the installer's default answer is ps2): as OpenBSD's
+		 * pms and FreeBSD's psm probe for it
+		 */
+		if(synpresent()){
+			synenable();
+			break;
+		}
+		/* fall through */
+	case CMps2plain:
 		intellimouse = 0;
 		ps2mouse();
 		setstream(1);
 		break;
 	case CMsynaptic:
-		intellimouse = 0;
-		disstream();
-		synhwinfo();	/* 9space */
-		setabs();
-		synaptic = 1;
-		packetsize = 6;
-		mousehwaccel = 0;
-		i8042auxenable(synmouseputc);
-		i8042auxcmd(0xF3);
-		i8042auxcmd(0xC8);
-		i8042auxcmd(0xF3);
-		i8042auxcmd(0x64);
-		i8042auxcmd(0xF3);
-		i8042auxcmd(0x50);
-		i8042auxcmd(0xF4);
+		synenable();	/* 9space */
 		break;
 	case CMps2intellimouse:
+		if(synpresent()){	/* 9space: as ps2 */
+			synenable();
+			break;
+		}
 		ps2mouse();
 		setintellimouse();
 		setstream(1);

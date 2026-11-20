@@ -10,8 +10,10 @@
 # is VESA's, if i915 fails), the keyboard's and touchpad's PS/2 port
 monitor=i915
 vgasize=1920x1080x32
-# its touchpad as a laptop's (Synaptics clickpad, the TrackPoint behind it: mouse(3))
-mouseport=synaptic
+# its touchpad as a laptop's (Synaptics clickpad, the TrackPoint behind it:
+# mouse(3)): ps2, as an installed system has it (the installer's default
+# answer); the kernel finds the Synaptics pad on its own
+mouseport=ps2
 # the TrackPoint scrolls by its middle button (mouse(3))
 midscroll=on
 # WLAN: etheriwl's firmware for the 7265 under the name it reads; the

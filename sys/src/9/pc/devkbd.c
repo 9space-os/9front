@@ -193,6 +193,32 @@ i8042reset(void)
 	}
 }
 
+/*
+ * 9space: the aux port's next byte, for a command's answer read with
+ * the lock held (the interrupt does not see it): a keyboard byte that
+ * comes meanwhile (a key released while a mouse is set up) is the
+ * keyboard's and goes to it, as the interrupt would send it, instead of
+ * being taken for the answer (which failed the command and lost the
+ * key).  OpenBSD's pckbc_poll_data1 skips the other port's bytes too.
+ */
+static int
+auxdata(void)
+{
+	int status, i;
+	uchar c;
+
+	for(i = 0; i < 16; i++){
+		if((status = inready()) < 0)
+			return -1;
+		c = inb(Data);
+		if(status & Minready)
+			return c;
+		if(kbd.q != nil)
+			qproduce(kbd.q, &c, 1);
+	}
+	return -1;
+}
+
 int
 i8042auxcmd(int cmd)
 {
@@ -211,7 +237,7 @@ i8042auxcmd(int cmd)
 			break;
 		if(outcmd(0xD4, cmd) < 0)
 			break;
-		if((c = indata()) < 0)
+		if((c = auxdata()) < 0)	/* 9space: the aux port's, not a key's */
 			break;
 	} while(c == 0xFE || c == 0);
 	iunlock(&i8042lock);
@@ -241,7 +267,7 @@ i8042auxquery(uchar *cmd, int ncmd, uchar *resp, int nresp)
 	for(i = 0; i < ncmd; i++){
 		tries = 0;
 		do{
-			if(tries++ > 2 || outcmd(0xD4, cmd[i]) < 0 || (c = indata()) < 0){
+			if(tries++ > 2 || outcmd(0xD4, cmd[i]) < 0 || (c = auxdata()) < 0){
 				iunlock(&i8042lock);
 				return -1;
 			}
@@ -252,7 +278,7 @@ i8042auxquery(uchar *cmd, int ncmd, uchar *resp, int nresp)
 		}
 	}
 	for(i = 0; i < nresp; i++){
-		if((c = indata()) < 0){
+		if((c = auxdata()) < 0){
 			iunlock(&i8042lock);
 			return -1;
 		}

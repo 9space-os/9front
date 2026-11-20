@@ -53,9 +53,9 @@ if(! test -f /dev/mouse)
 	bind -a '#m' /dev
 
 if(test -f /dev/mousectl && test -f /dev/winname){
-	ask mouseport ' is (ps2, ps2intellimouse, synaptic, 0, 1, 2)' ps2
+	ask mouseport ' is (ps2, ps2intellimouse, synaptic, ps2plain, 0, 1, 2)' ps2
 	switch($mouseport){
-	case ps2 ps2intellimouse synaptic 0 1 2
+	case ps2 ps2intellimouse synaptic ps2plain 0 1 2
 		aux/mouse $mouseport
 		if(~ $accupoint 1)
 			pipefile -dr /bin/aux/accupoint /dev/mouse
