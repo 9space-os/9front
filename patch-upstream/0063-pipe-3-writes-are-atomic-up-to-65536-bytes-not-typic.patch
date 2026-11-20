@@ -1,0 +1,37 @@
+From a314ba072f6bae30950efdadf4f207a109a16b12 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 20 Nov 2026 15:29:56 +0100
+Subject: [PATCH] pipe(3): writes are atomic up to 65536 bytes, not "typically
+ 32768"
+
+The kernel's queues take a write whole up to Maxatomic, 64*1024
+(port/qio.c), and qwrite splits a longer one into pieces of that size;
+devpipe writes through qwrite. Maxatomic has been 64 KB at least since
+the sources of 2011 (the first import); the page still said 32768.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/man/3/pipe | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/sys/man/3/pipe b/sys/man/3/pipe
+index bdbaeba8c..d8d56ef6c 100644
+--- a/sys/man/3/pipe
++++ b/sys/man/3/pipe
+@@ -24,9 +24,10 @@ Write boundaries are preserved: each read terminates
+ when the read buffer is full or after reading the last byte
+ of a write, whichever comes first.
+ .PP
+-Writes are atomic up to a certain size, typically 32768 bytes,
+-that is, each write will be delivered in a single read by the
+-recipient, provided the receiving buffer is large enough.
++Writes are atomic up to 65536 bytes (the kernel's Maxatomic),
++that is, each write of up to that size will be delivered in a single
++read by the recipient, provided the receiving buffer is large enough;
++a longer write arrives in pieces of that size.
+ .PP
+ If there are multiple writers, each
+ .I write
+-- 
+2.56.0
+

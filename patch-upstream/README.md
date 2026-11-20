@@ -33,8 +33,8 @@ All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 2026-11-12); 0032 to 0034 on them at `eb49f1f87` (2026-11-14); all 38 at
 `6ae667969` (2026-11-15), 0039 to 0044 on them there (2026-11-16), 0045
 on them there (2026-11-17), 0046 and 0047 on them there (2026-11-18);
-all 59 at `cb9e5e7e9` (2026-11-19), 0060 on them there (2026-11-19), 0061 and
-0062 on them there (2026-11-20). Each applies alone too, except:
+all 59 at `cb9e5e7e9` (2026-11-19), 0060 on them there (2026-11-19), 0061 to
+0063 on them there (2026-11-20). Each applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
 - 0010 needs 0007 and 0009,
@@ -68,7 +68,7 @@ made with an AI assistant); drop it if 9front does not want it.
   `fcntl`, `setvbuf` (`6c`), `ape/lib/9`'s `getenv` (`6c` and `8c`),
   `ape/lib/draw`'s `newwindow` and `scroll` (`6c`); reform's `shortcuts`
   (`6c`); and a `#if` on `INT8_MIN` to `INT64_MIN` with `pcc`. No errors,
-  no warnings. 0048 changes comments only. 0061 and 0062:
+  no warnings. 0048 changes comments only, 0063 a man page only. 0061 and 0062:
   `auth/factotum`'s `wpapsk`, `ip`'s `tftpfs` and `socksd`, each with
   `6c` (amd64) and `8c` (386) by their mkfiles, the same way: no errors,
   no warnings. 0060: `port/devsegment.c`
@@ -145,6 +145,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0060 | devsegment: an ORCLOSE segment directory removed whatever was in its slot | bug fix |
 | 0061 | factotum: wpapsk ordered the nonces by 6 bytes, not 32 | bug fix |
 | 0062 | ip/tftpfs, ip/socksd: sizeof(Udphdr) is 56 under 6c, udp(3) wants 52 | bug fix |
+| 0063 | pipe(3): writes are atomic up to 65536 bytes, not "typically 32768" | documentation |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -873,6 +874,14 @@ one byte buffer, the header at 0 and the data at `Udphdrsize`. Found by
 comparing every struct's layout under gcc with 6c's rules (the `gcc`
 branch's port checks; gcc gives 52). Not done: tftpfs run against a
 TFTP server on 9front amd64.
+
+### 0063 pipe(3): writes are atomic up to 65536 bytes, not "typically 32768"
+
+The kernel's queues take a write whole up to `Maxatomic`, 64*1024
+(`port/qio.c`), and `qwrite` splits a longer one into pieces of that
+size; devpipe writes through `qwrite`. `Maxatomic` has been 64 KB at
+least since the sources of 2011 (the first import); the page still said
+32768.
 
 ## Not included
 
