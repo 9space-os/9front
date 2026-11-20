@@ -62,6 +62,7 @@ static int gemmunmap(void*, size_t);
 extern void	*_SEGATTACH(int, char*, void*, unsigned long);
 extern int	_SEGDETACH(void*);
 extern int	_ERRSTR(char*, unsigned int);
+extern int	_FSTAT(int, unsigned char*, int);
 extern int	_FD2PATH(int, char*, int);
 
 enum {
@@ -100,6 +101,7 @@ struct Gem {
 	int	used;
 	int	closed;		/* GEM_CLOSE'd while mapped: goes at the last munmap */
 	int	nmap;		/* GEM_MMAPs not yet munmapped */
+	int	local;		/* made after the driver was gone: memory of this process (p), no driver's */
 	int	id;		/* the driver's */
 	char	seg[32];
 	uint64_t	va, size;
@@ -124,12 +126,14 @@ struct Sync {
 struct Dev {
 	Gpu	*gpu;
 	int	fd;
-	uint64_t	ino;	/* the qid of its ctl, unique */
+	uint64_t	ino;	/* the qid of its ctl, unique in its driver */
+	uint64_t	mnt;	/* and the mount its ctl is on (mnt): a driver started again numbers its qids anew */
 	int	ctx;		/* the driver's number */
 	int	submitfd, statfd;
 	int	waitfd;		/* a fence file kept for waits (fencewait), -1 none or in use */
 	uint64_t	done;		/* fences done, as last read */
 	int	failed;
+	int	lost;		/* the driver gone (its channel hung up): see devlost */
 	int	nfence;
 	Gem	*gem;
 	int	ngem;
@@ -334,6 +338,29 @@ ino(int fd)
 }
 
 /*
+ * the mount a descriptor's file is on: its Dir's type and dev, read from
+ * the stat message (stat(5): size[2] type[2] dev[4] ...); APE's st_dev
+ * keeps only dev's low byte
+ */
+static uint64_t
+mnt(int fd)
+{
+	unsigned char buf[1024];	/* a stat message, its names short */
+
+	if(_FSTAT(fd, buf, sizeof buf) < 8)
+		return 0;
+	return (uint64_t)(buf[2] | buf[3]<<8) << 32 |
+		(uint32_t)(buf[4] | buf[5]<<8 | buf[6]<<16 | (uint32_t)buf[7]<<24);
+}
+
+/* fd is a descriptor of d's ctl: its qid, and not one of an older driver's (devlost) */
+static int
+isctx(Dev *d, int fd)
+{
+	return ino(fd) == d->ino && mnt(fd) == d->mnt;
+}
+
+/*
  * the descriptor the context's requests go to: the one it was found by
  * may be closed (RADV closes its own and keeps libdrm_amdgpu's dup), and
  * its number used again; then fd, which is the context's, takes over
@@ -341,7 +368,7 @@ ino(int fd)
 static Dev*
 livefd(Dev *d, int fd)
 {
-	if(d->fd != fd && ino(d->fd) != d->ino){
+	if(d->fd != fd && !isctx(d, d->fd)){
 		d->fd = fd;
 		if(d->amd != NULL)
 			amd9setfd(d->amd, fd);
@@ -353,8 +380,10 @@ livefd(Dev *d, int fd)
  * the context behind a descriptor, found by its first ioctl: the
  * clone's ctl says ctx n. The descriptor keeps the name it was opened
  * by (N's clone, fd2path), the qid is its context's ctl's, which
- * no other file has: a descriptor closed and its number used again
- * tells by that.
+ * no other file of its driver has: a descriptor closed and its number
+ * used again tells by that. A driver started again (gpu(4)) numbers its
+ * contexts and qids anew, on a new mount: its ctx 1 is not the old
+ * driver's (lost, devlost) ctx 1, so the mount (Dev.mnt) is compared too.
  */
 static Dev*
 getdev(int fd)
@@ -375,12 +404,12 @@ getdev(int fd)
 		return NULL;
 	q = ino(fd);
 	f->gen = __fdgen(fd);
-	if(f->kind == Kdev && f->dev->ino == q)
+	if(f->kind == Kdev && isctx(f->dev, fd))
 		return livefd(f->dev, fd);
 	f->kind = Knone;
 	/* a descriptor dup'd from a known one (libdrm_amdgpu dups): the same context */
 	for(i = 0; i < Maxfd; i++)
-		if(i != fd && fds[i].kind == Kdev && fds[i].dev->ino == q){
+		if(i != fd && fds[i].kind == Kdev && fds[i].dev->ino == q && fds[i].dev->mnt == mnt(fd)){
 			f->kind = Kdev;
 			f->dev = fds[i].dev;
 			return livefd(f->dev, fd);
@@ -404,6 +433,7 @@ getdev(int fd)
 	d->gpu = &gpus[i];
 	d->fd = fd;
 	d->ino = q;
+	d->mnt = mnt(fd);
 	d->ctx = atoi(buf+4);
 	snprintf(path, sizeof path, "%s/ctx/%d/submit", d->gpu->dir, d->ctx);
 	d->submitfd = open(path, O_WRONLY);
@@ -565,6 +595,35 @@ syncfileioctl(int fd, unsigned long req, void *arg)
 	return 0;
 }
 
+/*
+ * the driver gone (killed, started again: gpu(4)), as the last error says:
+ * its channel hung up.  From then on the context is lost: its submits fail
+ * (the Vulkan driver reports VK_ERROR_DEVICE_LOST), and new objects are
+ * memory of this process (localgem), so that what a Vulkan driver does
+ * besides submitting goes on as on a lost device (Vulkan's "Lost Device":
+ * those commands behave as if the device were there; an unchecked map of a
+ * new object, hasvk's state pools, has memory)
+ */
+static void
+devlost(Dev *d)
+{
+	char *e, buf[64];
+
+	e = syserr();
+	if(strstr(e, "hungup") == NULL && strstr(e, "hangup") == NULL && strstr(e, "rpc error") == NULL)
+		return;
+	/*
+	 * a refusal of a driver that lives is not it: the context's own status
+	 * channel (open since the context was made) must have gone too
+	 */
+	if(d->statfd >= 0 && pread(d->statfd, buf, sizeof buf, 0) >= 0)
+		return;
+	if(!d->lost)
+		dbg("the driver is gone (%s): the context lost", e);
+	d->lost = 1;
+	d->failed = 1;
+}
+
 /* the driver's ctl: a request, its reply */
 static int
 ctl(Dev *d, char *reply, int n, char *fmt, ...)
@@ -576,15 +635,20 @@ ctl(Dev *d, char *reply, int n, char *fmt, ...)
 	va_start(arg, fmt);
 	vsnprintf(req, sizeof req, fmt, arg);
 	va_end(arg);
+	if(d->lost)
+		return seterr(EIO);
 	if(write(d->fd, req, strlen(req)) < 0){
 		int e = errno;
 
 		dbg("ctl %s: %s (%s)", req, syserr(), strerror(e));
-		return seterr(EINVAL);
+		devlost(d);
+		return seterr(d->lost ? EIO : EINVAL);
 	}
 	if(reply != NULL){
-		if((m = pread(d->fd, reply, n-1, 0)) < 0)
+		if((m = pread(d->fd, reply, n-1, 0)) < 0){
+			devlost(d);
 			return seterr(EIO);
+		}
 		reply[m] = 0;
 	}
 	return 0;
@@ -727,6 +791,27 @@ gemreply(Dev *d, int i, char *reply, char *word, uint32_t *handle)
 	return 0;
 }
 
+/* an object of a lost context in slot i: zeroed memory of this process, page-aligned */
+static int
+localgem(Dev *d, int i, uint64_t size, uint32_t *handle)
+{
+	Gem *g;
+	void *p;
+
+	size = (size + 4095) & ~(uint64_t)4095;
+	if(size == 0 || posix_memalign(&p, 4096, size) != 0)
+		return seterr(ENOMEM);
+	memset(p, 0, size);
+	g = &d->gem[i];
+	memset(g, 0, sizeof *g);
+	g->used = 1;
+	g->local = 1;
+	g->p = p;
+	g->size = size;
+	*handle = i+1;
+	return 0;
+}
+
 static int
 gemcreate(Dev *d, uint64_t size, uint32_t *handle)
 {
@@ -736,7 +821,7 @@ gemcreate(Dev *d, uint64_t size, uint32_t *handle)
 	if((i = gemslot(d)) < 0)
 		return -1;
 	if(ctl(d, reply, sizeof reply, "bo %llu 0", (unsigned long long)size) < 0)
-		return -1;
+		return d->lost ? localgem(d, i, size, handle) : -1;
 	/* bo id seg va size gpuaddr */
 	return gemreply(d, i, reply, "bo", handle);
 }
@@ -817,6 +902,11 @@ gemclose(Dev *d, uint32_t h)
 static void
 gemfree(Dev *d, Gem *g)
 {
+	if(g->local){
+		free(g->p);
+		memset(g, 0, sizeof *g);
+		return;
+	}
 	if(g->p != NULL)
 		_SEGDETACH(g->p);
 	ctl(d, NULL, 0, "free %d", g->id);
@@ -849,7 +939,7 @@ gemmunmap(void *a, size_t n)
 			if(--g->nmap == 0){
 				if(g->closed)
 					gemfree(d, g);
-				else{
+				else if(!g->local){
 					_SEGDETACH(g->p);
 					g->p = NULL;
 				}
@@ -1139,6 +1229,10 @@ execbuf(Dev *d, struct drm_i915_gem_execbuffer2 *eb)
 	Fence f, mine;
 	Gem *g, *batch;
 	Sync *s;
+
+	/* a lost context (devlost): the Vulkan driver makes VK_ERROR_DEVICE_LOST of it */
+	if(d->lost)
+		return seterr(EIO);
 
 	if(eb->buffer_count == 0)
 		return seterr(EINVAL);

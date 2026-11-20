@@ -1877,6 +1877,12 @@ Plan in ../9front-ui PLAN §12 (Entscheidung: eigener Server `wlsys` in C auf AP
 - **Gefunden nebenbei:** tests/gpu/build-vktest.sh linkte eframetest/rsvk nie neu, wenn libvulkan.a sich änderte (eframetest von 13:54 hatte noch /dev/gpu/0, fiel auf Software zurück) → entfernt sie jetzt wie cargo.sh, wenn eine lib neuer ist.
 - RX 7600 (VFIO): amdall, sharetest 13/13, amdusers/amdusersnone (none über /shr/gpu.none/1: amdctxtest, radvtest, vulkaninfo; abgewiesen: /shr/gpu, fremder Kontext, ctl, mode, scanout), amdrestart (vkcube-Scanout 60 fps nach Neustart), amdsecond (zweiter Treiber abgewiesen, Eintrag bleibt).
 
+## 2026-11-20: drm9 nach einem Treiberverlust; wgpu-core ohne Panik (X1: ui gpu → cpu → gpu)
+- hasvk schrieb nach dem Verlust ungeprüft in die Abbildung neuer BOs (mmap des toten Treibers → NULL, Fault in GFX8_RENDER_SURFACE_STATE_pack). drm9: ein ctl-Fehler mit totem Kanal (hungup/hangup/rpc error, bestätigt durch den ebenfalls toten fence-Kanal des Kontexts) markiert den Dev lost: Submit → EIO (hasvk: DEVICE_LOST), neue GEM-Objekte sind Prozessspeicher (Gem.local), so laufen alle unchecked maps weiter.
+- Danach: der neue Treiber bekam den alten, verlorenen Dev, weil drm9 einen Kontext nur an der qid.path seiner ctl erkannte und der neugestartete Treiber neu ab 1 zählt. Jetzt qid + Mount (Dir type/dev aus _FSTAT, voll; APEs st_dev hat nur dev&0xFF).
+- wgpu-core: PendingWrites::activate gibt begin_encodings Fehler zurück statt unwrap (toolchain/rust 6717fc0), request_device scheitert sauber → ui's GpuRetry.
+- X1 run6c grün: ui gpu → cpu → "gpu Intel HD 5500", kein Fault. Offen: dasselbe in amdgpu9.c für RADV.
+
 ## 2026-11-20: venus nach einem Geräteverlust wie Vulkans "Lost Device" (Mesa 0048)
 - Mit ring.lost (0045) machte ein fehlgeschlagener Ring-Submit den Command Buffer INVALID → End/Begin OOM. Jetzt bleibt er RECORDING (die Kommandos gehen nirgendwohin), erst das Submit meldet DEVICE_LOST (wie anv/RADV). vn_lost_report(): die "keine Antwort"-OOM der generierten vn_call_* → DEVICE_LOST, wo vk.xml es erlaubt (GetQueryPoolResults, GetSemaphoreCounterValue, GetEventStatus). Objekterzeugung bleibt OOM (erlaubt; ein "erfolgreicher" Puffer hätte Speicheranforderungen 0). "DEVICE_LOST überall" wäre gegen die Spec.
 - vktri nennt den meldenden Aufruf; wsysback verlangt acquire/submit/present/fence. 3/3 grün ("at the fence"/"at the submit"). Einmal hing wsysback sporadisch im Kern (alter Treiber Queueing, neuer Stat, closeprocs Queueing) → an die X1-Sitzung; bei der nächsten Wiederholung kregs/Kernstack aufnehmen.

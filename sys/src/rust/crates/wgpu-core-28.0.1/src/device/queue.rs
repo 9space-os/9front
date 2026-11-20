@@ -75,7 +75,7 @@ impl Queue {
         let mut pending_writes = PendingWrites::new(pending_encoder, instance_flags);
 
         let zero_buffer = device.zero_buffer.as_ref();
-        pending_writes.activate();
+        pending_writes.activate().map_err(DeviceError::from_hal)?;
         unsafe {
             pending_writes
                 .command_encoder
@@ -427,19 +427,20 @@ impl PendingWrites {
         }
     }
 
-    pub fn activate(&mut self) -> &mut dyn hal::DynCommandEncoder {
+    /// 9front: a failed begin_encoding (a device lost, out of memory) is
+    /// the caller's error, not a panic: request_device and the queue's
+    /// writes report it.
+    pub fn activate(&mut self) -> Result<&mut dyn hal::DynCommandEncoder, hal::DeviceError> {
         if !self.is_recording {
             unsafe {
-                self.command_encoder
-                    .begin_encoding(hal_label(
-                        Some("(wgpu internal) PendingWrites"),
-                        self.instance_flags,
-                    ))
-                    .unwrap();
+                self.command_encoder.begin_encoding(hal_label(
+                    Some("(wgpu internal) PendingWrites"),
+                    self.instance_flags,
+                ))?;
             }
             self.is_recording = true;
         }
-        self.command_encoder.as_mut()
+        Ok(self.command_encoder.as_mut())
     }
 }
 
@@ -709,7 +710,9 @@ impl Queue {
         })
         .chain(transition.map(|pending| pending.into_hal(&buffer, snatch_guard)))
         .collect::<Vec<_>>();
-        let encoder = pending_writes.activate();
+        let encoder = pending_writes
+            .activate()
+            .map_err(|e| self.device.handle_hal_error(e))?;
         unsafe {
             encoder.transition_buffers(&barriers);
             encoder.copy_buffer_to_buffer(staging_buffer.raw(), dst_raw, &[region]);
@@ -801,7 +804,9 @@ impl Queue {
         }
 
         let mut pending_writes = self.pending_writes.lock();
-        let encoder = pending_writes.activate();
+        let encoder = pending_writes
+            .activate()
+            .map_err(|e| self.device.handle_hal_error(e))?;
 
         // If the copy does not fully cover the layers, we need to initialize to
         // zero *first* as we don't keep track of partial texture layer inits.
@@ -1058,7 +1063,9 @@ impl Queue {
         }
 
         let mut pending_writes = self.pending_writes.lock();
-        let encoder = pending_writes.activate();
+        let encoder = pending_writes
+            .activate()
+            .map_err(|e| self.device.handle_hal_error(e))?;
 
         // If the copy does not fully cover the layers, we need to initialize to
         // zero *first* as we don't keep track of partial texture layer inits.
@@ -1496,7 +1503,9 @@ impl Queue {
         size_info.acceleration_structure_size = size;
 
         let mut pending_writes = self.pending_writes.lock();
-        let cmd_buf_raw = pending_writes.activate();
+        let cmd_buf_raw = pending_writes
+            .activate()
+            .map_err(|e| device.handle_hal_error(e))?;
 
         let raw = unsafe {
             device
