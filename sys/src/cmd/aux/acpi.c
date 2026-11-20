@@ -1301,7 +1301,8 @@ amlrequest(char *buf, int n, char **reply)
  *	    displayoff|displayswitch
  *				a display output's 0x85-0x89, a display
  *				adapter's 0x80 (the ACPI video extension), a
- *				ThinkPad's hotkeys 0x1010, 0x1011
+ *				ThinkPad's hotkeys 0x1010, 0x1011 (where
+ *				no output has _BCL: one line a press)
  *	hotkey 0xN		a ThinkPad's other hotkeys (MHKP)
  *	button power|sleep	PM1's fixed buttons, PNP0C0C, PNP0C0E
  *	resume			the machine woke from a suspend (pmctl)
@@ -1462,6 +1463,8 @@ evalint(void *dev, char *name, uvlong *v)
 	return 0;
 }
 
+static void *bcldev;		/* the panel's output with _BCL (below) */
+
 /* a Notify: the line as it is, and what it means where that is known */
 static void
 evnote(void *dev, uvlong v)
@@ -1479,9 +1482,17 @@ evnote(void *dev, uvlong v)
 	if(dev == hkey && v == 0x80){
 		/* acpithinkpad: the hotkeys queued, until MHKP gives 0 */
 		for(i = 0; i < 64 && evalint(dev, "MHKP", &x) == 0 && x != 0; i++){
-			if(x == 0x1010)
+			/*
+			 * 9space: the brightness keys only where no video
+			 * output reports them: with _BCL's output (_DOS 4)
+			 * the firmware notifies it too (0x86, 0x87), and
+			 * both lines moved the panel two steps a press
+			 * (the X1 Carbon); as thinkpad_acpi leaves them to
+			 * acpi_video
+			 */
+			if(x == 0x1010 && bcldev == nil)
 				evpost("key brightnessup");
-			else if(x == 0x1011)
+			else if(x == 0x1011 && bcldev == nil)
 				evpost("key brightnessdown");
 			else
 				evpost("hotkey %#llux", x);
@@ -1830,7 +1841,6 @@ evreaderfree(Evreader *e)
  * As OpenBSD's acpivout (sys/dev/acpi/acpivout.c,v 1.26) does it:
  * Copyright (c) 2009 Paul Irofti <paul@irofti.net>, ISC license (above).
  */
-static void *bcldev;		/* the output */
 static int bcl[101];		/* its levels, ascending */
 static int nbcl;
 static int bclcur = -1;		/* the level set last, -1: none yet */

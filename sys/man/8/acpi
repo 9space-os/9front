@@ -225,7 +225,7 @@ as it is;
 and
 .B brightnessdown
 (a display output's 0x86 and 0x87, a ThinkPad's hotkeys 0x1010 and
-0x1011),
+0x1011 where no display output has brightness levels: one press, one line),
 .BR brightnesszero ,
 .BR brightnesscycle ,
 .B displayoff
@@ -234,7 +234,7 @@ and
 (a display adapter's 0x80);
 .TP
 .BI "hotkey " n
-a ThinkPad's other hotkeys (its
+a ThinkPad's other hotkeys (and 0x1010, 0x1011 that a display output reports too) (its
 .B MHKP
 code; the hotkeys are enabled through
 .B MHKA ,
