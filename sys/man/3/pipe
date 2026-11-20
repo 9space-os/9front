@@ -24,9 +24,10 @@ Write boundaries are preserved: each read terminates
 when the read buffer is full or after reading the last byte
 of a write, whichever comes first.
 .PP
-Writes are atomic up to a certain size, typically 32768 bytes,
-that is, each write will be delivered in a single read by the
-recipient, provided the receiving buffer is large enough.
+Writes are atomic up to 65536 bytes (the kernel's Maxatomic),
+that is, each write of up to that size will be delivered in a single
+read by the recipient, provided the receiving buffer is large enough;
+a longer write arrives in pieces of that size.
 .PP
 If there are multiple writers, each
 .I write
