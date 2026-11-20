@@ -21,9 +21,13 @@ __atexit=()
 atexit(){ __atexit+=("$1"); }
 # KEEPTMP=1: the work dir stays (its consoles, logs), its name on stderr
 __exit(){
-	local c
+	# the category's exit status, whatever a cleanup returns: under set -e
+	# a failing cleanup (a kill of a guest gone already) would change it
+	local rc=$? c
+	set +e
 	for c in "${__atexit[@]}"; do eval "$c"; done
 	if [ -n "$KEEPTMP" ]; then echo "tests: kept $TMPD" >&2; else rm -rf "$TMPD"; fi
+	exit $rc
 }
 trap __exit EXIT
 npass=0
