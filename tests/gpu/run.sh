@@ -44,11 +44,14 @@ check "build tests/gpu" buildtests || { done_tests; exit; }
 # paths.env; scripts/mesa/common.sh): build.exe builds
 # libvulkan.a from the tree's Mesa (sys/src/mesa/build.json, a minute once).
 # Their programs stay from run to run (build-vktest.sh replaces a changed
-# one only: the guest's root is kept by rsync); gone when they could not
-# be built, so that no stale one runs
-novk(){ rm -f "$HERE/root/tests/vktest" "$HERE/root/tests/vkdraw" "$HERE/root/tests/vktri" \
-	"$HERE/root/tests/vkcube" "$HERE/root/tests/vulkaninfo" "$HERE/root/tests/vkspeed" \
-	"$HERE/root/tests/rsvk"; }
+# one only: the guest's root is kept by rsync); all of them gone when they
+# could not be built (root/tests/vkprogs and .new: what build-vktest.sh
+# put), so that no stale one runs
+novk(){
+	local l=$HERE/root/tests/vkprogs n
+	cat "$l" "$l.new" 2>/dev/null | sort -u | while read -r n; do rm -f "$HERE/root/tests/$n"; done
+	rm -f "$l" "$l.new"
+}
 cross=$(. "$ROOT/scripts/mesa/common.sh"; echo "$CROSS/$TRIPLE-gcc")
 cross_strip=${cross%-gcc}-strip
 if [ -x "$cross" ]; then

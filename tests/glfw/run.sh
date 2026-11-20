@@ -8,8 +8,12 @@
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
-. "$ROOT/scripts/mesa/common.sh"
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
+. "$ROOT/tests/lib.sh"	# objtype, skipall, atexit (the guest's cleanup)
+[ "$objtype" = amd64 ] || skipall glfw "amd64 only"
+. "$ROOT/scripts/mesa/common.sh"	# CROSS, TRIPLE
+[ -x "$CROSS/$TRIPLE-gcc" ] || skipall glfw "no cross compiler $TRIPLE-gcc (toolchain/gcc, GCC_DIR)"
+[ -e "$ROOT/amd64/lib.gcc/ape/libglfw3.a" ] || skipall glfw "no libglfw3.a (scripts/glfw/vendor.sh, build.exe)"
+[ -x "$ROOT/amd64/bin/wsys" ] || skipall glfw "no amd64/bin/wsys (a build)"
 mkdir -p "$HERE/root/tests"
 "$CROSS/$TRIPLE-gcc" -std=gnu11 -O2 -Wall -o "$HERE/root/tests/glfwtest" "$HERE/glfwtest.c" -lglfw3 -ldraw -l9 -lfmt -lutf -lm
 "$CROSS/$TRIPLE-gcc" -std=gnu11 -O2 -Wall -o "$HERE/root/tests/glfwagain" "$HERE/glfwagain.c" -lglfw3 -ldraw -l9 -lfmt -lutf -lm
@@ -23,7 +27,7 @@ UFS_EXTRA=$HERE/root MEM=1024 KARGS="vgasize=1024x768x32 monitor=vesa mouseport=
 	setsid bash "$ROOT/scripts/guest/mcp-guest.sh" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
 	"bind -a '#i' /dev" "bind -a '#m' /dev" >"$CLI_DIR/glfwguest.log" 2>&1 &
 guest=$!
-trap 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true' EXIT
+atexit 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true'
 M="python3 $ROOT/scripts/guest/mcp.py"
 $M wait 600 >/dev/null
 $M rc '/tests/wsys -x -i /tests/glfw >/tmp/wsys.log >[2=1] </dev/null' 180 >"$CLI_DIR/glfw.out" &
@@ -68,6 +72,5 @@ echo "$ag" | grep -E '^(ok|FAIL)' | sed 's/^/  /'
 if echo "$ag" | grep -q '^glfwagain.rc: all passed'; then echo "ok a GLFW window outlives its wsys (twice)"; else echo "FAIL a GLFW window outlives its wsys"; fail=1; fi
 kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null
 wait $guest 2>/dev/null || true
-trap - EXIT
 [ $fail = 0 ] && echo "glfw: all passed" || echo "glfw: failed"
 exit $fail

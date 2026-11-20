@@ -80,7 +80,7 @@ sed "1a u=http://10.0.2.2:$port" "$HERE/guest.rc" > "$X/guest.rc"
 cp "$HERE/cfg" "$X/cfg"
 python3 -m http.server --bind 127.0.0.1 --directory "$W" "$port" > "$TMPD/http.log" 2>&1 &
 httpd=$!
-trap 'kill $httpd 2>/dev/null; rm -rf "$TMPD"' EXIT
+atexit 'kill $httpd 2>/dev/null'
 truncate -s 256M "$TMPD/gefs.img"
 boot(){
 	MEM=1024 DISK="$TMPD/gefs.img" UFS_EXTRA="$TMPD/extra" WAITFOR='REPLICA-DONE' WAITMAX=300 CMDWAIT=300 \

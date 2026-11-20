@@ -11,9 +11,14 @@
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
-. "$ROOT/scripts/lib/paths.sh"	# GCC_DIR, RUST_DIR, GO_DIR, MCP_DIR, DISTFILES (the distribution's paths.env)
-. "$ROOT/scripts/mesa/common.sh"
+. "$ROOT/tests/lib.sh"	# objtype, skipall, atexit (the guest's cleanup)
+[ "$objtype" = amd64 ] || skipall uiserver "amd64 only"
+. "$ROOT/scripts/mesa/common.sh"	# CROSS, TRIPLE, BUILD
 RUSTC=${RUSTC:-$RUST_DIR/rust/build/host/stage1/bin/rustc}
+[ -x "$CROSS/$TRIPLE-gcc" ] || skipall uiserver "no cross compiler $TRIPLE-gcc (toolchain/gcc, GCC_DIR)"
+[ -x "$RUSTC" ] || skipall uiserver "no stage-1 rustc of toolchain/rust ($RUSTC)"
+command -v cargo >/dev/null || skipall uiserver "no cargo on the host"
+[ -x "$ROOT/amd64/bin/wsys" ] || skipall uiserver "no amd64/bin/wsys (a build)"
 T=x86_64-unknown-plan9
 . "$ROOT/scripts/build/cargostd.sh"
 cargostd "$BUILD/cargo/rust" $T
@@ -57,7 +62,7 @@ UFS_EXTRA=$HERE/root MEM=1024 KARGS="vgasize=1024x768x32 monitor=vesa mouseport=
 	setsid bash "$ROOT/scripts/guest/mcp-guest.sh" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
 	"bind -a '#i' /dev" "bind -a '#m' /dev" >"$CLI_DIR/uiserverguest.log" 2>&1 &
 guest=$!
-trap 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true' EXIT
+atexit 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true'
 M="timeout 1000 python3 $ROOT/scripts/guest/mcp.py"
 $M wait 600 >/dev/null
 $M rc 'bind /tests/ui /bin/ui; plumber -p /tests/plumbrules >/dev/null >[2=1] </dev/null; /tests/wsys -x -i /tests/uiserver >/tmp/wsys.log >[2=1] </dev/null' 900 >"$CLI_DIR/uiserver.out" || true
@@ -71,7 +76,6 @@ echo "$ur" | grep -E '^(ok|FAIL)'
 echo "$ur" | grep -q '^uirestart: all passed' && echo "ok a ui program outlives its wsys, its count kept" || { echo "FAIL a ui program outlives its wsys"; fail=1; }
 kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null
 wait $guest 2>/dev/null || true
-trap - EXIT
 
 # ui across its GPU driver's restart (uilost.rc): venus (virtio-gpu-gl), wsys -g;
 # the host's render node is needed (none while the card is VFIO's)
@@ -81,7 +85,6 @@ if ls /dev/dri/renderD* >/dev/null 2>&1; then
 		setsid bash "$ROOT/scripts/guest/mcp-guest.sh" 'aux/virtiogpu' "bind -a '#i' /dev" "bind -a '#m' /dev" \
 		>"$CLI_DIR/uilostguest.log" 2>&1 &
 	guest=$!
-	trap 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true' EXIT
 	$M wait 600 >/dev/null
 	lo=$($M rc 'bind /tests/ui /bin/ui; /tests/wsys -g -x -i /tests/uilost >/tmp/lost.log >[2=1] </dev/null; cat /tmp/lost.log' 300 2>&1) || true
 	echo "$lo" | grep -E '^lost: ' | sed 's/^lost: //'
@@ -90,7 +93,6 @@ if ls /dev/dri/renderD* >/dev/null 2>&1; then
 		{ echo "FAIL ui across its GPU driver's restart"; fail=1; }
 	kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null
 	wait $guest 2>/dev/null || true
-	trap - EXIT
 else
 	echo "skip ui across its GPU driver's restart: no render node on the host"
 fi

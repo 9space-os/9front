@@ -21,9 +21,11 @@
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
-. "$ROOT/scripts/mesa/common.sh"
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
-[ -x "$ROOT/amd64/bin/wsys" ] || { echo "wayland: no amd64/bin/wsys (scripts/build/cargo.sh)"; exit 1; }
+. "$ROOT/tests/lib.sh"	# objtype, skipall, atexit (the guest's cleanup)
+[ "$objtype" = amd64 ] || skipall wayland "amd64 only"
+. "$ROOT/scripts/mesa/common.sh"	# CROSS, TRIPLE
+[ -x "$CROSS/$TRIPLE-gcc" ] || skipall wayland "no cross compiler $TRIPLE-gcc (toolchain/gcc, GCC_DIR)"
+[ -x "$ROOT/amd64/bin/wsys" ] || skipall wayland "no amd64/bin/wsys (a build)"
 mkdir -p "$HERE/root/tests"
 bash "$ROOT/scripts/wayland/build.sh" "$HERE/root/tests"
 "$CROSS/$TRIPLE-gcc" -std=gnu11 -O2 -Wall -o "$HERE/root/tests/wltest" "$HERE/wltest.c" \
@@ -61,14 +63,14 @@ weston(){ # output prefix title
 		echo "FAIL weston-simple-$2"; fail=1
 	fi
 }
-stop(){ kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true; }
+stop(){ [ -n "$guest" ] || return 0; kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true; }
+atexit stop	# whichever guest runs (both stop it themselves too)
 
 if [ "${VKONLY:-0}" = 0 ]; then
 	UFS_EXTRA=$HERE/root MEM=1024 KARGS="vgasize=1024x768x32 monitor=vesa mouseport=ps2" \
 		setsid bash "$ROOT/scripts/guest/mcp-guest.sh" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
 		>"$CLI_DIR/waylandguest.log" 2>&1 &
 	guest=$!
-	trap stop EXIT
 	timeout 660 python3 "$ROOT/scripts/guest/mcp.py" wait 600 >/dev/null
 	out=$($M rc '/tests/wltest >[2=1]' 120) || true
 	echo "$out"
@@ -97,7 +99,6 @@ if [ "${VKONLY:-0}" = 0 ]; then
 	sc=$($M rc "bind -a '#i' /dev; bind -a '#m' /dev; /tests/wsys -S 2 -x -i /tests/wlscale.rc >/tmp/wsysS.log >[2=1]; cat /tmp/wsysS.log" 200) || true
 	echo "$sc" | grep -E '^(ok|FAIL|wlscale:)' | sed 's/^/scale: /'
 	stop
-	trap - EXIT
 	echo "$out" | grep -q '^wltest: all passed' || { echo "FAIL wltest"; fail=1; }
 	echo "$wl" | grep -q '^wlclient: all passed' || { echo "FAIL wlclient"; fail=1; }
 	if [ -x "$HERE/root/tests/libtest" ]; then
@@ -162,14 +163,12 @@ elif [ "${NOVK:-0}" = 0 ]; then
 		setsid bash "$ROOT/scripts/guest/mcp-guest.sh" 'aux/virtiogpu' \
 		>"$CLI_DIR/waylandvkguest.log" 2>&1 &
 	guest=$!
-	trap stop EXIT
 	timeout 660 python3 "$ROOT/scripts/guest/mcp.py" wait 600 >/dev/null
 	t0=$(date +%s)
 	vk=$(timeout 700 python3 "$ROOT/scripts/guest/mcp.py" rc "bind -a '#i' /dev; bind -a '#m' /dev; WSYSDEBUG=layers /tests/wsys -x -i /tests/wlvk.rc >/tmp/wsys.log >[2=1]; cat /tmp/wsys.log /tmp/wlvk.log; sed 's/^/vkcube: /' /tmp/vkcube.log; sed 's/^/wlgl: /' /tmp/wlgl.log; sed 's/^/egl: /' /tmp/weston-simple-egl.log" 660) || true
 	echo "wlvk and vkcube: $(($(date +%s) - t0)) s"
 	echo "$vk"
 	stop
-	trap - EXIT
 	echo "$vk" | grep -q '^wlvk: all passed' || { echo "FAIL wlvk"; fail=1; }
 	# its subsurface of GPU buffers composed by the GPU, the alpha blended (not drawn by draw(3))
 	if echo "$vk" | grep -q 'layers composed on the GPU' && ! echo "$vk" | grep -q 'no blending'; then

@@ -7,8 +7,12 @@
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
-. "$ROOT/scripts/mesa/common.sh"
-. "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
+. "$ROOT/tests/lib.sh"	# objtype, skipall, atexit (the guest's cleanup)
+[ "$objtype" = amd64 ] || skipall sdl "amd64 only"
+. "$ROOT/scripts/mesa/common.sh"	# CROSS, TRIPLE
+[ -x "$CROSS/$TRIPLE-gcc" ] || skipall sdl "no cross compiler $TRIPLE-gcc (toolchain/gcc, GCC_DIR)"
+[ -e "$ROOT/amd64/lib.gcc/ape/libSDL3.a" ] || skipall sdl "no libSDL3.a (scripts/sdl3/vendor.sh, build.exe)"
+[ -x "$ROOT/amd64/bin/wsys" ] || skipall sdl "no amd64/bin/wsys (a build)"
 mkdir -p "$HERE/root/tests"
 "$CROSS/$TRIPLE-gcc" -std=gnu11 -O2 -Wall -o "$HERE/root/tests/sdltest" "$HERE/sdltest.c" -lSDL3 -ldraw -l9 -lfmt -lutf -lm
 "$CROSS/$TRIPLE-gcc" -std=gnu11 -O2 -Wall -o "$HERE/root/tests/sdlagain" "$HERE/sdlagain.c" -lSDL3 -ldraw -l9 -lfmt -lutf -lm
@@ -26,7 +30,7 @@ UFS_EXTRA=$HERE/root MEM=1024 KARGS="vgasize=1024x768x32 monitor=vesa mouseport=
 	setsid bash "$ROOT/scripts/guest/mcp-guest.sh" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
 	"bind -a '#i' /dev" "bind -a '#m' /dev" "bind -a '#A' /dev" >"$CLI_DIR/sdlguest.log" 2>&1 &
 guest=$!
-trap 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true' EXIT
+atexit 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true'
 M="python3 $ROOT/scripts/guest/mcp.py"
 $M wait 600 >/dev/null
 $M rc '/tests/wsys -x -i /tests/sdl >/tmp/wsys.log >[2=1] </dev/null' 180 >"$CLI_DIR/sdl.out" &
@@ -74,7 +78,6 @@ if echo "$ag" | grep -q '^sdlagain.rc: all passed'; then echo "ok an SDL window 
 # the guest's end writes the WAV file whole: what it played, not silence
 kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null
 wait $guest 2>/dev/null || true
-trap - EXIT
 if python3 - "$wav" <<'PY'
 import struct, sys
 # QEMU's wav backend fills in the header's sizes only when it closes the file: the samples after it

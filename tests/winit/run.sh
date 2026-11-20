@@ -9,9 +9,14 @@
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
-. "$ROOT/scripts/lib/paths.sh"	# GCC_DIR, RUST_DIR, GO_DIR, MCP_DIR, DISTFILES (the distribution's paths.env)
-. "$ROOT/scripts/mesa/common.sh"
+. "$ROOT/tests/lib.sh"	# objtype, skipall, atexit (the guest's cleanup)
+[ "$objtype" = amd64 ] || skipall winit "amd64 only"
+. "$ROOT/scripts/mesa/common.sh"	# CROSS, TRIPLE, BUILD
 RUSTC=${RUSTC:-$RUST_DIR/rust/build/host/stage1/bin/rustc}
+[ -x "$CROSS/$TRIPLE-gcc" ] || skipall winit "no cross compiler $TRIPLE-gcc (toolchain/gcc, GCC_DIR)"
+[ -x "$RUSTC" ] || skipall winit "no stage-1 rustc of toolchain/rust ($RUSTC)"
+command -v cargo >/dev/null || skipall winit "no cargo on the host"
+[ -x "$ROOT/amd64/bin/wsys" ] || skipall winit "no amd64/bin/wsys (a build)"
 T=x86_64-unknown-plan9
 . "$ROOT/scripts/build/cargostd.sh"
 for d in rust icedtest eframetest eframetestsw; do cargostd "$BUILD/cargo/$d" $T; done
@@ -54,7 +59,7 @@ UFS_EXTRA=$HERE/root MEM=1024 KARGS="vgasize=1024x768x32 monitor=vesa mouseport=
 	setsid bash "$ROOT/scripts/guest/mcp-guest.sh" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
 	"bind -a '#i' /dev" "bind -a '#m' /dev" >"$CLI_DIR/winitguest.log" 2>&1 &
 guest=$!
-trap 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true' EXIT
+atexit 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true'
 M="python3 $ROOT/scripts/guest/mcp.py"
 $M wait 600 >/dev/null
 $M rc '/tests/wsys -x -i /tests/winit >/tmp/wsys.log >[2=1] </dev/null' 240 >"$CLI_DIR/winit.out" &
@@ -113,6 +118,5 @@ if [ -f "$HERE/root/tests/icedtest" ]; then
 fi
 kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null
 wait $guest 2>/dev/null || true
-trap - EXIT
 [ $fail = 0 ] && echo "winit: all passed" || echo "winit: failed"
 exit $fail

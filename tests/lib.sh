@@ -14,8 +14,18 @@ export SMP=${SMP:-4}
 BUILDEXE=$ROOT/sys/src/cmd/build/build.exe
 BUILDHOW="CC=gcc ARCH=$objtype sys/src/cmd/build/build.exe"
 TMPD=$(mktemp -d)
+# atexit command: a category's own cleanup at exit (a guest, a server), run
+# before the work dir goes, in the order registered.  A category never sets
+# its own EXIT trap: that would replace this one (KEEPTMP, the work dir).
+__atexit=()
+atexit(){ __atexit+=("$1"); }
 # KEEPTMP=1: the work dir stays (its consoles, logs), its name on stderr
-trap 'if [ -n "$KEEPTMP" ]; then echo "tests: kept $TMPD" >&2; else rm -rf "$TMPD"; fi' EXIT
+__exit(){
+	local c
+	for c in "${__atexit[@]}"; do eval "$c"; done
+	if [ -n "$KEEPTMP" ]; then echo "tests: kept $TMPD" >&2; else rm -rf "$TMPD"; fi
+}
+trap __exit EXIT
 npass=0
 nfail=0
 
@@ -25,4 +35,7 @@ fail(){ echo "  FAIL $*"; nfail=$((nfail+1)); }
 check(){ local n=$1; shift; if "$@" > "$TMPD/out" 2>&1; then pass "$n"; else fail "$n"; sed 's/^/       /' "$TMPD/out" | head -15; return 1; fi; }
 # skip name reason
 skip(){ echo "  SKIP $1 ($2)"; }
+# skipall name reason: the whole category skipped (a prerequisite missing,
+# another objtype): not a failure for tests/run.sh
+skipall(){ skip "$1" "$2"; exit 0; }
 done_tests(){ echo "  -- $npass passed, $nfail failed"; [ $nfail -eq 0 ]; }

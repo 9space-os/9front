@@ -11,7 +11,10 @@
 # Each program is linked into $BUILD/tests (with its debug information:
 # addr2line, gdb) and goes stripped into root/tests, replaced there only
 # when it changed (putstripped.sh: the guest's root is kept up to date by
-# rsync, an unchanged program is not copied again).
+# rsync, an unchanged program is not copied again).  root/tests/vkprogs
+# lists the programs put there: a program the last run put and this one did
+# not is removed at the end, and run.sh's novk removes them all when this
+# script fails, so that no stale program runs.
 set -e
 . "$(dirname "$0")/../../scripts/mesa/common.sh"
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -20,7 +23,13 @@ O=$BUILD/tests
 CC=$CROSS/$TRIPLE-gcc ARCH=$objtype "$ROOT/sys/src/cmd/build/build.exe" -D "$ROOT/sys/src/mesa/build.json" \
 	> "$O/libvulkan.log" 2>&1 || { tail -20 "$O/libvulkan.log"; exit 1; }
 libs="-Wl,--gc-sections -lvulkan -lz -ldraw -l9 -lfmt -lutf"
-put(){ bash "$HERE/putstripped.sh" "$CROSS/$TRIPLE-strip" "$1" "$HERE/root/tests/${2:-${1##*/}}"; }
+L=$HERE/root/tests/vkprogs
+: > "$L.new"
+put(){
+	local n=${2:-${1##*/}}
+	bash "$HERE/putstripped.sh" "$CROSS/$TRIPLE-strip" "$1" "$HERE/root/tests/$n"
+	echo "$n" >> "$L.new"
+}
 "$CROSS/$TRIPLE-gcc" -std=c11 -O2 -Wall -c -o "$O/btassert.o" "$HERE/btassert.c"
 "$CROSS/$TRIPLE-gcc" -std=c11 -O2 -Wall -D_PLAN9_SOURCE -I"$ROOT/sys/src/ape/lib/9" \
 	-c -o "$O/screenpeek.o" "$HERE/screenpeek.c"
@@ -106,6 +115,9 @@ fi
 "$ROOT/scripts/mesa/vktools.sh" build
 put "$BUILD/vktools/vkcube"
 put "$BUILD/vktools/vulkaninfo"
-ls -la "$HERE/root/tests/vktest" "$HERE/root/tests/vkdraw" "$HERE/root/tests/vktri" \
-	"$HERE/root/tests/vkspeed" "$HERE/root/tests/radvtest" "$HERE/root/tests/vkcube" "$HERE/root/tests/vulkaninfo" \
-	"$HERE/root/tests/gltest" "$HERE/root/tests/gldesk" "$HERE/root/tests/glwin"
+# what the last run put and this one did not goes; the list is this run's
+if [ -f "$L" ]; then
+	sort -u "$L.new" | comm -13 - <(sort -u "$L") | while read -r n; do rm -f "$HERE/root/tests/$n"; done
+fi
+mv "$L.new" "$L"
+(cd "$HERE/root/tests" && ls -la $(cat "$L"))
