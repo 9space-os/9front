@@ -79,7 +79,8 @@ calcptk(uchar pmk[PMKlen], uchar smac[Eaddrlen], uchar amac[Eaddrlen],
 		memmove(b + Eaddrlen*0, smac, Eaddrlen);
 		memmove(b + Eaddrlen*1, amac, Eaddrlen);
 	}
-	if(memcmp(snonce, anonce, Eaddrlen) > 0){
+	/* the nonces by all 32 bytes, not 6 (a 9front bug, patch-upstream 0061) */
+	if(memcmp(snonce, anonce, Noncelen) > 0){
 		memmove(b + Eaddrlen*2 + Noncelen*0, anonce, Noncelen);
 		memmove(b + Eaddrlen*2 + Noncelen*1, snonce, Noncelen);
 	} else {
