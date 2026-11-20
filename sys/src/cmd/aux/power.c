@@ -48,6 +48,7 @@ struct Res {
 	int	ok;
 	uvlong	last[Maxcpu];
 	uvlong	delta[Maxcpu];
+	char	have[Maxcpu];	/* last is a reading */
 };
 
 static Meter imeters[] = {
@@ -90,13 +91,17 @@ rdmsr(ulong msr, uvlong *v)
 	return pread(msrfd, v, 8, msr) == 8 ? 0 : -1;
 }
 
-/* the reads that follow on processor n */
+/*
+ * the reads that follow on processor n: wired, then a real sleep (a
+ * sleep(0) yields only when another process is ready, so on an idle
+ * machine it went on reading on the processor it was on)
+ */
 static void
 oncpu(int n)
 {
 	if(ctlfd >= 0)
 		fprint(ctlfd, "wired %d", n);
-	sleep(0);
+	sleep(1);
 }
 
 static int
@@ -181,12 +186,28 @@ sample(void)
 			r = &res[i];
 			if(!r->ok || (!r->core && c != 0))
 				continue;
-			if(rdmsr(r->msr, &v) < 0)
+			r->delta[c] = 0;
+			if(rdmsr(r->msr, &v) < 0){
+				r->have[c] = 0;
 				continue;
-			r->delta[c] = v - r->last[c];
+			}
+			if(r->have[c] && v >= r->last[c])
+				r->delta[c] = v - r->last[c];
 			r->last[c] = v;
+			r->have[c] = 1;
 		}
 	}
+}
+
+/* a residency's share of the interval, at most all of it */
+static double
+share(uvlong d, uvlong tsc)
+{
+	if(tsc == 0)
+		return 0;
+	if(d > tsc)
+		d = tsc;
+	return 100.0 * d / tsc;
 }
 
 static void
@@ -204,13 +225,12 @@ report(double secs)
 		if(!r->ok)
 			continue;
 		if(!r->core){
-			pct = tscdelta[0] ? 100.0 * r->delta[0] / tscdelta[0] : 0;
+			pct = share(r->delta[0], tscdelta[0]);
 			print("%s %.0f%%  ", r->name, pct);
 		}else{
 			avg = 0;
 			for(c = 0; c < ncpu; c++)
-				if(tscdelta[c])
-					avg += 100.0 * r->delta[c] / tscdelta[c];
+				avg += share(r->delta[c], tscdelta[c]);
 			print("%s %.0f%%  ", r->name, avg / ncpu);
 		}
 	}
