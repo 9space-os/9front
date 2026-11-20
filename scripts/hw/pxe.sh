@@ -78,7 +78,7 @@ HOSTIP=${HOSTIP:-$(ip -4 -br addr show "$IFACE" | awk '{sub(/\/.*/, "", $3); pri
 FSIP=$HOSTIP
 [ "${QEMU:-0}" = 1 ] && FSIP=10.0.2.100	# QEMU forwards it to the host's ufs
 UFS_PORT=${UFS_PORT:-5650}
-UFS=${UFS:-$(command -v ufs 2>/dev/null || echo "$HOME/go/bin/ufs")}
+UFS=${UFS:-$("$ROOT/scripts/hw/ufs/build.sh" "$CLI_DIR/ufs")}	# ours: no TCP keepalive, so a laptop asleep keeps its root
 [ -x "$UFS" ] || die "ufs missing (see scripts/guest/boot-cli.sh)"
 KERNEL=${KERNEL:-$ROOT/amd64/9pc64}
 for f in "$ROOT/386/bootx64.efi" "$ROOT/386/9bootpxe" "$KERNEL"; do

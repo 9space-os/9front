@@ -9,14 +9,15 @@
 # init -> newns(/lib/namespace) -> cpurc or termrc.
 #
 # Host side: builds the root tree (scripts/guest/gen-ufs-root.sh) and a GRUB
-# multiboot ISO in $CLI_DIR, starts Harvey's ufs on :5640, runs QEMU.
+# multiboot ISO in $CLI_DIR, starts ufs (scripts/hw/ufs: Harvey's, without
+# TCP keepalive) on :5640, runs QEMU.
 #
 # usage: scripts/guest/boot-cli.sh               interactive (Ctrl-A x quits)
 #        scripts/guest/boot-cli.sh cmd [cmd ...]  type each argument as one line
 #                                          at the rc prompt, print the
 #                                          console log, quit
 #   env:  CLI_DIR     work dir (default: CLI_DIR of dist/paths.env, 9space/cache/cli)
-#         UFS         ufs binary (default: ufs in PATH, else ~/go/bin/ufs)
+#         UFS         ufs binary (default: $CLI_DIR/ufs, built from scripts/hw/ufs)
 #         SERVICE     cpu (default: cpurc, console rc) or terminal
 #         SCREENSHOT  PNG file: screen dump after the commands (QMP)
 #         VNC         1: QEMU serves VNC on $CLI_DIR/vnc.sock and SCREENSHOT
@@ -81,7 +82,7 @@ esac
 [ "${PMU:-0}" = 0 ] || [ $objtype = arm64 ] || CPU=$CPU,pmu=on,+perfctr-core	# pmc(3) tests (tests/pmc)
 export objtype
 KERNEL=${BOOTKERNEL:-$ROOT/$objtype/bin/$KNAME}
-UFS=${UFS:-$(command -v ufs 2>/dev/null || echo "$HOME/go/bin/ufs")}
+UFS=${UFS:-$("$ROOT/scripts/hw/ufs/build.sh" "$CLI_DIR/ufs")}	# ours: no TCP keepalive (scripts/hw/ufs)
 UFS_PORT=${UFS_PORT:-5640}	# host ports of the ufs servers (another boot-cli may run)
 SERVICE=${SERVICE:-cpu}
 MEM=${MEM:-256}
@@ -149,7 +150,7 @@ if [ -n "$BOOTDISK$BOOTISO" ]; then
 		-cpu $CPU "${accel[@]}")
 else
 [ $objtype = arm64 ] || command -v grub-mkrescue >/dev/null || die "grub-mkrescue missing"
-[ -x "$UFS" ] || die "ufs missing (go install github.com/Harvey-OS/ninep/cmd/ufs@latest, or set UFS)"
+[ -x "$UFS" ] || die "ufs missing (scripts/hw/ufs/build.sh needs go; or set UFS)"
 # a ufs left over from an earlier run would serve a stale root
 port_open && die "port $UFS_PORT is in use (old ufs still running?)"
 

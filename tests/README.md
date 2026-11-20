@@ -23,8 +23,8 @@ prerequisite is missing (no kernel, no CD, no OVMF) is skipped.
 
 Host tools: gcc (and `aarch64-linux-musl-gcc` for arm64), Go, binutils,
 plan9port, bison, bwrap, QEMU with KVM (x86 guests need a writable `/dev/kvm`; `KVM=0` emulates; arm64 guests are emulated on an x86 host),
-grub-mkrescue, xorriso, OVMF for the UEFI cases, Harvey's `ufs` (root
-file system of the guest: in `PATH` or `~/go/bin/ufs`).
+grub-mkrescue, xorriso, OVMF for the UEFI cases, ufs (root file system of
+the guest: Harvey's, without TCP keepalive, built from `scripts/hw/ufs` with Go into `$CLI_DIR/ufs`; `UFS=` another).
 
 ## Categories
 
