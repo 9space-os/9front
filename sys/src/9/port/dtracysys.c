@@ -62,6 +62,14 @@ static DTProbe **dtpsysentry, **dtpsysreturn;
 typedef uintptr Syscall(uchar *);
 extern Syscall *systab[];
 
+/*
+ * GCC port: an argument as 64 bits: a pointer zero-extended through
+ * uintptr (gcc sign-extends a pointer converted to a wider integer: on
+ * 386 every address from 0x80000000 up became 0xffffffff........, as
+ * 8c does not), any other type as it is (an int's -1 stays -1)
+ */
+#define DTARG(e)	__builtin_choose_expr(__builtin_classify_type(e) == 5, (uvlong)(uintptr)(e), (uvlong)(e))
+
 #define WRAP0(x,y,z)\
 	Syscall z; uintptr x(uchar *va){\
 	uintptr rc;\
@@ -78,7 +86,7 @@ extern Syscall *systab[];
 	uintptr rc;\
 	DTTrigInfo info;\
 	memset(&info, 0, sizeof(info));\
-	info.arg[0] = (uvlong) ARG(va, type0);\
+	info.arg[0] = DTARG(ARG(va, type0));\
 	dtptrigger(dtpsysentry[y], &info);\
 	rc = z(va);\
 	info.arg[9] = (uvlong) rc;\
@@ -90,8 +98,8 @@ extern Syscall *systab[];
 	uintptr rc;\
 	DTTrigInfo info;\
 	memset(&info, 0, sizeof(info));\
-	info.arg[0] = (uvlong) ARG(va, type0);\
-	info.arg[1] = (uvlong) ARG(va, type1);\
+	info.arg[0] = DTARG(ARG(va, type0));\
+	info.arg[1] = DTARG(ARG(va, type1));\
 	dtptrigger(dtpsysentry[y], &info);\
 	rc = z(va);\
 	info.arg[9] = (uvlong) rc;\
@@ -103,9 +111,9 @@ extern Syscall *systab[];
 	uintptr rc;\
 	DTTrigInfo info;\
 	memset(&info, 0, sizeof(info));\
-	info.arg[0] = (uvlong) ARG(va, type0);\
-	info.arg[1] = (uvlong) ARG(va, type1);\
-	info.arg[2] = (uvlong) ARG(va, type2);\
+	info.arg[0] = DTARG(ARG(va, type0));\
+	info.arg[1] = DTARG(ARG(va, type1));\
+	info.arg[2] = DTARG(ARG(va, type2));\
 	dtptrigger(dtpsysentry[y], &info);\
 	rc = z(va);\
 	info.arg[9] = (uvlong) rc;\
@@ -117,10 +125,10 @@ extern Syscall *systab[];
 	uintptr rc;\
 	DTTrigInfo info;\
 	memset(&info, 0, sizeof(info));\
-	info.arg[0] = (uvlong) ARG(va, type0);\
-	info.arg[1] = (uvlong) ARG(va, type1);\
-	info.arg[2] = (uvlong) ARG(va, type2);\
-	info.arg[3] = (uvlong) ARG(va, type3);\
+	info.arg[0] = DTARG(ARG(va, type0));\
+	info.arg[1] = DTARG(ARG(va, type1));\
+	info.arg[2] = DTARG(ARG(va, type2));\
+	info.arg[3] = DTARG(ARG(va, type3));\
 	dtptrigger(dtpsysentry[y], &info);\
 	rc = z(va);\
 	info.arg[9] = (uvlong) rc;\
@@ -133,11 +141,11 @@ extern Syscall *systab[];
 	uintptr rc;\
 	DTTrigInfo info;\
 	memset(&info, 0, sizeof(info));\
-	info.arg[0] = (uvlong) ARG(va, type0);\
-	info.arg[1] = (uvlong) ARG(va, type1);\
-	info.arg[2] = (uvlong) ARG(va, type2);\
-	info.arg[3] = (uvlong) ARG(va, type3);\
-	info.arg[4] = (uvlong) ARG(va, type4);\
+	info.arg[0] = DTARG(ARG(va, type0));\
+	info.arg[1] = DTARG(ARG(va, type1));\
+	info.arg[2] = DTARG(ARG(va, type2));\
+	info.arg[3] = DTARG(ARG(va, type3));\
+	info.arg[4] = DTARG(ARG(va, type4));\
 	dtptrigger(dtpsysentry[y], &info);\
 	rc = z(va);\
 	info.arg[9] = (uvlong) rc;\
