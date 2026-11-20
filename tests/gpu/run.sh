@@ -452,6 +452,8 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		check "wsys back: the driver started again, the GPU composes again" grep -q '^back: the GPU composes again' "$TMPD/logback"
 		check "wsys back: vktri after it, its frames GPU buffers wsys composes: all passed" grep -q '^back: after: vktri: all passed' "$TMPD/logback"
 		check "wsys back: a name space made before the restart sees the new driver (shr)" grep -q '^back: an old name space sees the new driver' "$TMPD/logback"
+		check "wsys back: a vktri across the restart meets the lost device and goes on with a new one" grep -q '^back: across: ok device lost' "$TMPD/logback"
+		check "wsys back: that vktri: all passed (its frames on the screen after)" grep -q '^back: across: vktri: all passed' "$TMPD/logback"
 		check "wsys back: vktri's new buffers composed by the GPU (none refused after)" bash -c "! sed -n '/the GPU composes again/,\$p' '$TMPD/logback' | grep -q 'the GPU composes it not'"
 		grep -E '^back: |^wsys: the GPU compose' "$TMPD/logback" | grep -vE '^back: (before|after): ' | sed 's/^/  /'
 	else

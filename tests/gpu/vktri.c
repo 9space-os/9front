@@ -9,13 +9,16 @@
  *
  * usage: vktri [seconds]
  * VKTRI_AGAIN=1: on VK_ERROR_OUT_OF_DATE_KHR a new swapchain and on (a window
- * that outlives its wsys: tests/gpu/wsysagain.rc), not the end
+ * that outlives its wsys: tests/gpu/wsysagain.rc), not the end; on
+ * VK_ERROR_DEVICE_LOST (its driver killed and started again: wsysback.rc) a
+ * new instance and device, once a physical device is there again (30 s)
  * VKTRI_COUNTER=1: the background the frame's number, 16 bits: red its high
  * byte, green its low one, blue 0x66 as ever (the theme's #777777 is no frame):
  * what the screen shows must never go back to an older frame
  * (tests/gpu/wsysorder.rc)
  */
 #include <stdio.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -123,8 +126,8 @@ main(int argc, char **argv)
 	VkSurfaceKHR surf;
 	VkSwapchainKHR sc;
 	uint32_t n, i, qf, nimg, frames, apiver, nrebuilt = 0;
-	int again, counter;
-	double secs, t0;
+	int again, counter, nlost = 0;
+	double secs, t0 = 0, tlost = 0;
 
 	secs = argc > 1 ? atof(argv[1]) : 3;
 	again = getenv("VKTRI_AGAIN") != NULL;
@@ -152,6 +155,7 @@ main(int argc, char **argv)
 		.enabledExtensionCount = 2,
 		.ppEnabledExtensionNames = iext,
 	};
+start:
 	CHECK(vkCreateInstance(&ici, NULL, &inst), "vkCreateInstance");
 
 	VkPlan9SurfaceCreateInfoPLAN9 sci = {
@@ -163,6 +167,13 @@ main(int argc, char **argv)
 	VkPhysicalDevice pd;
 	n = 1;
 	vkEnumeratePhysicalDevices(inst, &n, &pd);
+	if(n == 0 && nlost > 0 && now() - tlost < 30){
+		/* the driver not back yet: a new instance looks again */
+		vkDestroySurfaceKHR(inst, surf, NULL);
+		vkDestroyInstance(inst, NULL);
+		usleep(200000);
+		goto start;
+	}
 	if(n == 0)
 		FAIL("no physical device");
 	VkPhysicalDeviceProperties props;
@@ -382,10 +393,23 @@ main(int argc, char **argv)
 	VkFenceCreateInfo fci = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
 	CHECK(vkCreateFence(dev, &fci, NULL, &fence), "fence");
 
-	t0 = now();
-	for(frames = 0; frames == 0 || now() - t0 < secs; frames++){
+	if(t0 == 0){
+		t0 = now();
+		frames = 0;
+	}
+	/*
+	 * VKTRI_AGAIN: the device lost (its driver gone): all of it anew, from
+	 * the instance on (the device's objects go with it)
+	 */
+#define LOST(r) do { if((r) == VK_ERROR_DEVICE_LOST && again){ \
+		printf("ok device lost (frame %u): a new instance and device\n", frames); fflush(stdout); \
+		vkDestroySwapchainKHR(dev, sc, NULL); vkDestroyDevice(dev, NULL); \
+		vkDestroySurfaceKHR(inst, surf, NULL); vkDestroyInstance(inst, NULL); \
+		nlost++; tlost = now(); goto start; } } while(0)
+	for(; frames == 0 || now() - t0 < secs; frames++){
 		uint32_t idx;
 		VkResult r = vkAcquireNextImageKHR(dev, sc, UINT64_MAX, acquired, VK_NULL_HANDLE, &idx);
+		LOST(r);
 		if(r == VK_ERROR_OUT_OF_DATE_KHR && again){
 			/* VKTRI_AGAIN: a new swapchain, on (its wsys gone: in the next one) */
 			rebuild(dev, &swci, &sc, img, &nimg, view, fb, rp);
@@ -404,7 +428,17 @@ main(int argc, char **argv)
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 			.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
 		};
-		CHECK(vkBeginCommandBuffer(cb, &cbi), "begin");
+		{
+			/*
+			 * the device lost may show first as another error of recording
+			 * (venus with its renderer gone: out of host memory): the device
+			 * asked, its device lost then the way above
+			 */
+			VkResult b = vkBeginCommandBuffer(cb, &cbi);
+			if(b != VK_SUCCESS && again)
+				LOST(vkDeviceWaitIdle(dev));
+			CHECK(b, "begin");
+		}
 		VkClearValue clear = { .color = { .float32 = { 0.0f, 0.0f, 0.4f, 1.0f } } };
 		if(counter){
 			clear.color.float32[0] = ((frames >> 8) & 0xff) / 255.0f;
@@ -424,7 +458,12 @@ main(int argc, char **argv)
 		vkCmdPushConstants(cb, pl, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof red, red);
 		vkCmdDraw(cb, 3, 1, 0, 0);
 		vkCmdEndRenderPass(cb);
-		CHECK(vkEndCommandBuffer(cb), "end");
+		{
+			VkResult e = vkEndCommandBuffer(cb);
+			if(e != VK_SUCCESS && again)
+				LOST(vkDeviceWaitIdle(dev));
+			CHECK(e, "end");
+		}
 
 		VkPipelineStageFlags ws = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		VkSubmitInfo si = {
@@ -437,7 +476,9 @@ main(int argc, char **argv)
 			.signalSemaphoreCount = 1,
 			.pSignalSemaphores = &done,
 		};
-		CHECK(vkQueueSubmit(q, 1, &si, fence), "vkQueueSubmit");
+		r = vkQueueSubmit(q, 1, &si, fence);
+		LOST(r);
+		CHECK(r, "vkQueueSubmit");
 		VkPresentInfoKHR pi = {
 			.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 			.waitSemaphoreCount = 1,
@@ -447,6 +488,7 @@ main(int argc, char **argv)
 			.pImageIndices = &idx,
 		};
 		r = vkQueuePresentKHR(q, &pi);
+		LOST(r);
 		if(r == VK_ERROR_OUT_OF_DATE_KHR && again){
 			CHECK(vkWaitForFences(dev, 1, &fence, VK_TRUE, UINT64_MAX), "fence");
 			vkResetFences(dev, 1, &fence);
@@ -460,7 +502,11 @@ main(int argc, char **argv)
 			break;
 		}
 		CHECK(r, "vkQueuePresentKHR");
-		CHECK(vkWaitForFences(dev, 1, &fence, VK_TRUE, UINT64_MAX), "fence");
+		{
+			VkResult w = vkWaitForFences(dev, 1, &fence, VK_TRUE, UINT64_MAX);
+			LOST(w);
+			CHECK(w, "fence");
+		}
 		vkResetFences(dev, 1, &fence);
 		/*
 		 * VKTRI_NOREBUILD=1: one new swapchain (in wsys: onto the overlay
@@ -494,6 +540,8 @@ main(int argc, char **argv)
 		for(i = 0; i < 4; i++)
 			r[i] = screenpeek(want[i].x, want[i].y, &rgb[i]);
 		printf("ok %u frames in %.1f s\n", frames, t1 - t0);
+		if(nlost > 0)
+			printf("ok on after the device was lost %d time(s)\n", nlost);
 		for(i = 0; i < 4; i++){
 			if(r[i] < 0)
 				FAIL("screenpeek %d,%d", want[i].x, want[i].y);
