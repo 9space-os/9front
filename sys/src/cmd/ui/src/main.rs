@@ -64,25 +64,79 @@ enum UserEvent {
     NineP(Vec<u8>), // a client's message
     Hangup,         // the clients' connection ended
     ClientGone,     // ui -c: the program that started it ended (its lifeline closed)
+    Fonts,          // a window's other fonts are read (laterfonts)
 }
 
-/// the fonts of the system: /lib/font/ttf (Plan 9's fonts are files); the
-/// theme's uifont first (the default face), else the first by name
-fn fonts(first: &str) -> Vec<Vec<u8>> {
-    let mut v = Vec::new();
-    if let Ok(d) = std::fs::read_dir("/lib/font/ttf") {
-        let mut names: Vec<_> = d.flatten().map(|e| e.path()).collect();
-        names.sort_by_key(|p| (p.to_str() != Some(first), p.clone()));
-        for p in names {
-            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext.eq_ignore_ascii_case("ttf") || ext.eq_ignore_ascii_case("otf") {
-                if let Ok(b) = std::fs::read(&p) {
-                    v.push(b);
-                }
-            }
-        }
+/// UITIME=file: the start's phases appended to file, ms since main ("ui:
+/// time 12.3 what"), and the first frames' (where the start's time goes);
+/// a file, as ui's standard error is its window's (window(1) starts it)
+static START: std::sync::OnceLock<(std::time::Instant, Option<std::sync::Mutex<std::fs::File>>)> = std::sync::OnceLock::new();
+
+pub fn mark(what: &str) {
+    let (t0, f) = START.get_or_init(|| {
+        let f = std::env::var_os("UITIME")
+            .and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok())
+            .map(std::sync::Mutex::new);
+        (std::time::Instant::now(), f)
+    });
+    if let Some(f) = f {
+        use std::io::Write;
+        let line = format!("ui: time {:.1} {what}\n", t0.elapsed().as_secs_f64() * 1000.0);
+        let _ = f.lock().map(|mut f| f.write_all(line.as_bytes()));
     }
-    v
+}
+
+/// the fonts of the system: /lib/font/ttf (Plan 9's fonts are files): the
+/// theme's uifont first (the default face) with the rest of its family (the
+/// files named as it up to the first '-': Inter-Bold beside Inter-Regular),
+/// read at once; the others' paths, read later (they are fallbacks: reading
+/// and registering all of them took ~115 ms of each start, 2026-11-20)
+fn fonts(first: &str) -> (Vec<Vec<u8>>, Vec<std::path::PathBuf>) {
+    let mut names: Vec<std::path::PathBuf> = std::fs::read_dir("/lib/font/ttf")
+        .map(|d| d.flatten().map(|e| e.path()).collect())
+        .unwrap_or_default();
+    names.retain(|p| {
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+        ext.eq_ignore_ascii_case("ttf") || ext.eq_ignore_ascii_case("otf")
+    });
+    names.sort_by_key(|p| (p.to_str() != Some(first), p.clone()));
+    let family = |p: &std::path::Path| {
+        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        stem.split('-').next().unwrap_or(stem).to_string()
+    };
+    let fam = names.first().map(|p| family(p));
+    let (now, later): (Vec<_>, Vec<_>) = names.into_iter().partition(|p| Some(family(p)) == fam);
+    (now.iter().filter_map(|p| std::fs::read(p).ok()).collect(), later)
+}
+
+/// the other fonts read in a thread of their own, for the main loop to
+/// register after the first frame (it hears of them by UserEvent::Fonts)
+fn laterfonts(paths: Vec<std::path::PathBuf>, proxy: EventLoopProxy<UserEvent>) -> mpsc::Receiver<Vec<Vec<u8>>> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(paths.iter().filter_map(|p| std::fs::read(p).ok()).collect());
+        let _ = proxy.send_event(UserEvent::Fonts);
+    });
+    rx
+}
+
+/// window g's other fonts registered, once they are read and its first frame
+/// is shown; all of it laid out again (as on a theme change), so that text
+/// that wanted one of them has it
+fn registerlater(g: &mut Gui) {
+    if g.drawn.is_none() {
+        return;
+    }
+    let Some(rx) = &g.later else { return };
+    let Ok(fonts) = rx.try_recv() else { return };
+    g.later = None;
+    for b in fonts {
+        g.root.register_fonts(Blob::new(Arc::new(b)));
+    }
+    let palette = look::Palette::from_theme(&desk::theme::current());
+    g.root.set_default_properties(Arc::new(look::property_set(&palette)));
+    g.window.request_redraw();
+    mark("the other fonts registered");
 }
 
 /// the text of the label or text box at p in the window, if one is there:
@@ -837,6 +891,7 @@ struct Gui {
     b3at: Option<(f64, f64)>,            // button 3 pressed there: a click plumbs (as acme)
     wheel: (f64, f64),                   // the wheel's pixels not given to the widgets yet
     layers: Vec<(WidgetId, &'static str)>, // Masonry's layers open (a select's list, a tooltip): their roots, kinds
+    later: Option<mpsc::Receiver<Vec<Vec<u8>>>>, // its other fonts, being read (laterfonts)
 }
 
 /// a property moving to its new value (animate), from as shown when it changed
@@ -909,6 +964,7 @@ struct App {
     debug: bool, // $UIDEBUG: the window's events and Masonry's signals on stderr
     lastframe: Option<std::time::Instant>, // the last frame of something moving (Masonry's AnimFrame: the time since)
     due: Option<std::time::Instant>,       // the next frame of something moving, not before then (FRAME)
+    proxy: EventLoopProxy<UserEvent>,      // for the threads that read the fonts
 }
 
 impl App {
@@ -952,6 +1008,7 @@ impl App {
             }
             attrs = attrs.with_modal(n.num("modal").unwrap_or(0.0) != 0.0);
         }
+        mark("window asked for");
         let window = match el.create_window(attrs) {
             Ok(w) => Arc::new(w),
             Err(e) => {
@@ -962,7 +1019,9 @@ impl App {
                 return None;
             }
         };
+        mark("window made");
         let (painter, renderer) = Painter::new(&window, self.cpu);
+        mark("painter made");
         if node == ROOT {
             self.fs.renderer = renderer;
         }
@@ -972,7 +1031,9 @@ impl App {
         // the desktop's theme: colours (look.rs), the UI font
         let theme = desk::theme::current();
         let palette = look::Palette::from_theme(&theme);
-        let mut fonts = fonts(&theme.uifont).into_iter();
+        let (now, later) = fonts(&theme.uifont);
+        let mut fonts = now.into_iter();
+        mark("fonts read");
         let first = fonts.next();
         if first.is_none() && node == ROOT {
             eprintln!("ui: no fonts in /lib/font/ttf: no text");
@@ -994,9 +1055,11 @@ impl App {
                 test_font: first.map(|b| Blob::new(Arc::new(b))),
             },
         );
+        mark("widgets, the first font");
         for b in fonts {
             root.register_fonts(Blob::new(Arc::new(b)));
         }
+        mark("fonts and widgets");
         if node == ROOT {
             self.fs.size = (size.width, size.height);
         }
@@ -1014,6 +1077,7 @@ impl App {
             b3at: None,
             wheel: (0.0, 0.0),
             layers: Vec::new(),
+            later: (!later.is_empty()).then(|| laterfonts(later, self.proxy.clone())),
         };
         // the size the node asks for (a window node's: made so already)
         if let Some(n) = self.fs.scene.nodes.get(node) {
@@ -1591,7 +1655,14 @@ impl App {
             let dt = self.lastframe.map_or(FRAME, |t| now.duration_since(t).min(FRAME * 4));
             g.root.handle_window_event(WindowEvent::AnimFrame(dt));
         }
+        let first = self.fs.frames < 2;
+        if first {
+            mark("frame: layout");
+        }
         let (layers, _access) = g.root.redraw();
+        if first {
+            mark("frame: scene");
+        }
         let overlays: Vec<_> = layers
             .overlay_layers()
             .filter_map(|l| match &l.kind {
@@ -1631,6 +1702,10 @@ impl App {
             g.painter.paint(frame, fw, fh, part);
             g.drawn = Some((fw, fh, g.background.components));
             self.fs.frames += 1;
+            if first {
+                mark(&format!("frame {} painted", self.fs.frames));
+            }
+            registerlater(g);
         }
         // something moving: another frame, a FRAME after this one began
         let moving = !self.anims.is_empty() || g.root.needs_anim() || g.wheel != (0.0, 0.0);
@@ -1716,6 +1791,11 @@ impl ApplicationHandler<UserEvent> for App {
             }
             UserEvent::Hangup => {}
             UserEvent::ClientGone => el.exit(),
+            UserEvent::Fonts => {
+                for g in &mut self.guis {
+                    registerlater(g);
+                }
+            }
         }
     }
 
@@ -1860,6 +1940,7 @@ impl log::Log for Logger {
 }
 
 fn main() {
+    mark("main");
     if std::env::var_os("UIDEBUG").is_some() {
         log::set_logger(&Logger).ok();
         log::set_max_level(log::LevelFilter::Debug);
@@ -1928,6 +2009,7 @@ fn main() {
             let _ = p.send_event(UserEvent::ClientGone);
         });
     }
+    let fontproxy = proxy.clone();
     std::thread::spawn(move || reader(input, proxy));
     let (signal_tx, signals) = mpsc::channel();
     let mut app = App {
@@ -1944,6 +2026,7 @@ fn main() {
         debug: std::env::var_os("UIDEBUG").is_some(),
         lastframe: None,
         due: None,
+        proxy: fontproxy,
     };
     let r = el.run_app(&mut app);
     if let Err(e) = r {

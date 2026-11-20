@@ -72,7 +72,9 @@ impl Gpu {
             backends: wgpu::Backends::VULKAN,
             ..Default::default()
         });
+        crate::mark("gpu: instance");
         let surface = instance.create_surface(window).map_err(|e| format!("surface: {e}"))?;
+        crate::mark("gpu: surface");
         let adapter = now(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),
             force_fallback_adapter: false,
@@ -86,6 +88,7 @@ impl Gpu {
                 .collect();
             format!("adapter: {e}; Vulkan's adapters: {all:?}")
         })?;
+        crate::mark("gpu: adapter");
         let features = adapter.features() & wgpu::Features::CLEAR_TEXTURE;
         let (device, queue) = now(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("ui"),
@@ -94,6 +97,7 @@ impl Gpu {
             ..Default::default()
         }))
         .map_err(|e| format!("device: {e}"))?;
+        crate::mark("gpu: device");
         let caps = surface.get_capabilities(&adapter);
         let format = caps
             .formats
@@ -118,6 +122,7 @@ impl Gpu {
             view_formats: vec![],
         };
         surface.configure(&device, &config);
+        crate::mark("gpu: swapchain");
         let (target, view) = target(&device, config.width, config.height);
         let blitter = TextureBlitter::new(&device, format);
         let i = adapter.get_info();
