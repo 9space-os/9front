@@ -51,16 +51,16 @@ wrapwalk(Chan *c, Chan *nc, char **names, int nname)
 
 
 	memset(&info, 0, sizeof info);
-	info.arg[0] = (uvlong)c;
-	info.arg[1] = (uvlong)nc;
-	info.arg[2] = (uvlong)names;
+	info.arg[0] = (uvlong)(uintptr)c;
+	info.arg[1] = (uvlong)(uintptr)nc;
+	info.arg[2] = (uvlong)(uintptr)names;
 	info.arg[3] = (uvlong)nname;
 	dtptrigger(ledger[c->type].in[Dwalk], &info);
 
 	wq = ledger[c->type].clean.walk(c, nc, names, nname);
 
 	memset(&info, 0, sizeof info);
-	info.arg[9] = (uvlong)wq;
+	info.arg[9] = (uvlong)(uintptr)wq;
 	dtptrigger(ledger[c->type].out[Dwalk], &info);
 	return wq;
 }
@@ -71,8 +71,8 @@ wrapstat(Chan *c, uchar *b, int n)
 	DTTrigInfo info;
 
 	memset(&info, 0, sizeof info);
-	info.arg[0] = (uvlong)c;
-	info.arg[1] = (uvlong)b;
+	info.arg[0] = (uvlong)(uintptr)c;
+	info.arg[1] = (uvlong)(uintptr)b;
 	info.arg[2] = (uvlong)n;
 	dtptrigger(ledger[c->type].in[Dstat], &info);
 
@@ -90,14 +90,14 @@ wrapopen(Chan *c, int mode)
 	DTTrigInfo info;
 
 	memset(&info, 0, sizeof info);
-	info.arg[0] = (uvlong)c;
+	info.arg[0] = (uvlong)(uintptr)c;
 	info.arg[1] = (uvlong)mode;
 	dtptrigger(ledger[c->type].in[Dopen], &info);
 
 	c = ledger[c->type].clean.open(c, mode);
 
 	memset(&info, 0, sizeof info);
-	info.arg[9] = (uvlong)c;
+	info.arg[9] = (uvlong)(uintptr)c;
 	dtptrigger(ledger[c->type].out[Dopen], &info);
 	return c;
 }
@@ -108,8 +108,8 @@ wrapcreate(Chan *c, char *name, int mode, ulong perm)
 	DTTrigInfo info;
 
 	memset(&info, 0, sizeof info);
-	info.arg[0] = (uvlong)c;
-	info.arg[1] = (uvlong)name;
+	info.arg[0] = (uvlong)(uintptr)c;
+	info.arg[1] = (uvlong)(uintptr)name;
 	info.arg[2] = (uvlong)mode;
 	info.arg[3] = (uvlong)perm;
 	dtptrigger(ledger[c->type].in[Dcreate], &info);
@@ -117,7 +117,7 @@ wrapcreate(Chan *c, char *name, int mode, ulong perm)
 	c = ledger[c->type].clean.create(c, name, mode, perm);
 
 	memset(&info, 0, sizeof info);
-	info.arg[9] = (uvlong)c;
+	info.arg[9] = (uvlong)(uintptr)c;
 	dtptrigger(ledger[c->type].out[Dcreate], &info);
 	return c;
 }
@@ -128,7 +128,7 @@ wrapclose(Chan *c)
 	DTTrigInfo info;
 
 	memset(&info, 0, sizeof info);
-	info.arg[0] = (uvlong)c;
+	info.arg[0] = (uvlong)(uintptr)c;
 	dtptrigger(ledger[c->type].in[Dclose], &info);
 
 	ledger[c->type].clean.close(c);
@@ -143,8 +143,8 @@ wrapread(Chan *c, void *b, long n, vlong off)
 	DTTrigInfo info;
 
 	memset(&info, 0, sizeof info);
-	info.arg[0] = (uvlong)c;
-	info.arg[1] = (uvlong)b;
+	info.arg[0] = (uvlong)(uintptr)c;
+	info.arg[1] = (uvlong)(uintptr)b;
 	info.arg[2] = (uvlong)n;
 	info.arg[3] = (uvlong)off;
 	dtptrigger(ledger[c->type].in[Dread], &info);
@@ -164,7 +164,7 @@ wrapbread(Chan *c, long n, ulong off)
 	DTTrigInfo info;
 
 	memset(&info, 0, sizeof info);
-	info.arg[0] = (uvlong)c;
+	info.arg[0] = (uvlong)(uintptr)c;
 	info.arg[1] = (uvlong)n;
 	info.arg[2] = (uvlong)off;
 	dtptrigger(ledger[c->type].in[Dbread], &info);
@@ -172,7 +172,7 @@ wrapbread(Chan *c, long n, ulong off)
 	b = ledger[c->type].clean.bread(c, n, off);
 
 	memset(&info, 0, sizeof info);
-	info.arg[9] = (uvlong)b;
+	info.arg[9] = (uvlong)(uintptr)b;
 	dtptrigger(ledger[c->type].out[Dbread], &info);
 	return b;
 }
@@ -183,8 +183,8 @@ wrapwrite(Chan *c, void *b, long n, vlong off)
 	DTTrigInfo info;
 
 	memset(&info, 0, sizeof info);
-	info.arg[0] = (uvlong)c;
-	info.arg[1] = (uvlong)b;
+	info.arg[0] = (uvlong)(uintptr)c;
+	info.arg[1] = (uvlong)(uintptr)b;
 	info.arg[2] = (uvlong)n;
 	info.arg[3] = (uvlong)off;
 	dtptrigger(ledger[c->type].in[Dwrite], &info);
@@ -204,8 +204,8 @@ wrapbwrite(Chan *c, Block *b, ulong off)
 	DTTrigInfo info;
 
 	memset(&info, 0, sizeof info);
-	info.arg[0] = (uvlong)c;
-	info.arg[1] = (uvlong)b;
+	info.arg[0] = (uvlong)(uintptr)c;
+	info.arg[1] = (uvlong)(uintptr)b;
 	info.arg[2] = (uvlong)off;
 	dtptrigger(ledger[c->type].in[Dbwrite], &info);
 
@@ -223,7 +223,7 @@ wrapremove(Chan *c)
 	DTTrigInfo info;
 
 	memset(&info, 0, sizeof info);
-	info.arg[0] = (uvlong)c;
+	info.arg[0] = (uvlong)(uintptr)c;
 	dtptrigger(ledger[c->type].in[Dremove], &info);
 
 	ledger[c->type].clean.remove(c);
@@ -238,8 +238,8 @@ wrapwstat(Chan *c, uchar *b, int n)
 	DTTrigInfo info;
 
 	memset(&info, 0, sizeof info);
-	info.arg[0] = (uvlong)c;
-	info.arg[1] = (uvlong)b;
+	info.arg[0] = (uvlong)(uintptr)c;
+	info.arg[1] = (uvlong)(uintptr)b;
 	info.arg[2] = (uvlong)n;
 	dtptrigger(ledger[c->type].in[Dwstat], &info);
 

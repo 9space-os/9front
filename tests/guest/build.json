@@ -30,6 +30,7 @@
 			"libctest.c",
 			"threadtest.c",
 			"authtest.c",
+			"wpatest.c",
 			"mptest.c",
 			"paktest.c",
 			"segtest.c",

@@ -153,11 +153,17 @@ download(void *aux)
 	Tfile *f;
 	Req *r;
 
-	struct {
-		Udphdr;
-		uchar buf[2+2+Segsize+1];
-	} msg;
+	/*
+	 * the header Udphdrsize bytes, the data right after it: not a struct
+	 * with Udphdr in it, whose size the compiler may round up (kencc's 6c to
+	 * 56; the data would then start 4 bytes after where udp(3) takes it;
+	 * a 9front bug, patch-upstream 0062)
+	 */
+	uchar msg[Udphdrsize + 2+2+Segsize+1], *mdata;
+	Udphdr *uh;
 
+	uh = (Udphdr*)msg;
+	mdata = msg + Udphdrsize;
 	c = nil;
 	r = nil;
 	fd = cfd = -1;
@@ -187,10 +193,10 @@ download(void *aux)
 		goto out;
 	}
 
-	n = filereq(msg.buf, f->path);
-	ipmove(msg.raddr, f->addr);
-	hnputs(msg.rport, TftpPort);
-	if(write(fd, &msg, sizeof(Udphdr) + n) < 0){
+	n = filereq(mdata, f->path);
+	ipmove(uh->raddr, f->addr);
+	hnputs(uh->rport, TftpPort);
+	if(write(fd, msg, Udphdrsize + n) < 0){
 		err = "send read request: %r";
 		goto out;
 	}
@@ -201,28 +207,28 @@ download(void *aux)
 	last = 0;
 	while(!last){
 		alarm(5000);
-		if((n = read(fd, &msg, sizeof(Udphdr) + sizeof(msg.buf)-1)) < 0){
+		if((n = read(fd, msg, sizeof msg - 1)) < 0){
 			err = "receive response: %r";
 			goto out;
 		}
 		alarm(0);
 
-		n -= sizeof(Udphdr);
-		msg.buf[n] = 0;
-		switch(nhgets(msg.buf)){
+		n -= Udphdrsize;
+		mdata[n] = 0;
+		switch(nhgets(mdata)){
 		case Tftp_ERROR:
-			werrstr("%s", (char*)msg.buf+4);
+			werrstr("%s", (char*)mdata+4);
 			err = "%r";
 			goto out;
 
 		case Tftp_DATA:
 			if(n < 4)
 				continue;
-			block = nhgets(msg.buf+2);
+			block = nhgets(mdata+2);
 			if(block > seq)
 				continue;
-			hnputs(msg.buf, Tftp_ACK);
-			if(write(fd, &msg, sizeof(Udphdr) + 4) < 0){
+			hnputs(mdata, Tftp_ACK);
+			if(write(fd, msg, Udphdrsize + 4) < 0){
 				err = "send acknowledge: %r";
 				goto out;
 			}
@@ -233,7 +239,7 @@ download(void *aux)
 			if(n < Segsize)
 				last = 1;
 			data = erealloc9p(data, ndata + n);
-			memcpy(data + ndata, msg.buf+4, n);
+			memcpy(data + ndata, mdata+4, n);
 			ndata += n;
 
 		rloop:	/* hanlde read request while downloading */
