@@ -149,15 +149,15 @@ rcsyntax(){
 }
 check "rc scripts (scripts/build/rc, scripts/guest/boot, tests/hw) parse" rcsyntax
 
-# 8. the Rust crates 9front changed (sys/src/rust) are ../9front-rust's,
-#    whose patches are their master (scripts/rust/crates.sh); without
-#    ../9front-rust there is nothing to compare with
+# 8. the Rust crates 9front changed (sys/src/rust) are a generated mirror of
+#    toolchain/rust's (RUST_DIR in paths.env), whose patches are their
+#    master (scripts/rust/crates.sh); without it there is nothing to compare with
 rustcrates(){
 	local r=$RUST_DIR
 	[ -d "$r/crates" ] || { echo "no $r/crates: not compared"; return 0; }
 	bash scripts/rust/crates.sh -n
 }
-check "sys/src/rust is ../9front-rust's crates and p9win (scripts/rust/crates.sh)" rustcrates
+check "sys/src/rust is toolchain/rust's crates and p9win (RUST_DIR; scripts/rust/crates.sh)" rustcrates
 
 # 9. device registers: the kernels keep vmap's volatile wherever a
 #    register's pointer goes (also through a cast, which the build's

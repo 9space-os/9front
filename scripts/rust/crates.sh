@@ -1,14 +1,15 @@
 #!/bin/bash
 # The Rust crates 9front changed, into the tree (sys/src/rust), so that the
-# tree builds them offline, also on 9front itself: a copy of ../9front-rust's
-# crates/<crate> (crates.io's release with its patches/crates/<crate>.patch,
+# tree builds them offline, also on 9front itself: a generated, checked mirror
+# of toolchain/rust's (RUST_DIR in paths.env) crates/<crate> (crates.io's
+# release with its patches/crates/<crate>.patch,
 # scripts/crates-patch.sh apply there) for each crate sys/src/rust/CRATES
 # names, and of its plan9/p9win (ours).  Same layout as there:
 # sys/src/rust/crates/<crate>, sys/src/rust/plan9/p9win.  The master is
-# ../9front-rust; change the crates there, then run this.
-# tests/static compares the copy with ../9front-rust.
+# toolchain/rust; change the crates there, then run this.
+# tests/static compares the mirror with toolchain/rust.
 # usage: scripts/rust/crates.sh [-n]   (-n: only say what differs)
-# env: RUST_DIR (../9front-rust)
+# env: RUST_DIR (from paths.env: toolchain/rust)
 set -e
 ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
 . "$ROOT/scripts/lib/paths.sh"	# GCC_DIR, RUST_DIR, GO_DIR, MCP_DIR, DISTFILES (the distribution's paths.env)
