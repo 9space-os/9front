@@ -528,7 +528,8 @@ idleimage(Image *i)
 	j = imagealloc.idle;
 	/* sort by least frequenty and most pages used first */
 	for(; j != nil; l = &j->next, j = j->next){
-		long c = j->nattach - i->nattach;
+		/* GCC port: signed (ulong - ulong into a 64-bit long is never negative) */
+		long c = (long)j->nattach - (long)i->nattach;
 		if(c < 0)
 			continue;
 		if(c > 0)
