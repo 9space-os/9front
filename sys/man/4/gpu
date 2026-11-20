@@ -497,8 +497,10 @@ shows it:
 .I released
 counts chunks given back to the system,
 .I deferred
-those whose bookkeeping still waits (both 0: the pool never gives a
-chunk back yet).
+those whose bookkeeping still waits for the lookups under way to end.
+A contiguous chunk that becomes wholly free is given back a second
+later, as long as the pool keeps its reserve free (2 chunks or an eighth
+of the pool, the more); scattered chunks stay.
 .PP
 The display is read as the firmware or aux/vga set it up (not changed
 yet): every output of the DDI ports, with Linux's names

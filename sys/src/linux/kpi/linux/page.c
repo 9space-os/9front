@@ -26,6 +26,7 @@
 #include <linux/pagevec.h>
 #include <linux/smp.h>
 #include <linux/dma-mapping.h>
+#include <linux/workqueue.h>
 #include <kpi/p9.h>
 
 #define CHUNK		(8UL << 20)
@@ -36,6 +37,7 @@ unsigned long	kpi_shrink(gfp_t gfp, unsigned long want);	/* shrinker.c */
 
 struct chunk {
 	struct chunk	*next;
+	struct chunk	*dnext;		/* 9space: on the list of those given back (next stays for readers) */
 	char	name[32];
 	u8	*va;
 	struct page	*pages;
@@ -51,6 +53,7 @@ u64 kpi_dma_limit = DMA_BIT_MASK(64);	/* 9space: the device's DMA mask (dma.c) *
 static u64 plock[4];		/* QLock */
 static struct chunk *chunks;
 static int nchunks;
+static int nmade;		/* 9space: chunks ever made (their names) */
 static struct page *hash[NHASH];
 
 static inline unsigned int hashpfn(unsigned long pfn) { return (pfn * 2654435761UL) % NHASH; }
@@ -62,18 +65,42 @@ static inline unsigned int hashpfn(unsigned long pfn) { return (pfn * 2654435761
  * chunks, so a key's list is short. pfn_to_page and virt_to_page walked
  * a hash chain of pages (a pool of N chunks: N/2 pages a list) or every
  * chunk; i915 asks for each page of an object, many times a frame. A
- * scattered chunk's pages stay in hash[]. Lists only grow (chunks are
- * not given back): a new entry is published with a release store, the
- * lookups take no lock.
+ * scattered chunk's pages stay in hash[]. A new entry is published with a
+ * release store, the lookups take no lock.
+ *
+ * 9space: a contiguous chunk wholly free beyond the pool's reserve is
+ * given back to the system (poolrelease): its segment at once (no correct
+ * reader looks for a page nobody holds), its entries unlinked under plock
+ * with a release store of the one before (a reader standing on one goes
+ * on by its next, which stays), the entries and the chunk's bookkeeping
+ * freed only when no lookup is under way: every lookup counts itself in
+ * preaders (i915-pool.md (a), A). Scattered chunks stay: their pages are
+ * in hash[], one by one.
  */
 #define KEYSHIFT	23	/* log2(CHUNK) */
 
 struct cref {
 	struct cref	*next;
+	struct cref	*dnext;		/* on the list of those unlinked */
 	struct chunk	*c;
 };
 
 static struct cref *bypa[NHASH], *byva[NHASH];
+
+/* 9space: the lookups under way (lookup, lookdone), and what waits for none */
+static unsigned long preaders;
+static struct chunk *dchunks;
+static struct cref *drefs;
+static unsigned long nreleased, ndeferred;	/* chunks given back; of those, bookkeeping not yet freed */
+
+/*
+ * the grace argument: a lookup counts itself (a full fence) before it
+ * reads a list; poolrelease unlinks, fences, then reads the count; so a
+ * lookup either is counted when poolrelease looks, or starts after the
+ * unlink and cannot reach what was unlinked
+ */
+static inline void lookup(void) { __atomic_add_fetch(&preaders, 1, __ATOMIC_SEQ_CST); __atomic_thread_fence(__ATOMIC_SEQ_CST); }
+static inline void lookdone(void) { __atomic_sub_fetch(&preaders, 1, __ATOMIC_RELEASE); }
 
 /* 0, -1 if an entry could not be made (then that key's lookup does not find c) */
 static int
@@ -94,6 +121,23 @@ addref(struct cref **t, u64 a, struct chunk *c)
 		__atomic_store_n(&t[hashpfn(k)], r, __ATOMIC_RELEASE);
 	}
 	return ok;
+}
+
+/* 9space: c's entries out of t (under plock); kept on drefs for the readers */
+static void
+delref(struct cref **t, u64 a, struct chunk *c)
+{
+	struct cref **l, *r;
+	u64 k;
+
+	for (k = a >> KEYSHIFT; k <= (a + CHUNK - 1) >> KEYSHIFT; k++)
+		for (l = &t[hashpfn(k)]; (r = *l) != NULL; l = &r->next)
+			if (r->c == c) {
+				__atomic_store_n(l, r->next, __ATOMIC_RELEASE);
+				r->dnext = drefs;
+				drefs = r;
+				break;
+			}
 }
 
 /* the contiguous chunk with the page at physical address pa, nil if none */
@@ -143,7 +187,7 @@ newchunk(u64 limit)
 	c->pages = kcalloc(CHUNKPAGES, sizeof(struct page), GFP_KERNEL);
 	if (!c->pages)
 		goto err;
-	snprintf(c->name, sizeof(c->name), "kpi.%d.%d", p9_getpid(), nchunks);
+	snprintf(c->name, sizeof(c->name), "kpi.%d.%d", p9_getpid(), nmade);
 	/*
 	 * physically contiguous and aligned if the kernel has such a run
 	 * free (then every block of an order is naturally aligned, as
@@ -159,7 +203,7 @@ Again:
 	c->va = p9_segalloc(c->name, CHUNK, pa, P9SEGCONTIG | dma32);
 	if (!c->va) {
 		/* scattered pages; below 4 GB a run, not aligned (segment(3)) */
-		snprintf(c->name, sizeof(c->name), "kpi.%d.%ds", p9_getpid(), nchunks);
+		snprintf(c->name, sizeof(c->name), "kpi.%d.%ds", p9_getpid(), nmade);
 		c->va = p9_segalloc(c->name, CHUNK, pa, dma32);
 	}
 	if (!c->va)
@@ -174,7 +218,7 @@ Again:
 		if (dma32)
 			goto err;
 		dma32 = P9SEGDMA32;
-		snprintf(c->name, sizeof(c->name), "kpi.%d.%dl", p9_getpid(), nchunks);
+		snprintf(c->name, sizeof(c->name), "kpi.%d.%dl", p9_getpid(), nmade);
 		goto Again;
 	}
 	/* 9space: contiguous (the usual case): found by its range, not page by page */
@@ -203,8 +247,9 @@ Again:
 	c->nfree = CHUNKPAGES;
 	kfree(pa);
 	c->next = chunks;
-	chunks = c;
+	__atomic_store_n(&chunks, c, __ATOMIC_RELEASE);
 	nchunks++;
+	nmade++;
 	return c;
 err:
 	if (c)
@@ -314,15 +359,125 @@ again:
 
 struct folio *folio_alloc(gfp_t gfp, unsigned int order) { return (struct folio *)alloc_pages(gfp | __GFP_COMP, order); }
 
+static void poolrelease(struct work_struct *);
+static struct delayed_work releasework;	/* (DECLARE_DELAYED_WORK is Linux's, not this workqueue's) */
+static int releasing;		/* releasework scheduled */
+static int releaseinit;
+
 static void
 freerun(struct page *p)
 {
 	struct chunk *c = p->kpi_chunk;
 	unsigned long n = 1UL << p->order;
+	int later = 0;
 
 	p9_qlock(plock);
 	bitmap_clear(c->used, p - c->pages, n);
 	c->nfree += n;
+	/* 9space: wholly free: perhaps given back, a second later, not here (a hot path) */
+	if (c->nfree == CHUNKPAGES && c->contig && !releasing) {
+		if (!releaseinit) {
+			INIT_DELAYED_WORK(&releasework, poolrelease);
+			releaseinit = 1;
+		}
+		later = releasing = 1;
+	}
+	p9_qunlock(plock);
+	if (later)
+		schedule_delayed_work(&releasework, HZ);
+}
+
+/*
+ * 9space: the pool's reserve, free pages it keeps (2 chunks or an eighth
+ * of the pool, the more), so that a load that comes and goes does not
+ * make and remove segments all the time
+ */
+static unsigned long
+reserve(void)
+{
+	unsigned long r = nchunks * CHUNKPAGES / 8;
+
+	return r > 2 * CHUNKPAGES ? r : 2 * CHUNKPAGES;
+}
+
+/*
+ * 9space: give back the contiguous chunks wholly free beyond the reserve;
+ * then their bookkeeping, once no lookup is under way (else again later)
+ */
+static void
+poolrelease(struct work_struct *w)
+{
+	struct chunk **l, *c, *dc;
+	struct cref *dr, *r;
+	unsigned long nfree = 0, res;
+	int n;
+
+	p9_qlock(plock);
+	releasing = 0;
+	for (c = chunks; c; c = c->next)
+		nfree += c->nfree;
+	res = reserve();
+	for (l = &chunks; (c = *l) != NULL; ) {
+		if (!c->contig || c->nfree != CHUNKPAGES || nfree < res + CHUNKPAGES) {
+			l = &c->next;
+			continue;
+		}
+		__atomic_store_n(l, c->next, __ATOMIC_RELEASE);
+		delref(bypa, c->pa0, c);
+		delref(byva, (u64)(uintptr_t)c->va, c);
+		p9_segfree(c->name, c->va);	/* (c->va stays: a reader passing compares with it) */
+		c->dnext = dchunks;
+		dchunks = c;
+		nfree -= CHUNKPAGES;
+		nchunks--;
+		nreleased++;
+		ndeferred++;
+		res = reserve();
+	}
+	dc = dchunks;
+	dr = drefs;
+	dchunks = NULL;
+	drefs = NULL;
+	p9_qunlock(plock);
+	if (dc == NULL && dr == NULL)
+		return;
+	/* unlinked before (the fence: before the count is read), so a lookup that starts now cannot see them */
+	__atomic_thread_fence(__ATOMIC_SEQ_CST);
+	if (__atomic_load_n(&preaders, __ATOMIC_SEQ_CST) != 0) {
+		/* back on the lists, again in a second */
+		p9_qlock(plock);
+		while ((c = dc) != NULL) {
+			dc = c->dnext;
+			c->dnext = dchunks;
+			dchunks = c;
+		}
+		while ((r = dr) != NULL) {
+			dr = r->dnext;
+			r->dnext = drefs;
+			drefs = r;
+		}
+		if (!releasing) {
+			releasing = 1;
+			p9_qunlock(plock);
+			schedule_delayed_work(&releasework, HZ);
+			return;
+		}
+		p9_qunlock(plock);
+		return;
+	}
+	n = 0;
+	while ((r = dr) != NULL) {
+		dr = r->dnext;
+		p9_free(r);
+	}
+	while ((c = dc) != NULL) {
+		dc = c->dnext;
+		kfree(c->pages);
+		kfree(c);
+		n++;
+	}
+	p9_qlock(plock);
+	ndeferred -= n;
 	p9_qunlock(plock);
 }
 
@@ -342,11 +497,9 @@ void __free_pages(struct page *p, unsigned int order) { put_page(p); }
  * 9space: the pool's state, a status line (gpu(4)'s status, through
  * kmsout.h): its chunks, how many are physically contiguous and how many
  * scattered, its free pages, the chunks wholly free, and the chunks given
- * back to the system and the bookkeeping waiting for readers to leave
- * (both 0 until the pool gives chunks back: i915-pool.md (a))
+ * back to the system and those whose bookkeeping waits for the lookups
+ * under way to end (poolrelease)
  */
-static unsigned long nreleased, ndeferred;
-
 int
 kpi_pool_status(char *buf, int n)
 {
@@ -450,11 +603,14 @@ kpi_virt_to_page(const void *v)
 	const u8 *a = v;
 	struct chunk *c;
 
-	if ((c = chunkbyva(a)) != NULL)
+	lookup();
+	if ((c = chunkbyva(a)) == NULL)
+		for (c = __atomic_load_n(&chunks, __ATOMIC_ACQUIRE); c; c = c->next)	/* (a key without its entry: no memory then) */
+			if (a >= c->va && a < c->va + CHUNK)
+				break;
+	lookdone();
+	if (c != NULL)
 		return &c->pages[(a - c->va) >> PAGE_SHIFT];
-	for (c = chunks; c; c = c->next)	/* (a key without its entry: no memory then) */
-		if (a >= c->va && a < c->va + CHUNK)
-			return &c->pages[(a - c->va) >> PAGE_SHIFT];
 	return heappage(a);
 }
 
@@ -476,8 +632,12 @@ int
 page_is_ram(unsigned long pfn)
 {
 	struct page *p;
+	int ram;
 
-	if (chunkbypa((u64)pfn << PAGE_SHIFT) != NULL)
+	lookup();
+	ram = chunkbypa((u64)pfn << PAGE_SHIFT) != NULL;
+	lookdone();
+	if (ram)
 		return 1;
 	for (p = hash[hashpfn(pfn)]; p; p = p->kpi_hnext)
 		if ((p->phys_addr >> PAGE_SHIFT) == pfn)
@@ -493,7 +653,10 @@ kpi_pfn_to_page(unsigned long pfn)
 	struct page *p;
 	u64 pa = (u64)pfn << PAGE_SHIFT;
 
-	if ((c = chunkbypa(pa)) != NULL)
+	lookup();
+	c = chunkbypa(pa);
+	lookdone();
+	if (c != NULL)
 		return &c->pages[(pa - c->pa0) >> PAGE_SHIFT];
 	for (p = hash[h]; p; p = p->kpi_hnext)
 		if ((p->phys_addr >> PAGE_SHIFT) == pfn)

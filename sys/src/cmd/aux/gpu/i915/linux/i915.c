@@ -16,6 +16,8 @@
 #include <linux/acpi.h>
 #include <linux/dmi.h>
 #include <linux/pci.h>
+#include <linux/kthread.h>
+#include <linux/delay.h>
 
 struct pci_dev	*kpi_pci_gpu(const char *gdir);
 
@@ -215,6 +217,96 @@ poolstatus_selftest(void)
 	return n > 0 && strncmp(buf, "pool chunks ", 12) == 0 ? 0 : -EIO;
 }
 
+/*
+ * 9space: the pool gives back the chunks a load made once they are wholly
+ * free (page.c's poolrelease, i915-pool.md (a)), while a kthread looks a
+ * page up by address and by frame all the time: the page still found,
+ * the chunks fewer, their bookkeeping freed once the lookups end
+ */
+int	kpi_pool_status(char *buf, int n);	/* page.c */
+
+struct pooltest {
+	struct page	*held;
+	int	stop, done;
+	unsigned long	n, bad;
+};
+
+static int
+pool_reader(void *a)
+{
+	struct pooltest *t = a;
+	struct page *h = t->held;
+	unsigned long pfn = page_to_pfn(h);
+
+	while (!READ_ONCE(t->stop)) {
+		if (virt_to_page(page_address(h)) != h || pfn_to_page(pfn) != h)
+			t->bad++;
+		t->n++;
+	}
+	WRITE_ONCE(t->done, 1);
+	return 0;
+}
+
+static int
+poolstat(unsigned long *nc, unsigned long *rel, unsigned long *def)
+{
+	char buf[256];
+	unsigned long c, s, mb, f, w;
+
+	kpi_pool_status(buf, sizeof(buf));
+	return sscanf(buf, "pool chunks %lu (contiguous %lu, scattered %lu), %lu MB, pages free %lu, chunks wholly free %lu, released %lu, deferred %lu",
+		nc, &c, &s, &mb, &f, &w, rel, def) == 8 ? 0 : -1;
+}
+
+enum { Npool = 1024, Poolorder = 4 };	/* 64 MB in runs of 64 KB: 8 chunks */
+
+static int
+pool_selftest(void)
+{
+	static struct page *run[Npool];
+	struct pooltest t = {0};
+	unsigned long nc0, rel0, def0, nc1, rel1, def1, nc2, rel2, def2;
+	int i, n, ms, ok;
+
+	t.held = alloc_page(GFP_KERNEL);
+	if (!t.held || poolstat(&nc0, &rel0, &def0) < 0) {
+		pr_info("selftest: pool: no page or no status: FAIL\n");
+		return -EIO;
+	}
+	if (IS_ERR(kthread_run(pool_reader, &t, "pooltest"))) {
+		put_page(t.held);
+		return -EIO;
+	}
+	for (n = 0; n < Npool; n++)
+		if ((run[n] = alloc_pages(GFP_KERNEL, Poolorder)) == NULL)
+			break;
+	poolstat(&nc1, &rel1, &def1);
+	for (i = 0; i < n; i++)
+		__free_pages(run[i], Poolorder);
+	/* poolrelease runs a second after the first chunk is wholly free */
+	for (ms = 0; ms < 5000; ms += 100) {
+		msleep(100);
+		poolstat(&nc2, &rel2, &def2);
+		if (rel2 > rel0 && nc2 < nc1)
+			break;
+	}
+	WRITE_ONCE(t.stop, 1);
+	while (!READ_ONCE(t.done))
+		msleep(10);
+	/* no lookup under way now: the bookkeeping goes at the next try */
+	for (ms = 0; ms < 5000; ms += 100) {
+		poolstat(&nc2, &rel2, &def2);
+		if (def2 == 0)
+			break;
+		msleep(100);
+	}
+	put_page(t.held);
+	ok = n == Npool && rel2 > rel0 && nc2 < nc1 && def2 == 0 && t.bad == 0 && t.n > 0;
+	pr_info("selftest: pool gives back wholly free chunks: %lu chunks, %lu with the load, %lu after (released %lu, deferred %lu), %lu lookups meanwhile, %lu wrong: %s\n",
+		nc0, nc1, nc2, rel2 - rel0, def2, t.n, t.bad, ok ? "ok" : "FAIL");
+	return ok ? 0 : -EIO;
+}
+
 int
 i915_kpitest(void)
 {
@@ -246,6 +338,9 @@ i915_kpitest(void)
 	if (r)
 		return r;
 	r = poolstatus_selftest();
+	if (r)
+		return r;
+	r = pool_selftest();
 	if (r)
 		return r;
 	/* Linux's selftests of fences, chains, arrays, reservation objects; with the slab's checks */
