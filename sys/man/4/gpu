@@ -121,8 +121,23 @@ look for GPU
 in
 .BI /shr/gpu. user / n
 when the user has a share of their own (below), else in
-.BI /shr/gpu/ nR.
+.BI /shr/gpu/ n\fR.
 9space's: 9front has no GPU drivers.
+.PP
+When memory runs out the pager never kills a driver: each sets
+.B noswap
+.RI ( proc (3))
+first thing in its main, so all its procs have it, however it was
+started.
+The pager kills the biggest of the other processes instead: i915 and
+amdgpu are big (the LinuxKPI's page pool, the pages behind their
+clients' segments), the first it would choose; a client may go, as
+any other process.
+.B Noswap
+protects only processes of the host owner; the drivers run as the
+user who started them, the host owner on a terminal.
+It also lets a driver take the last free pages, which is why the
+LinuxKPI's pool gives memory back before the pager acts (below).
 .PP
 .I Virtiogpu
 drives virtio-gpu (QEMU's
@@ -1148,16 +1163,16 @@ The hostowner writes
 to the driver's
 .B ctl
 to grant the user the GPU: the driver makes the empty share
-.BI gpu.grant. nameR,
+.BI gpu.grant. name\fR,
 the hostowner's, as the record of the grant, and the share
-.BI gpu. nameR,
+.BI gpu. name\fR,
 whose entry
 .I n
 is its files for that user (every fid of an attach through it is that
 user's); then it gives
 .BI gpu. name
 to the user (0700): the user's files are
-.BI /shr/gpu. name / nR,
+.BI /shr/gpu. name / n\fR,
 theirs alone.
 The shares outlive the driver: a driver started again puts every
 granted user's entry back, for each
@@ -1335,7 +1350,9 @@ are ported this way.
 .B /sys/src/cmd/aux/gpu/gpufs.c
 (the file server's part every driver shares),
 .B gpukms.c
-(i915's and amdgpu's: outputs, display, users)
+(i915's and amdgpu's: outputs, display, users),
+.B gpunoswap.c
+(every driver's)
 .br
 .B /sys/src/cmd/aux/gpu/i915
 .br
@@ -1356,6 +1373,7 @@ are ported this way.
 .B /sys/src/mesa/plan9/loader
 .SH "SEE ALSO"
 .IR gpu (3),
+.IR proc (3),
 .IR segment (3),
 .IR vga (3),
 .IR vga (8)

@@ -320,6 +320,28 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		check "killdrv: a reset that never finishes: the kernel says so" grep -q '^killdrv: stuck: .*engine did not stop, bus mastering off' "$TMPD/logkill"
 		check "killdrv: ... and refuses bme on afterwards" grep -q '^killdrv: bme on refused$' "$TMPD/logkill"
 		check "killdrv: nothing hung" grep -q '^killdrv: done$' "$TMPD/logkill"
+
+		# 9space: memory runs out while vkcube draws (drvnoswap.rc):
+		# the pager kills memhog's children, never the driver (noswap,
+		# gpu(4)); each child is smaller than the driver, so without
+		# noswap the driver would go first
+		cp "$HERE/drvnoswap.rc" "$HERE/root/tests/drvnoswap"
+		chmod +x "$HERE/root/tests/drvnoswap"
+		bootnoswap(){
+			CPU=host MEM=1024 CMDWAIT=600 UFS_EXTRA="$HERE/root" \
+			QEMU_EXTRA="-vga none -display egl-headless -device virtio-gpu-gl-pci,blob=true,venus=true,hostmem=256M -object memory-backend-memfd,id=mem1,size=1024M,share=on -machine memory-backend=mem1" \
+			"$ROOT/scripts/guest/boot-cli.sh" '/tests/drvnoswap' > "$TMPD/consolenoswap" 2>&1
+		}
+		check "boot with virtio-gpu-gl, memory runs out while vkcube draws" bootnoswap
+		tr -d '\r' < "$TMPD/consolenoswap" | grep '^drvnoswap: ' > "$TMPD/lognoswap"
+		sed 's/^/  /' "$TMPD/lognoswap"
+		nv(){ sed -n "s/^drvnoswap: $1 //p" "$TMPD/lognoswap" | head -1; }
+		check "drvnoswap: the driver is bigger than memhog's children (so a child killed shows the driver passed over)" bash -c "d=\$(sed -n 's/^drvnoswap: kb driver \\([0-9]*\\) vkcube.*/\\1/p' '$TMPD/lognoswap'); h=\$(sed -n 's/^drvnoswap: child kb //p' '$TMPD/lognoswap'); echo driver \$d child \$h; [ -n \"\$h\" ] && [ \$d -gt \$h ]"
+		check "drvnoswap: the pager killed a child of memhog" bash -c "grep -q '^drvnoswap: memhog: [0-9]* children of [0-9]* KB, child [0-9]* gone' '$TMPD/lognoswap' && grep -q '^drvnoswap: killed: memhog ' '$TMPD/lognoswap'"
+		check "drvnoswap: ... and no other (memhog's or vkcube's, a client: never the driver)" bash -c "! grep '^drvnoswap: killed: ' '$TMPD/lognoswap' | grep -Evq '^drvnoswap: killed: (memhog|vkcube) '"
+		check "drvnoswap: the driver's procs all still there" bash -c "b=\$(sed -n 's/^drvnoswap: driver //p' '$TMPD/lognoswap' | head -1); a=\" \$(sed -n 's/^drvnoswap: driver after //p' '$TMPD/lognoswap') \"; [ -n \"\$b\" ] || exit 1; for p in \$b; do case \"\$a\" in *\" \$p \"*) ;; *) exit 1;; esac; done"
+		check "drvnoswap: the driver still serves gpu(4) after it" grep -q '^drvnoswap: serves device ' "$TMPD/lognoswap"
+		check "drvnoswap: nothing hung" grep -q '^drvnoswap: done$' "$TMPD/lognoswap"
 	fi
 
 	# wsys (../9front-ui stage 2): vktri in a window of wsys hands its
