@@ -43,10 +43,22 @@ pub fn new_headless_renderer() -> Result<Renderer, Error> {
     imaging_vello::VelloRenderer::new(device, queue).map_err(Error::Backend)
 }
 
+/// 9space: the pipeline cache the target renderers' pipelines are made with
+/// (the program keeps its data across starts: ui); none by default
+static PIPELINE_CACHE: std::sync::Mutex<Option<wgpu::PipelineCache>> = std::sync::Mutex::new(None);
+
+/// 9space: the pipeline cache for the target renderers made from now on
+pub fn set_pipeline_cache(cache: Option<wgpu::PipelineCache>) {
+    if let Ok(mut c) = PIPELINE_CACHE.lock() {
+        *c = cache;
+    }
+}
+
 /// Create a reusable Vello target renderer bound to an existing WGPU device and queue.
 pub fn new_target_renderer(
     device: wgpu::Device,
     queue: wgpu::Queue,
 ) -> Result<TargetRenderer, Error> {
-    imaging_vello::VelloRenderer::new(device, queue).map_err(Error::Backend)
+    let cache = PIPELINE_CACHE.lock().ok().and_then(|c| c.clone());
+    imaging_vello::VelloRenderer::with_pipeline_cache(device, queue, cache).map_err(Error::Backend)
 }

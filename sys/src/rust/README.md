@@ -22,6 +22,8 @@ A crate of the tree uses them by `[patch.crates-io]` with paths here
 - `wgpu-28.0.0`, `wgpu-core-28.0.1`, `wgpu-hal-28.0.1`: Vulkan on plan9
   (the static libvulkan.a, `VK_PLAN9_surface`); programs link
   `-l draw -l 9 -l fmt -l utf -l stdc++`.
+- `imaging_vello-0.0.1`: `VelloRenderer::with_pipeline_cache` (vello's
+  `RendererOptions.pipeline_cache`), for ui's pipeline cache.
 - `plan9/p9win` (MIT, ours): draw(3), `/dev/mouse`, `/dev/kbd`, `/dev/wctl`,
   `/dev/cursor`, label, wctl, snarf; a window made again in the next wsys
   when its wsys is gone (`wsys.rs`).
@@ -33,6 +35,9 @@ revision in `../cmd/ui/Cargo.toml`) changed for the tree's builds; the
 workspace takes them by `[patch."https://github.com/linebender/xilem"]`.
 Their master is this tree (crates.sh leaves `xilem/` alone).
 
+- `masonry_imaging-0.4.0` (Apache-2.0): `vello::set_pipeline_cache`, the
+  cache its target renderers' pipelines are made with (ui keeps its data
+  across starts, `$home/lib/ui/cache`).
 - `masonry_core-0.4.0` (Apache-2.0): damage regions (Xilem's issue 789,
   a TODO in its paint pass): the bounding boxes of the widgets painted
   again and of those moved (where they were and are), all of it when the

@@ -29,6 +29,56 @@ pub struct Gpu {
     blitter: TextureBlitter,
     renderer: Renderer,
     pub name: String,
+    cache: Option<(wgpu::PipelineCache, std::path::PathBuf, Option<Vec<u8>>)>, // vello's pipelines, kept across starts (with the data read)
+    saved: bool, // the cache's data written after the first frame
+}
+
+/// where the pipeline cache of this adapter is kept: $home/lib/ui/cache (the
+/// user's only), a file by vendor, device and driver (another driver's data
+/// would be refused by the driver anyway: Vulkan's pipelineCacheUUID)
+fn cachepath(info: &wgpu::AdapterInfo) -> Option<std::path::PathBuf> {
+    let key = wgpu::util::pipeline_cache_key(info)?;
+    let home = std::env::var("home").ok()?;
+    let mut h: u64 = 0xcbf29ce484222325; // FNV-1a of the driver's name and version
+    for b in info.driver.bytes().chain(info.driver_info.bytes()) {
+        h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+    }
+    Some(std::path::Path::new(&home).join("lib/ui/cache").join(format!("{key}_{h:016x}")))
+}
+
+/// the cache's data into its file, in a thread of its own (the write may be
+/// slow, a file server far away: 1.5 s for 190 KB in QEMU's root), and only
+/// when it is new or has grown (pipelines added; the driver's data of the same
+/// pipelines differs by a few bytes from start to start): a new file in the
+/// same directory, then
+/// renamed. Plan 9's wstat refuses an existing name, so std's rename removes
+/// the old file first: a ui starting just then finds none, a cache miss (its
+/// pipelines compiled anew), never half a file. Errors are only a miss too
+fn savecache(cache: wgpu::PipelineCache, path: std::path::PathBuf, read: Option<Vec<u8>>) {
+    std::thread::spawn(move || {
+        let Some(data) = cache.get_data() else { return };
+        if read.is_some_and(|r| data.len() <= r.len()) {
+            return;
+        }
+        writecache(&data, &path);
+    });
+}
+
+fn writecache(data: &[u8], path: &std::path::Path) {
+    let Some(dir) = path.parent() else { return };
+    if !dir.exists() {
+        if std::fs::create_dir_all(dir).is_err() {
+            return;
+        }
+        use std::os::plan9::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    }
+    let tmp = path.with_extension("new");
+    if std::fs::write(&tmp, data).is_ok() && std::fs::rename(&tmp, path).is_ok() {
+        crate::mark("pipeline cache saved");
+    } else {
+        let _ = std::fs::remove_file(&tmp);
+    }
 }
 
 /// wgpu's futures on native backends are ready when first polled
@@ -89,7 +139,7 @@ impl Gpu {
             format!("adapter: {e}; Vulkan's adapters: {all:?}")
         })?;
         crate::mark("gpu: adapter");
-        let features = adapter.features() & wgpu::Features::CLEAR_TEXTURE;
+        let features = adapter.features() & (wgpu::Features::CLEAR_TEXTURE | wgpu::Features::PIPELINE_CACHE);
         let (device, queue) = now(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("ui"),
             required_features: features,
@@ -98,6 +148,21 @@ impl Gpu {
         }))
         .map_err(|e| format!("device: {e}"))?;
         crate::mark("gpu: device");
+        // vello's pipelines from the data of the starts before (fallback: data
+        // that is not this driver's, or damaged, is ignored: an empty cache)
+        let cache = if device.features().contains(wgpu::Features::PIPELINE_CACHE) {
+            cachepath(&adapter.get_info()).map(|path| {
+                let data = std::fs::read(&path).ok();
+                let c = unsafe {
+                    device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor { label: Some("ui"), data: data.as_deref(), fallback: true })
+                };
+                crate::mark(if data.is_some() { "gpu: pipeline cache read" } else { "gpu: pipeline cache new" });
+                (c, path, data)
+            })
+        } else {
+            None
+        };
+        masonry_imaging::vello::set_pipeline_cache(cache.as_ref().map(|c| c.0.clone()));
         let caps = surface.get_capabilities(&adapter);
         let format = caps
             .formats
@@ -138,6 +203,8 @@ impl Gpu {
             blitter,
             renderer: Renderer::new(),
             name: i.name,
+            cache,
+            saved: false,
         })
     }
 
@@ -209,6 +276,13 @@ impl Gpu {
         self.blitter.copy(&self.device, &mut enc, &self.view, &out);
         self.queue.submit([enc.finish()]);
         tex.present();
+        // the first frame's pipelines into the cache's file, once
+        if !self.saved {
+            self.saved = true;
+            if let Some((c, p, read)) = self.cache.as_mut() {
+                savecache(c.clone(), p.clone(), read.take());
+            }
+        }
         Ok(())
     }
 }

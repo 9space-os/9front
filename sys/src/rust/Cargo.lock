@@ -1229,8 +1229,6 @@ dependencies = [
 [[package]]
 name = "imaging_vello"
 version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8c6dc0ab80d17378f6cc85331f79db2da3685a510014be77589ed07a346fa09"
 dependencies = [
  "imaging",
  "imaging_wgpu",
