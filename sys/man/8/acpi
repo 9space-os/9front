@@ -278,7 +278,7 @@ reads
 .BR /dev/acpievents )
 and moves the backlight of every panel a GPU driver serves
 .RI ( gpu (4):
-.BR /srv/gpu. \fIN\fP)
+.BR /shr/gpu/ \fIN\fP)
 one of sixteen steps for each brightness key, on a curve the eye sees as
 even (the maximum times
 .RI ( k /16)^3),

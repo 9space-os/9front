@@ -1,7 +1,7 @@
 /*
  * aux/acpikeys: the brightness keys aux/acpi reports (its acpievents:
  * key brightnessup, brightnessdown, brightnesszero) on the backlight of
- * every panel a GPU driver serves (gpu(4): /srv/gpu.N, its
+ * every panel a GPU driver serves (gpu(4): /shr/gpu/N, its
  * outputs/conn/backlight), one of sixteen steps at a time on a curve
  * the eye sees as even (max * (k/16)^3, as brightnessctl -e: a linear
  * sixteenth was hardly seen near the top, coarse near the bottom),
@@ -28,7 +28,6 @@ static struct {
 	long	val;
 } saved[Nsaved];
 static int nsaved;
-static char cursrv[32];	/* the GPU driver's srv mounted on /mnt now: two have the same paths there */
 static int lidclosed;
 static char pspolicy[16];	/* pstate's policy before, "" if none */
 
@@ -109,10 +108,9 @@ step(char *path, int dir)
 static int
 lidlight(char *path, int dir)
 {
-	char buf[64], key[256], *f[3];
+	char buf[64], *f[3];
 	int fd, n, i;
 
-	snprint(key, sizeof key, "%s:%s", cursrv, path);
 	if((fd = open(path, ORDWR)) < 0)
 		return -1;
 	n = pread(fd, buf, sizeof buf - 1, 0);
@@ -122,7 +120,7 @@ lidlight(char *path, int dir)
 	}
 	if(dir < 0){
 		if(nsaved < Nsaved){
-			snprint(saved[nsaved].path, sizeof saved[nsaved].path, "%s", key);
+			snprint(saved[nsaved].path, sizeof saved[nsaved].path, "%s", path);
 			saved[nsaved].val = strtol(f[0], nil, 0);
 			nsaved++;
 			if(fprint(fd, "0") < 0)
@@ -130,7 +128,7 @@ lidlight(char *path, int dir)
 		}
 	} else {
 		for(i = 0; i < nsaved; i++)
-			if(strcmp(saved[i].path, key) == 0){
+			if(strcmp(saved[i].path, path) == 0){
 				if(fprint(fd, "%ld", saved[i].val) < 0)
 					fprint(2, "acpikeys: %s: %r\n", path);
 				break;
@@ -173,36 +171,11 @@ backlights(char *root, int dir)
 	return nb;
 }
 
-/* every GPU driver's panels, its tree mounted in turn on /mnt (this namespace's own) */
+/* every GPU driver's panels: shr(3) has each one's tree in every namespace, /shr/gpu/N */
 static int
 gpubacklights(int dir)
 {
-	Dir *d;
-	int n, i, fd, nb;
-	char path[64];
-
-	if((fd = open("/srv", OREAD)) < 0)
-		return 0;
-	n = dirreadall(fd, &d);
-	close(fd);
-	nb = 0;
-	for(i = 0; i < n; i++){
-		if(strncmp(d[i].name, "gpu.", 4) != 0)
-			continue;
-		snprint(path, sizeof path, "/srv/%s", d[i].name);
-		if((fd = open(path, ORDWR)) < 0)
-			continue;
-		if(mount(fd, -1, "/mnt", MREPL, "") < 0){
-			close(fd);
-			continue;
-		}
-		snprint(cursrv, sizeof cursrv, "%s", d[i].name);
-		nb += backlights("/mnt", dir);
-		cursrv[0] = 0;
-		unmount(nil, "/mnt");
-	}
-	free(d);
-	return nb;
+	return backlights("/shr", dir);
 }
 
 /* the GPU drivers' panels, else the firmware's (aux/acpi's _BCM) */
