@@ -4,7 +4,7 @@
 # sys/src/ape/lib/musl/obj/<arch>/include/bits. usage: gen-musl-bits.sh arch
 # (musl's: x86_64, i386, aarch64). A file that comes out the same keeps its time.
 set -e
-ROOT=${PLAN9:-$(git rev-parse --show-toplevel)}
+ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 M=$ROOT/sys/src/ape/lib/musl
 A=$1
 O=$M/obj/$A/include/bits

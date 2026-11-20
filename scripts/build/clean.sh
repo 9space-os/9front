@@ -42,17 +42,20 @@ echo "$(grep -c '^rm ' "$log") files removed from the source directories"
 
 if [ -n "$installed" ]; then
 	n=0
-	expected=$(python3 scripts/build/check-install.py -l) || die "check-install.py -l failed"
-	for f in $expected amd64/bin/9pc64 amd64/init \
-		$(awk '/^386/ { s = 1; next } /^[^\t]/ { s = 0 } s && NF == 2 { print "386/" $1 }' \
-			sys/lib/sysconfig/proto/9bootproto) \
-		arm64/bootaa64.efi; do
+	# amd64's, as the clean above (check-install.py takes objtype from the
+	# environment); a line "?/path" is a Rust or APE program: installed too
+	expected=$(objtype=amd64 python3 scripts/build/check-install.py -l) || die "check-install.py -l failed"
+	while read -r f; do
+		f=${f#\?}
 		f=${f#/}
-		[ -f "$f" ] || continue
+		[ -n "$f" ] && [ -f "$f" ] || continue
 		git ls-files --error-unmatch "$f" > /dev/null 2>&1 && continue
 		rm -f "$f"
 		n=$((n + 1))
-	done
+	done < <(printf '%s\n' "$expected" amd64/bin/9pc64 amd64/init \
+		$(awk '/^386/ { s = 1; next } /^[^\t]/ { s = 0 } s && NF == 2 { print "386/" $1 }' \
+			sys/lib/sysconfig/proto/9bootproto) \
+		arm64/bootaa64.efi)
 	# directories left empty below the install roots
 	for d in amd64/bin amd64/lib.gcc acme/bin/amd64 rc/bin; do
 		[ -d "$d" ] && find "$d" -mindepth 1 -type d -empty -delete

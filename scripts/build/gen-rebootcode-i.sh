@@ -14,10 +14,10 @@
 # then objcopy to pull out the raw bytes.
 #
 # Usage: scripts/build/gen-rebootcode-i.sh [pc64|arm64|bcm64]  (default pc64;
-# inside the repository, or pass PLAN9=<root>).
+# the tree is the script's own, or PLAN9=<root>).
 set -e
 
-ROOT=${PLAN9:-$(git rev-parse --show-toplevel)}
+ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 

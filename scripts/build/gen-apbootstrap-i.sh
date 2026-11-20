@@ -9,11 +9,11 @@
 # bytes -- same approach as gen-rebootcode-i.sh, see that script for the
 # full rationale.
 #
-# Usage: scripts/build/gen-apbootstrap-i.sh [pc64|pc]   (default pc64; from the
-# inside the repository, or pass PLAN9=<root>).
+# Usage: scripts/build/gen-apbootstrap-i.sh [pc64|pc]   (default pc64; the tree
+# is the script's own, or PLAN9=<root>).
 set -e
 
-ROOT=${PLAN9:-$(git rev-parse --show-toplevel)}
+ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 

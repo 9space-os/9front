@@ -4,10 +4,10 @@
 # full rationale; this is the same approach at -m32 / REBOOTADDR 0x11000
 # (sys/src/9/pc/mem.h).
 #
-# Usage: run from the repo root (or pass PLAN9=<root>).
+# Usage: scripts/build/gen-rebootcode-pc-i.sh (the tree is the script's own, or PLAN9=<root>).
 set -e
 
-ROOT=${PLAN9:-$(git rev-parse --show-toplevel)}
+ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 PC=$ROOT/sys/src/9/pc
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT

@@ -22,7 +22,7 @@
 # another file system are copied into the stage instead (slower, same root,
 # twice the root's space for the while).
 set -e
-ROOT=${PLAN9:-$(git rev-parse --show-toplevel)}
+ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 DEST=${1:?usage: $0 outdir [extra...]}
 shift
 A=${objtype:-amd64}

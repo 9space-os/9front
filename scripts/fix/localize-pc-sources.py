@@ -33,7 +33,7 @@ import json
 import shutil
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]	# scripts/fix/ -> the tree
 PC64 = ROOT / "sys/src/9/pc64"
 BUILD_JSON = PC64 / "build.json"
 
