@@ -5850,6 +5850,10 @@ fn usage() -> ! {
 }
 
 fn main() {
+    // first, before any thread: all of them inherit it (p9::noswap)
+    if let Err(e) = p9::noswap() {
+        eprintln!("wsys: noswap: {e}");
+    }
     let mut args = std::env::args().skip(1);
     let user = std::env::var("user").unwrap_or_else(|_| "none".into());
     // with its pid as rio: a wsys that died leaves its entry, another starts all the same

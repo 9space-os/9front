@@ -129,6 +129,16 @@ impl Drop for Fd {
 
 pub const RFNOTEG: c_int = 8;
 
+/// The pager passes wsys over when memory runs out (proc(3) noswap, as
+/// FreeBSD's protect(1) does for X): it kills the biggest process it may,
+/// and wsys, the windows' images and the screen's, is big; killing it ends
+/// every window. Inherited by wsys' threads, cleared by exec: the windows'
+/// programs (rc -c ... exec) and wbar may still go. Only the host owner's
+/// processes are passed over (devswap.c killbig).
+pub fn noswap() -> io::Result<()> {
+    Fd::open(&format!("/proc/{}/ctl", std::process::id()), OWRITE)?.write1(b"noswap")
+}
+
 pub fn rfork(flags: c_int) -> io::Result<()> {
     if unsafe { p9rfork(flags) } < 0 { Err(err()) } else { Ok(()) }
 }

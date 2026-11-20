@@ -361,6 +361,8 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		cp "$HERE/wsysvktri.rc" "$HERE/root/tests/wsysvktri"
 		cp "$HERE/wsysovl.rc" "$HERE/root/tests/wsysovl"
 		cp "$HERE/wsyscomp.rc" "$HERE/root/tests/wsyscomp"
+		cp "$HERE/wsysnoswap.rc" "$HERE/root/tests/wsysnoswap"
+		chmod +x "$HERE/root/tests/wsysnoswap"
 		chmod +x "$HERE/root/tests/wsysvk" "$HERE/root/tests/wsysvktri" "$HERE/root/tests/wsysovl" "$HERE/root/tests/wsyscomp"
 		# in a guest of mcp-guest.sh: wsys in the background there, waited
 		# for from here; one not done in 300 s is looked at while it hangs
@@ -422,6 +424,16 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 			check "wsys: eframe's frames go to wsys as GPU buffers (not copied)" grep -qE '^eframe: wsi plan9: [^ ]+: wsys$' "$TMPD/logwsys"
 			grep -E '^eframe: ok (wgpu adapter|[0-9]+ frames)' "$TMPD/logwsys" | sed 's/^/  /'
 		fi
+		# 9space: memory runs out in a window of wsys (wsysnoswap.rc): the
+		# pager kills memhog's children (a window's program), never wsys
+		# (noswap, wsys(4)); each child is half wsys' size
+		check "boot with virtio-gpu-gl, wsys: memory runs out in a window" bootwsys "/tests/wsys ${WSYSFLAGS:-} -x -i /tests/wsysnoswap"
+		tr -d '\r' < "$TMPD/consolewsys" | grep '^noswap: ' > "$TMPD/lognoswapw"
+		sed 's/^/  /' "$TMPD/lognoswapw"
+		check "wsys noswap: wsys is bigger than memhog's children (so a child killed shows wsys passed over)" bash -c "set -- \$(sed -n 's/^noswap: kb wsys \\([0-9]*\\) child \\([0-9]*\\)$/\\1 \\2/p' '$TMPD/lognoswapw'); [ -n \"\$2\" ] && [ \$1 -gt \$2 ]"
+		check "wsys noswap: the pager killed a child of memhog, the program of a window (it did not inherit noswap)" bash -c "grep -q '^noswap: memhog: [0-9]* children of [0-9]* KB, child [0-9]* gone' '$TMPD/lognoswapw' && grep -q '^noswap: killed: memhog ' '$TMPD/lognoswapw'"
+		check "wsys noswap: ... and not wsys (its procs all still there)" bash -c "! grep -q '^noswap: killed: wsys ' '$TMPD/lognoswapw' || exit 1; b=\$(sed -n 's/^noswap: wsys \\([0-9 ]*\\)$/\\1/p' '$TMPD/lognoswapw'); a=\" \$(sed -n 's/^noswap: wsys after //p' '$TMPD/lognoswapw') \"; [ -n \"\$b\" ] || exit 1; for p in \$b; do case \"\$a\" in *\" \$p \"*) ;; *) exit 1;; esac; done"
+		check "wsys noswap: nothing hung" grep -q '^noswap: done$' "$TMPD/lognoswapw"
 		# the screen composed on the GPU, wsys' default (-g says so; here
 		# WSYSDEBUG=comp, so that the default is what runs) (wsyscomp.rc)
 		check "boot with virtio-gpu-gl, wsys (the GPU composes by default)" bootwsys "WSI_PLAN9_STATS=1 WSYSDEBUG=comp /tests/wsys ${WSYSFLAGS:-} -x -i /tests/wsyscomp"

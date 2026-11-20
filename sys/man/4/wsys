@@ -1031,6 +1031,24 @@ With
 .BR -x ,
 .I wsys
 prints the name it posted and its rectangle (for scripts); otherwise nothing.
+.PP
+When memory runs out the pager passes
+.I wsys
+over: it sets
+.B noswap
+.RI ( proc (3))
+first thing, which its threads inherit and the programs it starts in its
+windows do not (exec clears it): the pager kills the biggest process it
+may, and
+.IR wsys ,
+with the windows' images, would be the first to go and every window with
+it.
+The window bar and the windows' programs may still be killed, and the GPU
+drivers are passed over as well
+.RI ( gpu (4)).
+As FreeBSD's
+.IR protect (1)
+for X.
 .SH EXAMPLES
 In
 .IR plan9.ini ,
@@ -1097,6 +1115,8 @@ A client in C: see
 (Rust;
 .BR scripts/build/cargo.sh )
 .SH SEE ALSO
+.IR proc (3),
+.IR gpu (4),
 .IR rio (1),
 .IR rio (4),
 .IR wlsys (4),
@@ -1106,6 +1126,11 @@ A client in C: see
 .IR rcpu (1),
 .IR ui (4)
 .SH BUGS
+A
+.I wsys
+that grows without bound is not stopped by the pager (it is passed
+over): when only such processes are left, the pager waits for pages
+instead of killing.
 .I Wsys
 must be allowed to attach the clients' segments: the same user, or the
 host owner.

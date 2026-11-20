@@ -46,7 +46,16 @@ gives the free user pages
 the pager's high water mark
 .I h
 (at or below it, a process that needs a page waits for the pager, which
-swaps out or, without swap, kills the biggest process) and its headroom
+swaps out or, without swap, kills the biggest process it may: not the
+host owner's
+.B noswap
+processes,
+.IR proc (3),
+which are the GPU drivers,
+.IR gpu (4),
+and
+.IR wsys (4);
+when only those are left it waits for pages instead) and its headroom
 .I r
 (the pager runs until that many are free).
 A program that keeps memory it could give back (the LinuxKPI's page pool

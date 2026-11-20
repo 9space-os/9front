@@ -1,8 +1,9 @@
 /*
  * SPDX-License-Identifier: MIT
  *
- * memhog kb: takes memory without bound in children of kb KB each
- * (forked one after another, each touches its pages, then sleeps),
+ * memhog [-m max] [-d ms] kb: takes memory without bound in children of
+ * kb KB each (forked one after another, ms apart, default 10; each
+ * touches its pages, then sleeps),
  * until the pager kills one (devswap.c killbig: the biggest process
  * that may be killed).  Each child is small on purpose: a GPU driver
  * bigger than one of them is the pager's choice unless it is noswap
@@ -49,11 +50,15 @@ void
 main(int argc, char **argv)
 {
 	long kb;
-	int i, max, pid;
+	int i, max, pid, ms;
 	char *b;
 
 	max = Max;
+	ms = 10;
 	ARGBEGIN{
+	case 'd':
+		ms = atoi(EARGF(sysfatal("usage")));
+		break;
 	case 'm':
 		max = atoi(EARGF(sysfatal("usage")));
 		if(max < 1 || max > Max)
@@ -61,7 +66,7 @@ main(int argc, char **argv)
 		break;
 	}ARGEND
 	if(argc != 1 || (kb = atol(argv[0])) <= 0)
-		sysfatal("usage: memhog [-m max] kb");
+		sysfatal("usage: memhog [-m max] [-d ms] kb");
 	for(n = 0; n < max;){
 		switch(pid = rfork(RFPROC|RFFDG)){
 		case -1:
@@ -74,7 +79,7 @@ main(int argc, char **argv)
 				sleep(100000);
 		}
 		pids[n++] = pid;
-		sleep(10);
+		sleep(ms);
 		for(i = 0; i < n; i++)
 			if(gone(pids[i])){
 				print("memhog: %d children of %ld KB, child %d gone\n", n, kb, pids[i]);
