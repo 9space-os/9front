@@ -3,7 +3,7 @@
 # wsys, a client in rc: mounts its /srv, builds a scene through ctl (one write
 # one transaction), reads it back (tree, nodes/), changes a property through
 # nodes/id/props, clicks the button (/dev/mousein) and reads the click from
-# event, types into the text box (uipeek -k: kbd(3) through /dev/kbdin) and
+# event, types into the text box (aux/kbdtype: kbd(3) through /dev/kbdin) and
 # reads its text events; a read of event let go (its process killed: Tflush)
 # leaves ui answering; the window's pixels from wsys' screen (uipeek); a
 # client in C (uiclient: libui) in a window of its own. renderer says what
@@ -100,7 +100,7 @@ grep -s '^click b$' /tmp/ev && ok 'event: click b' || fail no click event: `{cat
 f=`{at f}
 { m $f(1) $f(2) 0; m $f(1) $f(2) 1; m $f(1) $f(2) 0 } >/dev/mousein
 sleep 0.3
-/tests/uipeek -k 'hi'
+aux/kbdtype 'hi'
 waitfor /tmp/ev '^text f hi$'
 grep -s '^text f hi$' /tmp/ev && ok 'event: text f hi' || fail no text event: `{grep '^text' /tmp/ev}
 grep -s '^text hi$' /mnt/ui/nodes/f/props && ok 'the typed text in nodes/f/props' || fail nodes/f/props: `{cat /mnt/ui/nodes/f/props}
@@ -109,12 +109,12 @@ grep -s '^text hi$' /mnt/ui/nodes/f/props && ok 'the typed text in nodes/f/props
 # the text box with its focus and text (before, all were made again)
 echo 'new extra label' >/mnt/ui/ctl
 sleep 0.3
-/tests/uipeek -k '!'
+aux/kbdtype '!'
 waitfor /tmp/ev '^text f hi!$'
 grep -s '^text f hi!$' /tmp/ev && ok 'a node made: the text box keeps its focus and text' || fail after new: `{grep '^text' /tmp/ev}
 echo 'del extra' >/mnt/ui/ctl
 sleep 0.3
-/tests/uipeek -k '?'
+aux/kbdtype '?'
 waitfor /tmp/ev '^text f hi!\?$'
 grep -s '^text f hi!\?$' /tmp/ev && ok 'a node deleted: the text box keeps its focus and text' || fail after del: `{grep '^text' /tmp/ev}
 
@@ -539,7 +539,7 @@ x=`{echo $o(1)+$r(3)-8 | hoc}; y=`{echo 'int('$o(2)'+('$r(2)+$r(4)')/2)' | hoc}
 { m $x $y 0; m $x $y 1; m $x $y 0 } >/dev/mousein
 waitfor /tmp/ev4 '^step stp 6$'
 sleep 0.3
-/tests/uipeek -k ''
+aux/kbdtype ''
 waitfor /tmp/ev4 '^step stp 7$'
 if(grep -s '^step stp 6$' /tmp/ev4 && grep -s '^step stp 7$' /tmp/ev4 && grep -s '^value 7$' /mnt/ui/nodes/stp/props) ok 'stepper: clicked on its right, step stp 6; up, step stp 7'
 if not fail stepper: `{grep '^step' /tmp/ev4} props `{cat /mnt/ui/nodes/stp/props}
@@ -573,7 +573,7 @@ sleep 1
 c=`{at ta}
 { m $c(1) $c(2) 0; m $c(1) $c(2) 1; m $c(1) $c(2) 0 } >/dev/mousein
 sleep 0.3
-/tests/uipeek -k 'a
+aux/kbdtype 'a
 b'
 waitfor /tmp/ev4 '^text ta ''a\\nb''$'
 if(grep -s '^text ta ''a\\nb''$' /tmp/ev4 && grep -s '^set ta text ''a\\nb''$' /mnt/ui/tree) ok 'textarea: two lines, a\nb, in the event and the tree'
@@ -724,7 +724,7 @@ if not {
 	if not fail uitodo scene: `{cat /mnt/uit/tree}
 	# the first click may only make the window current
 	click $f; click $f
-	/tests/uipeek -k milk
+	aux/kbdtype milk
 	sleep 0.3
 	click $add
 	waitfile /tmp/todo '^0 milk$' && ok 'uitodo: milk added (the button)' || fail uitodo add: `{cat /tmp/todo}
@@ -732,7 +732,7 @@ if not {
 	if(grep -s '^set '$f' text .' /mnt/uit/tree && ! grep -s '^set '$f' text ''''$' /mnt/uit/tree) fail uitodo text box not empty: `{grep '^set '$f' text' /mnt/uit/tree}
 	if not ok 'uitodo: the text box emptied'
 	click $f
-	/tests/uipeek -k 'eggs
+	aux/kbdtype 'eggs
 '
 	waitfile /tmp/todo '^0 eggs$' && ok 'uitodo: eggs added (enter)' || fail uitodo enter: `{cat /tmp/todo}
 	c=`{tnode checkbox 1}

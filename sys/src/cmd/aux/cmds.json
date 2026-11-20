@@ -75,6 +75,7 @@
 			"getflags.c",
 			"icanhasmsi.c",
 			"icanhasvmx.c",
+			"kbdtype.c",
 			"lines.c",
 			"listen.c",
 			"listen1.c",

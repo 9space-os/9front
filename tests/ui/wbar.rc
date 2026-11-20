@@ -38,10 +38,10 @@ fn is { # x,y rrggbb...: one of them on the screen there
 	~ $px $* || fail at $1: $px, want $*
 }
 fn mod4tab {
-	/tests/uipeek -p f868
-	/tests/uipeek -p 9
-	/tests/uipeek -r 9
-	/tests/uipeek -r f868
+	aux/kbdtype -p f868
+	aux/kbdtype -p 9
+	aux/kbdtype -r 9
+	aux/kbdtype -r f868
 	sleep 0.3
 }
 rm -f /tmp/wbar.*.items /tmp/wbartouched

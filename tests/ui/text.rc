@@ -10,8 +10,8 @@ fn wait1 { # cmd...: until it succeeds, 10 s at most
 	$* >[2]/dev/null
 }
 fn black { /tests/uipeek -n 104,104,596,396 000000 }
-fn key { /tests/uipeek -k $1 }
-fn nl { /tests/uipeek -k '
+fn key { aux/kbdtype $1 }
+fn nl { aux/kbdtype '
 ' }
 fn away { echo A 1020 760 0 >/dev/mousein; sleep 0.2 }
 away
@@ -52,7 +52,7 @@ echo ok mc: $c columns, from the width of the window
 
 # backspace while typing
 key 'echo abX'
-/tests/uipeek -k `{awk 'BEGIN{printf "%cc", 8}'}
+aux/kbdtype `{awk 'BEGIN{printf "%cc", 8}'}
 key '
 '
 wait1 intext '^abc$' || fail backspace: `{tail -3 /mnt/wsys/$id/text}
@@ -63,7 +63,7 @@ key 'sleep 100'
 key '
 '
 wait1 eval 'ps | grep -s '' sleep$''' || fail no sleep
-/tests/uipeek -k `{awk 'BEGIN{printf "%c", 127}'}
+aux/kbdtype `{awk 'BEGIN{printf "%c", 127}'}
 wait1 eval '! ps | grep -s '' sleep$''' || fail Del did not interrupt sleep
 echo ok Del interrupted sleep
 

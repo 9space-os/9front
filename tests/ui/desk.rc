@@ -19,12 +19,12 @@ fn top { # the top window (stack: bottom to top)
 	tail -1 /mnt/wsys/stack | awk '{print $1}'
 }
 fn mod4tab { # [shift]
-	/tests/uipeek -p f868
-	if(~ $1 shift) /tests/uipeek -p f016
-	/tests/uipeek -p 9
-	/tests/uipeek -r 9
-	if(~ $1 shift) /tests/uipeek -r f016
-	/tests/uipeek -r f868
+	aux/kbdtype -p f868
+	if(~ $1 shift) aux/kbdtype -p f016
+	aux/kbdtype -p 9
+	aux/kbdtype -r 9
+	if(~ $1 shift) aux/kbdtype -r f016
+	aux/kbdtype -r f868
 	sleep 0.3
 }
 echo A 1020 760 0 >/dev/mousein
@@ -60,8 +60,8 @@ mod4tab shift
 echo ok Mod4+Shift+Tab: back to 1
 
 # a Tab without Mod4: the window's (text window 1: a tab in its line)
-/tests/uipeek -k 'echo a	b'
-/tests/uipeek -k '
+aux/kbdtype 'echo a	b'
+aux/kbdtype '
 '
 sleep 0.5
 grep -s 'a	b' /mnt/wsys/1/text || fail a Tab without Mod4 did not reach the window: `{tail -2 /mnt/wsys/1/text}

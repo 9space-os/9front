@@ -35,7 +35,7 @@ r=`{rect 1}
 ~ $"r '100 100 500 350 visible' || fail New: $r
 echo ok New: window 1 at $r
 sleep 1
-/tests/uipeek -k 'echo menu3
+aux/kbdtype 'echo menu3
 '
 wait1 grep -s '^menu3$' /mnt/wsys/1/text || fail no shell in the new window
 echo ok a shell in it

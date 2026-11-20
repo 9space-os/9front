@@ -12,8 +12,8 @@ fn wait1 { # cmd...: until it succeeds, 10 s at most
 	while(! $* >[2]/dev/null && test $n -lt 100){ sleep 0.1; n=`{echo $n+1 | hoc} }
 	$* >[2]/dev/null
 }
-fn key { /tests/uipeek -k $1 }
-fn nl { /tests/uipeek -k '
+fn key { aux/kbdtype $1 }
+fn nl { aux/kbdtype '
 ' }
 fn m { echo A $1 $2 $3; sleep 0.1 }
 fn on { grep -s $1 $scr }

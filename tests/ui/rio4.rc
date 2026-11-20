@@ -17,7 +17,7 @@ fn color { # x,y rrggbb what
 	echo ok screen at $1: $c '('$3')'
 }
 fn key { # text typed: kbd(3) c messages
-	/tests/uipeek -k $1
+	aux/kbdtype $1
 }
 fn wctl { # window: what its wctl says (a second read would wait for a change)
 	dd -if /mnt/wsys/$1/wctl -bs 128 -count 1 -quiet 1

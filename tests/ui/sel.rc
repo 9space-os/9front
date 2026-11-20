@@ -10,8 +10,8 @@ fn wait1 {
 	while(! $* >[2]/dev/null && test $n -lt 100){ sleep 0.1; n=`{echo $n+1 | hoc} }
 	$* >[2]/dev/null
 }
-fn key { /tests/uipeek -k $1 }
-fn nl { /tests/uipeek -k '
+fn key { aux/kbdtype $1 }
+fn nl { aux/kbdtype '
 ' }
 # mousein keeps the buttons per open file: a press and its release go through one
 fn m { echo A $1 $2 $3; sleep 0.1 }
@@ -54,11 +54,11 @@ menu 2
 echo ok snarf: `{snarf}
 
 # typing goes where the selection is (rio's): ^B to the output point first
-fn toend { /tests/uipeek -k `{awk 'BEGIN{printf "%c", 2}'}; sleep 0.1 }	# ^B: to the output point
+fn toend { aux/kbdtype `{awk 'BEGIN{printf "%c", 2}'}; sleep 0.1 }	# ^B: to the output point
 # paste after a typed echo: run, marked again
 toend
 # (pasted, it is selected, as rio's: ^E to the line's end before Return)
-key 'echo '; menu 1; /tests/uipeek -k `{awk 'BEGIN{printf "%c", 5}'}; nl
+key 'echo '; menu 1; aux/kbdtype `{awk 'BEGIN{printf "%c", 5}'}; nl
 wait1 eval '~ `{count ''^marked$''} 2' || fail paste: `{tail -3 /mnt/wsys/$id/text}
 echo ok paste: echo marked ran
 
@@ -84,7 +84,7 @@ sleep 0.3
 c=`{echo $p+6 | hoc}; xc=`{x $c}; y6=`{y 6}
 { m $xc $y6 1; m $xc $y6 0 } >/dev/mousein; sleep 0.2
 key 'b'
-fn eol { /tests/uipeek -k `{awk 'BEGIN{printf "%c", 5}'} }
+fn eol { aux/kbdtype `{awk 'BEGIN{printf "%c", 5}'} }
 eol; nl
 wait1 grep -s '^abc$' /mnt/wsys/$id/text || fail insert: `{tail -3 /mnt/wsys/$id/text}
 echo ok insert: a click between a and c, b typed there, abc ran
@@ -96,7 +96,7 @@ wait1 typed 'echo xyz' || fail typing: `{tail -1 /mnt/wsys/$id/text}
 sleep 0.3
 c=`{echo $p+7 | hoc}; xc=`{x $c}; y8=`{y 8}
 { m $xc $y8 1; m $xc $y8 0 } >/dev/mousein; sleep 0.2
-/tests/uipeek -k `{awk 'BEGIN{printf "%c", 8}'}
+aux/kbdtype `{awk 'BEGIN{printf "%c", 8}'}
 eol; nl
 wait1 grep -s '^xz$' /mnt/wsys/$id/text || fail backspace: `{tail -3 /mnt/wsys/$id/text}
 echo ok backspace: y erased where the click was

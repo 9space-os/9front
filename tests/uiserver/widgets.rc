@@ -64,7 +64,7 @@ waitfor grep -s '^active 1$' /mnt/uw/nodes/st/props && ok Text section shown || 
 # typed text comes back
 click tb
 click tb
-/tests/uipeek -k hello
+aux/kbdtype hello
 fn echoed { grep -s '^text hello$' /mnt/uw/nodes/echo/props }
 waitfor echoed && ok typed text echoed || fail echo: `{cat /mnt/uw/nodes/echo/props}
 click s0

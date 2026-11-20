@@ -9,8 +9,8 @@ fn wait1 {
 	while(! $* >[2]/dev/null && test $n -lt 100){ sleep 0.1; n=`{echo $n+1 | hoc} }
 	$* >[2]/dev/null
 }
-fn key { /tests/uipeek -k $1 }
-fn nl { /tests/uipeek -k '
+fn key { aux/kbdtype $1 }
+fn nl { aux/kbdtype '
 ' }
 # mousein keeps the buttons per open file: a press and its release go through one
 fn m { echo A $1 $2 $3; sleep 0.05 }
@@ -52,7 +52,7 @@ menu 2
 echo ok double click: the line, marked and its newline
 
 # in brackets: from the ( to the ); typed after ^B (the selection is row 1's)
-/tests/uipeek -k `{awk 'BEGIN{printf "%c", 2}'}
+aux/kbdtype `{awk 'BEGIN{printf "%c", 2}'}
 key 'echo (alpha beta)'
 c=`{echo $p+6 | hoc}
 dclick `{x $c} `{y 2}

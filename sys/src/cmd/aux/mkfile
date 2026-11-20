@@ -24,6 +24,7 @@ TARG=\
 	getflags\
 	icanhasmsi\
 	icanhasvmx\
+	kbdtype\
 	lines\
 	listen\
 	listen1\

@@ -9,7 +9,7 @@
 # segment), part of a window presented, a window gone with its clone fid. Then rio4.rc:
 # stage 4, rio(4)'s files: drawtest (event(2)) started with window(1), its click,
 # key, resize (wctl) and delete, and rio in a window of wsys with a shell typed into
-# (uipeek -k: kbd(3) messages). text.rc: wsys' own text windows, a shell in one
+# (aux/kbdtype: kbd(3) messages). text.rc: wsys' own text windows, a shell in one
 # typed into (its output on the screen: uipeek -n counts the text's pixels),
 # backspace, Del, drawtest started from it and quit. sel.rc: button 1 selects and places the insertion point (the
 # pale on the screen), button 2's menu snarfs, pastes, cuts, sends. menu3.rc: button

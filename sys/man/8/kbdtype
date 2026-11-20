@@ -1,0 +1,53 @@
+.TH KBDTYPE 8
+.SH NAME
+kbdtype \- type into the keyboard
+.SH SYNOPSIS
+.B aux/kbdtype
+.I text
+.br
+.B aux/kbdtype
+.B -p
+|
+.B -r
+.I hex
+.SH DESCRIPTION
+.I Kbdtype
+writes keyboard messages to
+.BR /dev/kbdin ,
+as if they had been typed
+.RI ( kbdfs (8)):
+each rune of
+.I text
+as a
+.B c
+message, each with its null byte, which
+.IR echo (1)
+cannot write.
+With
+.B -p
+or
+.BR -r ,
+the key of the rune
+.I hex
+(hexadecimal, as
+.B f868
+for Kmod4) is pressed or let go: an
+.B r
+or
+.B R
+message, of which kbdfs makes the
+.BR k ,
+.B K
+and
+.B c
+messages a program reads.
+It is for tests and scripts that drive a window system, as tests/ui's and
+tests/gpu's do.
+.SH SOURCE
+.B /sys/src/cmd/aux/kbdtype.c
+.SH SEE ALSO
+.IR kbdfs (8),
+.IR keyboard (6),
+.IR wsys (4)
+.SH HISTORY
+9space's.

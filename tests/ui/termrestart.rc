@@ -11,8 +11,8 @@ fn wait1 { # cmd...: until it succeeds, 15 s at most
 	while(! $* >[2]/dev/null && test $n -lt 150){ sleep 0.1; n=`{echo $n+1 | hoc} }
 	$* >[2]/dev/null
 }
-fn key { /tests/uipeek -k $1 }
-fn nl { /tests/uipeek -k '
+fn key { aux/kbdtype $1 }
+fn nl { aux/kbdtype '
 ' }
 fn on { grep -s $1 $scr }
 fn start { # name: a wsys in the background; $w its pid

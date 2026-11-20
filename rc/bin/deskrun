@@ -80,10 +80,10 @@ fn items { cat /tmp/wbar.*.items >[2]/dev/null }
 fn spot { items | awk '$1 == "win" && $2 == "'$1'" {print int(($3+$4)/2)}' }
 fn state { items | awk '$1 == "win" && $2 == "'$1'" {print $5}' }
 fn mod4tab {
-	/tests/uipeek -p f868
-	/tests/uipeek -p 9
-	/tests/uipeek -r 9
-	/tests/uipeek -r f868
+	aux/kbdtype -p f868
+	aux/kbdtype -p 9
+	aux/kbdtype -r 9
+	aux/kbdtype -r f868
 	sleep 0.5
 }
 fn bars { # the windows without a border along the top of the screen, all of its width
