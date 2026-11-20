@@ -455,6 +455,10 @@ putseg(Segment *s)
 	if(s->profile != nil)
 		free(s->profile);
 
+	/* 9space: a lost segment's page (segrevoke) */
+	if(s->lost != nil)
+		putpage(s->lost);
+
 	/* 9front-ng: a pager's segment (devsegment.c) */
 	if((s->type&SG_TYPE) == SG_PHYSICAL && s->pseg != nil && s->pseg->pager != nil && _pagerfree != nil)
 		(*_pagerfree)(s->pseg->pager);
@@ -986,9 +990,44 @@ done:
  * they are (the sticky segments they came from).
  */
 void
-segrevoke(Segment *s)
+segrevoke(Segment *s, int lost)
 {
 	int flush;
+	Page *p;
+	KMap *k;
+
+	/*
+	 * 9space: lost (its owner, a GPU driver, went: gpu(3)): a process
+	 * writing there does not die; each page of the segment maps one
+	 * page of its own (fault.c), zeroed here, freed with the segment:
+	 * writes go nowhere, and nothing goes from one segment to another,
+	 * as Linux maps a dummy page after a device is unplugged. The
+	 * program learns that the device is gone from its next call to it
+	 */
+	if(lost){
+		p = newpage(0, nil);
+		k = kmap(p);
+		memset((void*)VA(k), 0, BY2PG);
+		kunmap(k);
+		qlock(&s->QLock);
+		if(s->lost == nil)
+			s->lost = p;
+		else
+			putpage(p);
+		s->type |= SG_LOST;
+		if((s->type & SG_TYPE) == SG_PHYSICAL){
+			qunlock(&s->QLock);
+			if(s->Ref.ref > 1)
+				procflushseg(s);
+			flushmmu();
+			return;
+		}
+		flush = segfreemap(s, s->base, s->top);
+		qunlock(&s->QLock);
+		if(flush)
+			flushmmu();
+		return;
+	}
 
 	/*
 	 * a physical segment (segment(3)'s phys) has no pages to take:

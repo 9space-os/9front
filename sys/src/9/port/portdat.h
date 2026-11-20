@@ -409,6 +409,7 @@ enum
 	SG_DEVICE	= 01000,	/* Memory mapped device */
 	SG_NOEXEC	= 02000,	/* No execute */
 	SG_WC		= 04000,	/* Write-combining (where there is PTEWC) */
+	SG_LOST		= 010000,	/* 9space: revoked as its owner went: every page is its lost page */
 };
 
 #define PG_ONSWAP	1
@@ -478,6 +479,7 @@ struct Segment
 	int	firstproc;	/* lowest proc->index having segment attached */
 	int	lastproc;	/* highest proc->index having segment attached */
 	int	segno;		/* last attached proc->seg[segno] number */
+	Page	*lost;		/* 9space: SG_LOST's page, its own (freed with the segment) */
 };
 
 /*

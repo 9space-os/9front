@@ -31,6 +31,7 @@ struct Globalseg
 	vlong	length;
 	long	perm;
 	int	alias;	/* 9front-ng: made by "va ... alias" (takes page) or "va ... phys": revoke */
+	int	lost;	/* 9space: "lost": removed as its owner exits, its pages go nowhere (SG_LOST) */
 	Pagerq	*q;	/* 9front-ng: made by "pager": a driver reads its pagers' faults from data */
 
 	Segio;
@@ -672,7 +673,7 @@ segmentopen(Chan *c, int omode)
  * ORCLOSE chan's own, 9space: its slot may hold another by now)
  */
 static void
-removegseg(int x, Globalseg *want)
+removegseg(int x, Globalseg *want, int going)
 {
 	Globalseg *g;
 
@@ -688,9 +689,12 @@ removegseg(int x, Globalseg *want)
 	}
 	globalseg[x] = nil;
 	unlock(&globalseglock);
-	/* 9front-ng: an alias segment's memory is its owner's again: revoke it */
+	/*
+	 * 9front-ng: an alias segment's memory is its owner's again: revoke
+	 * it; 9space: lost if the owner said so and is going (exiting)
+	 */
 	if(g->alias && g->Segio.s != nil)
-		segrevoke(g->Segio.s);
+		segrevoke(g->Segio.s, going && g->lost);
 	/* a pager's faults fail from now on, a queue's too */
 	if(g->Segio.s != nil && (g->Segio.s->type&SG_TYPE) == SG_PHYSICAL && g->Segio.s->pseg->pager != nil){
 		Pager *pg = g->Segio.s->pseg->pager;
@@ -710,7 +714,7 @@ segmentremove(Chan *c)
 {
 	if(TYPE(c) != Qsegdir)
 		error(Eperm);
-	removegseg(SEG(c), nil);
+	removegseg(SEG(c), nil, 0);
 }
 
 static void
@@ -725,8 +729,12 @@ segmentclose(Chan *c)
 			 * meanwhile and the slot taken by another
 			 */
 			if(c->aux != nil){
+				/*
+				 * 9space: its owner going: pexit closes the fd
+				 * table after taking it from up (up->fgrp nil)
+				 */
 				if(c->flag & CRCLOSE)
-					removegseg(SEG(c), c->aux);
+					removegseg(SEG(c), c->aux, up->fgrp == nil);
 				putgseg(c->aux);
 				c->aux = nil;
 			}
@@ -1238,7 +1246,14 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 				error("not an alias segment");
 			if(!iseve())
 				error(Eperm);
-			segrevoke(g->Segio.s);
+			segrevoke(g->Segio.s, 0);
+		} else if(cb->nf == 1 && strcmp(cb->f[0], "lost") == 0){
+			/* 9space: removed as its owner exits, it is lost, not revoked to a fault */
+			if(g->Segio.s == nil || !g->alias)
+				error("not an alias segment");
+			if(!iseve())
+				error(Eperm);
+			g->lost = 1;
 		} else if(cb->nf >= 4 && strcmp(cb->f[0], "page") == 0){
 			if(g->Segio.s == nil || !g->alias || (g->Segio.s->type&SG_TYPE) != SG_STICKY)
 				error("not an alias segment");

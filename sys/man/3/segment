@@ -196,6 +196,29 @@ or removing it makes every access of every process that has it
 attached fault, as for an alias segment: a driver gives a client the
 view of one object and takes it back when the object is freed.
 .PP
+9space: writing
+.B lost
+to the control file of an alias, phys or pager segment says what
+happens when it is removed because the process that made it exits
+(its file opened
+.B ORCLOSE
+closed by the exit): it is not revoked to a fault but lost: every page
+of it, in every process that has it attached, maps one page of its own,
+zeroed then, writable, freed with the segment.
+Writes there go nowhere and nothing reaches another segment; reads see
+what was written there since.
+A GPU driver marks so the views of objects it gives its clients
+.RI ( gpu (4)):
+when the driver dies, a client writing into such a view goes on
+until its next request to the driver says that the device is lost, as
+Linux maps a dummy page once a device is unplugged.
+Removing the segment otherwise, or writing
+.BR revoke ,
+still revokes it to a fault: a client that writes into an object after
+it was freed is wrong.
+9front has no
+.BR lost .
+.PP
 A
 .B pager
 segment shows a driver's memory page by page, as Linux maps a GPU

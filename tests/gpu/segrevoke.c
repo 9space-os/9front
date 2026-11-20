@@ -8,7 +8,11 @@
  * faults instead of crashing the kernel.  And phys segments: a part of
  * a physical segment (#G's bar 0 of QEMU's VGA, a GPU object's view in
  * a BAR) shows that part, nothing beyond it, and is revoked the same
- * way; the bar itself is the hostowner's only (none may not attach it).  Prints ok or FAIL lines.
+ * way; the bar itself is the hostowner's only (none may not attach it).
+ * 9space: a segment marked "lost" and removed because its maker exits
+ * is not revoked to a fault: a process writing there lives on, all its
+ * pages one page of its own; removed otherwise, it still faults.
+ * Prints ok or FAIL lines.
  */
 #include <u.h>
 #include <libc.h>
@@ -240,6 +244,93 @@ out:
 	segdetach(b);
 }
 
+/*
+ * 9space: lost. A maker (a child, as a GPU driver) makes the alias
+ * ORCLOSE and marks it lost; a user (another child, as a client)
+ * attaches it; the maker exits; the user writes and reads there: no
+ * fault, both its pages one page, the source untouched
+ */
+static void
+lost(char *src, uvlong va, ulong *s)
+{
+	char al[32], path[64], c;
+	int mk[2], us[2], fd, mpid, n;
+	ulong *a;
+	Waitmsg *w;
+
+	snprint(al, sizeof al, "rvlost.%d", getpid());
+	pipe(mk);
+	pipe(us);
+	switch(mpid = rfork(RFPROC|RFFDG)){
+	case -1:
+		fail("lost: fork");
+		return;
+	case 0:
+		close(mk[0]);
+		snprint(path, sizeof path, "#g/%s", al);
+		if((fd = create(path, OREAD|ORCLOSE, DMDIR|0700)) < 0)
+			exits("create");
+		if(ctl(al, "va %#llux 0x2000 alias", va) < 0 || ctl(al, "page 0 %s 0", src) < 0
+		|| ctl(al, "page 1 %s 0x1000", src) < 0 || ctl(al, "lost") < 0)
+			exits("ctl");
+		write(mk[1], "r", 1);
+		read(mk[1], &c, 1);	/* the user has it: go */
+		USED(fd);
+		exits(nil);		/* ORCLOSE at the exit: lost */
+	}
+	close(mk[1]);
+	if(read(mk[0], &c, 1) != 1){
+		fail("lost: the maker did not start");
+		return;
+	}
+	switch(rfork(RFPROC|RFFDG)){
+	case -1:
+		fail("lost: fork");
+		return;
+	case 0:
+		close(us[0]);
+		if((a = segattach(0, al, (void*)va, 0x2000)) == (void*)-1)
+			exits("attach");
+		if(a[0] != 0x5e6e0001 || a[1024] != 0x5e6e0002)
+			exits("wrong data");
+		write(us[1], "a", 1);
+		read(us[1], &c, 1);	/* the maker is gone */
+		((volatile ulong*)a)[0] = 0x1057;
+		if(((volatile ulong*)a)[1024] != 0x1057)
+			exits("its pages are not one page");
+		((volatile ulong*)a)[1024] = 0x1058;
+		if(((volatile ulong*)a)[0] != 0x1058)
+			exits("its pages are not one page");
+		exits("lost ok");
+	}
+	close(us[1]);
+	if(read(us[0], &c, 1) != 1){
+		fail("lost: the user did not attach");
+		return;
+	}
+	write(mk[0], "g", 1);
+	close(mk[0]);
+	while((w = wait()) != nil && w->pid != mpid)
+		free(w);
+	free(w);
+	write(us[0], "g", 1);
+	close(us[0]);
+	w = wait();
+	/* a wait message is "name pid: status" */
+	if(w == nil || (n = strlen(w->msg)) < 9 || strcmp(w->msg + n - 9, ": lost ok") != 0)
+		fail("lost: the user ended with '%s', want 'lost ok'", w ? w->msg : "no wait message");
+	else
+		print("ok lost: the user writes on, its pages one page of its own\n");
+	free(w);
+	if(s[0] != 0x5e6e0001 || s[1024] != 0x5e6e0002)
+		fail("lost: the source changed: %#lux %#lux", s[0], s[1024]);
+	else
+		print("ok lost: the source untouched\n");
+	snprint(path, sizeof path, "#g/%s", al);
+	if(access(path, AEXIST) == 0)
+		fail("lost: %s still in #g", al);
+}
+
 void
 main(void)
 {
@@ -311,6 +402,19 @@ main(void)
 	}
 	snprint(path, sizeof path, "#g/%s", al);
 	remove(path);
+
+	/* 9space: lost when its maker exits; removed by name it still faults */
+	lost(src, va + 0x800000, s);
+	snprint(al, sizeof al, "rval5.%d", getpid());
+	if(mkseg(al) < 0 || ctl(al, "va %#llux 0x2000 alias", va + 0xa00000) < 0 || ctl(al, "page 0 %s 0", src) < 0 || ctl(al, "lost") < 0)
+		sysfatal("alias 5: %r");
+	if((e = reader(al, va + 0xa00000, 0x2000, &fd)) != nil)
+		sysfatal("reader: %s", e);
+	snprint(path, sizeof path, "#g/%s", al);
+	if(remove(path) < 0)
+		fail("remove %s: %r", al);
+	child(fd, "lost, but removed by name");
+
 	snprint(path, sizeof path, "#g/%s", src);
 	segdetach(s);
 	remove(path);

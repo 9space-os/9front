@@ -829,6 +829,13 @@ p9_segalias(const char *name, int n, const char **src, unsigned long long *off, 
 		}
 	}
 	free(buf);
+	/*
+	 * 9space: a client's view: lost, not revoked to a fault, when this
+	 * process goes (segment(3)): the client writing there lives on and
+	 * learns of it from its next call
+	 */
+	if(!attach && write(fd, "lost", 4) != 4)
+		fprint(2, "%s: alias segment %s: lost: %r\n", argv0 ? argv0 : "kpi", name);
 	close(fd);
 	if(!attach)
 		return (void*)(uintptr)va;
@@ -871,6 +878,9 @@ p9_segphys(const char *name, const char *phys, unsigned long long off, unsigned 
 		close(fd);
 		goto err;
 	}
+	/* 9space: lost when we go (p9_segalias) */
+	if(write(fd, "lost", 4) != 4)
+		fprint(2, "%s: segment %s: lost: %r\n", argv0 ? argv0 : "kpi", name);
 	close(fd);
 	return (void*)(uintptr)va;
 err:
@@ -916,6 +926,9 @@ p9_segpager(const char *name, const char *phys, unsigned long long size, const c
 		segrm(name);
 		return nil;
 	}
+	/* 9space: lost when we go (p9_segalias) */
+	if(p9_segctl(name, "lost") < 0)
+		fprint(2, "%s: pager segment %s: lost: %r\n", argv0 ? argv0 : "kpi", name);
 	return (void*)(uintptr)va;
 }
 

@@ -356,7 +356,7 @@ int		segfree(void*, uintptr);
 void		segclock(uintptr);
 long		segio(Segio*, Segment*, void*, long, vlong, int);
 Page**		segmap(Segment*, uintptr);
-void		segrevoke(Segment*);
+void		segrevoke(Segment*, int);
 int		segno(Proc*, Segment*);
 void		segpage(Segment*, Page*);
 Page*		segpeek(Segment*, uintptr);

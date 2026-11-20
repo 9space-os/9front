@@ -350,6 +350,12 @@ fault(uintptr addr, uintptr pc, int read)
 		if((attr & SG_TYPE) == SG_PHYSICAL)
 			attr |= s->pseg->attr;
 
+		/* 9space: a lost segment (segrevoke): its page of its own, wherever */
+		if((attr & SG_LOST) != 0 && s->lost != nil){
+			mapphys(s, addr, (attr & ~(SG_RONLY|SG_DEVICE|SG_WC)) | SG_CACHED | SG_NOEXEC, s->lost->pa);
+			goto done;
+		}
+
 		/*
 		 * GCC port: parenthesized (a 9front bug, patch-upstream 0023):
 		 * || binds tighter than ?:, so an SG_FAULT segment faulted only
