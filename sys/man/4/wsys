@@ -1113,7 +1113,13 @@ With the processor backend a buffer is released as soon as it is
 copied.
 When
 .I wsys
-exits the windows are gone; clients cannot announce theirs again yet.
+exits the windows are gone.
+The programs of p9win (Rust's winit, term, ui) and of Mesa's WSI make
+theirs again in the next
+.I wsys
+and go on; a
+.IR draw (3)
+program's window does not come back.
 GPU buffers: those of
 .I virtiogpu
 (venus) and
@@ -1126,13 +1132,29 @@ copies them to the screen.
 On the GPU, draw(3)'s changes are still copied by the processor (into a buffer the
 GPU reads), and a client presenting the buffer shown again gets it back
 at once, while it is still read each frame.
-Programs that read the screen through
+With
+.BR -g ,
+the screen's image of
 .IR draw (3)
-(rather than
-.BR /mnt/wsys/screen )
-do not see the GPU windows, and a cursor drawn by
+(read with
+.I unloadimage
+from
+.BR display->image ,
+or the kernel's
+.B /dev/screen
+outside
+.IR wsys 's
+name space) lacks the windows the GPU composes;
+.B /dev/screen
+and
+.B /dev/window
+in a window
+.RB ( /mnt/wsys )
+give the frame as composed.
+A cursor drawn by
 .IR draw (3)
-(vga hwgc soft) is hidden by them; the GPU drivers' cursor plane is not.
+(vga hwgc soft, only when the driver's cursor plane refuses) is hidden by
+the GPU windows; the GPU drivers' cursor plane is not.
 Each buffer is a segment of
 .IR wsys 's
 own as well; a process has room for some 250
