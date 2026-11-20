@@ -1,0 +1,34 @@
+From bbc2ee07f54093f958407b678eb60d3eb994d257 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 20 Nov 2026 09:56:22 +0100
+Subject: [PATCH 61/62] factotum: wpapsk orders the nonces by all 32 bytes, not
+ the first 6
+
+calcptk compared snonce and anonce with memcmp(..., Eaddrlen): the
+first 6 bytes, the address length. IEEE 802.11i's PTK takes
+Min(ANonce, SNonce) || Max(ANonce, SNonce) over the whole 32 bytes.
+Nonces equal in their first 6 bytes (2^-48 of the handshakes) came out
+in the wrong order, and the PTK did not match the access point's: that
+4-way handshake failed.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/cmd/auth/factotum/wpapsk.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sys/src/cmd/auth/factotum/wpapsk.c b/sys/src/cmd/auth/factotum/wpapsk.c
+index ee8dd805d..a7cda5c3b 100644
+--- a/sys/src/cmd/auth/factotum/wpapsk.c
++++ b/sys/src/cmd/auth/factotum/wpapsk.c
+@@ -79,7 +79,7 @@ calcptk(uchar pmk[PMKlen], uchar smac[Eaddrlen], uchar amac[Eaddrlen],
+ 		memmove(b + Eaddrlen*0, smac, Eaddrlen);
+ 		memmove(b + Eaddrlen*1, amac, Eaddrlen);
+ 	}
+-	if(memcmp(snonce, anonce, Eaddrlen) > 0){
++	if(memcmp(snonce, anonce, Noncelen) > 0){
+ 		memmove(b + Eaddrlen*2 + Noncelen*0, anonce, Noncelen);
+ 		memmove(b + Eaddrlen*2 + Noncelen*1, snonce, Noncelen);
+ 	} else {
+-- 
+2.56.0
+

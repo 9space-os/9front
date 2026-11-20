@@ -33,7 +33,8 @@ All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 2026-11-12); 0032 to 0034 on them at `eb49f1f87` (2026-11-14); all 38 at
 `6ae667969` (2026-11-15), 0039 to 0044 on them there (2026-11-16), 0045
 on them there (2026-11-17), 0046 and 0047 on them there (2026-11-18);
-all 59 at `cb9e5e7e9` (2026-11-19), 0060 on them there (2026-11-19). Each applies alone too, except:
+all 59 at `cb9e5e7e9` (2026-11-19), 0060 on them there (2026-11-19), 0061 and
+0062 on them there (2026-11-20). Each applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
 - 0010 needs 0007 and 0009,
@@ -67,7 +68,10 @@ made with an AI assistant); drop it if 9front does not want it.
   `fcntl`, `setvbuf` (`6c`), `ape/lib/9`'s `getenv` (`6c` and `8c`),
   `ape/lib/draw`'s `newwindow` and `scroll` (`6c`); reform's `shortcuts`
   (`6c`); and a `#if` on `INT8_MIN` to `INT64_MIN` with `pcc`. No errors,
-  no warnings. 0048 changes comments only. 0060: `port/devsegment.c`
+  no warnings. 0048 changes comments only. 0061 and 0062:
+  `auth/factotum`'s `wpapsk`, `ip`'s `tftpfs` and `socksd`, each with
+  `6c` (amd64) and `8c` (386) by their mkfiles, the same way: no errors,
+  no warnings. 0060: `port/devsegment.c`
   with `6c` (pc64) and `8c` (pc), the same way.
 - **Not done**: a kernel and ext4srv built with 9front's compilers and run
   with these patches. The kernel conf (0014), riostart (0015) and the
@@ -139,6 +143,8 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0058 | wifi: putrates wrote all rates again into the extended element | bug fix |
 | 0059 | wifi: the link is up as soon as the access point is associated | bug fix |
 | 0060 | devsegment: an ORCLOSE segment directory removed whatever was in its slot | bug fix |
+| 0061 | factotum: wpapsk ordered the nonces by 6 bytes, not 32 | bug fix |
+| 0062 | ip/tftpfs, ip/socksd: sizeof(Udphdr) is 56 under 6c, udp(3) wants 52 | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -838,6 +844,35 @@ none behind), by reading the code: no test provokes the slot reuse
 itself. The same change runs in 9space's system in QEMU under
 tests/gpu (its killdrv check: the driver killed while vkcube draws,
 none of its segments left). Not done: run on 9front's own kernel.
+
+### 0061 factotum: wpapsk orders the nonces by all 32 bytes, not the first 6
+
+`calcptk` compared the supplicant's and the authenticator's nonces with
+`memcmp(..., Eaddrlen)`: their first 6 bytes. IEEE 802.11i's PTK takes
+Min(ANonce, SNonce) || Max(ANonce, SNonce) over all 32 bytes, so nonces
+equal in their first 6 bytes (2^-48 of the handshakes) gave another PTK
+than the access point's, and that handshake failed. Found by reading
+the code. Shown by the `gcc` branch's `tests/guest` wpatest: a factotum
+of its own, the PTK through its rpc file against values computed from
+the standard on the host (Python's hashlib and hmac; the PBKDF2 path
+checked against the standard's H.4 vector): nonces equal in their
+first 6 bytes give 613c14ef... with the old code, 27177eee... (right)
+with this one.
+
+### 0062 ip/tftpfs, ip/socksd: the UDP header Udphdrsize bytes, not sizeof a struct around it
+
+Both use udp(3)'s `headers` form through a struct of a `Udphdr` and
+the data after it, with `sizeof(Udphdr)` as the header's length.
+udp(3) takes the first `Udphdrsize` (52) bytes as the header. 6c pads
+every struct to 8 bytes at its end (`cc/dcl.c` `sualign`, `6c/swt.c`
+`Asu2`): `sizeof(Udphdr)` is 56 and the data starts at 56, so tftpfs on
+amd64 sent 4 bytes of padding in front of its requests and read every
+reply 4 bytes too far on (its opcode and block number skipped); socksd's
+UDP relay likewise. 8c pads to 4, and 52 comes out right by chance. Now
+one byte buffer, the header at 0 and the data at `Udphdrsize`. Found by
+comparing every struct's layout under gcc with 6c's rules (the `gcc`
+branch's port checks; gcc gives 52). Not done: tftpfs run against a
+TFTP server on 9front amd64.
 
 ## Not included
 
