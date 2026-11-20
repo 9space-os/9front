@@ -4,8 +4,10 @@
 # button), a PCI device hot-plugged (QMP device_add: GPE 1, \_GPE._E01,
 # its Notify), and an SSDT of our own (ssdt.py) whose methods notify a
 # display output (0x86: brightness up) and a lid, evaluated through
-# aux/acpi's aml file, a touchpad on I2C for aux/i2chid to find, and two
-# batteries (_BIX, _BIF) and an AC adapter for aux/acpi's files.
+# aux/acpi's aml file, the display's levels for aux/acpi's backlight
+# (_BCL, _BCM, _BQC) and aux/acpikeys, a touchpad on I2C for aux/i2chid
+# to find, and two batteries (_BIX, _BIF) and an AC adapter for aux/acpi's
+# files.
 # amd64 only (#P/acpiev is pc's).
 . "$(dirname "$0")/../lib.sh"
 HERE=$(cd "$(dirname "$0")" && pwd)

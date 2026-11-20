@@ -18,7 +18,7 @@
 #        the CD's own line of that name (sys/lib/dist/cfg/plan9.ini), e.g.
 #        PLAN9INI='monitor=i915' boots with i915 as the screen (gpustart).
 #        Needs the build (CC=gcc ARCH=$objtype sys/src/cmd/build/build.exe)
-#        and scripts/build-boot.sh.
+#        and scripts/guest/build-boot.sh.
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 . "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)

@@ -10,10 +10,11 @@
 # The card's firmware (the host's /usr/lib/firmware/amdgpu, unpacked) is
 # in the guest's /lib/firmware/amdgpu: aux/amdgpu loads it from there.
 #
-# usage: scripts/guest/vfio-test.sh [guest commands]
+# usage: scripts/guest/vfio-test.sh ['rc command line']   (one argument;
+#        default: pci -bv and the AMD functions' configuration space)
 #        MCP=1 scripts/guest/vfio-test.sh [first commands]
-#   MCP=1: the guest runs ../9front-mcp's server instead (mcp-guest.sh) and
-#   keeps running; scripts/guest/mcp.py then works in it
+#   MCP=1: the guest runs the MCP server of tools/mcp (MCP_DIR in paths.env)
+#   instead (mcp-guest.sh) and keeps running; scripts/guest/mcp.py then works in it
 #   env: VFIO_EXTRA  directories copied into the guest's root as well
 #        FWDIR  the host's amdgpu firmware (/usr/lib/firmware/amdgpu)
 #        FW     prefixes of its files: the families of the RDNA 3 cards'

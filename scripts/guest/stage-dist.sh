@@ -18,19 +18,20 @@
 # the gcc build's archives (distproto ships /amd64/lib empty, as 9front
 # does: libraries are built with mk on the installed system), and
 # scripts/guest/boot/gnuproto /amd64/gnu, the native gcc and binutils of
-# ../9front-gcc (its out/$objtype; GCC_OUT, if it exists), and
-# scripts/guest/boot/rustproto /amd64/rust, Rust of ../9front-rust (its
-# out/$objtype from scripts/install.sh; only if RUST_OUT is set: an optional
-# install, otherwise from its archives on the installed system) and
-# scripts/guest/boot/goproto /amd64/go, Go of ../9front-go (likewise: its
-# out/$objtype from scripts/install.sh, only if GO_OUT is set);
+# toolchain/gcc (GCC_DIR in paths.env; its out/$objtype, GCC_OUT, if it
+# exists), and scripts/guest/boot/rustproto /amd64/rust, Rust of
+# toolchain/rust (RUST_DIR; its out/$objtype from scripts/install.sh; only if
+# RUST_OUT is set: an optional install, otherwise from its archives on the
+# installed system) and scripts/guest/boot/goproto /amd64/go, Go of
+# toolchain/go (GO_DIR; likewise: its out/$objtype from scripts/install.sh,
+# only if GO_OUT is set); uiproto, vkproto, wlproto the ui and gpu groups' files;
 # scripts/guest/proto.py expands the protos. Our
 # binaries carry DWARF (8l writes none) and are stripped. The guest's install script
-# (scripts/guest/boot/mkdisk.rc) reads the result as /n/src9.
+# (scripts/guest/boot/mkdisk.rc; mkiso.rc, mkstick.rc) reads the result as /n/src9.
 #
 # PROFILE (scripts/guest/profiles: minimal, gpu, ui, full; default full) leaves the
 # files of the groups it does not keep off; DEV (a list of gcc, rust, go, e.g.
-# DEV=gcc,rust; DEV= none) says which languages come along: gcc as /$objtype/gnu with
+# DEV=gcc,rust; DEV=all; DEV= none) says which languages come along: gcc as /$objtype/gnu with
 # /$objtype/lib.gcc, Rust from RUST_OUT (default its out/$objtype), Go from GO_OUT
 # (likewise); Rust links with gcc, so rust takes gcc along. Without DEV, as before:
 # gcc if it is built, Rust and Go if RUST_OUT, GO_OUT are set. MCP=1: the MCP server
@@ -116,7 +117,7 @@ echo "stage-dist: profile $PROFILE (groups: ${keep:-none}), languages: $langs" >
 mkdir -p "$VIEW/.$A"
 for f in "$ROOT"/$A/*; do ln -s "$f" "$VIEW/.$A/$(basename "$f")"; done
 rm "$VIEW/$A"; mv "$VIEW/.$A" "$VIEW/$A"
-# the native toolchain (../9front-gcc: build.sh native) as /$objtype/gnu
+# the native toolchain (GCC_DIR: build.sh native) as /$objtype/gnu
 GCC_OUT=${GCC_OUT:-$GCC_DIR/out/$A}
 # gccproto: /$objtype/lib.gcc, gcc's archives (with gcc); uiproto: the desktop's files
 # of the main branch (TrueType fonts, themes, wbar's menu; the ui group)
@@ -133,7 +134,7 @@ elif [ -n "${DEV+set}" ]; then
 else
 	echo "stage-dist: no $GCC_OUT/$A/gnu, the distribution has no gcc" >&2
 fi
-# Rust only if asked (RUST_OUT=../9front-rust/out/$objtype, its scripts/install.sh): an
+# Rust only if asked (RUST_OUT=$RUST_DIR/out/$objtype, its scripts/install.sh): an
 # optional install, else from its archives (rust-T.tgz, rust-tools-T.tgz) on the installed
 # system; as /$objtype/rust, linking with the gcc above
 if [ -n "$RUST_OUT" ]; then
@@ -141,7 +142,7 @@ if [ -n "$RUST_OUT" ]; then
 	ln -s "$RUST_OUT/$A/rust" "$VIEW/$A/rust"
 	PROTOS+=("$ROOT/scripts/guest/boot/rustproto")
 fi
-# Go only if asked (GO_OUT=../9front-go/out/$objtype, its scripts/install.sh): an optional
+# Go only if asked (GO_OUT=$GO_DIR/out/$objtype, its scripts/install.sh): an optional
 # install, else from its archive (go-plan9-$objtype.tgz) on the installed system; as
 # /$objtype/go. Its programs are a.out; the strip below leaves the tree alone
 if [ -n "$GO_OUT" ]; then
@@ -233,8 +234,9 @@ if [ -n "$RUST_OUT" ] || [ -n "$GO_OUT" ]; then
 		echo "stage-dist: no CA roots ($DISTFILES/cacert-*.pem, dist/bin/fetch): cargo and go cannot reach https" >&2
 	fi
 fi
-# for the guest's disk/mkfs (scripts/guest/boot/mkdisk.rc); no proto lists it,
-# so it stays off the disk
+# the extra protos in one file, for the guest's disk/mkfs and disk/mk9660
+# (scripts/guest/boot/mkdisk.rc, mkiso.rc, mkstick.rc; REPLICA_DIR adds
+# replicaproto below); no proto lists it, so it stays off the disk
 cat /dev/null "${PROTOS[@]}" > "$OUT/gccproto"
 # not in /$objtype/go: its programs are a.out, its ELF files are test data of Go's std
 # (debug/elf, runtime/pprof), which strip would change

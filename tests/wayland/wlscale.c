@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: MIT
  *
- * wlscale: a Wayland client that knows fractional scales (../9front-ui PLAN
+ * wlscale: a Wayland client that knows fractional scales (the ui plan
  * stage 8, HiDPI), run by wlscale.rc under wlsys in wsys -S 2: a toplevel
  * titled wlscale with a wp_fractional_scale_v1 and a wp_viewport; it draws
  * a buffer of its logical size times the preferred scale (/120), the

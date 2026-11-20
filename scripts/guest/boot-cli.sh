@@ -1,7 +1,8 @@
 #!/bin/bash
-# Boot the gcc-built pc64 kernel (objtype=386: pc) in QEMU into the system, with the root
-# file system served by the build host: an rc on the serial console
-# (service=cpu) or rio (service=terminal, see KARGS).
+# Boot the gcc-built pc64 kernel (objtype=386: pc; objtype=arm64: qemu,
+# by u-boot) in QEMU into the system, with the root file system served by
+# the build host: an rc on the serial console (service=cpu) or rio
+# (service=terminal, see KARGS).
 #
 # Guest boot path, 9front's own: initcode -> /boot/boot -> bootrc with
 # nobootprompt=tcp: ipconfig (QEMU's DHCP), srv tcp!fs!564 -- QEMU
@@ -9,14 +10,17 @@
 # init -> newns(/lib/namespace) -> cpurc or termrc.
 #
 # Host side: builds the root tree (scripts/guest/gen-ufs-root.sh) and a GRUB
-# multiboot ISO in $CLI_DIR, starts ufs (scripts/hw/ufs: Harvey's, without
-# TCP keepalive) on :5640, runs QEMU.
+# multiboot ISO (arm64: a FAT image for u-boot) in $CLI_DIR, starts ufs
+# (scripts/hw/ufs: Harvey's, without TCP keepalive) on :$UFS_PORT, runs QEMU.
 #
 # usage: scripts/guest/boot-cli.sh               interactive (Ctrl-A x quits)
 #        scripts/guest/boot-cli.sh cmd [cmd ...]  type each argument as one line
 #                                          at the rc prompt, print the
 #                                          console log, quit
-#   env:  CLI_DIR     work dir (default: CLI_DIR of dist/paths.env, 9space/cache/cli)
+#   env:  objtype     amd64 (default), 386 or arm64
+#         CLI_DIR     work dir (default: CLI_DIR of dist/paths.env, 9space/cache/cli)
+#         UFS_PORT    host port of the root's ufs (5640; another boot-cli may run)
+#         SRC9_PORT   host port of SRC9's ufs (5641)
 #         UFS         ufs binary (default: $CLI_DIR/ufs, built from scripts/hw/ufs)
 #         SERVICE     cpu (default: cpurc, console rc) or terminal
 #         SCREENSHOT  PNG file: screen dump after the commands (QMP)

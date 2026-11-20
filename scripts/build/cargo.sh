@@ -1,8 +1,9 @@
 #!/bin/bash
 # Build a Rust crate of the tree for 9front and install its programs in /$objtype/bin
 # (build.exe's step rust, scripts/gen/genbuild.py from scripts/gen/rustcrates.py):
-# cargo with ../9front-rust's stage-1 rustc (std for x86_64-, i686-, aarch64-unknown-plan9), linked by
-# ../9front-gcc's cross gcc with this tree as its sysroot (libp9, APE: the view
+# cargo with the stage-1 rustc of toolchain/rust (RUST_DIR in paths.env; std for
+# x86_64-, i686-, aarch64-unknown-plan9), linked by the cross gcc of
+# toolchain/gcc (GCC_DIR) with this tree as its sysroot (libp9, APE: the view
 # scripts/mesa/common.sh makes). Crates come from the crate's vendor/ if it has
 # dependencies (no network). Without that rustc, or cargo, it says so and builds
 # nothing (check-install.py reports the programs as norust). A program that comes out
@@ -11,7 +12,8 @@
 #	-n	without the crate's default features (wsys' and ui's gpu: Vulkan,
 #		Mesa's libvulkan.a, which only the arches of scripts/gen/apeprogs.py
 #		have; genbuild.py gives it for the others)
-# env: RUST_DIR (../9front-rust), RUSTC (its stage-1 rustc)
+# env: RUST_DIR (toolchain/rust), RUSTC (default: its stage-1 rustc,
+#	RUST_DIR/rust/build/host/stage1/bin/rustc)
 # The rc twin for the build on 9front: scripts/build/rc/cargo.rc.
 set -e
 feat=()
@@ -42,8 +44,8 @@ if [ -n "$ws" ]; then
 	pkg=(-p "$(sed -n 's/^name *= *"\(.*\)"/\1/p' "$dir/Cargo.toml" | head -1)")
 	dir=$(cd "$dir/$ws" && pwd)
 fi
-# nor does it see a std built again by the same rustc (../9front-rust: a fix
-# in std): what it built with another goes
+# cargo does not see a std built again by the same rustc (RUST_DIR: a fix
+# in std): what it built with another goes (cargostd.sh)
 . "$ROOT/scripts/build/cargostd.sh"
 cargostd "$BUILD/cargo/${name//\//_}" $T
 # cargo does not know the C libraries it links (libvulkan.a, APE's, lib9's):

@@ -1,13 +1,14 @@
 #!/bin/bash
-# go: Go on the install CD (/$objtype/go, from ../9front-go via
-# scripts/guest/boot/goproto, GO_OUT=../9front-go/out/$objtype for mkiso.sh):
-# go version, GOROOT, go run and go build, cgo with the CD's gcc, Go's ELF test data not stripped
+# go: Go on the install CD (/$objtype/go, from toolchain/go (GO_DIR in paths.env) via
+# scripts/guest/boot/goproto, GO_OUT=$GO_DIR/out/$objtype for mkiso.sh):
+# go version, GOROOT, go run and go build, cgo with the CD's gcc, a module from
+# the proxy over https, Go's ELF test data not stripped
 # (tests/go/go.py). Skips a CD without Go.
 # Uses ISO, else the last CD scripts/guest/mkiso.sh made.
 . "$(dirname "$0")/../lib.sh"
 IMG=${ISO:-$CLI_DIR/9front.$objtype.iso}
 [ -f "$IMG" ] || { skip "go" "no CD $IMG, run GO_OUT=... objtype=$objtype scripts/guest/mkiso.sh or set ISO"; done_tests; exit; }
-# the test data's checksum in 9front-go's tree, if there (the CD's must be the same)
+# the test data's checksum in GO_OUT (default GO_DIR/out/$objtype), if there (the CD's must be the same)
 F=${GO_OUT:-$GO_DIR/out/$objtype}/$objtype/go/src/debug/elf/testdata/go-relocation-test-gcc441-x86-64.obj
 sha=$( [ -f "$F" ] && sha1sum "$F" | cut -d' ' -f1 )
 

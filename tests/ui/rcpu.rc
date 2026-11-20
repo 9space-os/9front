@@ -1,5 +1,5 @@
 #!/bin/rc
-# wsys through rcpu (../9front-ui PLAN stage 7, step 4), on one machine that
+# wsys through rcpu (the ui plan's stage 7, step 4), on one machine that
 # is terminal and cpu server: keyfs with glenda's key (/tests/rcpukeys, from
 # tests/ui/run.sh), a factotum of its own (dp9ik), authsrv and rcpu on
 # listen1, an authdom in /lib/ndb/local (the guest's root is made anew at

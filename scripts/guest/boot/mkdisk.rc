@@ -3,7 +3,7 @@
 # guest by scripts/guest/mkdisk.sh: sys/lib/dist/mkfile's recipe for
 # %.amd64.qcow2 (%.disk) with this port's tools, the distribution tree
 # served by the build host as /n/src9 (scripts/guest/stage-dist.sh), the boot
-# code (/386/mbr, pbs, 9bootfat) from scripts/build-boot.sh.
+# code (/386/mbr, pbs, 9bootfat) from scripts/guest/build-boot.sh.
 rfork en
 fn fail{
 	echo mkdisk: failed: $*
@@ -14,7 +14,7 @@ d=/dev/sdC0
 s=newfs
 proto=/n/src9/sys/lib/sysconfig/proto/distproto
 bootproto=/n/src9/sys/lib/sysconfig/proto/9bootproto
-gccproto=/n/src9/gccproto	# /amd64/lib.gcc, /amd64/gnu (scripts/guest/boot/gccproto, gnuproto)
+gccproto=/n/src9/gccproto	# stage-dist.sh's extra protos in one (scripts/guest/boot/*proto: lib.gcc, gnu, rust, go, ...)
 kernel=/n/src9/amd64/9pc64
 
 test -f $d/data || fail no disk $d

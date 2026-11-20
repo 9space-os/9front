@@ -2,7 +2,8 @@
 # rust: Rust on the install CD (/$objtype/rust, from toolchain/rust via
 # scripts/guest/boot/rustproto; dist/bin/mkcd -dev rust, or RUST_OUT for mkiso.sh):
 # rustc --version, a program with threads and files built by rustc, cargo new,
-# build, run and test offline, rustfmt, rustdoc, cargo clippy (tests/rust/rust.py).
+# build, run and test offline, a crate from crates.io over https, rustfmt, rustdoc,
+# cargo clippy (tests/rust/rust.py).
 # Skips a CD without Rust. Uses ISO, else the last CD scripts/guest/mkiso.sh made.
 . "$(dirname "$0")/../lib.sh"
 IMG=${ISO:-$CLI_DIR/9front.$objtype.iso}

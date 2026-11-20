@@ -1,5 +1,6 @@
 #!/bin/sh
-# Regenerate sys/src/9/pc64/apbootstrap.i from sys/src/9/pc64/apbootstrap.S.
+# Regenerate sys/src/9/pc64/apbootstrap.i from sys/src/9/pc64/apbootstrap.S
+# (pc: sys/src/9/pc/apbootstrap.i from pc/apbootstrap.S).
 #
 # mp.c does `#include "apbootstrap.i"` and expects it to define
 # `static uchar apbootstrap[]` holding the raw machine code of the AP
@@ -9,7 +10,7 @@
 # full rationale.
 #
 # Usage: scripts/build/gen-apbootstrap-i.sh [pc64|pc]   (default pc64; from the
-# repo root, or pass PLAN9=<root>).
+# inside the repository, or pass PLAN9=<root>).
 set -e
 
 ROOT=${PLAN9:-$(git rev-parse --show-toplevel)}

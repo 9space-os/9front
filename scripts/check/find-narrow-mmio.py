@@ -8,7 +8,8 @@ the width of a volatile access, so device registers are read through
 accessors that it cannot narrow (mmio32r and friends, port/portfns.h);
 this finds the places that still are not.
 
-Each C file of a kernel manifest (sys/src/9/*/build.json) is compiled as
+Each C file of a kernel manifest (sys/src/9/*/build.json; its first
+configuration) is compiled as
 build.exe compiles it, into a temporary directory (the tree's objects stay
 as they are), with -fdump-tree-optimized-lineno. The dump gives, for each
 source line, its volatile loads and their types' widths; the object's

@@ -1,14 +1,15 @@
 #!/bin/bash
-# Cross-build Mesa's Vulkan drivers for 9front with ../9front-gcc: venus
+# Cross-build Mesa's Vulkan drivers for 9front with toolchain/gcc (GCC_DIR): venus
 # (virtio-gpu), hasvk (Intel gen 7-8) and RADV (AMD, libdrm_amdgpu over
 # gpu(4): plan9/drm/amdgpu9.c); and OpenGL (ES) on them: zink, EGL (the
 # plan9 platform: draw(3) windows; and surfaceless), libGLESv2's entry points, in the same objects
 # (one copy of Mesa's common code for both). libmesaplan9.a (sys/src/mesa/
 # plan9: what APE lacks), libdrm.a (plan9/drm: libdrm's interface over
-# gpu(4), for hasvk, found by pkg-config), a meson cross file, meson
-# setup (once) and ninja in $BUILD; the Intel shaders need mesa_clc on
+# gpu(4), for hasvk and, as libdrm_amdgpu, RADV, found by pkg-config), a
+# meson cross file, meson setup (once) and ninja in $BUILD; the Intel shaders need mesa_clc on
 # the build machine (clc.sh). 9front has no shared libraries: instead
-# of the ICDs (libvulkan_virtio.so, libvulkan_intel_hasvk.so) the
+# of the ICDs (libvulkan_virtio.so, libvulkan_intel_hasvk.so,
+# libvulkan_radeon.so) and of libEGL, libGL9 and libgallium the
 # objects and static libraries they would link become one relocatable
 # object (each driver's vk_icdGetInstanceProcAddr has a name of its own
 # on 9front, the rest of Mesa is there once).

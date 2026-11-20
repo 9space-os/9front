@@ -16,7 +16,7 @@ n=${1:-20}
 [ -x "$HERE/root/tests/uilat" ] && [ -x "$HERE/root/tests/ui" ] && [ -x "$HERE/root/tests/wsys" ] ||
 	{ echo "measure: no uilat/ui/wsys in $HERE/root/tests: tests/uiserver/run.sh first" >&2; exit 1; }
 M="timeout 400 python3 $ROOT/scripts/guest/mcp.py"
-run() { # name: one guest, uilat in its wsys
+run() { # name wsys-flags: one guest, uilat in its wsys
 	$M wait 600 >/dev/null || { echo "measure $1: no guest"; return; }
 	$M rc "bind /tests/ui /bin/ui; /tests/wsys $2 -x -i '/tests/uilat -n $n' >/tmp/lat.log >[2=1] </dev/null; cat /tmp/lat.log" 300 |
 		grep -E '^(start|click|latency|uilat)' | sed "s/^/$1: /"

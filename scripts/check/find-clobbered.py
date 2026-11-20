@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 find-clobbered.py: locals a jump back to waserror() can clobber (gcc's
--Wclobbered), in a kernel manifest's sources.
+-Wclobbered), in a kernel manifest's sources (its first configuration).
 
 waserror() is setlabel(), Plan 9's setjmp (portfns.h: returns_twice for
 gcc).  A local changed between waserror() and the error() that comes back

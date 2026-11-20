@@ -4,13 +4,17 @@
 # expect, and gcc's runtime library (64-bit division on 386, ...: 8c
 # had vlrt.c), linked after the libraries (/$objtype/cflags.json).
 #
-# 386: the runtime library of ../9front-gcc's i686-pc-plan9 (GCC_OUT, as
+# 386: the runtime library of toolchain/gcc's i686-pc-plan9 (GCC_DIR in
+# paths.env; GCC_OUT, default GCC_DIR/out/386, as
 # scripts/guest/stage-dist.sh), built for the tree's -march=pentium. gcc
 # -m32's is the x86-64 Linux multilib's: SSE2 and cmov in its 64-bit
 # division and friends, which the 386 programs and the kernel link (a
 # Pentium has neither, the kernel does not save the SSE registers). Without
-# ../9front-gcc the host's stays, with a warning, and libgcc.a.host beside
+# that libgcc.a the host's is used, with a warning, and libgcc.a.host beside
 # it, which scripts/build/check-install.py reports at the end ("hostlib").
+#
+# arm64: the libgcc.a of ${TOOLPREFIX}gcc (default aarch64-linux-musl-);
+# amd64: the host gcc's.
 #
 # usage: objtype=386|amd64|arm64 scripts/build/prep-objtype.sh   (build.exe sets objtype)
 set -e

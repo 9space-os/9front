@@ -2,11 +2,11 @@
 """
 Rust on the install CD (/$objtype/rust, from toolchain/rust via
 scripts/guest/boot/rustproto; dist/bin/mkcd with -dev rust, or RUST_OUT for
-mkiso.sh): boot to rio, then over the serial rc: rustc --version, rustc
+mkiso.sh): boot to the desktop, then over the serial rc: rustc --version, rustc
 builds a program with threads, a channel and files and it runs (rustc links
 with the CD's gcc, /$objtype/gnu), cargo new / build / run / test offline
-(CARGO_HOME in /tmp: the live CD's $home is read-only), rustfmt, rustdoc and
-cargo clippy.
+(CARGO_HOME in /tmp: the live CD's $home is read-only), a crate from crates.io
+over https (the CD's CA roots), rustfmt, rustdoc and cargo clippy.
 
 usage: tests/rust/rust.py iso workdir objtype
    prints one line per check: ok|fail|skip <name>

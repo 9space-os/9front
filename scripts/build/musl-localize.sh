@@ -1,8 +1,9 @@
 #!/bin/bash
 # After APE's musl part is appended to libap.a (sys/src/ape/lib/musl,
 # genmusl.py's Post step): in each musl member (x.musl.o), the names that
-# libap's own members define too become local, as 9front-gcc's compat had
-# it (i386's floor.s is ceil too, scalbn.s ldexp; libap keeps its own).
+# libap's own members define too become local, as the compat library of
+# toolchain/gcc (GCC_DIR in paths.env) had it (i386's floor.s is ceil too,
+# scalbn.s ldexp; libap keeps its own).
 # Replaced only when it changes (build.exe -D).
 #
 # usage: objtype=386|amd64|arm64 scripts/build/musl-localize.sh   (build.exe sets objtype)

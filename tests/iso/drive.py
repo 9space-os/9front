@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 # Boot the install/live CD in QEMU the way a user does and report whether
 # it came up: press Enter (the default) at each of 9front's boot prompts
-# -- bootargs, user, vgasize, monitor, mouseport -- until rio's grey
-# screen shows, then type into rio's window a command that writes a
-# marker and the boot device to the serial line ('#t/eia0'; the CD's
-# plan9.ini has no console=0, so the serial line is otherwise quiet).
+# -- bootargs, user, vgasize, monitor, mouseport -- until the desktop's
+# grey screen shows (rio's, or wsys'), then type into its window a command
+# that writes a marker, the boot devices and the desktop (desktop wsys|rio)
+# to the serial line ('#t/eia0'; the CD's plan9.ini has no console=0, so
+# the serial line is otherwise quiet).
 #
 # usage: drive.py iso cd|disk bios|uefi workdir
-#   exit 0 when the marker arrived; the serial log is workdir/serial.log
+#   exit 0 when the marker arrived; the serial log is workdir/serial.log,
+#   printed on stdout at the end
 #   env: QEMU_EXTRA  more QEMU options (e.g. "-vga none -device virtio-vga")
+#        KVM=0       emulate (default: KVM, /dev/kvm writable)
+#        OVMF_CODE   the UEFI firmware (its VARS beside it)
+#        WAITMAX     seconds to wait for the desktop (default 240)
 #        DISK_INDEX  the IDE place of the image as a disk (default 0: sdC0)
 #        SHOW        files whose contents go to the serial line with the
 #                    marker (e.g. /dev/vgactl: whose screen it is)

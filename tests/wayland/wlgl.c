@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: MIT
  *
- * wlgl: OpenGL ES on EGL's Wayland platform (../9front-ui PLAN §12, stage
+ * wlgl: OpenGL ES on EGL's Wayland platform (the ui plan §12, stage
  * 6.6), run by wlsys in wsys -x -i (wlvk.rc) on venus: an EGLDisplay of the
  * wl_display (EGL_PLATFORM_WAYLAND_KHR), a wl_egl_window on an xdg
  * toplevel's surface, a GLES 2 context (zink, its kopper presenting through

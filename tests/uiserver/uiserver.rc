@@ -784,7 +784,7 @@ test -e /proc/$todopid && echo kill >/proc/$todopid/note
 
 # a client in Go (gocount: sys/src/libui/go, the /srv file mounted on
 # /mnt/srvname): two clicks counted (run.sh builds it with
-# ../9front-go when it is there)
+# toolchain/go when it is there)
 if(test -x /tests/gocount){
 	/tests/gocount -n 2 >/tmp/goc >[2=1] </dev/null &
 	gocpid=$apid
@@ -851,7 +851,7 @@ if(test -x /tests/gocount){
 	}
 	test -e /proc/$gocpid && echo kill >/proc/$gocpid/note
 }
-if not echo skip gocount: no Go '(../9front-go)'
+if not echo skip gocount: no Go '(toolchain/go)'
 
 # the widget demos (every kind of node, sections, dialog, window, popup,
 # dark and light): rc, Go, Rust, C++

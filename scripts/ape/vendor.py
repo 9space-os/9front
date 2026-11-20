@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 A library for APE into the tree from its release, as sys/src/<lib>/VENDOR.json
-describes it (the libraries scripts/build/ape.sh builds with ../9front-gcc's
-cross compiler):
+describes it (the libraries scripts/build/ape.sh builds with the cross
+compiler of toolchain/gcc, GCC_DIR in paths.env):
 
 	name, version, url, sha256, tar (the archive: $DISTFILES/..., the
 	distribution's archives, scripts/lib/paths.py), top (its directory), key (who signed it), keep

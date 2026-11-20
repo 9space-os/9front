@@ -8,12 +8,14 @@ $ARCH) and build.<objtype>.json for 386, amd64 and arm64, so that
 builds what the system needs, in dependency order: libc, the libraries
 (scripts/gen/genlibs.py --list), the kernel's klib*.a, the programs
 (scripts/gen/gencmds.py --list: sys/src/mkfile's $SUBSYS $CMDS; APE's musl
-part after libap's, scripts/gen/genmusl.py --list), on amd64 Linux's DRM
-drivers on the LinuxKPI (sys/src/linux, aux/i915), the parts for APE made
-with ../9front-gcc's cross compiler (scripts/build/ape.sh: Mesa's
-libvulkan.a, libwayland, SDL3, GLFW, wlsys) and the Rust crates
-(scripts/gen/rustcrates.py, scripts/build/cargo.sh: wsys), the files
-the kernel embeds (scripts/gen-*.sh: rebootcode.i, apbootstrap.i, ...,
+part after libap's, scripts/gen/genmusl.py --list), on amd64 Linux's
+drivers on the LinuxKPI (sys/src/linux, aux/i915, aux/amdgpu, aux/rtw89)
+and the parts for APE made with the cross compiler of toolchain/gcc
+(GCC_DIR in paths.env; scripts/build/ape.sh, scripts/gen/apeprogs.py:
+Mesa's libvulkan.a, libwayland, SDL3, GLFW, foot's libraries; wlsys, foot,
+cxxwidgets), the Rust crates (scripts/gen/rustcrates.py,
+scripts/build/cargo.sh: wsys, ui, term, ...), the files the kernel embeds
+(scripts/build/gen-*.sh: rebootcode.i, apbootstrap.i, ...,
 initcode, /boot/boot and $CONF.bootfs.paq), the kernel, its Plan 9
 a.out where 9boot loads it (scripts/build/elf2aout.py), and the check that
 everything mk install installs is there (scripts/build/check-install.py).
@@ -90,7 +92,7 @@ def main():
 			# the Rust crates, wsys links Mesa's libvulkan.a
 			{'Name': 'ape', 'Pre': ['bash scripts/build/ape.sh']},
 		] if objtype in apeprogs.OBJTYPES else []) + ([
-			# the Rust crates (scripts/gen/rustcrates.py: rust.json), with ../9front-rust;
+			# the Rust crates (scripts/gen/rustcrates.py: rust.json), with toolchain/rust (RUST_DIR);
 			# without their GPU features (-n) where APE's step makes no Mesa
 			{'Name': 'rust', 'Pre': ['bash scripts/build/cargo.sh %s%s %s' % (
 				'' if objtype in apeprogs.OBJTYPES else '-n ', d, ' '.join(p))

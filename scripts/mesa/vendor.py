@@ -3,7 +3,7 @@
 #
 # vendor.py SRC BUILD ROOT: Mesa's Vulkan drivers (venus, hasvk, radv) and OpenGL
 # on them (zink, EGL, gl9api's entry points) as sources in the tree, to
-# be built by build.exe (here with ../9front-gcc's cross gcc, on 9front with
+# be built by build.exe (here with GCC_DIR's cross gcc, on 9front with
 # its native gcc), without meson, ninja or python (scripts/mesa/vendor.sh).
 #
 # From the meson build in BUILD (scripts/mesa/build.sh) it takes the objects

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-The tree's parts built with ../9front-gcc's cross compiler for APE (POSIX
-on 9front): the libraries of sys/src/mesa (libvulkan.a), sys/src/libffi,
-sys/src/wayland, sys/src/sdl3, sys/src/glfw, sys/src/freetype, sys/src/pixman,
-sys/src/expat, sys/src/xkbcommon, sys/src/fontconfig, sys/src/fcft, sys/src/foot (compatibility manifests; the last seven vendored by
-scripts/ape/vendor.sh from their VENDOR.json,
-build.exe -D) and the programs made of them, which scripts/build/ape.sh
-installs in /$objtype/bin. scripts/gen/genbuild.py makes the build step,
-scripts/build/check-install.py expects the programs.
+The tree's parts built with the cross compiler of toolchain/gcc (GCC_DIR in
+paths.env) for APE (POSIX on 9front): the libraries of sys/src/mesa
+(libvulkan.a), sys/src/libffi, sys/src/wayland, sys/src/sdl3, sys/src/glfw,
+sys/src/freetype, sys/src/pixman, sys/src/expat, sys/src/xkbcommon,
+sys/src/fontconfig, sys/src/fcft, sys/src/foot (their build.json, compatibility
+manifests, by build.exe -D; the last seven vendored by scripts/ape/vendor.sh
+from their VENDOR.json) and the programs made of them (wlsys, foot,
+cxxwidgets), which scripts/build/ape.sh installs in /$objtype/bin.
+scripts/gen/genbuild.py makes the build step, scripts/build/check-install.py
+expects the programs.
 
 usage: scripts/gen/apeprogs.py	lists the programs: path source
 """
@@ -27,7 +29,7 @@ LIBS = ['sys/src/mesa', 'sys/src/libffi', 'sys/src/wayland', 'sys/src/sdl3', 'sy
 # program: its source directory
 PROGS = {'wlsys': 'sys/src/cmd/wlsys', 'foot': 'sys/src/foot', 'cxxwidgets': 'sys/src/libui/cxx'}
 
-# programs in C++ (9front-gcc's g++, libstdc++): their sources and link
+# programs in C++ (GCC_DIR's g++, libstdc++): their sources and link
 # arguments (scripts/build/ape.sh)
 CXX = {
 	'cxxwidgets': ['sys/src/libui/cxx/cxxwidgets.cc', '-l9'],
@@ -43,7 +45,7 @@ LINKS = {
 TRIPLES = {'amd64': 'x86_64-pc-plan9', '386': 'i686-pc-plan9'}
 
 def cross(objtype):
-	"""is there the cross compiler of 9front-gcc (GCC_DIR) for objtype?"""
+	"""is there the cross compiler of toolchain/gcc (GCC_DIR) for objtype?"""
 	d = paths.get('GCC_DIR')
 	t = TRIPLES.get(objtype)
 	return t is not None and os.access(os.path.join(d, 'build', objtype, 'cross', 'bin', t + '-gcc'), os.X_OK)

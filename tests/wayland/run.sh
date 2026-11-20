@@ -1,12 +1,15 @@
 #!/bin/bash
-# libwayland on 9front (../9front-ui PLAN §12, stages 6.4 and 6.5): builds libffi
+# libwayland on 9front: builds libffi
 # (sys/src/libffi), libwayland (sys/src/wayland) and wlsys (sys/src/cmd/wlsys)
 # with scripts/wayland/build.sh, then wltest (a server and a client in two
 # processes: a wl_shm buffer in shared memory over the socket, the event loop's
 # timer) and wlclient, and runs them in a guest of scripts/guest/mcp-guest.sh on a
 # VESA screen: wltest alone, wlclient in wsys -x -i under wlsys (a toplevel's
 # buffers on wsys' screen, a click, keys, a resize, close; weston's simple-shm,
-# which outlives its wsys: wsysrestart.rc). The keymap wlsys made
+# which outlives its wsys: wsysrestart.rc, restartdesk.rc in a window of wsys),
+# wlsys started in a window (inwin.rc), wlclient under a nested wsys (wlnest.rc),
+# HiDPI (wlscale.rc, wsys -S 2), foot (wlfoot.rc) and its libraries (libtest),
+# if built. The keymap wlsys made
 # of kbdfs' tables is compiled with the host's xkbcommon (xkbcli), if it has one.
 # Then, with libvulkan.a (build.exe, sys/src/mesa) and a host that runs venus
 # (virtio-gpu-gl), wlvk in a second guest: GPU buffers by zwp_linux_dmabuf_v1,
@@ -14,7 +17,7 @@
 # EGL's Wayland platform (wlgl), weston's simple-egl; the VESA guest weston's
 # simple-shm (scripts/wayland/weston.sh)
 # (VKONLY=1: only that guest; NOVK=1: not it).
-# usage: tests/wayland/run.sh   (needs ../9front-gcc's cross gcc; a build with wsys)
+# usage: tests/wayland/run.sh   (needs the cross gcc of toolchain/gcc (GCC_DIR in paths.env); a build with wsys)
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)

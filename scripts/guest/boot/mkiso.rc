@@ -34,7 +34,7 @@ case *
 }
 proto=/n/src9/sys/lib/sysconfig/proto/distproto
 bootproto=/n/src9/sys/lib/sysconfig/proto/9bootproto
-gccproto=/n/src9/gccproto	# /$objtype/lib.gcc, /$objtype/gnu (scripts/guest/boot/gccproto, gnuproto)
+gccproto=/n/src9/gccproto	# stage-dist.sh's extra protos in one (scripts/guest/boot/*proto: lib.gcc, gnu, rust, go, ...)
 
 if(! test -d /n/src9/$objtype)
 	srv tcp!10.0.2.101!5641 src9 && mount -nc /srv/src9 /n/src9 || fail mount src9

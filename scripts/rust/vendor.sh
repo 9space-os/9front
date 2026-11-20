@@ -8,7 +8,8 @@
 # manifest patches to a path (sys/src/rust/crates) are not vendored.
 # usage: scripts/rust/vendor.sh [dir]   (dir: a crate or workspace with Cargo.toml;
 #        default sys/src/rust, the tree's workspace)
-# env: RUSTC (../9front-rust's stage-1 rustc: it knows the plan9 target)
+# env: RUSTC (the stage-1 rustc of toolchain/rust, RUST_DIR in paths.env: it
+#      knows the plan9 targets), TARGETS (default the three plan9 targets)
 set -e
 ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
 . "$ROOT/scripts/lib/paths.sh"	# GCC_DIR, RUST_DIR, GO_DIR, MCP_DIR, DISTFILES (the distribution's paths.env)

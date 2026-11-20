@@ -2,9 +2,11 @@
 """import-freebsd.py [FREEBSDTREE [DRMKMODTREE]]: FreeBSD's LinuxKPI into sys/src/linux/freebsd.
 
 The second template of our LinuxKPI (kpi/), beside OpenBSD's (openbsd/):
-FreeBSD's sys/compat/linuxkpi/common (include, src) from the git tree
-FREEBSDTREE (default ~/Devel/freebsd-src), and from drm-kmod (DRMKMODTREE,
-default ~/Devel/drm-kmod) only the files that are its own and BSD:
+FreeBSD's sys/compat/linuxkpi/common (include, src), its rtw89
+(sys/contrib/dev/rtw89, the BSD choice of its dual licence) and net80211's
+ieee80211.h and ieee80211_radiotap.h, from the git tree FREEBSDTREE (default
+FREEBSD_SRC of dist/paths.env), and from drm-kmod (DRMKMODTREE, default
+DRMKMOD_SRC) only the files that are its own and BSD:
 linuxkpi/bsd and its versions of drm files Linux has under GPL
 (drm_sysfs.c, drm_lease.c, ...).  Never drm-kmod's linuxkpi/gplv2 nor the
 Linux files it carries.  Both at the commits in sys/src/linux/FREEBSD.

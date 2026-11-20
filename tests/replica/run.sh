@@ -11,6 +11,8 @@
 #   B  a system installed from version 1's CD (the stage with the client db
 #      publish.py -c writes) takes version 2 without a conflict
 #   C  the same with a file its user changed: kept, reported
+#   F  pull(1) on gefs: a snapshot of main, then version 2; the snapshot
+#      holds version 1
 . "$(dirname "$0")/../lib.sh"
 HERE=$(cd "$(dirname "$0")" && pwd)
 for f in $objtype/bin/replica/httpfs $objtype/bin/webfs $KBIN; do

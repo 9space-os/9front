@@ -1,5 +1,5 @@
 #!/bin/bash
-# ui: wsys (sys/src/cmd/wsys, ../9front-ui stage 3), the window system's processor
+# ui: wsys (sys/src/cmd/wsys), the window system's processor
 # backend, on a VESA screen without a GPU driver (aux/realemu, aux/vga -m vesa):
 # wsys -x -i runs tests/ui/wsystest, a client in plain Plan 9 C. It makes two
 # windows through /mnt/wsys/clone, writes their pixels into the segments ctl names,
@@ -19,10 +19,13 @@
 # (sys/src/cmd/term) with rc on a pty of ptyfs, typed into (its screen's text
 # from TERMDEBUG=screen), button 1, 2 and the wheel; termrestart.rc: term in a
 # window of a wsys killed twice goes on in the next one (p9win); theme.rc: the
-# theme changed through /mnt/wsys/theme, the screen's colours read back. Their output
+# theme changed through /mnt/wsys/theme, the screen's colours read back; desk.rc,
+# title.rc, wbar.rc, full.rc, wdock.rc, hidpi.rc (wsys -S 2). Their output
 # goes to files until the end: the kernel's console draws on the screen the test reads.
-# A second boot runs the same in a rio window.
-# Needs ../9front-rust's stage-1 rustc for wsys (scripts/build/cargo.sh).
+# A second boot: a terminal with desktop=wsys. A third runs wsystest and
+# wsysresize.rc in a rio window (also -z and -k); a fourth wsys through rcpu.
+# Needs the stage-1 rustc of toolchain/rust (RUST_DIR in paths.env) for wsys,
+# term, wbar, wdock (scripts/build/cargo.sh).
 # usage: [objtype=386] bash tests/ui/run.sh   (amd64, 386: a 9pc guest; the
 # programs without their GPU features there, as the build's step rust makes them)
 . "$(dirname "$0")/../lib.sh"
@@ -139,7 +142,7 @@ d = open('$TMPD/desk.png', 'rb').read(24)
 sys.exit(struct.unpack('>II', d[16:24]) != (1024, 768))"
 check "no kernel panic" bash -c "! grep -q '^panic:' '$TMPD/logdesk'"
 
-# second boot: the same test with wsys in a rio window (rioinit.rc, wsysrio.rc): its
+# third boot: the same test with wsys in a rio window (rioinit.rc, wsysrio.rc): its
 # screen is the window, mouse and keys come through rio. After rio, rc gets nothing
 # from the serial line: the scripts log to $home, which is on the host (ufsroot).
 cp "$HERE/rioinit.rc" "$HERE/root/tests/rioinit"
@@ -182,7 +185,7 @@ check "rio, -z: compressed 4 to 1 at least" ratio
 ratio | sed 's/^/       /'
 check "rio, -k (the kernel's devdraw): wsys follows its window: all passed" grep -q '^resize: all passed' "$H/wsysresizek.log"
 grep '^FAIL' "$H/wsysresizek.log" 2>/dev/null | sed 's/^/       /'
-# a third boot: wsys through rcpu (rcpu.rc, rcpuwin.rc), terminal and cpu
+# a fourth boot: wsys through rcpu (rcpu.rc, rcpuwin.rc), terminal and cpu
 # server in one guest; keys for an auth server of its own from a test password
 mkdir -p "$HERE/root/tests/rcpukeys"
 python3 - "$HERE/root/tests/rcpukeys" <<'PY'

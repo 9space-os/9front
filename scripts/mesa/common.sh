@@ -29,11 +29,11 @@ amd64)	TRIPLE=x86_64-pc-plan9 CPU=x86_64 ;;
 arm64)	TRIPLE=aarch64-pc-plan9 CPU=aarch64 ;;
 *)	echo "mesa: objtype=$objtype not supported" >&2; exit 1 ;;
 esac
-# the cross compilers of ../9front-gcc
+# the cross compilers of toolchain/gcc (GCC_DIR in paths.env)
 GCC_CROSS=$GCC_DIR/build/$objtype/cross/bin
 BUILD=$WORK/build-$objtype
-# their sysroot is a view of one tree (../9front-gcc/sysroot.sh, the PLAN9 of its last
-# build: the gcc branch's ../9front-gccwt); against this tree instead, its headers
+# their sysroot is a view of one tree ($GCC_DIR/sysroot.sh, the PLAN9 of its last
+# build: the gcc branch's worktree tree-gcc, TREE_GCC); against this tree instead, its headers
 # (APE's errno.h with ENODATA) and libraries (libvulkan.a): $CROSS holds the cross
 # tools with gcc and g++ given --sysroot= a view of $ROOT (made again when WORK moved:
 # the wrappers name the sysroot by its absolute path)

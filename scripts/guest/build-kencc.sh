@@ -20,6 +20,7 @@
 #           Boot it: objtype=arm64 BOOTKERNEL=.../9qemu.u boot-cli.sh
 #   env: WAITMAX  seconds at most for the build in the guest (10800)
 #        SMP      CPUs of the guest (4; mk builds in parallel, NPROC)
+#        MEM      its memory in MB (2048)
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 . "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)

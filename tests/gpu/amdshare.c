@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: MIT
  *
  * amdshare: an object of aux/amdgpu's between two contexts (gpu(4)'s
- * export and import, ../9front-ui stage 2): context A makes an object in
+ * export and import, the ui plan's stage 2): context A makes an object in
  * GTT (gem), writes a pattern through its map,
  * exports it (ctl export handle -> token); context B imports the token
  * (import token -> handle size), maps the handle and reads the pattern,

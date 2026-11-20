@@ -1,5 +1,7 @@
 #!/bin/sh
-# Regenerate sys/src/9/pc64/rebootcode.i from sys/src/9/pc64/rebootcode.S.
+# Regenerate sys/src/9/pc64/rebootcode.i from sys/src/9/pc64/rebootcode.S
+# (arm64, bcm64: sys/src/9/$conf/rebootcode.i, see below; pc:
+# gen-rebootcode-pc-i.sh).
 #
 # main.c does `#include "rebootcode.i"` and expects it to define
 # `static uchar rebootcode[]` holding the raw machine code of the
@@ -12,7 +14,7 @@
 # then objcopy to pull out the raw bytes.
 #
 # Usage: scripts/build/gen-rebootcode-i.sh [pc64|arm64|bcm64]  (default pc64;
-# from the repo root, or pass PLAN9=<root>).
+# inside the repository, or pass PLAN9=<root>).
 set -e
 
 ROOT=${PLAN9:-$(git rev-parse --show-toplevel)}

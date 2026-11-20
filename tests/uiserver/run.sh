@@ -1,12 +1,13 @@
 #!/bin/bash
-# uiserver: ui (sys/src/cmd/ui, ../9front-ui PLAN stage 5: a window of widgets
+# uiserver: ui (sys/src/cmd/ui: a window of widgets
 # a client describes through files) in a window of wsys on a VESA screen (and
 # uirestart.rc: a ui program outlives its wsys), a
 # client in rc (tests/uiserver/uiserver.rc) and one in C through libui
 # (uiclient.c), uitodo (sys/src/cmd/uidemo: Rust, uiview) and gocount (Go,
-# sys/src/libui/go), in a guest of
-# scripts/guest/mcp-guest.sh.
-# usage: tests/uiserver/run.sh   (needs ../9front-rust's stage-1 rustc, a build: wsys)
+# sys/src/libui/go), the widget demos (widgets.rc: Rust, Go, C++, rc), in a
+# guest of scripts/guest/mcp-guest.sh; then, if the host has a render node,
+# ui across its GPU driver's restart (uilost.rc, venus) in a second guest.
+# usage: tests/uiserver/run.sh   (needs the stage-1 rustc of toolchain/rust (RUST_DIR), a build: wsys)
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -25,7 +26,7 @@ mkdir -p "$HERE/root/tests" "$HERE/root/lib/font/ttf"
 for p in ui uitodo uitick uicount uiwidgets; do
 	"$CROSS/$TRIPLE-strip" -o "$HERE/root/tests/$p" "$BUILD/cargo/rust/$T/release/$p"
 done
-# the client in Go, with ../9front-go when it is there (a build cache of its
+# the clients in Go, with toolchain/go (GO_DIR) when it is there (a build cache of its
 # own: the toolchain is rebuilt under the same version)
 GO=${GO:-$GO_DIR/go/bin/go}
 rm -f "$HERE/root/tests/gocount" "$HERE/root/tests/gowidgets"
@@ -38,7 +39,7 @@ fi
 cp "$ROOT/amd64/bin/wsys" "$ROOT/tests/ui/root/tests/uipeek" "$HERE/root/tests/"
 cp "$ROOT/lib/font/ttf/"*.ttf "$HERE/root/lib/font/ttf/"
 cp "$HERE/uiserver.rc" "$HERE/root/tests/uiserver"
-# the widget demos: C++'s with 9front-gcc's g++ (APE, ui.hh); rc's from the
+# the widget demos: C++'s with the cross g++ of toolchain/gcc (APE, ui.hh); rc's from the
 # tree; Go's and Rust's built above
 "$CROSS/$TRIPLE-g++" -std=gnu++17 -O2 -Wall -o "$BUILD/cxxwidgets" "$ROOT/sys/src/libui/cxx/cxxwidgets.cc" -l9
 "$CROSS/$TRIPLE-strip" -o "$HERE/root/tests/cxxwidgets" "$BUILD/cxxwidgets"

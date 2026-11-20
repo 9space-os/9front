@@ -1,10 +1,12 @@
 #!/bin/bash
-# The tree's parts for APE (POSIX on 9front) made with ../9front-gcc's cross
-# compiler: build.exe -D on the libraries' compatibility manifests (sys/src/mesa:
+# The tree's parts for APE (POSIX on 9front) made with the cross compiler of
+# toolchain/gcc (GCC_DIR in paths.env): build.exe -D on the libraries'
+# compatibility manifests (scripts/gen/apeprogs.py's LIBS: sys/src/mesa:
 # libvulkan.a, the Vulkan drivers and the static loader, EGL and GLES on zink;
-# sys/src/libffi, sys/src/wayland: libwayland; sys/src/sdl3; sys/src/glfw: into
-# /$objtype/lib.gcc/ape), then the programs of them in /$objtype/bin
-# (scripts/gen/apeprogs.py: wlsys, scripts/wayland/build.sh). build.exe's step
+# sys/src/libffi, sys/src/wayland: libwayland; sys/src/sdl3; sys/src/glfw; the
+# vendored freetype ... foot: into /$objtype/lib.gcc/ape), then the programs of
+# them in /$objtype/bin (apeprogs.PROGS: wlsys by scripts/wayland/build.sh, foot
+# from its library, cxxwidgets in C++). build.exe's step
 # ape, before rust (wsys links libvulkan.a). Without the cross compiler it says
 # so and builds nothing (check-install.py: nocross). A program that comes out
 # the same keeps its time (build.exe -D).

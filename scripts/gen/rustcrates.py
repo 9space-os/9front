@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 The Rust crates of the tree: each directory of sys/src/cmd with a rust.json
-({"Programs": [...]}) is a crate whose programs scripts/build/cargo.sh builds
-and installs in /$objtype/bin. scripts/gen/genbuild.py makes the build step from
+({"Programs": [...]}) and a Cargo.toml is a crate whose programs
+scripts/build/cargo.sh builds and installs in /$objtype/bin. scripts/gen/genbuild.py makes the build step from
 them, scripts/build/check-install.py expects their programs.
 
 usage: scripts/gen/rustcrates.py	lists them: dir program...
@@ -28,7 +28,7 @@ def crates():
 	return out
 
 def rustc():
-	"""is there a Rust toolchain for cargo.sh (the stage-1 rustc of 9front-rust, RUST_DIR)?"""
+	"""is there a Rust toolchain for cargo.sh ($RUSTC, else the stage-1 rustc of toolchain/rust, RUST_DIR)?"""
 	r = os.environ.get('RUSTC') or os.path.join(paths.get('RUST_DIR'), 'rust/build/host/stage1/bin/rustc')
 	return os.access(r, os.X_OK)
 

@@ -2,7 +2,7 @@
  * segshared: segments whose address the kernel chooses (9front-ng,
  * segment(3) "va 0 len"): each in the shared region at an address no
  * other one has, so that any process can attach any of them (stage 6 of
- * ../9front-ui: Wayland's shared memory).  Two segments get different
+ * the ui plan: Wayland's shared memory).  Two segments get different
  * ranges; another process (rfork without shared memory: its own address
  * space) attaches them by name at those addresses and sees what this one
  * wrote, and this one what it wrote; segattach's own choice (va 0) lies

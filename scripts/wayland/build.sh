@@ -1,7 +1,8 @@
 #!/bin/bash
 # Build libffi and libwayland (build.exe -D: sys/src/libffi, sys/src/wayland) and
-# wlsys (sys/src/cmd/wlsys, the Wayland server in wsys) with ../9front-gcc's cross
-# gcc; wlsys goes to outdir. Not part of the full build yet (as the libraries).
+# wlsys (sys/src/cmd/wlsys, the Wayland server in wsys) with the cross gcc of
+# toolchain/gcc (GCC_DIR); wlsys goes to outdir. scripts/build/ape.sh runs it
+# in the full build (and installs wlsys).
 # usage: scripts/wayland/build.sh outdir   (amd64)
 set -e
 [ $# -eq 1 ] || { echo "usage: scripts/wayland/build.sh outdir" >&2; exit 1; }

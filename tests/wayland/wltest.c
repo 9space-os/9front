@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: MIT
  *
- * wltest: libwayland on 9front (../9front-ui PLAN §12, stage 6.4), a server
+ * wltest: libwayland on 9front (the ui plan §12, stage 6.4), a server
  * and a client in two processes over APE's PF_UNIX socket
  * ($XDG_RUNTIME_DIR/wayland-wltest, its /srv entry): the client binds wl_shm,
  * makes a pool of a memfd (a segment: memfd_create, ftruncate, mmap), a 64x64

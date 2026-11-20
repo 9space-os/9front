@@ -4,8 +4,8 @@ Copies the definitions of Linux's i915 that aux/intelgpu
 (sys/src/cmd/aux/gpu/intel) uses, and those they use in turn, into
 excerpts of the headers they come from (UPSTREAM's lines with *),
 verbatim, in Linux's order, each with its header's notice.  Run it after
-the code uses a new name, or for a new Linux tree (default
-~/Devel/linux-6.6).  linux.h stands in for the kernel's own headers
+the code uses a new name, or for a new Linux tree (default LINUX_OLD of
+dist/paths.env, linux-6.6).  linux.h stands in for the kernel's own headers
 (SHIM below)."""
 import re,os,sys,glob
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'lib'))

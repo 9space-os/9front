@@ -1,7 +1,8 @@
 """
 A 9front CD booted in QEMU the way a user does, for the tests that need
-the running system (tests/rio, tests/usb): every boot prompt answered
-with its default (Enter) until rio's grey screen shows, then an rc on
+the running system (tests/rio, usb, workflow, gcc, go, rust, mcp): every
+boot prompt answered with its default (Enter) until the desktop's grey
+screen shows (rio's, or wsys' that draws the same), then an rc on
 the serial line ('#t/eia0') as a way in that keeps working when rio
 does not. Keys and mouse go through QMP like a user's.
 
@@ -11,7 +12,8 @@ does not. Keys and mouse go through QMP like a user's.
 	vm.serial('ps -a')             # what the serial rc prints
 	vm.close()
 
-Environment: KVM=0 (no KVM), CPU, SMP, MEM (QEMU's -cpu, -smp, -m).
+Environment: KVM=0 (no KVM), CPU, SMP, MEM (QEMU's -cpu, -smp, -m;
+defaults qemu64 or qemu32, 1, 1024).
 """
 import json, os, socket, subprocess, sys, tempfile, time
 

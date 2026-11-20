@@ -1,10 +1,12 @@
 #!/bin/bash
 # wlan: etherwlan (an 802.11 interface whose radio is a program, #ω) with
 # wifi.c over a simulated radio and access points (wlansim.c: 9space on
-# channel 6, 9space5 on 36 (5 GHz), 9spacewpa on 100 (5 GHz, radar
-# detection) with WPA2-PSK; beacons, probe, authentication, association,
-# the 4-way handshake, CCMP, ARP and ICMP echo for 10.0.9.1): scan,
-# association, ipconfig and ping on each, aux/wpa for the third.
+# channels 6, 11 and 40, 9space5 on 36 (5 GHz), 9spacewpa on 100 (5 GHz,
+# radar detection) with WPA2-PSK; beacons, probe, authentication,
+# association, the 4-way handshake, CCMP, ARP and ICMP echo for 10.0.9.1):
+# scan, association, ipconfig and ping on each, aux/wpa for the third; the
+# radio gone and a new one; a second boot with the frames at interrupt
+# level under load (one processor); a third with gpu(3)'s *userpci=.
 . "$(dirname "$0")/../lib.sh"
 HERE=$(cd "$(dirname "$0")" && pwd)
 [ "$objtype" = amd64 ] || { skip "wlan" "objtype=$objtype"; done_tests; exit; }

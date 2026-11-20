@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: MIT
  *
- * wlvk: a Wayland client of wlsys with GPU buffers (../9front-ui PLAN §12,
+ * wlvk: a Wayland client of wlsys with GPU buffers (the ui plan §12,
  * stage 6.6), run by wlsys in wsys -x -i (wlvk.rc) on venus.  Two buffers of
  * exportable, host visible device memory, filled on the GPU (vkCmdFillBuffer:
  * orange, then cyan), their dma-buf fds (vkGetMemoryFdKHR: Mesa's

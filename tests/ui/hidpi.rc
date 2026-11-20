@@ -1,5 +1,5 @@
 #!/bin/rc
-# HiDPI (../9front-ui PLAN stage 8), run by wsys -S 2 -x -i: the theme says
+# HiDPI (the ui plan's stage 8), run by wsys -S 2 -x -i: the theme says
 # scale 2, a window's dpi file 192; its border 8, a title bar as high as the
 # font (Go Mono of truetypefs, 26 pixels, antialiased) and 8; the cursor 32
 # (vgactl cursorsize); a draw(3) program (dpitest)

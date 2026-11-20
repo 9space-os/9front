@@ -13,7 +13,7 @@
 #
 # usage: scripts/guest/mkdisk.sh [image]	(default $CLI_DIR/9front.amd64.img;
 #        .qcow2 converts with qemu-img). Needs the build
-#        (CC=gcc ARCH=amd64 sys/src/cmd/build/build.exe) and scripts/build-boot.sh.
+#        (CC=gcc ARCH=amd64 sys/src/cmd/build/build.exe) and scripts/guest/build-boot.sh.
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 . "$ROOT/scripts/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)

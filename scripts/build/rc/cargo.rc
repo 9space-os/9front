@@ -1,6 +1,6 @@
 #!/bin/rc
 # cargo.sh on 9front: a Rust crate of the tree built with the native cargo and rustc
-# of ../9front-rust (/$cputype/rust, scripts/install.sh there), linked by the native
+# of toolchain/rust (/$cputype/rust, scripts/install.sh there), linked by the native
 # gcc (/$cputype/gnu), its programs installed in /$objtype/bin. Without them it says
 # so and builds nothing (check-install.rc reports the programs as norust).
 #	cargo.rc [-n] dir prog...	(-n: without the default features, as cargo.sh's)
@@ -27,7 +27,8 @@ ws=`{sed -n 's/^workspace *= *"(.*)"/\1/p' $PLAN9/$dir/Cargo.toml}
 pkg=()
 if(! ~ $#ws 0)
 	pkg=(-p `{sed -n 's/^name *= *"(.*)"/\1/p' $PLAN9/$dir/Cargo.toml | sed 1q})
-# nor a std installed again for the same rustc: what it built with another goes
+# cargo does not see a std installed again for the same rustc: what it built
+# with another goes (the libstd of every target in /$cputype/rust/lib/rustlib)
 std=`{ls -l /$cputype/rust/lib/rustlib/*/lib/libstd-*.rlib >[2]/dev/null}
 old=`{cat $target.std >[2]/dev/null}
 if(! ~ $"old $"std){

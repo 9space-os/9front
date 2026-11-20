@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# rsvk: vktri in Rust (ash), the first step of ../9front-ui (PLAN.md stage 1b)
+# rsvk: vktri in Rust (ash), the first step of the ui plan (PLAN.md stage 1b)
 [package]
 name = "rsvk"
 version = "0.1.0"

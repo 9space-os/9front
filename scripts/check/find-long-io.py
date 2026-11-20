@@ -18,7 +18,7 @@ expect false positives, e.g. two programs' structs of the same name):
 "long" includes typedefs of it (Timet, DAngle, Off in cwfs/32bit.h, ...),
 found in the tree. Not searched: the kernel (sys/src/9), APE (LP64 on
 purpose), gs, and the compilers/assemblers/linkers (scripts/check/cmp-lp64.sh
-covers 6c/6a/6l). Struct layouts against kencc: scripts/port/cmp-struct-layout.sh.
+covers 6c/6a/6l). Struct layouts against kencc: scripts/check/cmp-struct-layout.sh.
 
 usage: scripts/check/find-long-io.py [--structs] [dir...]   (default sys/src)
     --structs  only list the structs with long members

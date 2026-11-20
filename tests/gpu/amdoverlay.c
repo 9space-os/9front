@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: MIT
  *
  * amdoverlay: a client's object on an overlay plane (gpu(4) overlay,
- * ../9front-ui PLAN §9b): an object in GTT (gem, map), filled by the
+ * the ui plan §9b): an object in GTT (gem, map), filled by the
  * processor, shown n times at x y in turns of two colours, each show
  * waiting for the display (the plane's update at the vblank); the time a
  * frame takes, the driver's status line; refusals (a stride the copy

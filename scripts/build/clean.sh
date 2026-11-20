@@ -10,8 +10,8 @@
 # -i also removes what the build installs (like a fresh checkout): every
 # file scripts/build/check-install.py expects (programs, scripts, gcc archives
 # in /$objtype/lib.gcc, amd64/9pc64), the ELF kernel amd64/bin/9pc64,
-# amd64/init and the boot loaders of 9bootproto (scripts/guest/build-boot.sh).
-# Files the repository tracks are never removed.
+# amd64/init, the boot loaders of 9bootproto (scripts/guest/build-boot.sh)
+# and arm64/bootaa64.efi. Files the repository tracks are never removed.
 #
 # usage: scripts/build/clean.sh [-i]
 #   env:  CLI_DIR   where the log goes

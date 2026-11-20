@@ -1,9 +1,10 @@
 #!/bin/rc
-# ape.sh on 9front: APE's parts built with the native gcc of ../9front-gcc
+# ape.sh on 9front: APE's parts built with the native gcc of toolchain/gcc
 # (/$cputype/gnu): build.exe -D on the libraries' compatibility manifests
 # (Mesa, libffi, libwayland, SDL3, GLFW, the vendored libraries, foot's), then
-# wlsys and foot into /$objtype/bin when they changed. Without that gcc it says so and builds nothing (check-install.rc
-# reports wlsys as nocross).
+# wlsys and foot into /$objtype/bin when they changed (not cxxwidgets, which
+# ape.sh builds too). Without that gcc it says so and builds nothing
+# (check-install.rc reports the programs missing then as norust).
 . $PLAN9/scripts/build/rc/lib.rc
 if(! test -x $GNU/gcc){
 	echo ape.rc: no native gcc '('$GNU')': Mesa, libwayland, SDL3, GLFW, wlsys not built >[1=2]

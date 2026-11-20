@@ -9,7 +9,7 @@ M=$ROOT/sys/src/ape/lib/musl
 A=$1
 O=$M/obj/$A/include/bits
 mkdir -p "$O"
-put(){	# put file: stdin to file, if it differs
+put(){	# put file: $O/.new to file, if it differs (else $O/.new goes)
 	if ! cmp -s - "$1" < "$O/.new"; then mv "$O/.new" "$1"; else rm -f "$O/.new"; fi
 }
 sed -f "$M/tools/mkalltypes.sed" "$M/arch/$A/bits/alltypes.h.in" "$M/include/alltypes.h.in" > "$O/.new"

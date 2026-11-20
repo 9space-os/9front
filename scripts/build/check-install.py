@@ -10,10 +10,12 @@ files those rules install, scripts/build/mkinstall.py) and the kernel.
   missing  expected, not in the tree (or in the staged distribution)
   norust   a Rust crate's program (scripts/gen/rustcrates.py) not built: no Rust
            toolchain (scripts/build/cargo.sh skips them)
-  nocross  a program of APE's parts (scripts/gen/apeprogs.py: wlsys) not built: no
-           cross compiler of ../9front-gcc (scripts/build/ape.sh skips them)
+  nocross  a program of APE's parts (scripts/gen/apeprogs.py: wlsys, foot,
+           cxxwidgets) not built: no cross compiler of toolchain/gcc (GCC_DIR
+           in paths.env; scripts/build/ape.sh skips them)
   hostlib  386's libgcc.a is the host's -m32 one (scripts/build/prep-objtype.sh:
-           no ../9front-gcc yet): its 64-bit division needs SSE2 and cmov
+           no i686-pc-plan9 libgcc.a of GCC_DIR yet): its 64-bit division
+           needs SSE2 and cmov
   stale    in /$objtype/bin or /acme/bin/$objtype, but nothing installs
            it there (left from an older build: telnet before it moved
            from /amd64/bin/ip to /amd64/bin, as ip/mkfile installs it)

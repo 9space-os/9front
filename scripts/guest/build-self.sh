@@ -1,6 +1,6 @@
 #!/bin/bash
 # The system builds itself: boots the gcc-built system with the native
-# gcc and binutils of ../9front-gcc (/$objtype/gnu) and runs the build
+# gcc and binutils of toolchain/gcc (GCC_DIR in paths.env; /$objtype/gnu) and runs the build
 # tool there (scripts/guest/boot/mkself.rc) on a copy of the tree's
 # sources ($CLI_DIR/self.$objtype: git ls-files) -- the build of
 # CC=gcc ARCH=$objtype sys/src/cmd/build/build.exe, on 9front (amd64:
@@ -15,7 +15,7 @@
 # for $objtype).
 #
 # usage: [objtype=386] scripts/guest/build-self.sh [buildfile...]   (needs
-#        the build for objtype, the native toolchain: ../9front-gcc's
+#        the build for objtype, the native toolchain: GCC_DIR's
 #        out/$objtype, GCC_OUT)
 #        buildfile: only these manifests (relative to the tree, e.g.
 #        sys/src/ape/cmd/cmds.json), else the whole build.json
@@ -26,7 +26,7 @@
 #                 build tool and the manifests renewed), e.g. after a fix
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
-. "$ROOT/scripts/lib/paths.sh"	# GCC_DIR, RUST_DIR, GO_DIR, MCP_DIR, DISTFILES (the distribution's paths.env)
+. "$ROOT/scripts/lib/paths.sh"	# GCC_DIR, CLI_DIR (the distribution's paths.env)
 A=${objtype:-amd64}
 case $A in
 amd64)	mem=4096 ;;

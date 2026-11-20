@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the host-side root tree that Harvey's `ufs` 9P server exports
+# Build the host-side root tree that the `ufs` 9P server (scripts/hw/ufs) exports
 # to the kernel booted by scripts/guest/boot-cli.sh (bootrc's tcp root,
 # srv tcp!fs!564), for $objtype (default amd64).
 #

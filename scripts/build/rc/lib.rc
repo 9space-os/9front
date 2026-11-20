@@ -14,7 +14,7 @@ if(~ $#PLAN9 0)
 	die PLAN9 not set
 if(~ $#objtype 0)
 	objtype=$cputype
-# the native gcc and binutils (../9front-gcc), not Plan 9's ar, nm, ...
+# the native gcc and binutils (toolchain/gcc's native build), not Plan 9's ar, nm, ...
 GNU=/$cputype/gnu/bin
 TMP=/tmp/build.$prog.$pid
 fn sigexit{

@@ -1,6 +1,11 @@
 #!/bin/bash
-# gpu: PoC of the user-space GPU driver on virtio-gpu (QEMU -device
-# virtio-gpu-pci, no other display). Boots the built pc64 kernel (#G,
+# gpu: the user-space GPU driver on virtio-gpu (QEMU -device
+# virtio-gpu-pci, no other display). First the boots without a display
+# driver: segment(3)'s revoked segments (segrevoke), the LinuxKPI's
+# selftests (aux/i915 -T, with SMBIOS strings and an SSDT: nfst.py),
+# i915's mock selftests (-M), its module parameters (-p, i915param.rc)
+# and i915live.rc against a stand-in driver.
+# Then boots the built pc64 kernel (#G,
 # vga type gpu), starts aux/virtiogpu, draws with /tests/gputest (no
 # rio), switches the mode through /shr/gpu/0, and checks QEMU's screen
 # dump: size of the new mode, the three rectangles at their places.
@@ -19,10 +24,14 @@
 # in the guest read the draw(3) screen, so those programs copy
 # (WSI_PLAN9_COPY=1). Last, vkdraw without it: its frames go to the
 # display directly (gpu(4) scanout); the host's display is read
-# through VNC. A third boot: vkcube in a rio window, resized, quit with
-# q (riovk.rc).
-# A fourth: vktri in a window of wsys, its frames as GPU buffers, and
-# eframetest on wgpu (wsysvk.rc).
+# through VNC. Then the driver killed while vkcube draws (killdrv.rc),
+# memory running out while it draws (drvnoswap.rc); wsys in several boots
+# of mcp-guest.sh: vktri, ui, SDL and eframetest in its windows as GPU
+# buffers (wsysvk.rc), memory running out (wsysnoswap.rc), the GPU
+# composing (wsyscomp.rc), a Vulkan window outliving its wsys
+# (wsysagain.rc), the frames' order (wsysorder.rc), the driver restarted
+# under it (wsysback.rc). Last: vkcube in a rio window, resized, quit
+# with q (riovk.rc).
 # usage: bash tests/gpu/run.sh   (amd64 only; needs a build)
 . "$(dirname "$0")/../lib.sh"
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -31,7 +40,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 
 buildtests(){ (cd "$HERE" && env PLAN9="$ROOT" ARCH=$objtype CC=gcc "$BUILDEXE" build.json); }
 check "build tests/gpu" buildtests || { done_tests; exit; }
-# the Vulkan tests need ../9front-gcc's cross compiler: build.exe builds
+# the Vulkan tests need the cross compiler of toolchain/gcc (GCC_DIR in
+# paths.env; scripts/mesa/common.sh): build.exe builds
 # libvulkan.a from the tree's Mesa (sys/src/mesa/build.json, a minute once).
 # Their programs stay from run to run (build-vktest.sh replaces a changed
 # one only: the guest's root is kept by rsync); gone when they could not
@@ -45,7 +55,7 @@ if [ -x "$cross" ]; then
 	check "build libvulkan.a (build.exe, sys/src/mesa) and the Vulkan tests" bash "$HERE/build-vktest.sh" || novk
 else
 	novk
-	skip "Vulkan tests" "no cross compiler $cross (../9front-gcc)"
+	skip "Vulkan tests" "no cross compiler $cross (GCC_DIR)"
 fi
 
 # segment(3)'s alias and phys segments: removed or revoked, nobody keeps their
@@ -269,7 +279,7 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		if [ -x "$HERE/root/tests/rsvk" ]; then
 			check "rsvk (vktri in Rust: ash, libvulkan.a): all passed" grep -q '^rsvk: all passed' "$TMPD/log3d"
 		else
-			skip "rsvk" "not built (no stage-1 rustc of ../9front-rust)"
+			skip "rsvk" "not built (no stage-1 rustc of RUST_DIR)"
 		fi
 		check "vkshare (a GPU buffer exported by one process, imported by another): all passed" \
 			bash -c "grep -q '^vkshare export: all passed' '$TMPD/log3d' && grep -q '^vkshare import: all passed' '$TMPD/log3d'"
@@ -344,7 +354,7 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		check "drvnoswap: nothing hung" grep -q '^drvnoswap: done$' "$TMPD/lognoswap"
 	fi
 
-	# wsys (../9front-ui stage 2): vktri in a window of wsys hands its
+	# wsys (sys/src/cmd/wsys): vktri in a window of wsys hands its
 	# frames over as GPU buffers (gpu(4) export, wsys' gpubuffer; Mesa's
 	# plan9 WSI), then again by copy for comparison (wsysvk.rc)
 	if [ -x "$HERE/root/tests/vktri" ] && [ -x "$ROOT/$objtype/bin/wsys" ]; then
@@ -494,7 +504,7 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		skip "wsys with GPU buffers" "no vktri or no $objtype/bin/wsys"
 	fi
 
-	# third boot: vkcube in a rio window (riovk.rc, riocube.rc), the window
+	# the last boot: vkcube in a rio window (riovk.rc, riocube.rc), the window
 	# resized after 5 s; then the host's display through VNC, and q typed
 	# on the serial line, which kbdfs gives rio, rio the window.
 	# After rio, rc gets nothing from the serial line: the guest's

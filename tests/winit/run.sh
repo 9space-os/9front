@@ -1,11 +1,11 @@
 #!/bin/bash
 # winit on 9front (sys/src/rust/crates: winit, softbuffer, raw-window-handle with
 # plan9 backends; p9win): winittest, eguitest, multiwin (a program's three
-# windows: wsys' clone), icedtest and eframetest (eframe
-# falls back to the processor: no GPU) in windows of wsys on a VESA
+# windows: wsys' clone), icedtest, eframetest and eframetestsw (eframe
+# on the processor: no GPU) in windows of wsys on a VESA
 # screen without a GPU driver, in a guest of scripts/guest/mcp-guest.sh; the
 # host types into them through QEMU (QMP) while their -e runs log the events.
-# usage: tests/winit/run.sh   (needs ../9front-rust's stage-1 rustc, cargo; a build: wsys)
+# usage: tests/winit/run.sh   (needs the stage-1 rustc of toolchain/rust (RUST_DIR), cargo; a build: wsys)
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -22,7 +22,7 @@ for d in rust icedtest eframetest eframetestsw; do cargostd "$BUILD/cargo/$d" $T
 mkdir -p "$HERE/root/tests"
 for p in winittest eguitest multiwin; do cp "$BUILD/cargo/rust/$T/release/$p" "$HERE/root/tests/"; done
 # icedtest (iced: tiny-skia, window_clipboard, iced_graphics with plan9) is
-# ../9front-rust's (tests/crates/icedtest: crates.io's crates, not vendored here)
+# RUST_DIR's (tests/crates/icedtest: crates.io's crates, not vendored here)
 I=$RUST_DIR/tests/crates/icedtest
 rm -f "$HERE/root/tests/icedtest"
 if [ -d "$I" ]; then
@@ -32,7 +32,7 @@ if [ -d "$I" ]; then
 	cp "$BUILD/cargo/icedtest/$T/release/icedtest" "$HERE/root/tests/"
 fi
 # eframetest (eframe: wgpu, the processor without an adapter) and
-# eframetestsw (eframe without wgpu: no Vulkan linked), ../9front-rust's too
+# eframetestsw (eframe without wgpu: no Vulkan linked), RUST_DIR's too
 E=$RUST_DIR/tests/crates/eframetest
 rm -f "$HERE/root/tests/eframetest" "$HERE/root/tests/eframetestsw"
 if [ -d "$E" ]; then

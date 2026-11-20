@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Go on the install CD (/$objtype/go, from ../9front-go via
-scripts/guest/boot/goproto, GO_OUT for mkiso.sh): boot to rio, then over the
+Go on the install CD (/$objtype/go, from toolchain/go (GO_DIR in paths.env) via
+scripts/guest/boot/goproto, GO_OUT for mkiso.sh): boot to the desktop, then over the
 serial rc: go version, go finds its tree (GOROOT) with no $GOROOT, go run and
 go build of a program that uses goroutines (GOCACHE in /tmp: the live CD's
-$home is read-only), cgo with the CD's gcc (/$objtype/gnu), and an ELF file of Go's test data is unchanged (stage-dist.sh strips ELF files, not in /$objtype/go).
+$home is read-only), cgo with the CD's gcc (/$objtype/gnu), a module from the
+proxy over https (the CD's CA roots), and an ELF file of Go's test data is unchanged (stage-dist.sh strips ELF files, not in /$objtype/go).
 
 usage: tests/go/go.py iso workdir objtype [sha1-of-testdata]
    prints one line per check: ok|fail|skip <name>

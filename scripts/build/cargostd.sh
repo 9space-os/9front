@@ -1,5 +1,6 @@
 # cargostd dir target: cargo's target directory dir loses what it built for
-# target when ../9front-rust's std is another than then (cargo looks at
+# target when the std of toolchain/rust (RUST_DIR in paths.env, the sysroot
+# of $RUSTC) is another than then (cargo looks at
 # rustc's version only: a std built again by the same rustc leaves crates
 # built with the old one, which rustc then refuses, "can't find crate").
 # The same for the host: what dir/release holds (build scripts, proc macros

@@ -86,7 +86,7 @@ ARCHS = {
 }
 
 # per kernel directory: further Pre steps, Clean globs (files of the
-# scripts/gen-*-i.sh generators and gen-bootfs.sh)
+# scripts/build/gen-*-i.sh generators and gen-bootfs.sh)
 EXTRA = {
 	'arm64': {
 		'Clean': ['rebootcode.i', '../port/initcode.i', 'boot', '$CONF.bootfs.paq'],

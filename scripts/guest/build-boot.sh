@@ -7,6 +7,8 @@
 # port of the loaders: scripts/guest/boot-cli.sh boots the system and runs
 # scripts/guest/boot/mkboot.rc on a copy of the sources; the results are
 # installed into $ROOT/386 and $ROOT/arm64 like a native mk install.
+# After an arm64 build (arm64/9qemu) also arm64/9qemu.u, the kernel's
+# u-boot image, and sys/src/boot/qemu/boot.scr.
 # The compilers' LP64 safety is checked by scripts/check/cmp-lp64.sh.
 #
 # usage: scripts/guest/build-boot.sh   (needs the build first: CC=gcc ARCH=amd64 sys/src/cmd/build/build.exe)

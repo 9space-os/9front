@@ -14,19 +14,23 @@
 # so the stub saves and restores them.
 #   frame: 0 = %rbp, 8..48 = arguments, 56/64/72 = %rbx/%r12/%r13
 #
-# Deviation: notify's raw stub is _notify; amd64/notetramp.S provides
-# notify() as a trampoline to System V note handlers.
+# Deviation (amd64 and arm64): notify's raw stub is _notify;
+# amd64/notetramp.S (arm64/notetramp.S) provides notify() as a trampoline
+# to System V (AAPCS64) note handlers.
 #
 # --ape: APE's stubs instead (sys/src/ape/lib/ap/syscall/genall: every
 # sys.h entry not starting with _, named _<ENTRY>; the amd64 rule names
 # _SEEK's stub __SEEK, amd64/_seek.c wraps it). Deviation as above:
-# _NOTIFY's raw stub is __NOTIFY, ape/lib/ap/amd64/notify.S provides
-# _NOTIFY.
+# _NOTIFY's raw stub is __NOTIFY, ape/lib/ap/amd64/notify.S (arm64/notify.S)
+# provides _NOTIFY.
+#
+# arm64 stub: see below.
 #
 # 386 stub: see below; seek's raw stub is _seek (APE: __SEEK), wrapped
 # by 386/_seek.c as on amd64 (8c returned the vlong through the pointer).
 #
-# usage: [objtype=386] scripts/build/gen-9syscall.sh [--ape] [dir]
+# usage: [objtype=amd64|386|arm64] scripts/build/gen-9syscall.sh [--ape] [dir]
+#	(default objtype amd64; dir: the stubs' directory, default as above)
 set -e
 ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 APE=

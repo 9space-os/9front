@@ -1,5 +1,5 @@
 #!/bin/rc
-# HiDPI under wlsys (../9front-ui PLAN stage 8), run by wsys -S 2 -x -i
+# HiDPI under wlsys (the ui plan's stage 8), run by wsys -S 2 -x -i
 # (tests/wayland/run.sh): wlscale, a client that knows fractional scales,
 # is told 240/120 (wp_fractional_scale_v1) and the outputs' scale 2; its
 # buffer twice its logical size (a viewport's destination) is its window in

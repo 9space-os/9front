@@ -4,8 +4,9 @@
 Linux's trace point headers (i915_trace.h, drm_trace.h, ...) are GPL;
 without tracing every trace_X() is a no-op.  This writes our own
 replace/include/<header> for each, with a no-op for each trace_X the
-vendor code calls (and trace_X_enabled), so a new Linux version needs
-only a rerun."""
+vendor code calls (and trace_X_enabled), and the #include lines of
+Linux's header (LINUXTREE, default LINUX of dist/paths.env), so a new Linux
+version needs only a rerun."""
 import os, re, glob, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'lib'))
 import paths as nfpaths	# the distribution's paths.env

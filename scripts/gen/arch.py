@@ -6,12 +6,15 @@ The architecture the gcc port builds for: $objtype (default amd64), as
   O         the object letter of 9front's compilers (8, 6, 7): x.$O,
             $O.out, the program-local libraries' lib*.a$O
   TOOLPREFIX  the gcc/binutils prefix for the build tool
+  KERNEL    the kernel configuration (pc, pc64, qemu)
+  QEMU      the qemu-system program for it
   SUFFIX    ''  for amd64, '.<objtype>' otherwise: generated manifests
             that depend on the architecture are cmds<SUFFIX>.json, so
             the amd64 ones (checked in) keep their names
 
 usage: import arch; arch.OBJTYPE ...
-       python3 scripts/gen/arch.py [var]   print (all, or one) as sh assignments
+       python3 scripts/gen/arch.py [var]   print all as sh assignments (OBJTYPE as
+                                            objtype), or the value of one
 """
 import os
 import sys

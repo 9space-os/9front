@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: MIT
  *
  * vkshare: a GPU buffer shared between two processes (gpu(4)'s export and
- * import, ../9front-ui stage 2): "vkshare export file" allocates exportable
+ * import, the ui plan's stage 2): "vkshare export file" allocates exportable
  * device memory (dma-buf), fills it on the GPU with a pattern, gets its fd
  * (vkGetMemoryFdKHR) and writes the fd's export token to file
  * (plan9/lib/dmabuf.c), then waits for file.done; "vkshare import file" makes

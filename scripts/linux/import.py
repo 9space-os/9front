@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """import.py [LINUXTREE]: Linux's DRM code into sys/src/linux/vendor.
 
-Copies what sys/src/linux/IMPORT names from a Linux tree (default
-~/Devel/linux-6.6), unchanged, under the same paths; leaves out every
+Copies what sys/src/linux/IMPORT names from a Linux tree (default LINUX
+of dist/paths.env), unchanged, under the same paths; leaves out every
 file whose notice is not MIT-like (GPL only, or no notice: the kernel's
 GPL then) and lists those in REJECTED; writes VERSION and NOTICE (each
 distinct notice once, with the files it covers).  vendor/ is replaced

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Generate gcc build-tool manifests (cmds.json) for every program
+Generate gcc build-tool manifests (cmds.json; cmds.<objtype>.json but for
+amd64, see arch.py) for every program
 directory that sys/src/mkfile's install walks besides the libraries
 ($SUBSYS $CMDS: ape, /acme, cmd, games), from 9front's mkfiles.
 
@@ -23,12 +24,13 @@ local $BIN/x rule copies elsewhere goes there (ip's telnet: /$objtype/bin),
 programs only the install rule names are built too (vmx: vmxgdb), and
 the files it installs by recipe -- rc scripts (git: %.rcinstall),
 wrappers (replica), sed-made scripts (postscript) -- get a last manifest
-entry running scripts/mkinstall.py. scripts/build/check-install.py checks the
+entry running scripts/build/mkinstall.py. scripts/build/check-install.py checks the
 result against the tree, the staged distribution and the CD.
 
 Only targets that build are written to the manifests. `--probe' builds
 every target on its own with the build tool and records the ones that
-fail in scripts/gen/cmds-broken.txt (target, reason); without it, the
+fail in scripts/gen/cmds-broken.txt (cmds-broken.<objtype>.txt but for
+amd64; target, reason); without it, the
 broken list from the last probe is used. Probing needs the libraries
 and the build tool (sys/src/cmd/build/build.exe, see build.json).
 
@@ -97,7 +99,8 @@ for d in ('cmd/ip/snoopy', 'cmd/syscall', 'cmd/tcs', 'cmd/nusb/disk', 'games/bla
 for d in sorted(os.listdir(os.path.join(SRC, 'cmd'))):
 	if re.match(r'^[0-9a-z][cl]$', d) and d != 'rc':
 		PRE['cmd/' + d] = ['gen-src.sh cmd/' + d]
-# not target programs: compilers and assemblers, test data, the build tool
+# directories not walked: the build tool, test data, APE libmp's and libsec's
+# $objtype assembly (not ported)
 SKIP = re.compile(r'^(cmd/build|.*/test|ape/lib/(mp|sec)/%s)(/|$)' % OBJTYPE)	# the build tool, test data, unported asm
 
 def rel(path):

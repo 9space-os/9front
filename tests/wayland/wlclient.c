@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: MIT
  *
- * wlclient: a Wayland client of wlsys (../9front-ui PLAN §12, stage 6.5),
+ * wlclient: a Wayland client of wlsys (the ui plan §12, stage 6.5),
  * run by wlsys in wsys -x -i (wlsys.rc).  An xdg toplevel with two buffers
  * in one pool (a memfd: a segment), red then blue, read back from wsys'
  * screen file in the window labelled with its title; a click

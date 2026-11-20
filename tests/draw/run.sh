@@ -1,5 +1,5 @@
 #!/bin/bash
-# drawfs (sys/src/cmd/drawfs, ../9front-ui PLAN stage 4c) against the kernel's
+# drawfs (sys/src/cmd/drawfs) against the kernel's
 # devdraw: drawcmp's operations on images off the screen in a VESA guest of
 # scripts/guest/mcp-guest.sh, once on #i, once on a drawfs mounted on /dev in
 # a namespace of its own, once in wsys -d (its own devdraw, drawcore); every

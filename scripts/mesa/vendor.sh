@@ -1,5 +1,6 @@
 #!/bin/bash
-# Mesa's venus driver into the tree (sys/src/mesa/vendor, build$SUFFIX.json), from
+# Mesa's Vulkan drivers (venus, hasvk, RADV) and OpenGL on them into the tree
+# (sys/src/mesa/vendor, build$SUFFIX.json), from
 # the meson build of build.sh: see vendor.py. Then build.exe builds
 # libvulkan.a without meson:
 #   CC=$CROSS/x86_64-pc-plan9-gcc ARCH=amd64 sys/src/cmd/build/build.exe sys/src/mesa/build.json

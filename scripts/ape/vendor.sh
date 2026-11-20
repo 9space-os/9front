@@ -1,6 +1,7 @@
 #!/bin/bash
 # a library for APE into the tree from its release (sys/src/<lib>/VENDOR.json):
-# scripts/ape/vendor.py with ../9front-gcc's cross compiler (its -MM finds
+# scripts/ape/vendor.py with the cross compiler of toolchain/gcc (GCC_DIR in
+# paths.env; its -MM finds
 # what the sources include). Then build.exe -D builds it (scripts/build/ape.sh).
 # usage: scripts/ape/vendor.sh lib
 set -e

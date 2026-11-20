@@ -16,7 +16,7 @@ name. Entry points that libap or programs have under the same names are renamed
 What musl's assembly defines beside its function (i386 floor.s is ceil too) and
 libap has, scripts/build/musl-localize.sh makes local after the archive is made.
 
-usage: genmusl.py [--list]	(--list: the manifests, for genbuild.py)
+usage: genmusl.py [--list]	(--list: $objtype's manifest, for genbuild.py)
 """
 import json
 import os

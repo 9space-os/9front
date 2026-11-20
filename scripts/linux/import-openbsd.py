@@ -4,9 +4,9 @@
 The template of our LinuxKPI (kpi/): OpenBSD's drm LinuxKPI (the headers
 under sys/dev/pci/drm/include that are OpenBSD's own, drm_linux.c,
 linux_*.c) and the BSD headers they build on (sys/tree.h, sys/queue.h,
-subr_tree.c), taken from the git tree OPENBSDTREE (default ~/Devel/openbsd)
-at the commit in sys/src/linux/OPENBSD: the last state before OpenBSD's
-update to Linux 6.12, so the one that fits vendor/'s Linux 6.6.  Copied
+subr_tree.c), taken from the git tree OPENBSDTREE (default OPENBSD_SRC of
+dist/paths.env) at the commit in sys/src/linux/OPENBSD (its drm at Linux
+6.18, the template for vendor/'s Linux 7.3).  Copied
 unchanged, under OpenBSD's paths; a file whose notice is not permissive
 (ISC, BSD, MIT, public domain) is left out and listed.  Our adapted
 copies live in kpi/; `diff -r` against this tree shows the adaptation.

@@ -3,8 +3,10 @@
 # recipe run in the guest) boots the way the release's does -- as a CD
 # (9bootiso, El Torito; bootx64.efi from efiboot.fat) and as a disk or
 # USB stick (hybrid MBR: mbr, pbs, 9boothyb; the ESP's efi/boot), each
-# with BIOS and UEFI (OVMF) -- up to rio, taking the default at each of
-# its prompts (tests/iso/drive.py). Builds the CD unless ISO names one.
+# with BIOS and UEFI (OVMF) -- up to the desktop (wsys where the CD has
+# it, else rio), taking the default at each of its prompts
+# (tests/iso/drive.py); then as a disk behind another system's ISO (UEFI).
+# Builds the CD unless ISO names one.
 . "$(dirname "$0")/../lib.sh"
 # objtype=386: the 386 CD, booted on an x86-64 PC as well (BIOS and
 # 64-bit UEFI both start 9pc; there is no 32-bit OVMF here)

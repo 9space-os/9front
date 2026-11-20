@@ -9,7 +9,7 @@ which 9front's mkfiles run (the kernel's bootfs.paq, the install image),
 but which only runs on Plan 9. Follows sys/src/libdisk/proto.c:
 
   - indentation (blank = 1, tab = 8) nests a line below the previous one
-  - name [mode [uid [gid [source]]]], mode d755, a775, l600, 0444, -
+  - name [mode [uid [gid [source]]]], mode d755, a775, l600, 444, -
   - $name is the environment variable name ($objtype)
   - + copies the directory's tree, * only its files
   - name=value lines set skip (regexp), uid, gid, mode for the
@@ -293,7 +293,7 @@ def main():
 		else:
 			protos.append(a)
 	if dest is None or not protos:
-		sys.exit('usage: proto.py [-s srcroot] -d dest [-e emptydir]... proto...')
+		sys.exit('usage: proto.py [-s srcroot] -d dest [-l list] [-e emptydir]... proto...')
 	p = Proto(src, dest, empty)
 	for path in protos:
 		p.run(path)

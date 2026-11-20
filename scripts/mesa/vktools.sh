@@ -1,6 +1,6 @@
 #!/bin/bash
 # Khronos' Vulkan-Tools for 9front: vkcube and vulkaninfo, built with
-# ../9front-gcc against the tree's Vulkan: the headers in /sys/include/ape,
+# toolchain/gcc (GCC_DIR) against the tree's Vulkan: the headers in /sys/include/ape,
 # /$objtype/lib.gcc/ape/libvulkan.a (build.exe sys/src/mesa/build.json).
 # Release in sys/src/vktools/VERSION (no signature: the
 # sha256 is the check), the port in sys/src/vktools/patches.

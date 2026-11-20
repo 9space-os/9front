@@ -7,7 +7,7 @@
 # libdraw and lib9 for the plan9 WSI.
 # vktest and vkdraw call the driver's vk_icdGetInstanceProcAddr, the others
 # are ordinary Vulkan programs; vktri's shaders are compiled with glslc.
-# The OpenGL tests (gltest, gldesk, glwin: zink, EGL) link the same library.
+# The OpenGL tests (gltest, gldesk, glwin, glage: zink, EGL) link the same library.
 # Each program is linked into $BUILD/tests (with its debug information:
 # addr2line, gdb) and goes stripped into root/tests, replaced there only
 # when it changed (putstripped.sh: the guest's root is kept up to date by
@@ -60,8 +60,8 @@ if [ -f "$ROOT/$objtype/lib.gcc/ape/libglfw3.a" ]; then
 		-Wl,-u,eglGetDisplay -Wl,-u,vkGetInstanceProcAddr -lglfw3 $libs -lm
 	put "$O/glfwtest"
 fi
-# rsvk: vktri in Rust (ash, ../9front-ui stage 1b), built by cargo with ../9front-rust's
-# stage-1 rustc for x86_64-unknown-plan9 and linked by the cross gcc above (the view of this
+# rsvk: vktri in Rust (ash), built by cargo with the stage-1 rustc of toolchain/rust
+# (RUST_DIR in paths.env) for x86_64-unknown-plan9 and linked by the cross gcc above (the view of this
 # tree: libp9, APE, libvulkan.a); the crates are in rsvk/vendor (no network). Skipped
 # without that rustc.
 RUSTC=${RUSTC:-$RUST_DIR/rust/build/host/stage1/bin/rustc}
@@ -89,7 +89,7 @@ if [ "$objtype" = amd64 ] && [ -x "$RUSTC" ] && command -v cargo >/dev/null; the
 	 RUSTFLAGS="-L $O -l screenpeek -l draw -l 9 -l fmt -l utf -l stdc++ -C link-arg=-Wl,--gc-sections" \
 	 cargo build --offline --release --target $T)
 	put "$O/rsvk/$T/release/rsvk"
-	# eframetest: eframe on wgpu's Vulkan, ../9front-rust's (tests/crates/eframetest:
+	# eframetest: eframe on wgpu's Vulkan, RUST_DIR's (tests/crates/eframetest:
 	# crates.io's crates, its patched winit and wgpu-*: cargo-plan9.toml)
 	if [ -d "$RUST_DIR/tests/crates/eframetest" ]; then
 		(cd "$RUST_DIR/tests/crates/eframetest" &&

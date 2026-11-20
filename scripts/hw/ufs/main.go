@@ -6,7 +6,7 @@
 // written anew around its filesystem package, with one difference: no TCP
 // keepalive. net.Listen turns it on (Go: 15 s idle, then 9 probes 15 s
 // apart), so the host dropped the connection of a laptop asleep for more
-// than ~150 s, and its root with it (suspend, x1-suspend.md). A client
+// than ~150 s, and its root with it (suspend to RAM). A client
 // that is gone for good is noticed at its next request instead.
 //
 // Flags as Harvey's: -addr, -ntype, and the filesystem package's -root,

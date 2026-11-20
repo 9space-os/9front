@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-The native gcc on the install CD (/$objtype/gnu, ../9front-gcc): boot to
-rio, then over the serial rc: gcc runs, compiles and links a POSIX program
+The native gcc on the install CD (/$objtype/gnu, toolchain/gcc: GCC_DIR in
+paths.env): boot to the desktop, then over the serial rc: gcc runs, compiles and links a POSIX program
 over APE, and a native Plan 9 program (/sys/src/cmd/echo.c with libc.a
 from /$objtype/lib.gcc); both run; gccmk builds hoc from its mkfile.
 

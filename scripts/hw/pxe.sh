@@ -6,11 +6,12 @@
 # and the kernel, and the kernel's root is served by ufs from this host
 # (nobootprompt=tcp, fs=this host, fsport=), as for the QEMU guests.
 #
-# Host side, in $PXE_DIR ($CLI_DIR/pxe; not the QEMU guests' ufsroot):
-#	tftp/		bootx64.efi, 9bootpxe.0, amd64/9pc64, cfg/pxe/<mac> (plan9.ini)
+# Host side, in $PXE_DIR (default $CLI_DIR/pxe; not the QEMU guests' ufsroot):
 #	ufsroot/	the root (scripts/guest/gen-ufs-root.sh)
-#	dnsmasq.conf	for the one command run as root (printed)
 #	stick.img	or 9boot, plan9.ini and the kernel on a USB stick (BIOS and UEFI)
+# and, shared by every PXE_DIR, in $CLI_DIR/pxe:
+#	tftp/		bootx64.efi, 9bootpxe.0, amd64/9pc64, cfg/pxe/<mac> (plan9.ini)
+#	dnsmasq.conf	for the one command run as root (printed)
 #
 # The root also has the MCP server (MCP_DIR, tools/mcp: /amd64/bin/9front-mcp,
 # /sys/lib/mcp/deny, the token in /usr/glenda/lib/mcptoken, kept in
@@ -47,7 +48,7 @@
 #		(another machine's: its programs, without its own files)
 #	DNSMASQ	the dnsmasq in the printed command (default: dnsmasq)
 #	PLAN9	the tree of the system to boot (default this one; e.g. a
-#		worktree of another branch: ../tree-nix), built and with
+#		worktree of another branch: tree-nix, TREE_NIX in paths.env), built and with
 #		its boot loaders (scripts/guest/build-boot.sh)
 #	KARGS	more plan9.ini lines, space separated
 #	QEMU	1: the same in QEMU instead (OVMF, QEMU's own DHCP and TFTP,
@@ -58,7 +59,7 @@
 set -e
 # HERE: this script's tree (the machines, termcpu, the root's generator);
 # ROOT: the system's
-# (PLAN9=, e.g. ../tree-nix: its kernel, loaders, root and tests/hw)
+# (PLAN9=, e.g. the tree-nix worktree: its kernel, loaders, root and tests/hw)
 HERE=$(cd "$(dirname "$0")/../.." && pwd)
 ROOT=${PLAN9:-$HERE}
 . "$ROOT/scripts/lib/paths.sh"

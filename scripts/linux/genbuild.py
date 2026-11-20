@@ -4,8 +4,9 @@
   genbuild.py [-n]
 	writes sys/src/linux/build.json (amd64): libkpi9.a (the Plan 9
 	side, kpi/plan9), libkpi.a (the Linux side, kpi/linux and the
-	OpenBSD kernel API under it, kpi/obsd),
-	liblinux.a (what BUILD names, from vendor/ or our replace/) and
+	OpenBSD kernel API under it, kpi/obsd), libkpitest.a (Linux's
+	dma-buf selftests, SELFTESTS), liblinux.a (what BUILD names, from
+	vendor/ or our replace/) and
 	libamdgpu.a (of it drivers/gpu/drm/amd), one
 	build object per directory (its own include path and KBUILD_MODNAME,
 	as Kbuild has them); sys/src/cmd/aux/gpu/i915/build.json,

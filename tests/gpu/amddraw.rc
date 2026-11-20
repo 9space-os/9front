@@ -1,5 +1,5 @@
 #!/bin/rc
-# aux/amdgpu with its screen; wsys with its own devdraw (-d, ../9front-ui PLAN
+# aux/amdgpu with its screen; wsys with its own devdraw (-d, the ui plan
 # stage 4c) on the card: drawcmp through the kernel's devdraw and through
 # wsys -d, the same SHA-1s; the GPU composing wsys -d's screen (wsyscomp.rc:
 # two vktri, one covered); the overlay plane under -d (wsysovl.rc); the

@@ -1,8 +1,8 @@
 #!/bin/bash
-# weston's example clients for 9front (../9front-ui PLAN §12): weston-simple-shm
-# (wl_shm) and weston-simple-egl (GLES on EGL's Wayland platform), built with
-# ../9front-gcc against the tree (libwayland, libvulkan.a's EGL and GLES), from
-# the release in sys/src/weston/VERSION (the sha256 is the check; the port's
+# weston's example clients for 9front: weston-simple-shm (wl_shm) and
+# weston-simple-egl (GLES on EGL's Wayland platform), built with the cross gcc
+# of toolchain/gcc (GCC_DIR) against the tree (libwayland, libvulkan.a's EGL
+# and GLES), from the release in sys/src/weston/VERSION (the sha256 is the check; the port's
 # changes in sys/src/weston/patches). The protocols' code is made by the host's
 # wayland-scanner from weston's and wayland-protocols' XML.
 #
