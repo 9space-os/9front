@@ -11,7 +11,10 @@
  * way; the bar itself is the hostowner's only (none may not attach it).
  * 9space: a segment marked "lost" and removed because its maker exits
  * is not revoked to a fault: a process writing there lives on, all its
- * pages one page of its own; removed otherwise, it still faults.
+ * pages one page of its own; removed otherwise, it still faults.  And a
+ * pager segment that nobody removes (its driver made it without
+ * ORCLOSE) is revoked when its queue's last reader (the driver) goes:
+ * lost, nothing the client writes reaches the bar.
  * Prints ok or FAIL lines.
  */
 #include <u.h>
@@ -331,6 +334,111 @@ lost(char *src, uvlong va, ulong *s)
 		fail("lost: %s still in #g", al);
 }
 
+/*
+ * 9space: a driver (a child) makes a pager queue and a pager segment of
+ * bar 0 without ORCLOSE, as aux/amdgpu did without its reset at exit,
+ * marks it lost, reads the queue and maps page 0 at the bar's 0x3000;
+ * a client (another child) attaches it.  The driver exits: its queue's
+ * last reader goes.  The client then writes page 0 and touches page 1
+ * (never mapped): no fault, the pages one page of its own; the bar
+ * keeps its word (the next driver's memory)
+ */
+static void
+pagerdead(void)
+{
+	char bar[32], q[32], pg[32], path[64], c;
+	int mk[2], us[2], fd, qfd, mpid, n;
+	ulong *b, *a;
+	uvlong va;
+	Waitmsg *w;
+
+	if(access("#G", AEXIST) < 0){
+		print("ok pager dead: no #G, skipped\n");
+		return;
+	}
+	snprint(bar, sizeof bar, "gpu0bar0");
+	if((b = segattach(0, bar, nil, 0x10000)) == (void*)-1){
+		print("ok pager dead: no %s (%r), skipped\n", bar);
+		return;
+	}
+	b[0x3000/4] = 0x5e6e0003;
+	snprint(q, sizeof q, "rvq.%d", getpid());
+	snprint(pg, sizeof pg, "rvpg.%d", getpid());
+	va = 0x5000e00000ULL;
+	pipe(mk);
+	pipe(us);
+	switch(mpid = rfork(RFPROC|RFFDG)){
+	case -1:
+		fail("pager dead: fork");
+		goto out;
+	case 0:
+		close(mk[0]);
+		if(mkseg(q) < 0 || ctl(q, "pager") < 0)
+			exits("queue");
+		snprint(path, sizeof path, "#g/%s/data", q);
+		if((qfd = open(path, OREAD)) < 0)
+			exits("queue data");
+		if(mkseg(pg) < 0 || ctl(pg, "va %#llux 0x2000 phys %s pager %s", va, bar, q) < 0
+		|| ctl(pg, "lost") < 0 || ctl(pg, "pages 0 0x3000") < 0)
+			exits("pager");
+		write(mk[1], "r", 1);
+		read(mk[1], &c, 1);	/* the client has it: go */
+		USED(qfd);
+		exits(nil);		/* the queue's last reader goes */
+	}
+	close(mk[1]);
+	if(read(mk[0], &c, 1) != 1){
+		fail("pager dead: the driver did not start");
+		goto out;
+	}
+	switch(rfork(RFPROC|RFFDG)){
+	case -1:
+		fail("pager dead: fork");
+		goto out;
+	case 0:
+		close(us[0]);
+		if((a = segattach(0, pg, (void*)va, 0x2000)) == (void*)-1)
+			exits("attach");
+		if(a[0] != 0x5e6e0003)
+			exits("wrong data");
+		write(us[1], "a", 1);
+		read(us[1], &c, 1);	/* the driver is gone */
+		((volatile ulong*)a)[0] = 0x1059;
+		if(((volatile ulong*)a)[1024] != 0x1059)	/* page 1: never mapped */
+			exits("its pages are not one page");
+		exits("pager dead ok");
+	}
+	close(us[1]);
+	if(read(us[0], &c, 1) != 1){
+		fail("pager dead: the client did not attach");
+		goto out;
+	}
+	write(mk[0], "g", 1);
+	close(mk[0]);
+	while((w = wait()) != nil && w->pid != mpid)
+		free(w);
+	free(w);
+	write(us[0], "g", 1);
+	close(us[0]);
+	w = wait();
+	if(w == nil || (n = strlen(w->msg)) < 15 || strcmp(w->msg + n - 15, ": pager dead ok") != 0)
+		fail("pager dead: the client ended with '%s', want 'pager dead ok'", w ? w->msg : "no wait message");
+	else
+		print("ok pager dead: the client writes on, its pages one page of its own\n");
+	free(w);
+	if(b[0x3000/4] != 0x5e6e0003)
+		fail("pager dead: the bar changed: %#lux", b[0x3000/4]);
+	else
+		print("ok pager dead: nothing reached the bar\n");
+out:
+	/* made without ORCLOSE: gone only by name */
+	snprint(path, sizeof path, "#g/%s", pg);
+	remove(path);
+	snprint(path, sizeof path, "#g/%s", q);
+	remove(path);
+	segdetach(b);
+}
+
 void
 main(void)
 {
@@ -445,6 +553,7 @@ main(void)
 	segdetach(s);
 	remove(path);
 	physparts();
+	pagerdead();
 	if(fails)
 		exits("fail");
 	print("segrevoke: ok\n");

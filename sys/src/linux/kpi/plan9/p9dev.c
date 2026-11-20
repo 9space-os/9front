@@ -10,6 +10,12 @@
 #include <u.h>
 #include <libc.h>
 #include "../include/kpi/p9.h"
+/*
+ * our #g segments, made and removed as every GPU driver's: the views
+ * (alias, phys, pager) ORCLOSE always, the sticky segments once the
+ * reset at exit is armed (p9_onexit: segarmed)
+ */
+#include "../../../cmd/aux/gpu/gpuseg.c"
 
 static char gdir[64];
 static int irqfd = -1;
@@ -150,12 +156,12 @@ p9_devopen(const char *dir)
 /*
  * 9space: the driver's last words (gpu(3) onexit): the reset of its
  * engines, run by the kernel when ctlfd closes, however the process
- * ends.  Only then are our segments made ORCLOSE (segcreate): their
- * pages may go back to the allocator with the process, since nothing
- * on the GPU uses them any more.  prog: lines "w32 bar off val" and
+ * ends.  Only then are our sticky segments made ORCLOSE (segcreate):
+ * their pages may go back to the allocator with the process, since
+ * nothing on the GPU uses them any more.  The views (alias, phys,
+ * pager) own no pages: ORCLOSE always.  prog: lines "w32 bar off val" and
  * "wait bar off mask want ms".
  */
-static int segorclose;
 
 int
 p9_onexit(const char *dir, unsigned int vendor, const char *prog)
@@ -189,7 +195,7 @@ p9_onexit(const char *dir, unsigned int vendor, const char *prog)
 			return -1;
 		}
 	}
-	segorclose = 1;
+	segarmed();
 	return 0;
 }
 
@@ -631,98 +637,11 @@ p9_meminfo(unsigned long long *total, unsigned long long *free)
 	return *total ? 0 : -1;
 }
 
-/*
- * a new segment's mode: front's devsegment gives each 0660, its owner
- * sets another by a wstat of the segment's ctl (segment(3))
- */
-static int
-segmode(char *name, ulong perm)
-{
-	char path[64];
-	Dir d;
-
-	snprint(path, sizeof path, "#g/%s/ctl", name);
-	nulldir(&d);
-	d.mode = perm & 0777;
-	return dirwstat(path, &d);
-}
-
-/*
- * 9space: our ORCLOSE segments' directories, open (segcreate): closing
- * one removes it (segrm), the process's end all of them
- */
-typedef struct Segfd Segfd;
-struct Segfd {
-	char	*name;
-	int	fd;
-};
-static Segfd *segfds;
-static int nsegfds, maxsegfds;
-static Lock segfdlk;
-
-/* make #g/name; 1 if made here, 0 if it was there, -1 on an error */
-static int
-segcreate(const char *name, ulong perm)
-{
-	char path[96];
-	Segfd *t;
-	int fd;
-
-	snprint(path, sizeof path, "#g/%s", name);
-	if((fd = create(path, OREAD|OCEXEC|(segorclose ? ORCLOSE : 0), DMDIR|perm)) < 0)
-		return access(path, AEXIST) == 0 ? 0 : -1;
-	if(!segorclose){
-		close(fd);
-		return 1;
-	}
-	lock(&segfdlk);
-	if(nsegfds == maxsegfds){
-		t = realloc(segfds, (maxsegfds + 64) * sizeof *t);
-		if(t == nil){
-			unlock(&segfdlk);
-			close(fd);	/* ORCLOSE: gone again */
-			return -1;
-		}
-		segfds = t;
-		maxsegfds += 64;
-	}
-	segfds[nsegfds].name = strdup((char*)name);
-	segfds[nsegfds].fd = fd;
-	nsegfds++;
-	unlock(&segfdlk);
-	return 1;
-}
-
-/* #g/name removed: by closing our ORCLOSE file of it, or else by name */
-static void
-segrm(const char *name)
-{
-	char path[96];
-	int i, fd;
-
-	fd = -1;
-	lock(&segfdlk);
-	for(i = 0; i < nsegfds; i++)
-		if(strcmp(segfds[i].name, (char*)name) == 0){
-			fd = segfds[i].fd;
-			free(segfds[i].name);
-			segfds[i] = segfds[--nsegfds];
-			break;
-		}
-	unlock(&segfdlk);
-	if(fd >= 0){
-		close(fd);
-		return;
-	}
-	snprint(path, sizeof path, "#g/%s", name);
-	remove(path);
-}
-
 /* the ORCLOSE segments open now (aux/i915's status: MAXNFD is 5000) */
 int
 p9_segfds(void)
 {
-	return nsegfds;
+	return segcount();
 }
 
 /*
@@ -747,7 +666,7 @@ p9_segalloc(const char *name, unsigned long size, unsigned long long *pa, int fl
 	va = segnext;
 	segnext += (size + (2<<20) - 1) & ~((2UL<<20) - 1);
 	unlock(&seglk);
-	if(segcreate(name, 0700) > 0 && segmode((char*)name, 0700) < 0){
+	if(segcreate(name, 0700, 0) > 0 && segmode((char*)name, 0700) < 0){
 		segrm(name);
 		return nil;
 	}
@@ -804,7 +723,7 @@ p9_segalias(const char *name, int n, const char **src, unsigned long long *off, 
 	va = segnext;
 	segnext += (size + (2<<20) - 1) & ~((2ULL<<20) - 1);
 	unlock(&seglk);
-	if(segcreate(name, 0700) > 0 && segmode((char*)name, 0700) < 0)
+	if(segcreate(name, 0700, 1) > 0 && segmode((char*)name, 0700) < 0)
 		goto err0;
 	snprint(path, sizeof path, "#g/%s/ctl", name);
 	if((fd = open(path, OWRITE)) < 0)
@@ -869,7 +788,7 @@ p9_segphys(const char *name, const char *phys, unsigned long long off, unsigned 
 	va = segnext;
 	segnext += (size + (2<<20) - 1) & ~((2ULL<<20) - 1);
 	unlock(&seglk);
-	if(segcreate(name, 0700) > 0 && segmode((char*)name, 0700) < 0)
+	if(segcreate(name, 0700, 1) > 0 && segmode((char*)name, 0700) < 0)
 		goto err;
 	snprint(path, sizeof path, "#g/%s/ctl", name);
 	if((fd = open(path, OWRITE)) < 0)
@@ -894,7 +813,7 @@ int
 p9_pagerq(const char *name)
 {
 	segrm(name);
-	if(segcreate(name, 0700) <= 0)
+	if(segcreate(name, 0700, 1) <= 0)
 		return -1;
 	if(segmode((char*)name, 0700) < 0 || p9_segctl(name, "pager") < 0){
 		segrm(name);
@@ -917,7 +836,7 @@ p9_segpager(const char *name, const char *phys, unsigned long long size, const c
 	va = segnext;
 	segnext += (size + (2<<20) - 1) & ~((2ULL<<20) - 1);
 	unlock(&seglk);
-	if(segcreate(name, 0700) > 0 && segmode((char*)name, 0700) < 0){
+	if(segcreate(name, 0700, 1) > 0 && segmode((char*)name, 0700) < 0){
 		segrm(name);
 		return nil;
 	}

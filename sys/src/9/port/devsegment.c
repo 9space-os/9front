@@ -180,6 +180,7 @@ srangeset(uintptr va, Segment *s)
 	free(r);
 }
 static	void	pagerqdead(Pagerq*);
+static	void	pagerqrevoke(Pagerq*);
 static	void	putpagerq(Pagerq*);
 
 /*
@@ -704,9 +705,55 @@ removegseg(int x, Globalseg *want, int going)
 		unlock(pg);
 		wakeup(&pg->r);
 	}
-	if(g->q != nil)
+	if(g->q != nil){
 		pagerqdead(g->q);
+		pagerqrevoke(g->q);
+	}
 	putgseg(g);
+}
+
+/*
+ * 9space: a queue whose driver went (its last reader, or the queue
+ * removed) leaves pager segments that nobody removed: a driver that
+ * could not make them ORCLOSE, or one removed by name meanwhile.  Each
+ * is revoked as its removal would (lost if marked so), so that no
+ * process keeps seeing the dead driver's memory through the pages it
+ * had mapped (the next driver hands that memory out again) nor faults on
+ * the others.  One at a time: segrevoke may sleep, globalseglock is a
+ * spin lock.
+ */
+static void
+pagerqrevoke(Pagerq *q)
+{
+	Globalseg *g;
+	Segment *s;
+	Pager *pg;
+	int i;
+
+	for(;;){
+		g = nil;
+		lock(&globalseglock);
+		for(i = 0; i < nglobalseg; i++){
+			if((g = globalseg[i]) == nil || !g->alias || (s = g->Segio.s) == nil
+			|| (s->type&SG_TYPE) != SG_PHYSICAL || (pg = s->pseg->pager) == nil
+			|| pg->q != q || pg->dead){
+				g = nil;
+				continue;
+			}
+			incref(&g->Ref);
+			break;
+		}
+		unlock(&globalseglock);
+		if(g == nil)
+			return;
+		pg = g->Segio.s->pseg->pager;
+		lock(pg);
+		pg->dead = 1;	/* once: the scan above skips it from now on */
+		unlock(pg);
+		wakeup(&pg->r);
+		segrevoke(g->Segio.s, g->lost);
+		putgseg(g);
+	}
 }
 
 static void
@@ -751,8 +798,10 @@ segmentclose(Chan *c)
 				lock(q);
 				last = --q->readers == 0;
 				unlock(q);
-				if(last)
+				if(last){
 					pagerqdead(q);
+					pagerqrevoke(q);
+				}
 			}
 			/* fall through */
 		case Qctl:

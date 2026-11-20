@@ -29,6 +29,7 @@
 #include <9p.h>
 #include "../gpufs.c"
 #include "../../nokill.c"
+#include "../gpuseg.c"	/* our #g segments: views ORCLOSE always, fixed ones after exitreset */
 
 enum {
 	/* virtio pci capability types */
@@ -486,63 +487,6 @@ findcaps(void)
 }
 
 /*
- * a new segment's mode: front's devsegment gives each 0660, its owner
- * sets another by a wstat of the segment's ctl (segment(3))
- */
-static int
-segmode(char *name, ulong perm)
-{
-	char path[64];
-	Dir d;
-
-	snprint(path, sizeof path, "#g/%s/ctl", name);
-	nulldir(&d);
-	d.mode = perm & 0777;
-	return dirwstat(path, &d);
-}
-
-/*
- * 9space: our segments go with us (ORCLOSE) once the kernel resets the
- * device when we end, however we end (gpu(3) onexit: exitreset): the
- * device then reads and writes none of their pages any more.  Their
- * directories stay open here; closing one removes it (rmseg).
- */
-static int segorclose;
-static struct {
-	char	name[32];
-	int	fd;
-} *segfds;
-static int nsegfds, maxsegfds;
-static Lock segfdlk;
-
-static void	rmseg(char*);
-
-static int
-segcreate(char *name, int perm)
-{
-	char path[64];
-	int fd;
-
-	snprint(path, sizeof path, "#g/%s", name);
-	if((fd = create(path, OREAD|OCEXEC|(segorclose ? ORCLOSE : 0), DMDIR|perm)) < 0)
-		return 0;	/* there already (or an error the ctl's open tells) */
-	if(!segorclose){
-		close(fd);
-		return 1;
-	}
-	lock(&segfdlk);
-	if(nsegfds == maxsegfds){
-		maxsegfds += 64;
-		segfds = erealloc9p(segfds, maxsegfds * sizeof segfds[0]);
-	}
-	snprint(segfds[nsegfds].name, sizeof segfds[nsegfds].name, "%s", name);
-	segfds[nsegfds].fd = fd;
-	nsegfds++;
-	unlock(&segfdlk);
-	return 1;
-}
-
-/*
  * the device reset when our ctl file closes: virtio 1.0 §4.1.4.3, the
  * device status (common configuration, byte 20) written 0, then read
  * until 0 (the reset done: §2.1.2)
@@ -560,7 +504,7 @@ exitreset(void)
 		fprint(gctlfd, "onexit clear");
 		return;
 	}
-	segorclose = 1;
+	segarmed();
 }
 
 /*
@@ -574,8 +518,9 @@ fixedseg(char *name, ulong size, int perm, uintptr *va)
 	char buf[256], path[64], *f[6];
 	int fd, n;
 
-	if(segcreate(name, perm) && segmode(name, perm) < 0){
-		rmseg(name);
+	/* a fixed segment owns its pages: ORCLOSE once the reset at exit is armed */
+	if(segcreate(name, perm, 0) && segmode(name, perm) < 0){
+		segrm(name);
 		return 0;
 	}
 	snprint(path, sizeof path, "#g/%s/ctl", name);
@@ -596,24 +541,6 @@ fixedseg(char *name, ulong size, int perm, uintptr *va)
 	return strtoull(f[4], nil, 0);
 }
 
-static void
-rmseg(char *name)
-{
-	char path[64];
-	int i;
-
-	lock(&segfdlk);
-	for(i = 0; i < nsegfds; i++)
-		if(strcmp(segfds[i].name, name) == 0){
-			close(segfds[i].fd);	/* ORCLOSE: removed */
-			segfds[i] = segfds[--nsegfds];
-			unlock(&segfdlk);
-			return;
-		}
-	unlock(&segfdlk);
-	snprint(path, sizeof path, "#g/%s", name);
-	remove(path);
-}
 
 /* the virtqueue memory */
 static void
@@ -1347,7 +1274,7 @@ blobcreate(Vctx *c, int mem, int flags, uvlong blobid, uvlong size)
 	if(mem == Blobguest || mem == Blobhost3dguest){
 		snprint(r->seg, sizeof r->seg, "gpu0blob%d", r->id);
 		if((r->segpa = fixedseg(r->seg, size, 0770, &r->segva)) == 0){
-			rmseg(r->seg);
+			segrm(r->seg);
 			free(r);
 			return "no contiguous memory for the blob";
 		}
@@ -1367,7 +1294,7 @@ blobcreate(Vctx *c, int mem, int flags, uvlong blobid, uvlong size)
 	}
 	if(simplecmd(rq, Hdrsz+32+16*n) < 0){
 		if(r->seg[0])
-			rmseg(r->seg);
+			segrm(r->seg);
 		free(r);
 		return "RESOURCE_CREATE_BLOB failed";
 	}
@@ -1569,7 +1496,7 @@ resunref(Vctx *c, int id)
 			break;
 		}
 	if(r->seg[0])
-		rmseg(r->seg);
+		segrm(r->seg);
 	free(r);
 	return nil;
 }
@@ -1705,7 +1632,7 @@ ctxnew(char *uid, int *id, char **reply)
 	c->id = i+1;
 	snprint(c->seg, sizeof c->seg, "gpu0ctx%d", c->id);
 	if((c->segpa = fixedseg(c->seg, Ctxsegsz, 0770, &c->segva)) == 0){
-		rmseg(c->seg);
+		segrm(c->seg);
 		free(c);
 		return nil;
 	}
@@ -1736,7 +1663,7 @@ ctxfree(void *lc)
 		ctxhdr(rq, Ctxdestroy, c->id);
 		simplecmd(rq, sizeof rq);
 	}
-	rmseg(c->seg);
+	segrm(c->seg);
 	vctxs[c->id-1] = nil;
 	free(c->reply);
 	free(c);

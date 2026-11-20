@@ -274,6 +274,11 @@ there is none: the waiting faults fail.
 .PP
 Removing the segment, or the queue, or closing the queue's last
 reader fails its faults too.
+9space: removing the queue or closing its last reader (the driver
+died) also revokes each pager segment of the queue that is still
+there, as removing it would: lost if so marked, else to a fault.
+The pages it had mapped, the driver's memory that the next driver
+hands out again, stay mapped in no process.
 Reading the control file says how many pages are there and whether a
 fault waits for the driver.
 .PP

@@ -104,6 +104,14 @@ the file server.
 Every driver serves the same tree; what a family does not have is
 missing.
 .PP
+When a driver dies, every view of an object it gave a client (a
+segment: alias, phys or pager) goes with it and is lost
+.RI ( segment (3)):
+its pages map a zeroed page of their own in every process, so a client
+writing there goes on until its next request says the device is lost,
+and nothing it writes reaches memory the next driver hands out.
+This holds whether or not the driver could arm its reset at exit;
+only the segments that own pages wait for that.
 A driver killed and started again is in the share at once: a program
 that lost its device (VK_ERROR_DEVICE_LOST: Mesa's venus reports it as
 other drivers do, its
