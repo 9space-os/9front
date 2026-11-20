@@ -94,7 +94,8 @@ static unsigned long preaders;
 static struct chunk *dchunks;
 static struct cref *drefs;
 static unsigned long nreleased, ndeferred;	/* chunks given back; of those, bookkeeping not yet freed */
-static unsigned long npressure;		/* the times the memory ran short (poolwatch) */
+static unsigned long npressure, nshortsecs;	/* the times the memory ran short, and its seconds (kpi_poolcheck) */
+static int wasshort;			/* short at the last check */
 static int watching;			/* poolwatch runs */
 static int poolwatch(void *);
 
@@ -430,10 +431,15 @@ poolrelease(struct work_struct *w)
 int
 kpi_poolcheck(unsigned long f, unsigned long h, unsigned long r)
 {
-	if (f >= 2 * r)
+	if (f >= 2 * r) {
+		wasshort = 0;
 		return 0;
+	}
 	p9_qlock(plock);
-	npressure++;
+	if (!wasshort)
+		npressure++;	/* a new time; then its seconds */
+	nshortsecs++;
+	wasshort = 1;
 	p9_qunlock(plock);
 	kpi_shrink(GFP_KERNEL, 2 * r - f);
 	poolgive(1);
@@ -571,8 +577,8 @@ kpi_pool_status(char *buf, int n)
 		nwhole += c->nfree == CHUNKPAGES;
 	}
 	p9_qunlock(plock);
-	return snprintf(buf, n, "pool chunks %lu (contiguous %lu, scattered %lu), %lu MB, pages free %lu, chunks wholly free %lu, released %lu, deferred %lu, memory short %lu\n",
-		nc, ncontig, nc - ncontig, nc * (CHUNK >> 20), nfree, nwhole, nreleased, ndeferred, npressure);
+	return snprintf(buf, n, "pool chunks %lu (contiguous %lu, scattered %lu), %lu MB, pages free %lu, chunks wholly free %lu, released %lu, deferred %lu, memory short %lu times, %lu s\n",
+		nc, ncontig, nc - ncontig, nc * (CHUNK >> 20), nfree, nwhole, nreleased, ndeferred, npressure, nshortsecs);
 }
 
 /*

@@ -492,7 +492,7 @@ physically contiguous where the kernel has such a run, else scattered.
 .B status
 shows it:
 .IP
-.BI "pool chunks " n " (contiguous " c ", scattered " s "), " mb " MB, pages free " f ", chunks wholly free " w ", released " r ", deferred " d ", memory short " m
+.BI "pool chunks " n " (contiguous " c ", scattered " s "), " mb " MB, pages free " f ", chunks wholly free " w ", released " r ", deferred " d ", memory short " m " times, " s " s"
 .PP
 .I released
 counts chunks given back to the system,
@@ -509,7 +509,9 @@ line); below twice the headroom, before the pager swaps or kills, the
 drivers' shrinkers give back the objects nobody uses and every chunk
 wholly free goes back, the reserve too;
 .I m
-counts those times.
+counts the times memory ran short and
+.I s
+its seconds in all.
 The threshold may need tuning once a soak under memory pressure has
 shown how it behaves.
 .PP

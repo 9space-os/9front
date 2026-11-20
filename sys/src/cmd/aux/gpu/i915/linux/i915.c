@@ -256,7 +256,7 @@ poolstat4(unsigned long *nc, unsigned long *rel, unsigned long *def, unsigned lo
 	unsigned long c, s, mb, f;
 
 	kpi_pool_status(buf, sizeof(buf));
-	return sscanf(buf, "pool chunks %lu (contiguous %lu, scattered %lu), %lu MB, pages free %lu, chunks wholly free %lu, released %lu, deferred %lu, memory short %lu",
+	return sscanf(buf, "pool chunks %lu (contiguous %lu, scattered %lu), %lu MB, pages free %lu, chunks wholly free %lu, released %lu, deferred %lu, memory short %lu times",
 		nc, &c, &s, &mb, &f, whole, rel, def, shortn) == 9 ? 0 : -1;
 }
 
