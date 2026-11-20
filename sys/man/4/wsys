@@ -1157,8 +1157,11 @@ A cursor drawn by
 the GPU windows; the GPU drivers' cursor plane is not.
 Each buffer is a segment of
 .IR wsys 's
-own as well; a process has room for some 250
-(of which Rust's threads take 64), so all windows together get about 190 buffers.
+own as well.
+The windows' clients' segments lie in address ranges
+.I wsys
+gives each window: on 386 there are 27 of them (32 MB each), on arm64
+32 (256 MB each), on amd64 more than enough.
 .I Rio
 in a window breaks when the window goes (its procs, on the note group's
 .BR hangup ,
