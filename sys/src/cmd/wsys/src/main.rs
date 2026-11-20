@@ -2940,6 +2940,9 @@ impl Wsys {
         self.ov = None;
         for w in self.wins.values_mut() {
             w.nooverlay = false;
+            // "overlay 0|1" said again: a client's new swapchain (made after
+            // the loss) hears that it may go onto the plane
+            w.ovsent = None;
         }
     }
 
