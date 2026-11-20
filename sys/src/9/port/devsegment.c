@@ -730,11 +730,14 @@ segmentclose(Chan *c)
 			 */
 			if(c->aux != nil){
 				/*
-				 * 9space: its owner going: pexit closes the fd
-				 * table after taking it from up (up->fgrp nil)
+				 * 9space: its owner going: the last reference
+				 * dropped by its exiting process (CGOING, pexit),
+				 * wherever this close runs (a closeproc too); a
+				 * closeproc closing a living process' chan (a
+				 * /srv entry removed) is no owner going
 				 */
 				if(c->flag & CRCLOSE)
-					removegseg(SEG(c), c->aux, up->fgrp == nil);
+					removegseg(SEG(c), c->aux, (c->flag & CGOING) != 0);
 				putgseg(c->aux);
 				c->aux = nil;
 			}

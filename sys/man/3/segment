@@ -202,7 +202,8 @@ to the control file of an alias, phys or pager segment says what
 happens when it is removed because the process that made it exits
 (its file opened
 .B ORCLOSE
-closed by the exit): it is not revoked to a fault but lost: every page
+closed by the exit, the exit dropping its last reference): it is not
+revoked to a fault but lost: every page
 of it, in every process that has it attached, maps one page of its own,
 zeroed then, writable, freed with the segment.
 Writes there go nowhere and nothing reaches another segment; reads see
@@ -212,7 +213,10 @@ A GPU driver marks so the views of objects it gives its clients
 when the driver dies, a client writing into such a view goes on
 until its next request to the driver says that the device is lost, as
 Linux maps a dummy page once a device is unplugged.
-Removing the segment otherwise, or writing
+Removing the segment otherwise (by name, or the file's last reference
+closed by a process that lives on, a
+.IR srv (3)
+entry removed), or writing
 .BR revoke ,
 still revokes it to a fault: a client that writes into an object after
 it was freed is wrong.

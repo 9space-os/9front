@@ -167,6 +167,7 @@ enum
 	CFREE	= 0x0010,		/* not in use */
 	CRCLOSE	= 0x0020,		/* remove on close */
 	CCACHE	= 0x0080,		/* client cache */
+	CGOING	= 0x0100,		/* 9space: its last reference dropped by its exiting process (pexit) */
 };
 
 /* flag values */

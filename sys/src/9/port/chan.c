@@ -513,6 +513,8 @@ closeproc(void *)
 	}
 }
 
+static void cclose0(Chan*);
+
 void
 cclose(Chan *c)
 {
@@ -521,7 +523,30 @@ cclose(Chan *c)
 
 	if(decref(&c->Ref))
 		return;
+	cclose0(c);
+}
 
+/*
+ * 9space: cclose by an exiting process (pexit's closefgrp): if this was
+ * the last reference, the chan says so to its device's close (CGOING:
+ * segment(3)'s lost segments), wherever that close runs, here or in a
+ * closeproc
+ */
+void
+cclosegoing(Chan *c)
+{
+	if(c == nil || c->Ref.ref < 1 || c->flag&CFREE)
+		panic("cclosegoing %#p", getcallerpc(&c));
+
+	if(decref(&c->Ref))
+		return;
+	c->flag |= CGOING;
+	cclose0(c);
+}
+
+static void
+cclose0(Chan *c)
+{
 	if(devtab[c->type]->dc == L'M')
 	if((c->flag&COPEN) == 0 || (c->flag&(CRCLOSE|CCACHE)) == CCACHE)
 	if((c->qid.type&(QTEXCL|QTMOUNT|QTAUTH)) == 0)
@@ -545,6 +570,19 @@ ccloseq(Chan *c)
 
 	if(decref(&c->Ref) == 0)
 		closechanq(c);
+}
+
+/* 9space: ccloseq by an exiting process (forceclosefgrp): as cclosegoing */
+void
+ccloseqgoing(Chan *c)
+{
+	if(c == nil || c->Ref.ref < 1 || c->flag&CFREE)
+		panic("ccloseqgoing %#p", getcallerpc(&c));
+
+	if(decref(&c->Ref) == 0){
+		c->flag |= CGOING;
+		closechanq(c);
+	}
 }
 
 /*

@@ -1329,7 +1329,7 @@ pexit(char *exitstr, int freemem)
 	qunlock(&up->debug);
 
 	if(fgrp != nil)
-		closefgrp(fgrp);
+		closefgrpgoing(fgrp);	/* 9space: CGOING for the chans it last held */
 	if(egrp != nil)
 		closeegrp(egrp);
 	if(rgrp != nil)

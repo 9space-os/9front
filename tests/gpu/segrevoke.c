@@ -334,9 +334,9 @@ lost(char *src, uvlong va, ulong *s)
 void
 main(void)
 {
-	char src[32], al[32], path[64];
+	char src[32], al[32], path[64], srvp[64];
 	ulong *s;
-	int fd;
+	int fd, sfd, pfd, i;
 	char *e;
 	uvlong va;
 
@@ -414,6 +414,32 @@ main(void)
 	if(remove(path) < 0)
 		fail("remove %s: %r", al);
 	child(fd, "lost, but removed by name");
+
+	/*
+	 * 9space: lost, its ORCLOSE file's last reference in a srv(3) entry:
+	 * removing the entry closes it in a closeproc, its maker living on
+	 * (not an exit, no CGOING): still a fault
+	 */
+	snprint(al, sizeof al, "rval6.%d", getpid());
+	snprint(path, sizeof path, "#g/%s", al);
+	if((sfd = create(path, OREAD|ORCLOSE, DMDIR|0700)) < 0)
+		sysfatal("create %s: %r", path);
+	if(ctl(al, "va %#llux 0x2000 alias", va + 0xc00000) < 0 || ctl(al, "page 0 %s 0", src) < 0 || ctl(al, "lost") < 0)
+		sysfatal("alias 6: %r");
+	snprint(srvp, sizeof srvp, "/srv/segrevoke.%d", getpid());
+	if((pfd = create(srvp, OWRITE, 0600)) < 0 || fprint(pfd, "%d", sfd) < 0)
+		sysfatal("post %s: %r", srvp);
+	close(pfd);
+	close(sfd);	/* the srv entry has the last reference */
+	if((e = reader(al, va + 0xc00000, 0x2000, &fd)) != nil)
+		sysfatal("reader: %s", e);
+	if(remove(srvp) < 0)
+		fail("remove %s: %r", srvp);
+	for(i = 0; i < 40 && access(path, AEXIST) == 0; i++)
+		sleep(50);	/* the closeproc's close removes it */
+	if(access(path, AEXIST) == 0)
+		fail("lost, closed by a closeproc: %s still there", path);
+	child(fd, "lost, but its last reference closed by a closeproc (no exit)");
 
 	snprint(path, sizeof path, "#g/%s", src);
 	segdetach(s);
