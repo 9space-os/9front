@@ -15,3 +15,8 @@ mouseport=ps2
 *userpci=10ec/c852
 ether1=type=wlan
 firmware rtw89/rtw8852c_fw*
+# the processors' clock by aux/pstate (pstate(8)), policy auto:
+# amd-cppc: ~1.5 GHz idle, the package 2.97 W instead of 3.05 W,
+# measured 2026-11-20; the deeper idle states (*cstates=) stay off until
+# tested with the user at the machine
+pstate=auto

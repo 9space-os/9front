@@ -18,3 +18,8 @@ midscroll=on
 # X1's card is a 7265D (hardware revision type 0x210): 7265D-29
 firmware iwlwifi-7265-17.ucode.zst iwm-7265-17
 firmware iwlwifi-7265D-29.ucode.zst iwm-7265D-29
+# the processors' clock by aux/pstate (pstate(8)), policy auto:
+# intel-eist: ~680 MHz idle, the package 2.28 W instead of 2.55 W,
+# measured 2026-11-20; the deeper idle states (*cstates=) stay off until
+# tested with the user at the machine
+pstate=auto
