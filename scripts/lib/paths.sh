@@ -1,36 +1,7 @@
-# scripts/lib/paths.sh: where 9space's other parts are (the toolchains,
-# the other worktrees, the archives).  Sourced by the scripts after they
-# set ROOT (the tree); sets each variable of the distribution's paths.env
-# that the environment does not set already, as an absolute path.
-# paths.env: $NINESPACE_PATHS, else ROOT/../dist/paths.env (the umbrella's
-# layout), else ROOT/../9front-distribution/paths.env (the old one);
-# without it the old defaults (../9front-gcc, ...; the caches in
-# $XDG_CACHE_HOME/9space).
-__9space_paths(){
-	local f top line k v
-	for f in "$NINESPACE_PATHS" "$ROOT/../dist/paths.env" "$ROOT/../9front-distribution/paths.env"; do
-		[ -n "$f" ] && [ -f "$f" ] && break
-		f=
-	done
-	if [ -n "$f" ]; then
-		top=$(cd -P "$(dirname "$f")/.." && pwd -P)	# physical: through a symlink of the old layout too
-		while IFS= read -r line; do
-			case "$line" in ''|'#'*) continue;; esac
-			k=${line%%=*}
-			v=${line#*=}
-			case "$v" in /*) ;; *) v=$top/$v;; esac
-			v=$(realpath -m "$v")
-			[ -z "${!k}" ] && export "$k=$v"
-		done < "$f"
-	fi
-	# the defaults of the old layout, for what paths.env does not name
-	top=$(cd "$ROOT/.." && pwd)
-	: "${GCC_DIR:=$top/9front-gcc}" "${RUST_DIR:=$top/9front-rust}" "${GO_DIR:=$top/9front-go}"
-	: "${MCP_DIR:=$top/9front-mcp}" "${DISTFILES:=$top/9front-ui/src}" "${TREE_GCC:=$top/9front-gccwt}"
-	: "${PLAN9PORT:=$top/plan9port}"
-	: "${CACHE:=${XDG_CACHE_HOME:-$HOME/.cache}/9space}"
-	: "${CLI_DIR:=$CACHE/cli}"
-	: "${REPLICA_ROOT:=$CACHE/replica}"
-	export GCC_DIR RUST_DIR GO_DIR MCP_DIR DISTFILES TREE_GCC PLAN9PORT CACHE CLI_DIR REPLICA_ROOT
-}
-__9space_paths
+# scripts/lib/paths.sh: where 9space's other parts are (the toolchains, the
+# other worktrees, the archives, the caches).  Sourced by the scripts after
+# they set ROOT (the tree): the distribution's paths, by
+# dist/lib/9space-paths.sh (dist beside the tree), which exports each
+# variable of dist/paths.env the environment does not set already.
+[ -f "$ROOT/../dist/lib/9space-paths.sh" ] || { echo "paths.sh: no dist/ beside $ROOT (the tree belongs in 9space beside dist/: dist/bin/repos)" >&2; exit 1; }
+. "$ROOT/../dist/lib/9space-paths.sh" || exit 1
