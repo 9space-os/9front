@@ -32,7 +32,7 @@ mkdir -p "$X/tests"
 [ -z "$UFS_EXTRA" ] || cp -al "$UFS_EXTRA"/. "$X/" 2>/dev/null || cp -r "$UFS_EXTRA"/. "$X/"
 GOOS=plan9 GOARCH=$A CGO_ENABLED=0 GOCACHE=$CLI_DIR/mcp/gocache \
 	"$GO" build -C "$MCP_SRC" -o "$X/tests/9front-mcp" .
-rm -f "$CLI_DIR/mcp.sid"
+rm -f "$CLI_DIR/mcp.sid.127.0.0.1_$PORT"	# mcp.py's session with this server (its file per host and port)
 
 export HOLD=1 UFS_EXTRA=$X SMP=${SMP:-4} MEM=${MEM:-2048}
 # QMP for a guest that hangs (scripts/debug/qemu-ctl.py $CLI_DIR hmp ...), unless boot-cli makes one (SCREENSHOT)

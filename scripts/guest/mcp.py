@@ -9,16 +9,20 @@ usage: scripts/guest/mcp.py rc 'command' [timeout]   (command '-': from stdin)
                                                      again (after the user changed it)
 Prints the tool's text; exits 1 when the tool reports an error (rc: a non-empty
 status). env: MCPURL (http://127.0.0.1:$PORT/mcp, PORT 18091), MCPTOKEN
-(mcpguest); the session id is kept in $CLI_DIR/mcp.sid.
+(mcpguest); the session id is kept per server, in $CLI_DIR/mcp.sid.HOST_PORT of
+MCPURL (MCPSID: another file), so that guests and machines used at once keep
+their sessions apart.
 """
-import json, os, sys, time, urllib.error, urllib.request
+import json, os, sys, time, urllib.error, urllib.parse, urllib.request
 
 URL = os.environ.get("MCPURL", "http://127.0.0.1:%s/mcp" % os.environ.get("PORT", "18091"))
 TOKEN = os.environ.get("MCPTOKEN", "mcpguest")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import paths
 CLI_DIR = paths.get("CLI_DIR")	# dist/paths.env: 9space/cache/cli
-SID = os.path.join(CLI_DIR, "mcp.sid")
+# one session per server: its host and port in the name (127.0.0.1:18091 -> 127.0.0.1_18091)
+SID = os.environ.get("MCPSID") or os.path.join(CLI_DIR,
+    "mcp.sid." + urllib.parse.urlsplit(URL).netloc.replace(":", "_"))
 
 
 def post(body, sid=None, timeout=60):
