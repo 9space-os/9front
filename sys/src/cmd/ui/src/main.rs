@@ -65,6 +65,7 @@ enum UserEvent {
     Hangup,         // the clients' connection ended
     ClientGone,     // ui -c: the program that started it ended (its lifeline closed)
     Fonts,          // a window's other fonts are read (laterfonts)
+    GpuRetry,       // a window on the processor since its GPU was lost: the GPU tried again
 }
 
 /// UITIME=file: the start's phases appended to file, ms since main ("ui:
@@ -821,6 +822,23 @@ impl Painter {
         (Painter::Cpu { surface, renderer, rgba: Vec::new() }, "cpu".into())
     }
 
+    /// the GPU's device is lost (its driver gone): this painter draws no more
+    fn lost(&self) -> bool {
+        match self {
+            #[cfg(feature = "gpu")]
+            Painter::Gpu(g) => g.lost(),
+            Painter::Cpu { .. } => false,
+        }
+    }
+
+    fn gpu(&self) -> bool {
+        match self {
+            #[cfg(feature = "gpu")]
+            Painter::Gpu(_) => true,
+            Painter::Cpu { .. } => false,
+        }
+    }
+
     /// frame (fw x fh) into the window: all of it, or only part (x y w h:
     /// what changed), the rest as it was
     fn paint(&mut self, frame: PreparedFrame<'_>, fw: u32, fh: u32, part: Option<(u32, u32, u32, u32)>) {
@@ -892,6 +910,8 @@ struct Gui {
     wheel: (f64, f64),                   // the wheel's pixels not given to the widgets yet
     layers: Vec<(WidgetId, &'static str)>, // Masonry's layers open (a select's list, a tooltip): their roots, kinds
     later: Option<mpsc::Receiver<Vec<Vec<u8>>>>, // its other fonts, being read (laterfonts)
+    gpuretry: Option<std::time::Instant>, // on the processor since the GPU was lost: the GPU tried again then
+    gpuloss: Option<(std::time::Instant, u32)>, // the GPU's last loss, and how many came close together (the retry's backoff)
 }
 
 /// a property moving to its new value (animate), from as shown when it changed
@@ -1078,6 +1098,8 @@ impl App {
             wheel: (0.0, 0.0),
             layers: Vec::new(),
             later: (!later.is_empty()).then(|| laterfonts(later, self.proxy.clone())),
+            gpuretry: None,
+            gpuloss: None,
         };
         // the size the node asks for (a window node's: made so already)
         if let Some(n) = self.fs.scene.nodes.get(node) {
@@ -1707,6 +1729,49 @@ impl App {
             }
             registerlater(g);
         }
+        // the GPU's device lost (gpu(4)'s driver killed and started again):
+        // a painter anew, on the GPU if it is back, else on the processor and
+        // the GPU tried again every 2 s (as wsys' compositor does)
+        let retry = g.gpuretry.is_some_and(|t| std::time::Instant::now() >= t);
+        if g.painter.lost() || retry {
+            // lost again soon after the last loss (an out of memory that is
+            // real, a driver that keeps failing): the processor, the GPU tried
+            // again later and later, not a new GPU painter every frame
+            let now = std::time::Instant::now();
+            let mut n = 0;
+            if g.painter.lost() {
+                n = match g.gpuloss {
+                    Some((t, k)) if now.duration_since(t) < std::time::Duration::from_secs(10) => k + 1,
+                    _ => 0,
+                };
+                g.gpuloss = Some((now, n));
+            }
+            let cpu = self.cpu || (n > 0 && !retry);
+            let (p, name) = Painter::new(&g.window, cpu);
+            let gpu = p.gpu();
+            g.painter = p;
+            g.drawn = None;
+            g.window.request_redraw();
+            if g.node == ROOT {
+                self.fs.renderer = name.clone();
+            }
+            eprintln!("ui: {} the GPU's loss: {name}", if retry { "again after" } else { "after" });
+            if gpu || self.cpu {
+                g.gpuretry = None;
+            } else {
+                let k = g.gpuloss.map_or(0, |l| l.1);
+                let wait = std::time::Duration::from_secs((2u64 << k.min(5)).min(60));
+                if k > 0 {
+                    eprintln!("ui: the GPU lost {} times in a row: on the processor, the GPU again in {} s", k + 1, wait.as_secs());
+                }
+                g.gpuretry = Some(now + wait);
+                let proxy = self.proxy.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(wait);
+                    let _ = proxy.send_event(UserEvent::GpuRetry);
+                });
+            }
+        }
         // something moving: another frame, a FRAME after this one began
         let moving = !self.anims.is_empty() || g.root.needs_anim() || g.wheel != (0.0, 0.0);
         self.lastframe = moving.then_some(now);
@@ -1794,6 +1859,13 @@ impl ApplicationHandler<UserEvent> for App {
             UserEvent::Fonts => {
                 for g in &mut self.guis {
                     registerlater(g);
+                }
+            }
+            UserEvent::GpuRetry => {
+                for g in &self.guis {
+                    if g.gpuretry.is_some() {
+                        g.window.request_redraw();
+                    }
                 }
             }
         }

@@ -46,6 +46,8 @@ cp "$HERE/widgets.rc" "$HERE/root/tests/widgets"
 cp "$ROOT/rc/bin/rcwidgets" "$HERE/root/tests/rcwidgets"
 chmod +x "$HERE/root/tests/widgets" "$HERE/root/tests/rcwidgets"
 cp "$HERE/uirestart.rc" "$HERE/root/tests/uirestart"
+cp "$HERE/uilost.rc" "$HERE/root/tests/uilost"
+chmod +x "$HERE/root/tests/uilost"
 # a plumber before wsys (its windows, ui among them, find it): plumbtest... to testport
 cp "$ROOT/tests/ui/plumbrules" "$HERE/root/tests/plumbrules"
 chmod +x "$HERE/root/tests/uiserver" "$HERE/root/tests/uirestart"
@@ -69,4 +71,26 @@ echo "$ur" | grep -q '^uirestart: all passed' && echo "ok a ui program outlives 
 kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null
 wait $guest 2>/dev/null || true
 trap - EXIT
+
+# ui across its GPU driver's restart (uilost.rc): venus (virtio-gpu-gl), wsys -g;
+# the host's render node is needed (none while the card is VFIO's)
+if ls /dev/dri/renderD* >/dev/null 2>&1; then
+	CPU=host MEM=1024 UFS_EXTRA=$HERE/root \
+	QEMU_EXTRA="-vga none -display egl-headless -device virtio-gpu-gl-pci,blob=true,venus=true,hostmem=256M -object memory-backend-memfd,id=mem1,size=1024M,share=on -machine memory-backend=mem1" \
+		setsid bash "$ROOT/scripts/guest/mcp-guest.sh" 'aux/virtiogpu' "bind -a '#i' /dev" "bind -a '#m' /dev" \
+		>"$CLI_DIR/uilostguest.log" 2>&1 &
+	guest=$!
+	trap 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true' EXIT
+	$M wait 600 >/dev/null
+	lo=$($M rc 'bind /tests/ui /bin/ui; /tests/wsys -g -x -i /tests/uilost >/tmp/lost.log >[2=1] </dev/null; cat /tmp/lost.log' 300 2>&1) || true
+	echo "$lo" | grep -E '^lost: ' | sed 's/^lost: //'
+	echo "$lo" | grep -q '^lost: ok the GPU again' && echo "$lo" | grep -q '^lost: ok a click counts after it' &&
+		! echo "$lo" | grep -q '^lost: FAIL' && echo "ok ui across its GPU driver's restart: on the GPU again" ||
+		{ echo "FAIL ui across its GPU driver's restart"; fail=1; }
+	kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null
+	wait $guest 2>/dev/null || true
+	trap - EXIT
+else
+	echo "skip ui across its GPU driver's restart: no render node on the host"
+fi
 exit $fail

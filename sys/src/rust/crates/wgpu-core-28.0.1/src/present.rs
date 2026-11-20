@@ -285,7 +285,13 @@ impl Surface {
 
         let device = &present.device;
 
-        device.check_is_valid()?;
+        // 9front: a device lost (its driver gone) presents nothing, but the
+        // texture acquired goes all the same: kept, it holds the swapchain's
+        // acquire semaphore, and destroying the swapchain then panics
+        if let Err(e) = device.check_is_valid() {
+            present.acquired_texture = None;
+            return Err(e.into());
+        }
         let queue = device.get_queue().unwrap();
 
         let texture = present
@@ -335,7 +341,10 @@ impl Surface {
 
         let device = &present.device;
 
-        device.check_is_valid()?;
+        if let Err(e) = device.check_is_valid() {
+            present.acquired_texture = None; // 9front: as in present
+            return Err(e.into());
+        }
 
         let texture = present
             .acquired_texture

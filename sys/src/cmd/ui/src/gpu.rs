@@ -31,6 +31,7 @@ pub struct Gpu {
     pub name: String,
     cache: Option<(wgpu::PipelineCache, std::path::PathBuf, Option<Vec<u8>>)>, // vello's pipelines, kept across starts (with the data read)
     saved: bool, // the cache's data written after the first frame
+    lost: Arc<std::sync::atomic::AtomicBool>, // the device lost (its driver gone): ui makes its painter anew
 }
 
 /// where the pipeline cache of this adapter is kept: $home/lib/ui/cache (the
@@ -148,6 +149,28 @@ impl Gpu {
         }))
         .map_err(|e| format!("device: {e}"))?;
         crate::mark("gpu: device");
+        // the driver gone (gpu(4): killed, started again): wgpu says the device is lost
+        let lost = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let l = lost.clone();
+        device.set_device_lost_callback(move |_, msg| {
+            eprintln!("ui: the GPU device lost: {msg}");
+            l.store(true, std::sync::atomic::Ordering::Relaxed);
+        });
+        // wgpu's errors are fatal (its default) but those of a lost device and
+        // its memory gone (venus with a dead renderer fails allocations as out
+        // of memory, before the device-lost callback): the painter is made
+        // anew instead, on the processor if the GPU cannot
+        let l = lost.clone();
+        device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
+            let msg = e.to_string();
+            let oom = matches!(e, wgpu::Error::OutOfMemory { .. });
+            if oom || l.load(std::sync::atomic::Ordering::Relaxed) || msg.to_lowercase().contains("lost") {
+                l.store(true, std::sync::atomic::Ordering::Relaxed);
+                eprintln!("ui: wgpu, the device lost: {msg}");
+                return;
+            }
+            panic!("wgpu error: {msg}");
+        }));
         // vello's pipelines from the data of the starts before (fallback: data
         // that is not this driver's, or damaged, is ignored: an empty cache)
         let cache = if device.features().contains(wgpu::Features::PIPELINE_CACHE) {
@@ -205,7 +228,13 @@ impl Gpu {
             name: i.name,
             cache,
             saved: false,
+            lost,
         })
+    }
+
+    /// the device is lost: this Gpu draws no more
+    pub fn lost(&self) -> bool {
+        self.lost.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     fn resize(&mut self, w: u32, h: u32) {

@@ -1,0 +1,46 @@
+#!/bin/rc
+# ui across a GPU driver's restart, run by wsys -g -x -i on venus (aux/virtiogpu):
+# uiclient's ui draws on the GPU; the driver is killed (as the pager does) and
+# started again; ui meets the lost device, draws on the processor meanwhile and
+# on the GPU again once the driver is back (its renderer says so), and a click
+# still counts. Lines "lost: ok ..." or "lost: FAIL ...".
+fn ok { echo lost: ok $* }
+fn fail { echo lost: FAIL $* }
+fn waitfor { # file pattern tenths
+	n=0
+	while(! grep -s $2 $1 && test $n -lt $3){ sleep 0.1; n=`{echo $n+1 | hoc} }
+	grep -s $2 $1
+}
+fn m { echo A $1 $2 $3; sleep 0.1 }
+fn drvpids { ps | awk '$NF == "virtiogpu" {print $2}' }
+/tests/uiclient >/tmp/uic >[2=1] </dev/null &
+if(! waitfor /tmp/uic '^ready' 300){ fail uiclient: `{cat /tmp/uic}; exit fail }
+r=`{cat /mnt/uic/renderer}
+if(~ $r(1) gpu) ok before: $r
+if not fail before: $r
+for(p in `{drvpids})
+	@{echo kill >/proc/$p/note} >[2]/dev/null
+# a frame to draw after the loss: ui meets it then
+o=`{cat /mnt/uic/ctl}
+nr=`{cat /mnt/uic/nodes/b/rect}
+bx=`{echo 'int('$o(1)'+('$nr(1)+$nr(3)')/2)' | hoc}
+by=`{echo 'int('$o(2)'+('$nr(2)+$nr(4)')/2)' | hoc}
+{ m $bx $by 0; m $bx $by 1; m $bx $by 0 } >/dev/mousein
+sleep 2
+r=`{cat /mnt/uic/renderer}
+ok meanwhile: $r
+aux/virtiogpu >[2]/dev/null
+n=0
+while(! ~ `{cat /mnt/uic/renderer} gpu* && test $n -lt 150){
+	{ m $bx $by 0 } >/dev/mousein
+	sleep 0.2
+	n=`{echo $n+1 | hoc}
+}
+r=`{cat /mnt/uic/renderer}
+if(~ $r(1) gpu) ok the GPU again: $r
+if not fail not on the GPU again: $r
+{ m $bx $by 1; m $bx $by 0 } >/dev/mousein
+if(waitfor /tmp/uic '^event click b' 50) ok a click counts after it
+if not fail no click after it: `{tail -3 /tmp/uic}
+grep -s 'ui: (after|again after) the GPU' /tmp/uic && ok `{grep 'ui: (after|again after) the GPU' /tmp/uic | sed 3q}
+echo lost: done
