@@ -1,0 +1,121 @@
+From a2eb2ec25bb13b2e7d59ecf87471b0731311f622 Mon Sep 17 00:00:00 2001
+From: port <port@localhost>
+Date: Fri, 20 Nov 2026 06:45:39 +0100
+Subject: [PATCH] venus: a lost device as Vulkan's "Lost Device": recording
+ goes on, status queries report it
+
+With the renderer gone (the instance lost, patch 0045), a command
+buffer's submit to the ring failed and turned it INVALID: End and the
+next Begin answered VK_ERROR_OUT_OF_HOST_MEMORY, and programs had to
+guess. As on anv and RADV, recording now succeeds after a loss (the
+commands go nowhere) and the next queue submit reports
+VK_ERROR_DEVICE_LOST.
+
+The generated vn_call_* answer a missing reply with
+VK_ERROR_OUT_OF_HOST_MEMORY. vn_lost_report() turns that into
+VK_ERROR_DEVICE_LOST where the command may report it (vk.xml):
+vkGetQueryPoolResults, vkGetSemaphoreCounterValue, vkGetEventStatus.
+Object creation keeps its OOM, which vk.xml allows: a "successful"
+buffer would come back with memory requirements of 0.
+---
+ src/virtio/vulkan/vn_command_buffer.c |  9 +++++++++
+ src/virtio/vulkan/vn_common.h         | 14 ++++++++++++++
+ src/virtio/vulkan/vn_query_pool.c     |  1 +
+ src/virtio/vulkan/vn_sync.c           | 10 +++++-----
+ 4 files changed, 29 insertions(+), 5 deletions(-)
+
+diff --git a/src/virtio/vulkan/vn_command_buffer.c b/src/virtio/vulkan/vn_command_buffer.c
+index 1780d77..5996be9 100644
+--- a/src/virtio/vulkan/vn_command_buffer.c
++++ b/src/virtio/vulkan/vn_command_buffer.c
+@@ -1109,6 +1109,15 @@ vn_cmd_submit(struct vn_command_buffer *cmd)
+ 
+    if (vn_ring_submit_command_simple(dev->primary_ring, &cmd->cs) !=
+        VK_SUCCESS) {
++      /*
++       * 9front: the renderer gone (the instance lost): the commands go
++       * nowhere and the command buffer stays usable, as on a device that is
++       * lost (recording succeeds; the submit reports VK_ERROR_DEVICE_LOST)
++       */
++      if (vn_instance_is_lost(dev->instance)) {
++         vn_cs_encoder_reset(&cmd->cs);
++         return;
++      }
+       cmd->base.vk.state = MESA_VK_COMMAND_BUFFER_STATE_INVALID;
+       return;
+    }
+diff --git a/src/virtio/vulkan/vn_common.h b/src/virtio/vulkan/vn_common.h
+index a93d5b7..bb06078 100644
+--- a/src/virtio/vulkan/vn_common.h
++++ b/src/virtio/vulkan/vn_common.h
+@@ -456,6 +456,20 @@ vn_instance_set_lost(struct vn_instance *instance, const char *why);
+ bool
+ vn_instance_is_lost(struct vn_instance *instance);
+ 
++/*
++ * 9front: a call that waited for a reply that did not come as the renderer
++ * is gone (the generated vn_call_* answer VK_ERROR_OUT_OF_HOST_MEMORY then):
++ * VK_ERROR_DEVICE_LOST for the commands that may report it (queries and
++ * status, Vulkan's "Lost Device"), so that programs need not guess
++ */
++static inline VkResult
++vn_lost_report(struct vn_instance *instance, VkResult result)
++{
++   return result == VK_ERROR_OUT_OF_HOST_MEMORY && vn_instance_is_lost(instance)
++             ? VK_ERROR_DEVICE_LOST
++             : result;
++}
++
+ static inline bool
+ vn_relax_warn(struct vn_relax_state *state)
+ {
+diff --git a/src/virtio/vulkan/vn_query_pool.c b/src/virtio/vulkan/vn_query_pool.c
+index cc3fae1..ac97381 100644
+--- a/src/virtio/vulkan/vn_query_pool.c
++++ b/src/virtio/vulkan/vn_query_pool.c
+@@ -237,6 +237,7 @@ vn_get_query_pool_results(VkDevice device,
+    result = vn_call_vkGetQueryPoolResults(
+       dev->primary_ring, device, queryPool, firstQuery, queryCount,
+       packed_size, packed_data, packed_stride, packed_flags);
++   result = vn_lost_report(dev->instance, result);
+ 
+    if (packed_data == pData)
+       return result;
+diff --git a/src/virtio/vulkan/vn_sync.c b/src/virtio/vulkan/vn_sync.c
+index 7e2ab42..1a951b7 100644
+--- a/src/virtio/vulkan/vn_sync.c
++++ b/src/virtio/vulkan/vn_sync.c
+@@ -516,8 +516,8 @@ vn_get_semaphore_counter_value(VkDevice dev_handle,
+          /* Emit a synchronous vkGetSemaphoreCounterValue to catch renderer
+           * device lost without tangling with sfb internals.
+           */
+-         VkResult result = vn_call_vkGetSemaphoreCounterValue(
+-            dev->primary_ring, dev_handle, sem_handle, out_value);
++         VkResult result = vn_lost_report(dev->instance, vn_call_vkGetSemaphoreCounterValue(
++            dev->primary_ring, dev_handle, sem_handle, out_value));
+          if (result == VK_ERROR_DEVICE_LOST && !VN_DEBUG(LOST)) {
+             vn_log(dev->instance, "aborting on sfb device lost");
+             abort();
+@@ -558,8 +558,8 @@ vn_get_semaphore_counter_value(VkDevice dev_handle,
+          vn_sync_feedback_cmd_recycle(dev, &sem->feedback);
+       }
+    } else {
+-      VkResult result = vn_call_vkGetSemaphoreCounterValue(
+-         dev->primary_ring, dev_handle, sem_handle, out_value);
++      VkResult result = vn_lost_report(dev->instance, vn_call_vkGetSemaphoreCounterValue(
++         dev->primary_ring, dev_handle, sem_handle, out_value));
+       if (result != VK_SUCCESS)
+          return result;
+ 
+@@ -956,7 +956,7 @@ vn_GetEventStatus(VkDevice device, VkEvent event)
+    if (ev->feedback_slot)
+       result = vn_feedback_get_status(ev->feedback_slot);
+    else
+-      result = vn_call_vkGetEventStatus(dev->primary_ring, device, event);
++      result = vn_lost_report(dev->instance, vn_call_vkGetEventStatus(dev->primary_ring, device, event));
+ 
+    return vn_result(dev->instance, result);
+ }
+-- 
+2.56.0
+

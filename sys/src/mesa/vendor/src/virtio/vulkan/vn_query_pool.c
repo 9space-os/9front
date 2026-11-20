@@ -237,6 +237,7 @@ vn_get_query_pool_results(VkDevice device,
    result = vn_call_vkGetQueryPoolResults(
       dev->primary_ring, device, queryPool, firstQuery, queryCount,
       packed_size, packed_data, packed_stride, packed_flags);
+   result = vn_lost_report(dev->instance, result);
 
    if (packed_data == pData)
       return result;

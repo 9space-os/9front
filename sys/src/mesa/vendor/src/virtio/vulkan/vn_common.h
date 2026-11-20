@@ -456,6 +456,20 @@ vn_instance_set_lost(struct vn_instance *instance, const char *why);
 bool
 vn_instance_is_lost(struct vn_instance *instance);
 
+/*
+ * 9front: a call that waited for a reply that did not come as the renderer
+ * is gone (the generated vn_call_* answer VK_ERROR_OUT_OF_HOST_MEMORY then):
+ * VK_ERROR_DEVICE_LOST for the commands that may report it (queries and
+ * status, Vulkan's "Lost Device"), so that programs need not guess
+ */
+static inline VkResult
+vn_lost_report(struct vn_instance *instance, VkResult result)
+{
+   return result == VK_ERROR_OUT_OF_HOST_MEMORY && vn_instance_is_lost(instance)
+             ? VK_ERROR_DEVICE_LOST
+             : result;
+}
+
 static inline bool
 vn_relax_warn(struct vn_relax_state *state)
 {

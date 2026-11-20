@@ -401,15 +401,15 @@ start:
 	 * VKTRI_AGAIN: the device lost (its driver gone): all of it anew, from
 	 * the instance on (the device's objects go with it)
 	 */
-#define LOST(r) do { if((r) == VK_ERROR_DEVICE_LOST && again){ \
-		printf("ok device lost (frame %u): a new instance and device\n", frames); fflush(stdout); \
+#define LOST(r, where) do { if((r) == VK_ERROR_DEVICE_LOST && again){ \
+		printf("ok device lost at the %s (frame %u): a new instance and device\n", where, frames); fflush(stdout); \
 		vkDestroySwapchainKHR(dev, sc, NULL); vkDestroyDevice(dev, NULL); \
 		vkDestroySurfaceKHR(inst, surf, NULL); vkDestroyInstance(inst, NULL); \
 		nlost++; tlost = now(); goto start; } } while(0)
 	for(; frames == 0 || now() - t0 < secs; frames++){
 		uint32_t idx;
 		VkResult r = vkAcquireNextImageKHR(dev, sc, UINT64_MAX, acquired, VK_NULL_HANDLE, &idx);
-		LOST(r);
+		LOST(r, "acquire");
 		if(r == VK_ERROR_OUT_OF_DATE_KHR && again){
 			/* VKTRI_AGAIN: a new swapchain, on (its wsys gone: in the next one) */
 			rebuild(dev, &swci, &sc, img, &nimg, view, fb, rp);
@@ -436,7 +436,7 @@ start:
 			 */
 			VkResult b = vkBeginCommandBuffer(cb, &cbi);
 			if(b != VK_SUCCESS && again)
-				LOST(vkDeviceWaitIdle(dev));
+				LOST(vkDeviceWaitIdle(dev), "begin, asked");
 			CHECK(b, "begin");
 		}
 		VkClearValue clear = { .color = { .float32 = { 0.0f, 0.0f, 0.4f, 1.0f } } };
@@ -461,7 +461,7 @@ start:
 		{
 			VkResult e = vkEndCommandBuffer(cb);
 			if(e != VK_SUCCESS && again)
-				LOST(vkDeviceWaitIdle(dev));
+				LOST(vkDeviceWaitIdle(dev), "end, asked");
 			CHECK(e, "end");
 		}
 
@@ -477,7 +477,7 @@ start:
 			.pSignalSemaphores = &done,
 		};
 		r = vkQueueSubmit(q, 1, &si, fence);
-		LOST(r);
+		LOST(r, "submit");
 		CHECK(r, "vkQueueSubmit");
 		VkPresentInfoKHR pi = {
 			.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -488,7 +488,7 @@ start:
 			.pImageIndices = &idx,
 		};
 		r = vkQueuePresentKHR(q, &pi);
-		LOST(r);
+		LOST(r, "present");
 		if(r == VK_ERROR_OUT_OF_DATE_KHR && again){
 			CHECK(vkWaitForFences(dev, 1, &fence, VK_TRUE, UINT64_MAX), "fence");
 			vkResetFences(dev, 1, &fence);
@@ -504,7 +504,7 @@ start:
 		CHECK(r, "vkQueuePresentKHR");
 		{
 			VkResult w = vkWaitForFences(dev, 1, &fence, VK_TRUE, UINT64_MAX);
-			LOST(w);
+			LOST(w, "fence");
 			CHECK(w, "fence");
 		}
 		vkResetFences(dev, 1, &fence);

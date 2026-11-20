@@ -516,8 +516,8 @@ vn_get_semaphore_counter_value(VkDevice dev_handle,
          /* Emit a synchronous vkGetSemaphoreCounterValue to catch renderer
           * device lost without tangling with sfb internals.
           */
-         VkResult result = vn_call_vkGetSemaphoreCounterValue(
-            dev->primary_ring, dev_handle, sem_handle, out_value);
+         VkResult result = vn_lost_report(dev->instance, vn_call_vkGetSemaphoreCounterValue(
+            dev->primary_ring, dev_handle, sem_handle, out_value));
          if (result == VK_ERROR_DEVICE_LOST && !VN_DEBUG(LOST)) {
             vn_log(dev->instance, "aborting on sfb device lost");
             abort();
@@ -558,8 +558,8 @@ vn_get_semaphore_counter_value(VkDevice dev_handle,
          vn_sync_feedback_cmd_recycle(dev, &sem->feedback);
       }
    } else {
-      VkResult result = vn_call_vkGetSemaphoreCounterValue(
-         dev->primary_ring, dev_handle, sem_handle, out_value);
+      VkResult result = vn_lost_report(dev->instance, vn_call_vkGetSemaphoreCounterValue(
+         dev->primary_ring, dev_handle, sem_handle, out_value));
       if (result != VK_SUCCESS)
          return result;
 
@@ -956,7 +956,7 @@ vn_GetEventStatus(VkDevice device, VkEvent event)
    if (ev->feedback_slot)
       result = vn_feedback_get_status(ev->feedback_slot);
    else
-      result = vn_call_vkGetEventStatus(dev->primary_ring, device, event);
+      result = vn_lost_report(dev->instance, vn_call_vkGetEventStatus(dev->primary_ring, device, event));
 
    return vn_result(dev->instance, result);
 }

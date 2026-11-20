@@ -1109,6 +1109,15 @@ vn_cmd_submit(struct vn_command_buffer *cmd)
 
    if (vn_ring_submit_command_simple(dev->primary_ring, &cmd->cs) !=
        VK_SUCCESS) {
+      /*
+       * 9front: the renderer gone (the instance lost): the commands go
+       * nowhere and the command buffer stays usable, as on a device that is
+       * lost (recording succeeds; the submit reports VK_ERROR_DEVICE_LOST)
+       */
+      if (vn_instance_is_lost(dev->instance)) {
+         vn_cs_encoder_reset(&cmd->cs);
+         return;
+      }
       cmd->base.vk.state = MESA_VK_COMMAND_BUFFER_STATE_INVALID;
       return;
    }
