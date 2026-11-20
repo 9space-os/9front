@@ -83,6 +83,8 @@ check "LinuxKPI selftests (aux/i915 -T: segments, vmap, Linux's dma-buf selftest
 check "LinuxKPI: nth_page by frame, past the end of a chunk" grep -q 'selftest: nth_page by frame, past the chunk: ok' "$TMPD/kpitest.log"
 check "LinuxKPI: the page pool's status line" grep -qE 'selftest: pool chunks [1-9][0-9]* \(contiguous [0-9]+, scattered [0-9]+\), [0-9]+ MB, pages free [0-9]+, chunks wholly free [0-9]+, released 0, deferred 0' "$TMPD/kpitest.log"
 check "LinuxKPI: the pool gives back wholly free chunks while pages are looked up" grep -qE 'selftest: pool gives back wholly free chunks: .*, 0 wrong: ok' "$TMPD/kpitest.log"
+check "/dev/swap's free line (the pager's thresholds), as the pool's watcher reads it" grep -qE 'selftest: /dev/swap.s free line: [0-9]+ free, high water [0-9]+, headroom [0-9]+: ok' "$TMPD/kpitest.log"
+check "LinuxKPI: the pool when memory is short (its watcher's check)" grep -qE 'selftest: pool when memory is short: .*: ok' "$TMPD/kpitest.log"
 check "DMI from SMBIOS (#P/smbios): QEMU's strings" grep -q 'selftest: dmi: sys vendor "9front", product "gputest", bios "testbios" "1.2"' "$TMPD/kpitest.log"
 check "ACPI: the GPU's node by _ADR (aux/acpi's aml)" grep -qE 'selftest: acpi: GPU 0000:00:0[0-9a-f]\.0 is .*, _ADR 0x[0-9a-f]+: ok' "$TMPD/kpitest.log"
 check "ACPI: Store to an Index of a named buffer changes the buffer (libaml)" grep -q 'selftest: acpi: Store to an Index of a named buffer: ok' "$TMPD/kpitest.log"

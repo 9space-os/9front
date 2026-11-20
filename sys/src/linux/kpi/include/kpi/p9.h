@@ -36,6 +36,7 @@ int	p9_rwakeupall(void *rendez);
 /* procs */
 int	p9_proccreate(void (*fn)(void *), void *arg, unsigned int stack);
 int	p9_getpid(void);
+int	p9_memfree(unsigned long *free, unsigned long *high, unsigned long *room);	/* 9space: /dev/swap's free line */
 void	**p9_procdata(void);	/* a pointer each proc has for itself */
 void	p9_sleep(long ms);
 void	p9_yield(void);

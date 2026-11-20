@@ -492,7 +492,7 @@ physically contiguous where the kernel has such a run, else scattered.
 .B status
 shows it:
 .IP
-.BI "pool chunks " n " (contiguous " c ", scattered " s "), " mb " MB, pages free " f ", chunks wholly free " w ", released " r ", deferred " d
+.BI "pool chunks " n " (contiguous " c ", scattered " s "), " mb " MB, pages free " f ", chunks wholly free " w ", released " r ", deferred " d ", memory short " m
 .PP
 .I released
 counts chunks given back to the system,
@@ -501,6 +501,17 @@ those whose bookkeeping still waits for the lookups under way to end.
 A contiguous chunk that becomes wholly free is given back a second
 later, as long as the pool keeps its reserve free (2 chunks or an eighth
 of the pool, the more); scattered chunks stay.
+Once a second the pool compares the kernel's free pages with the
+pager's headroom
+.RI ( swap (3)'s
+.B free
+line); below twice the headroom, before the pager swaps or kills, the
+drivers' shrinkers give back the objects nobody uses and every chunk
+wholly free goes back, the reserve too;
+.I m
+counts those times.
+The threshold may need tuning once a soak under memory pressure has
+shown how it behaves.
 .PP
 The display is read as the firmware or aux/vga set it up (not changed
 yet): every output of the DDI ports, with Linux's names

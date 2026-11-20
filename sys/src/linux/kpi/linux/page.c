@@ -27,6 +27,8 @@
 #include <linux/smp.h>
 #include <linux/dma-mapping.h>
 #include <linux/workqueue.h>
+#include <linux/kthread.h>
+#include <linux/delay.h>
 #include <kpi/p9.h>
 
 #define CHUNK		(8UL << 20)
@@ -69,7 +71,7 @@ static inline unsigned int hashpfn(unsigned long pfn) { return (pfn * 2654435761
  * release store, the lookups take no lock.
  *
  * 9space: a contiguous chunk wholly free beyond the pool's reserve is
- * given back to the system (poolrelease): its segment at once (no correct
+ * given back to the system (poolgive): its segment at once (no correct
  * reader looks for a page nobody holds), its entries unlinked under plock
  * with a release store of the one before (a reader standing on one goes
  * on by its next, which stays), the entries and the chunk's bookkeeping
@@ -92,11 +94,14 @@ static unsigned long preaders;
 static struct chunk *dchunks;
 static struct cref *drefs;
 static unsigned long nreleased, ndeferred;	/* chunks given back; of those, bookkeeping not yet freed */
+static unsigned long npressure;		/* the times the memory ran short (poolwatch) */
+static int watching;			/* poolwatch runs */
+static int poolwatch(void *);
 
 /*
  * the grace argument: a lookup counts itself (a full fence) before it
- * reads a list; poolrelease unlinks, fences, then reads the count; so a
- * lookup either is counted when poolrelease looks, or starts after the
+ * reads a list; poolgive unlinks, fences, then reads the count; so a
+ * lookup either is counted when poolgive looks, or starts after the
  * unlink and cannot reach what was unlinked
  */
 static inline void lookup(void) { __atomic_add_fetch(&preaders, 1, __ATOMIC_SEQ_CST); __atomic_thread_fence(__ATOMIC_SEQ_CST); }
@@ -244,6 +249,8 @@ Again:
 		}
 	}
 	addref(byva, (u64)(uintptr_t)c->va, c);	/* (failed: virt_to_page walks the chunks) */
+	if (!watching && !IS_ERR(kthread_run(poolwatch, NULL, "kpipool")))
+		watching = 1;
 	c->nfree = CHUNKPAGES;
 	kfree(pa);
 	c->next = chunks;
@@ -400,12 +407,59 @@ reserve(void)
 	return r > 2 * CHUNKPAGES ? r : 2 * CHUNKPAGES;
 }
 
-/*
- * 9space: give back the contiguous chunks wholly free beyond the reserve;
- * then their bookkeeping, once no lookup is under way (else again later)
- */
+static void poolgive(int);
+
 static void
 poolrelease(struct work_struct *w)
+{
+	p9_qlock(plock);
+	releasing = 0;
+	p9_qunlock(plock);
+	poolgive(0);
+}
+
+/*
+ * 9space: memory running short (i915-pool.md (b)): once a second the
+ * kernel's free pages against the pager's headroom (swap(3)'s free line);
+ * below twice the headroom, before the pager swaps or kills, the
+ * shrinkers give back what they can (the GEM objects nobody uses, as
+ * Linux's kswapd asks them before reclaim; FreeBSD's LinuxKPI on
+ * vm_lowmem), then the chunks wholly free, the reserve too
+ */
+/* free pages f against the headroom r: 1 if it was short (and acted on) */
+int
+kpi_poolcheck(unsigned long f, unsigned long h, unsigned long r)
+{
+	if (f >= 2 * r)
+		return 0;
+	p9_qlock(plock);
+	npressure++;
+	p9_qunlock(plock);
+	kpi_shrink(GFP_KERNEL, 2 * r - f);
+	poolgive(1);
+	return 1;
+}
+
+static int
+poolwatch(void *a)
+{
+	unsigned long f, h, r;
+
+	for (;;) {
+		msleep(1000);
+		if (p9_memfree(&f, &h, &r) == 0)
+			kpi_poolcheck(f, h, r);
+	}
+	return 0;
+}
+
+/*
+ * 9space: give back the contiguous chunks wholly free beyond the reserve
+ * (none kept when memory is short); then their bookkeeping, once no
+ * lookup is under way (else again later)
+ */
+static void
+poolgive(int pressure)
 {
 	struct chunk **l, *c, *dc;
 	struct cref *dr, *r;
@@ -413,10 +467,9 @@ poolrelease(struct work_struct *w)
 	int n;
 
 	p9_qlock(plock);
-	releasing = 0;
 	for (c = chunks; c; c = c->next)
 		nfree += c->nfree;
-	res = reserve();
+	res = pressure ? 0 : reserve();
 	for (l = &chunks; (c = *l) != NULL; ) {
 		if (!c->contig || c->nfree != CHUNKPAGES || nfree < res + CHUNKPAGES) {
 			l = &c->next;
@@ -432,7 +485,7 @@ poolrelease(struct work_struct *w)
 		nchunks--;
 		nreleased++;
 		ndeferred++;
-		res = reserve();
+		res = pressure ? 0 : reserve();
 	}
 	dc = dchunks;
 	dr = drefs;
@@ -457,6 +510,10 @@ poolrelease(struct work_struct *w)
 			drefs = r;
 		}
 		if (!releasing) {
+			if (!releaseinit) {
+				INIT_DELAYED_WORK(&releasework, poolrelease);
+				releaseinit = 1;
+			}
 			releasing = 1;
 			p9_qunlock(plock);
 			schedule_delayed_work(&releasework, HZ);
@@ -498,7 +555,7 @@ void __free_pages(struct page *p, unsigned int order) { put_page(p); }
  * kmsout.h): its chunks, how many are physically contiguous and how many
  * scattered, its free pages, the chunks wholly free, and the chunks given
  * back to the system and those whose bookkeeping waits for the lookups
- * under way to end (poolrelease)
+ * under way to end (poolgive)
  */
 int
 kpi_pool_status(char *buf, int n)
@@ -514,8 +571,8 @@ kpi_pool_status(char *buf, int n)
 		nwhole += c->nfree == CHUNKPAGES;
 	}
 	p9_qunlock(plock);
-	return snprintf(buf, n, "pool chunks %lu (contiguous %lu, scattered %lu), %lu MB, pages free %lu, chunks wholly free %lu, released %lu, deferred %lu\n",
-		nc, ncontig, nc - ncontig, nc * (CHUNK >> 20), nfree, nwhole, nreleased, ndeferred);
+	return snprintf(buf, n, "pool chunks %lu (contiguous %lu, scattered %lu), %lu MB, pages free %lu, chunks wholly free %lu, released %lu, deferred %lu, memory short %lu\n",
+		nc, ncontig, nc - ncontig, nc * (CHUNK >> 20), nfree, nwhole, nreleased, ndeferred, npressure);
 }
 
 /*

@@ -163,6 +163,36 @@ p9_rsleep_ms(void *rendez, long ms)
 
 int p9_proccreate(void (*fn)(void*), void *arg, unsigned int stack) { return proccreate(fn, arg, stack); }
 int p9_getpid(void) { return getpid(); }
+
+/*
+ * 9space: the free user pages and the pager's high water mark and
+ * headroom, from /dev/swap's "free" line (swap(3)); -1 without it
+ */
+int
+p9_memfree(unsigned long *free, unsigned long *high, unsigned long *room)
+{
+	static int fd = -1;
+	char buf[512], *p;
+	int n;
+
+	if(fd < 0 && (fd = open("/dev/swap", OREAD)) < 0)
+		return -1;
+	if((n = pread(fd, buf, sizeof buf - 1, 0)) <= 0)
+		return -1;
+	buf[n] = 0;
+	if((p = strstr(buf, " free\n")) == nil)
+		return -1;
+	while(p > buf && p[-1] != '\n')
+		p--;
+	*free = strtoul(p, &p, 10);
+	if(*p++ != '/')
+		return -1;
+	*high = strtoul(p, &p, 10);
+	if(*p++ != '/')
+		return -1;
+	*room = strtoul(p, &p, 10);
+	return 0;
+}
 void **p9_procdata(void) { return threaddata(); }
 void p9_sleep(long ms) { sleep(ms); }
 void p9_yield(void) { sleep(0); }

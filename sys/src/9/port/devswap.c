@@ -582,7 +582,7 @@ swapclose(Chan *c)
 static long
 swapread(Chan *c, void *va, long n, vlong off)
 {
-	char tmp[256];		/* must be >= 18*NUMSIZE (Qswap) */
+	char tmp[320];		/* must be >= 21*NUMSIZE (Qswap) */
 	ulong reclaim;
 
 	switch((ulong)c->qid.path){
@@ -603,7 +603,8 @@ swapread(Chan *c, void *va, long n, vlong off)
 			"%lud/%lud reclaim\n"
 			"%llud/%llud/%llud kernel malloc\n"
 			"%llud/%llud/%llud kernel draw\n"
-			"%llud/%llud/%llud kernel secret\n",
+			"%llud/%llud/%llud kernel secret\n"
+			"%lud/%lud/%lud free\n",	/* 9space: the pager's thresholds */
 			(uvlong)conf.npage*BY2PG,
 			(uvlong)BY2PG,
 			conf.npage-conf.upages,
@@ -618,7 +619,8 @@ swapread(Chan *c, void *va, long n, vlong off)
 			(uvlong)imagmem->maxsize,
 			(uvlong)secrmem->curalloc,
 			(uvlong)secrmem->cursize,
-			(uvlong)secrmem->maxsize);
+			(uvlong)secrmem->maxsize,
+			palloc.freecount, swapalloc.highwater, swapalloc.headroom);
 		return readstr((ulong)off, va, n, tmp);
 	case Qswapfile:
 		if(n != BY2PG)

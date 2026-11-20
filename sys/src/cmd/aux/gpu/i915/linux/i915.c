@@ -224,6 +224,8 @@ poolstatus_selftest(void)
  * the chunks fewer, their bookkeeping freed once the lookups end
  */
 int	kpi_pool_status(char *buf, int n);	/* page.c */
+int	kpi_poolcheck(unsigned long f, unsigned long h, unsigned long r);	/* page.c: what its watcher does each second */
+int	p9_memfree(unsigned long *free, unsigned long *high, unsigned long *room);
 
 struct pooltest {
 	struct page	*held;
@@ -248,14 +250,60 @@ pool_reader(void *a)
 }
 
 static int
-poolstat(unsigned long *nc, unsigned long *rel, unsigned long *def)
+poolstat4(unsigned long *nc, unsigned long *rel, unsigned long *def, unsigned long *whole, unsigned long *shortn)
 {
 	char buf[256];
-	unsigned long c, s, mb, f, w;
+	unsigned long c, s, mb, f;
 
 	kpi_pool_status(buf, sizeof(buf));
-	return sscanf(buf, "pool chunks %lu (contiguous %lu, scattered %lu), %lu MB, pages free %lu, chunks wholly free %lu, released %lu, deferred %lu",
-		nc, &c, &s, &mb, &f, &w, rel, def) == 8 ? 0 : -1;
+	return sscanf(buf, "pool chunks %lu (contiguous %lu, scattered %lu), %lu MB, pages free %lu, chunks wholly free %lu, released %lu, deferred %lu, memory short %lu",
+		nc, &c, &s, &mb, &f, whole, rel, def, shortn) == 9 ? 0 : -1;
+}
+
+static int
+poolstat(unsigned long *nc, unsigned long *rel, unsigned long *def)
+{
+	unsigned long w, sh;
+
+	return poolstat4(nc, rel, def, &w, &sh);
+}
+
+/*
+ * 9space: memory running short (page.c's watcher, i915-pool.md (b)): the
+ * kernel's line (/dev/swap's free: swap(3)) as the watcher reads it, then
+ * the watcher's own check with a short value, after a load left chunks
+ * wholly free in the reserve: counted, the reserve given back too
+ */
+static int
+poolshort_selftest(void)
+{
+	static struct page *run[24];
+	unsigned long f, h, r, nc, rel0, rel, def, whole, sh0, sh;
+	int i, n, ms, okline, ok;
+
+	okline = p9_memfree(&f, &h, &r) == 0 && f > 0 && h > 0 && r > h;
+	pr_info("selftest: /dev/swap's free line: %lu free, high water %lu, headroom %lu: %s\n",
+		f, h, r, okline ? "ok" : "FAIL");
+	if (!okline)
+		return -EIO;
+	for (n = 0; n < 24; n++)	/* 24 MB: the reserve keeps 2 chunks of it */
+		if ((run[n] = alloc_pages(GFP_KERNEL, 8)) == NULL)
+			break;
+	for (i = 0; i < n; i++)
+		__free_pages(run[i], 8);
+	msleep(1500);		/* the delayed release: down to the reserve */
+	poolstat4(&nc, &rel0, &def, &whole, &sh0);
+	i = kpi_poolcheck(r, h, r);	/* free = headroom: short (below twice it) */
+	for (ms = 0; ms < 3000; ms += 100) {
+		poolstat4(&nc, &rel, &def, &whole, &sh);
+		if (def == 0)
+			break;
+		msleep(100);
+	}
+	ok = n == 24 && i == 1 && sh == sh0 + 1 && whole == 0 && rel > rel0 && def == 0;
+	pr_info("selftest: pool when memory is short: %lu chunks after, wholly free %lu, released %lu more, deferred %lu, short counted %lu: %s\n",
+		nc, whole, rel - rel0, def, sh - sh0, ok ? "ok" : "FAIL");
+	return ok ? 0 : -EIO;
 }
 
 enum { Npool = 1024, Poolorder = 4 };	/* 64 MB in runs of 64 KB: 8 chunks */
@@ -341,6 +389,9 @@ i915_kpitest(void)
 	if (r)
 		return r;
 	r = pool_selftest();
+	if (r)
+		return r;
+	r = poolshort_selftest();
 	if (r)
 		return r;
 	/* Linux's selftests of fences, chains, arrays, reservation objects; with the slab's checks */
