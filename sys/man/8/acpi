@@ -281,7 +281,9 @@ and moves the backlight of every panel a GPU driver serves
 .BR /shr/gpu/ \fIN\fP)
 one of sixteen steps for each brightness key, on a curve the eye sees as
 even (the maximum times
-.RI ( k /16)^3),
+.RI (( k + a )/(16+ a ))^3,
+.I a
+such that the lowest step is a thirty-second: each of the sixteen is seen),
 without one the
 firmware's
 .RB ( /dev/backlight ).

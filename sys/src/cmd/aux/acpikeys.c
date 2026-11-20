@@ -3,9 +3,12 @@
  * key brightnessup, brightnessdown, brightnesszero) on the backlight of
  * every panel a GPU driver serves (gpu(4): /shr/gpu/N, its
  * outputs/conn/backlight), one of sixteen steps at a time on a curve
- * the eye sees as even (max * (k/16)^3, as brightnessctl -e: a linear
+ * the eye sees as even (a cube, as brightnessctl -e: a linear
  * sixteenth was hardly seen near the top, coarse near the bottom),
- * never dark (a thirty-second at least) but by brightnesszero.  The drivers
+ * never dark but by brightnesszero: the cube starts at a thirty-second
+ * (max * ((k+a)/(16+a))^3, a such that step 0 is max/32), so that each
+ * of the sixteen steps is one the eye sees (a cube from 0, cut off at
+ * max/32, made steps 0-5 one: six steps lost at the bottom).  The drivers
  * are looked for at each key: one started later is found.  Without one
  * that has a backlight, aux/acpi's (/dev/backlight: the firmware's
  * levels, _BCM) is taken.
@@ -33,25 +36,44 @@ static char pspolicy[16];	/* pstate's policy before, "" if none */
 
 enum {
 	Nstep	= 16,
-	Gamma	= 3,	/* brightness = max * (k/Nstep)^Gamma */
+	Gamma	= 3,	/* brightness = max * ((k+a)/(Nstep+a))^Gamma */
+	Low	= 32,	/* step 0 is max/Low */
 };
+
+/* the curve's offset a: ((0+a)/(Nstep+a))^Gamma = 1/Low */
+static double
+offset(void)
+{
+	double c;
+
+	c = pow(1.0/Low, 1.0/Gamma);
+	return Nstep * c / (1 - c);
+}
 
 /* the value of step k */
 static long
 stepval(long max, int k)
 {
-	return (long)(max * pow((double)k/Nstep, Gamma) + 0.5);
+	double a;
+	long v;
+
+	a = offset();
+	v = (long)(max * pow((k + a) / (Nstep + a), Gamma) + 0.5);
+	return v > 0 ? v : 1;
 }
 
 /* the backlight's next value from cur, dir steps on the curve */
 static long
 next(long cur, long max, int dir)
 {
+	double a, x;
 	long v;
 	int k;
 
 	/* the step cur is at (rounded), then dir steps on */
-	k = (int)(Nstep * pow((double)cur/max, 1.0/Gamma) + 0.5) + dir;
+	a = offset();
+	x = (Nstep + a) * pow((double)cur/max, 1.0/Gamma) - a;
+	k = (int)floor(x + 0.5) + dir;
 	if(k > Nstep)
 		k = Nstep;
 	if(k < 0)
@@ -64,8 +86,8 @@ next(long cur, long max, int dir)
 		v = cur - 1;
 	if(v > max)
 		v = max;
-	if(v < max/32)
-		v = max/32 > 0 ? max/32 : 1;
+	if(v < stepval(max, 0))
+		v = stepval(max, 0);
 	return v;
 }
 
