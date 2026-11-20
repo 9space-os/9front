@@ -44,7 +44,7 @@
 #include <thread.h>
 #include <9p.h>
 #include "i915_drv.h"
-#include "../gpunoswap.c"
+#include "../../nokill.c"
 
 char *gdir = "#G/0";
 int debug, poll, uncached, global;
@@ -67,7 +67,7 @@ main(int argc, char **argv)
 {
 	int i;
 
-	gpunoswap("intelgpu");	/* before its rforks */
+	nokill("intelgpu");	/* before its rforks */
 	ARGBEGIN{
 	case 'd':
 		debug++;

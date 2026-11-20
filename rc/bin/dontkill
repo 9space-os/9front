@@ -1,12 +1,20 @@
 #!/bin/rc
-# dontkill regexp - mark invoker's processes with names matching regexp
-#	as not killable when the kernel runs out of memory
+# dontkill [-r] regexp - mark invoker's processes with names matching regexp
+#	as not killable when the kernel runs out of memory (nokill, proc(3));
+#	-r: noswap, also the last free pages: for those that free memory
+#	(the file servers, what serves the swap device). 9front: always noswap
+flag=nokill
+if(~ $1 -r){
+	flag=noswap
+	shift
+}
 if (! ~ $#* 1) {
-	echo $0 regexp >[1=2]
+	echo $0 '[-r] regexp' >[1=2]
 	exit usage
 }
-# see /sys/src/9/port/proc.c:/^killbig
-psu | awk '$NF ~ /'$1'/ {
-print "@{echo noswap >/proc/"$2"/ctl}"
+# see /sys/src/9/port/devswap.c:/^killbig
+# 9space: the name without its path (ps shows aux/acpikeys, /bin/batteryguard)
+psu | awk '{ n = $NF; sub(/.*\//, "", n) } n ~ /'$1'/ {
+print "@{echo '$flag' >/proc/"$2"/ctl}"
 }' | rc >/dev/null >[2=1]
 exit ''

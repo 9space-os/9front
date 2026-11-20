@@ -15,7 +15,7 @@
 #include <kpi/linux.h>
 #include "amdgpu.h"
 #include "../kmsout.h"
-#include "../gpunoswap.c"
+#include "../../nokill.c"
 
 /*
  * the Linux code runs on the procs' stacks: DC's bandwidth calculation
@@ -161,7 +161,7 @@ threadmain(int argc, char **argv)
 	nparam = 0;
 	drmdebug = 0;
 	loglevel = 6;	/* KERN_INFO */
-	gpunoswap("amdgpu");	/* before -w's proccreate and the kpi's procs */
+	nokill("amdgpu");	/* before -w's proccreate and the kpi's procs */
 	ARGBEGIN{
 	case 'd':
 		drmdebug = strtoul(EARGF(usage()), nil, 0);

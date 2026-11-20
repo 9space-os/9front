@@ -33,6 +33,7 @@ wlanboot(){
 		"for(p in \`{ps | awk '\$NF==\"wlansim\" {print \$2}'}) echo kill >/proc/\$p/ctl; sleep 1; grep 'status' /net/ether1/ifstats | sed 's/^/wlangone: /'; echo wlangone: done" \
 		"/tests/wlansim -d /dev/wlan1 >[2]/tmp/sim2.log &" \
 		"pfx=wlanre; ch=100; $waitassoc; ip/ping -n 2 10.0.9.1 >[2=1] | sed 's/^/wlanreping: /'" \
+		"for(p in \`{ps | awk '\$NF==\"wpa\" {print \$2}'}) echo kill >/proc/\$p/ctl; sleep 1; aux/wpa -s 9spacewpa /net/ether1; sleep 1; for(p in \`{ps | awk '\$NF==\"wpa\" {print \$2}'}) echo wlanwpaprot: \`{awk '{print \$13}' /proc/\$p/status}" \
 		"for(p in \`{ps | awk '\$NF==\"wlansim\" || \$NF==\"wpa\" {print \$2}'}) echo kill >/proc/\$p/ctl; sleep 1" \
 		"/tests/wlansim -d -r -65 /dev/wlan1 >[2]/tmp/sim3.log &" \
 		"echo essid 9space >/net/ether1/clone; pfx=wlan5g; ch=40; $waitassoc" \
@@ -114,6 +115,7 @@ userpciboot(){
 }
 check "the radio gone (wlansim killed): wifi.c no longer associated" bash -c "grep -q '^wlangone: done' '$C' && ! grep -q '^wlangone: status: associated' '$C'"
 check "a new radio: associated anew, aux/wpa's handshake again, ping" bash -c "grep -q 'wlansim2: wlansim: 9spacewpa: associated 020000000002 on channel 100' '$C' && grep -q 'wlansim2: wlansim: 9spacewpa: 4-way handshake: message 4 from 020000000002, mic ok: keys installed' '$C' && grep '^wlanreping: ' '$C' | grep -q 'rtt'"
+check "aux/wpa restarted by hand (not at boot by dontkill): nokill, it sets it itself (proc(3))" bash -c "grep -q '^wlanwpaprot: nokill' '$C' && ! grep '^wlanwpaprot: ' '$C' | grep -vq 'nokill'"
 check "boot with *userpci=1b36/0005 and QEMU's pci-testdev" userpciboot
 grep '^userpci: ' "$TMPD/console2" | sed 's/^/       /' | head -8
 check "#G has it: id 1b36/0005, its bars" bash -c "grep -q '^userpci: id 1b36/0005' '$TMPD/console2' && grep -q '^userpci: bar' '$TMPD/console2'"

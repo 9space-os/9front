@@ -137,4 +137,7 @@ if(~ $terminal *reform*){
 	reform/audio
 }
 
-dontkill '^(9660srv|acpi|acpikeys|cfs|cs|cwfs.*|disk|dns|dossrv|ether|factotum|gefs|hjfs|i2chid|ipconfig|kb|kfs|mntgen|paqfs|reboot|rtw89|usbd|venti|wpa)$'
+# 9space: noswap (-r: the last free pages too) only for what frees memory or
+# carries the way to the disk or the root; nokill for the rest (proc(3))
+dontkill -r '^(9660srv|cfs|cwfs.*|disk|dossrv|ether|gefs|hjfs|kfs|paqfs|usbd|venti)$'
+dontkill '^(acpi|acpikeys|cs|dns|factotum|i2chid|ipconfig|kb|mntgen|reboot|rtw89|wpa)$'

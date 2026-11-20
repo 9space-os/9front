@@ -4,6 +4,7 @@
 #include <mp.h>
 #include <libsec.h>
 #include <auth.h>
+#include "nokill.c"	/* 9space */
 
 enum {
 	PMKlen = 256/8,
@@ -1152,6 +1153,8 @@ main(int argc, char *argv[])
 	int rsnelen;
 	int n, try;
 
+	/* 9space: the pager's to kill no more, however it was started (nokill.c) */
+	nokill("wpa");
 	quotefmtinstall();
 	fmtinstall('H', encodefmt);
 	fmtinstall('E', eipfmt);

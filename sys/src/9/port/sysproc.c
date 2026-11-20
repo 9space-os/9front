@@ -152,6 +152,7 @@ sysrfork(uchar *list)
 	p->procmode = up->procmode;
 	p->privatemem = up->privatemem;
 	p->noswap = up->noswap;
+	p->nokill = up->nokill;
 	p->hang = up->hang;
 	if(up->procctl == Proc_tracesyscall)
 		p->procctl = Proc_tracesyscall;
@@ -822,6 +823,7 @@ sysexec(uchar *list)
 	up->noteureg = nil;
 	up->privatemem = 0;
 	up->noswap = 0;
+	up->nokill = 0;
 	up->pcycles = -up->kentry;
 	procsetup(up);
 	qunlock(&up->debug);

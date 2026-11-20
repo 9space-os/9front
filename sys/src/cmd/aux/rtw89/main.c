@@ -17,6 +17,7 @@
 #include <ureg.h>
 #include <kpi/linux.h>
 #include "rtw89.h"
+#include "../nokill.c"
 
 /* the Linux code runs on the procs' stacks, as aux/amdgpu's: Linux gives its code 16 KB */
 int	mainstacksize = 256*1024;
@@ -108,6 +109,7 @@ threadmain(int argc, char **argv)
 	 * says of machines with more than 4 GB (its BUGS)
 	 */
 	kpi_skb_memlimit = 1;
+	nokill("rtw89");	/* before the kpi's procs (nokill.c) */
 	ARGBEGIN{
 	case 'm':
 		kpi_skb_memlimit = atoi(EARGF(usage()));

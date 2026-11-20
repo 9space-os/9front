@@ -49,13 +49,22 @@ the pager's high water mark
 swaps out or, without swap, kills the biggest process it may: not the
 host owner's
 .B noswap
-processes,
-.IR proc (3),
-which are the GPU drivers,
-.IR gpu (4),
 and
-.IR wsys (4);
-when only those are left it waits for pages instead) and its headroom
+.B nokill
+processes,
+.IR proc (3):
+the file servers, the GPU drivers,
+.IR gpu (4),
+.IR wsys (4)
+and the system's servers
+.RI ( dontkill ,
+.IR kill (1));
+when only those are left it waits for pages instead and says so once;
+only
+.B noswap
+processes may take pages below
+.IR h )
+and its headroom
 .I r
 (the pager runs until that many are free).
 A program that keeps memory it could give back (the LinuxKPI's page pool

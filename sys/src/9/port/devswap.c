@@ -136,6 +136,10 @@ kickpager(void)
  */
 enum { Nokill, Killed, Exiting };
 
+/* 9space: the biggest protected process killbig passed over last */
+static ulong protmax, protpid;
+static char protname[KNAMELEN];
+
 static int
 killbig(void)
 {
@@ -146,13 +150,22 @@ killbig(void)
 
 	max = 0;
 	kp = nil;
+	protmax = 0;
 	for(i = 0; (p = proctab(i)) != nil; i++) {
 		if(p->state <= New || p->kp || p->parentpid == 0)
 			continue;
 		if(p->procctl == Proc_exitbig)
 			return Exiting;	/* try later when done exiting */
-		if((p->noswap || (p->procmode & 0222) == 0) && strcmp(eve, p->user) == 0)
+		if((p->noswap || p->nokill || (p->procmode & 0222) == 0) && strcmp(eve, p->user) == 0){
+			/* 9space: the biggest passed over, for the pager's message */
+			l = procpagecount(p);
+			if(l > protmax){
+				protmax = l;
+				protpid = p->pid;
+				kstrcpy(protname, p->text, sizeof protname);
+			}
 			continue;
+		}
 		l = procpagecount(p);
 		if(l > max){
 			kp = p;
@@ -235,7 +248,7 @@ pager(void*)
 			 * does when vm_pageout_oom finds no process: spinning
 			 * here (sched, reclaim, killbig at once again) took a
 			 * processor for good and freed nothing.  Nokill: only
-			 * the host owner's noswap processes are left.
+			 * the host owner's noswap and nokill processes are left.
 			 * Exiting: the one killed is stuck on its way out (a
 			 * mount's flush to a server that waits for pages).
 			 */
@@ -253,7 +266,8 @@ pager(void*)
 				break;
 			case Nokill:
 				if(!stuck)
-					print("pager: out of memory, no process to kill\n");
+					print("pager: out of memory, only protected processes left (the biggest: %s %lud, %lud KB)\n",
+						protname, protpid, protmax*(BY2PG/1024));
 				stuck = 1;
 				up->psstate = "Nomem";
 				tsleep(&up->sleep, return0, nil, 1000);
@@ -269,7 +283,7 @@ pager(void*)
 					goto Killbig;
 				x = 0;
 			}
-		} while(p->state <= New || p->noswap || !canqlock(&p->seglock));
+		} while(p->state <= New || p->noswap || p->nokill || !canqlock(&p->seglock));
 		up->psstate = "Pageout";
 
 		/* pageout segments in reverse order */

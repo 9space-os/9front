@@ -49,6 +49,7 @@ enum
 	CMkill,
 	CMnohang,
 	CMnoswap,
+	CMnokill,
 	CMpri,
 	CMprivate,
 	CMprofile,
@@ -78,7 +79,7 @@ enum{
 	Emask = Nevents - 1,
 };
 
-#define	STATSIZE	(2*28+12+9*12)
+#define	STATSIZE	(2*28+12+9*12+7)	/* 9space: + the protection */
 /*
  * Status, fd, and ns are left fully readable (0444) because of their use in debugging,
  * particularly on shared servers.
@@ -120,6 +121,7 @@ Cmdtab proccmd[] = {
 	CMhang,			"hang",			1,
 	CMnohang,		"nohang",		1,
 	CMnoswap,		"noswap",		1,
+	CMnokill,		"nokill",		1,
 	CMkill,			"kill",			1,
 	CMpri,			"pri",			2,
 	CMprivate,		"private",		1,
@@ -1027,7 +1029,7 @@ procread(Chan *c, void *va, long n, vlong off)
 			"%-27s %-27s %-11s "
 			"%11lud %11lud %11lud "
 			"%11lud %11lud %11lud "
-			"%11lud %11lud %11lud\n",
+			"%11lud %11lud %11lud %-6s\n",	/* 9space: the protection, proc(3) */
 			p->text, p->user, sps,
 			tk2ms(p->time[TUser]),
 			tk2ms(p->time[TSys]),
@@ -1036,7 +1038,8 @@ procread(Chan *c, void *va, long n, vlong off)
 			tk2ms(p->time[TCSys]),
 			tk2ms(p->time[TCReal]),
 			(ulong)(procpagecount(p)*BY2PG/1024),
-			p->basepri, p->priority);
+			p->basepri, p->priority,
+			p->noswap ? "noswap" : p->nokill ? "nokill" : "-");
 	statbufread:
 		if(offset >= j)
 			return 0;
@@ -1507,6 +1510,9 @@ procctlreq(Proc *p, char *va, int n)
 		break;
 	case CMnoswap:
 		p->noswap = 1;
+		break;
+	case CMnokill:
+		p->nokill = 1;
 		break;
 	case CMpri:
 		pri = atoi(cb->f[1]);

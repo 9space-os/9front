@@ -31,6 +31,7 @@
 			"threadtest.c",
 			"authtest.c",
 			"wpatest.c",
+			"reservetest.c",
 			"mptest.c",
 			"paktest.c",
 			"segtest.c",

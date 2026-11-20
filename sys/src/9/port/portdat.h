@@ -814,6 +814,7 @@ struct Proc
 	ulong	procmode;	/* proc device default file mode */
 	int	privatemem;	/* proc does not let anyone read mem */
 	int	noswap;		/* process is not swappable */
+	int	nokill;		/* 9space: not the pager's to kill, but no reserve (proc(3)) */
 	int	hang;		/* hang at next exec for debug */
 	int	procctl;	/* Control for /proc debugging */
 

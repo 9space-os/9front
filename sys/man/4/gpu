@@ -125,7 +125,7 @@ when the user has a share of their own (below), else in
 9space's: 9front has no GPU drivers.
 .PP
 When memory runs out the pager never kills a driver: each sets
-.B noswap
+.B nokill
 .RI ( proc (3))
 first thing in its main, so all its procs have it, however it was
 started.
@@ -133,11 +133,14 @@ The pager kills the biggest of the other processes instead: i915 and
 amdgpu are big (the LinuxKPI's page pool, the pages behind their
 clients' segments), the first it would choose; a client may go, as
 any other process.
-.B Noswap
+.B Nokill
 protects only processes of the host owner; the drivers run as the
 user who started them, the host owner on a terminal.
-It also lets a driver take the last free pages, which is why the
-LinuxKPI's pool gives memory back before the pager acts (below).
+Unlike
+.B noswap
+it gives a driver no claim on the last free pages: it waits for pages as
+any process, and the LinuxKPI's pool gives memory back before the pager
+acts (below).
 .PP
 .I Virtiogpu
 drives virtio-gpu (QEMU's
@@ -1351,7 +1354,7 @@ are ported this way.
 (the file server's part every driver shares),
 .B gpukms.c
 (i915's and amdgpu's: outputs, display, users),
-.B gpunoswap.c
+.B /sys/src/cmd/aux/nokill.c
 (every driver's)
 .br
 .B /sys/src/cmd/aux/gpu/i915

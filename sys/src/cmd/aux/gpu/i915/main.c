@@ -14,7 +14,7 @@
 #include <kpi/linux.h>
 #include "i915.h"
 #include "../kmsout.h"
-#include "../gpunoswap.c"
+#include "../../nokill.c"
 
 /*
  * the Linux code runs on the procs' stacks: more than libthread's 8 KB
@@ -165,7 +165,7 @@ threadmain(int argc, char **argv)
 	noserve = 0;
 	drmdebug = 0;
 	loglevel = 6;	/* KERN_INFO */
-	gpunoswap("i915");	/* before -w's proccreate and the kpi's procs */
+	nokill("i915");	/* before -w's proccreate and the kpi's procs */
 	ARGBEGIN{
 	case 'D':
 		nodisplay = 1;

@@ -28,7 +28,7 @@
 #include <thread.h>
 #include <9p.h>
 #include "../gpufs.c"
-#include "../gpunoswap.c"
+#include "../../nokill.c"
 
 enum {
 	/* virtio pci capability types */
@@ -2064,7 +2064,7 @@ main(int argc, char **argv)
 	int w, h;
 
 	w = h = 0;
-	gpunoswap("virtiogpu");	/* before its rforks */
+	nokill("virtiogpu");	/* before its rforks */
 	ARGBEGIN{
 	case 'd':
 		debug++;
