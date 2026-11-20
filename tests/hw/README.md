@@ -113,8 +113,9 @@ with uitick and uiwidgets (ui), vkcube (Vulkan), juggle and paint
 once; all must live to the round's end, then they are killed and the
 round checks that none is left, no process is Broken, wsys and aux/i915
 live and aux/i915 goes idle; the kernel's new messages, memory, battery,
-temperatures and clock go into the log. The host pings the machine,
-moves 50 MB each way over its WLAN address per round and calls it a
+temperatures and clock go into the log. The host pings the machine
+(`-H` its Ethernet address, required; `-w` its WLAN address, if any),
+moves 50 MB each way over the WLAN address per round and calls it a
 hang when the log stops growing and the machine stops answering. The
 machine writes to `/usr/glenda/soak` (in `$CLI_DIR/pxe/ufsroot`), the
 host to `$CLI_DIR/soak/<date>/` (`summary.txt`). It kills programs by

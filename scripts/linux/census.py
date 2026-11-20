@@ -85,13 +85,14 @@ def source(c):
 def compile1(c):
 	if not os.path.exists(source(c)):
 		return c, 'to write: replace/' + c
-	r = subprocess.run(['gcc'] + flags(c) + [source(c)], capture_output=True, text=True)
+	r = subprocess.run(['gcc'] + flags(c) + [source(c)], capture_output=True, text=True,
+		env=dict(os.environ, LC_ALL='C'))	# gcc's messages in English: matched below
 	if r.returncode == 0:
 		return c, None
-	m = re.search(r'fatal error: ([^:]+): (No such file|Datei oder Verzeichnis)', r.stderr)
+	m = re.search(r'fatal error: ([^:]+): (No such file)', r.stderr)
 	if m:
 		return c, 'missing ' + m.group(1)
-	m = re.search(r'(error|Fehler): (.*)', r.stderr)
+	m = re.search(r'(error): (.*)', r.stderr)
 	return c, 'error ' + (m.group(2) if m else r.stderr.strip().split('\n')[-1])
 
 def main():

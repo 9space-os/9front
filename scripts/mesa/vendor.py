@@ -44,6 +44,8 @@ VENDOR = os.path.join(ROOT, 'sys/src/mesa/vendor')
 APEINC = os.path.join(ROOT, 'sys/include/ape')
 P9 = os.path.join(ROOT, 'sys/src/mesa/plan9')
 OBJTYPE = os.environ.get('objtype', 'amd64')
+if OBJTYPE not in ('amd64', '386'):
+	sys.exit('mesa/vendor.py: objtype=%s: Mesa is vendored for amd64 and 386 only' % OBJTYPE)
 SUFFIX = {'amd64': '', '386': '.386'}[OBJTYPE]
 conflicts = []
 PUBLIC = ('include/vulkan/', 'include/vk_video/', 'include/EGL/', 'include/GL/',

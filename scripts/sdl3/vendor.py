@@ -20,6 +20,7 @@ os.makedirs(work, exist_ok=True)
 with tarfile.open(tarball) as t:
     t.extractall(work, filter='data')
 os.rename(os.path.join(work, 'SDL3-' + ver['version']), tree)
+major, minor, micro = ver['version'].split('.')
 ov = os.path.join(sdl, 'overlay')
 for d, _, fs in os.walk(ov):
     for f in fs:
@@ -27,7 +28,9 @@ for d, _, fs in os.walk(ov):
         shutil.copy2(os.path.join(d, f), os.path.join(tree, rel))
 
 defs = ['-D_REENTRANT', '-DUSING_GENERATED_CONFIG_H', '-DSDL_STATIC_LIB', '-DNDEBUG',
-        '-DSDL_BUILD_MAJOR_VERSION=3', '-DSDL_BUILD_MINOR_VERSION=4', '-DSDL_BUILD_MICRO_VERSION=20',
+        # the release's numbers, from VERSION (as SDL's CMake sets them)
+        '-DSDL_BUILD_MAJOR_VERSION=%s' % major, '-DSDL_BUILD_MINOR_VERSION=%s' % minor,
+        '-DSDL_BUILD_MICRO_VERSION=%s' % micro,
         '-DEGL_NO_X11', '-DMESA_EGL_NO_X11_HEADERS']
 config = os.path.join(sdl, 'plan9/include/build_config')
 ours = sorted(os.path.relpath(os.path.join(d, f), sdl)

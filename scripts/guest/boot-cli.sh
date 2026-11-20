@@ -37,7 +37,7 @@
 #         BOOTDISK    boot this disk image instead (scripts/guest/mkdisk.sh): no
 #                     host root, the image's boot loader, kernel and hjfs
 #         BOOTISO     boot this CD image instead (scripts/guest/mkiso.sh)
-#         UEFI        1: UEFI firmware (OVMF, $OVMF_CODE) instead of the BIOS
+#         UEFI        1: UEFI firmware (OVMF: OVMF_CODE, OVMF_VARS of paths.env) instead of the BIOS
 #         KVM         0: no KVM acceleration; otherwise x86 guests need /dev/kvm
 #                     (an arm64 guest on an x86 host is always emulated)
 #         KARGS       more kernel parameters (plan9.ini variables), e.g.
@@ -132,9 +132,9 @@ trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
 
 fw=()
 if [ "${UEFI:-0}" != 0 ]; then
-	OVMF_CODE=${OVMF_CODE:-/usr/share/edk2/x64/OVMF_CODE.4m.fd}
-	[ -f "$OVMF_CODE" ] || die "no OVMF firmware ($OVMF_CODE)"
-	cp "${OVMF_CODE%CODE*}VARS${OVMF_CODE##*CODE}" "$CLI_DIR/ovmf_vars.fd" || die "no OVMF variable store"
+	# the host's OVMF, where paths.env says (OVMF_CODE, OVMF_VARS)
+	[ -f "$OVMF_CODE" ] || die "no OVMF firmware (OVMF_CODE: $OVMF_CODE)"
+	cp "$OVMF_VARS" "$CLI_DIR/ovmf_vars.fd" || die "no OVMF variable store (OVMF_VARS: $OVMF_VARS)"
 	fw=(-drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
 		-drive "if=pflash,format=raw,file=$CLI_DIR/ovmf_vars.fd")
 fi

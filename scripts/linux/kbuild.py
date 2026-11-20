@@ -70,11 +70,14 @@ def truth(l, v, cfg):
 
 def linuxversion(tree):
 	"""the version of the Linux tree tree is (sys/src/linux/VERSION next to vendor/)"""
+	f = os.path.join(os.path.dirname(os.path.abspath(tree)), 'VERSION')
 	try:
-		w = open(os.path.join(os.path.dirname(os.path.abspath(tree)), 'VERSION')).read().split()[0]
+		w = open(f).read().split()[0]
 		return tuple(int(x) for x in w.split('-')[1].split('.')[:2])
-	except (OSError, IndexError, ValueError):
-		return (6, 6)
+	except (OSError, IndexError, ValueError) as e:
+		# no guess: $(src) is read differently before 6.10, the include
+		# paths would come out wrong without an error
+		sys.exit('kbuild: no Linux version in %s (%s)' % (f, e))
 
 def evaluate(path, cfg, v=None, tree=None, d=None):
 	"""the variables of a Makefile; include brings in others (the same

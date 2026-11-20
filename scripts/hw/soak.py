@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""soak.py [-m minutes] [-r seconds] [-w wlanaddr] [-H host] [-n]: the
+"""soak.py [-m minutes] [-r seconds] [-w wlanaddr] -H host [-n]: the
 laptop's working day as a test (tests/hw/soak.rc) on a machine booted by
 PXE (scripts/hw/pxe.sh), started over MCP and watched from here.
 
 It puts tests/hw/soak.rc and tests/gpu's vkcube into the PXE root
 ($CLI_DIR/pxe/ufsroot: /sys/lib/hwtest/soak.rc, /tests/vkcube), starts
 soak there in a note group of its own and then, until it ends, every
-minute: pings the machine (-H, its Ethernet address, and -w, its WLAN
-one), reads soak's log straight from the root (the machine writes it to
+minute: pings the machine (-H, its Ethernet address, required, and -w,
+its WLAN one, if given: both are the LAN's, not the repository's), reads soak's log straight from the root (the machine writes it to
 /usr/glenda/soak/log on the host's ufs), and once a round fetches 50 MB
 from the WLAN address (port 5001) and sends 50 MB to it (5002).  The
 machine counts as hung when its log has not grown for three rounds and
@@ -35,8 +35,8 @@ MCP = os.path.join(ROOT, 'scripts', 'guest', 'mcp.py')
 ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
 ap.add_argument('-m', type=int, default=480, help='minutes (default 480)')
 ap.add_argument('-r', type=int, default=120, help="a round's seconds (default 120)")
-ap.add_argument('-w', default='192.168.1.14', help='the WLAN address ("" for none)')
-ap.add_argument('-H', default='192.168.1.223', help='the Ethernet address (MCP)')
+ap.add_argument('-w', default='', help='the WLAN address (default none: no WLAN checks)')
+ap.add_argument('-H', required=True, help='the Ethernet address (MCP)')
 ap.add_argument('-n', action='store_true', help='only say what it would do')
 a = ap.parse_args()
 

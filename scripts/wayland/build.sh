@@ -7,6 +7,10 @@
 set -e
 [ $# -eq 1 ] || { echo "usage: scripts/wayland/build.sh outdir" >&2; exit 1; }
 ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
+# amd64 only (scripts/gen/apeprogs.py builds the Wayland parts for amd64):
+# the manifests below are amd64's, and common.sh would set up another
+# objtype's compiler and sysroot first
+[ "${objtype:-amd64}" = amd64 ] || { echo "wayland/build.sh: objtype=$objtype: amd64 only" >&2; exit 1; }
 . "$ROOT/scripts/mesa/common.sh"
 LOG=${TMPDIR:-/tmp}/wayland-build.$$.log
 for m in sys/src/libffi/build.json sys/src/wayland/build.json; do

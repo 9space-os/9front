@@ -304,10 +304,12 @@ if [ "${QEMU:-0}" = 1 ]; then
 	"$UFS" -root="$P/ufsroot" -user=glenda -addr="127.0.0.1:$UFS_PORT" > "$P/ufs.log" 2>&1 &
 	ufspid=$!
 	trap 'kill $ufspid $qpid 2>/dev/null' EXIT
-	cp /usr/share/edk2/x64/OVMF_VARS.4m.fd "$P/vars.fd"
+	# the host's OVMF, where paths.env says
+	[ -f "$OVMF_CODE" ] || die "no OVMF firmware (OVMF_CODE: $OVMF_CODE)"
+	cp "$OVMF_VARS" "$P/vars.fd" || die "no OVMF variable store (OVMF_VARS: $OVMF_VARS)"
 	sock=$(mktemp -u /tmp/pxe.XXXXXX.sock)
 	qemu-system-x86_64 -m 2048 -accel kvm -cpu qemu64,+rdrand -display none -no-reboot \
-		-drive if=pflash,format=raw,readonly=on,file=/usr/share/edk2/x64/OVMF_CODE.4m.fd \
+		-drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
 		-drive if=pflash,format=raw,file="$P/vars.fd" \
 		-netdev "user,id=n0,tftp=$T,bootfile=bootx64.efi,guestfwd=tcp:$FSIP:$UFS_PORT-tcp:127.0.0.1:$UFS_PORT" \
 		-device "e1000,netdev=n0,mac=$MAC,bootindex=0" \

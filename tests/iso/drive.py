@@ -12,7 +12,7 @@
 #   printed on stdout at the end
 #   env: QEMU_EXTRA  more QEMU options (e.g. "-vga none -device virtio-vga")
 #        KVM=0       emulate (default: KVM, /dev/kvm writable)
-#        OVMF_CODE   the UEFI firmware (its VARS beside it)
+#        OVMF_CODE, OVMF_VARS   the UEFI firmware (paths.env; tests/iso/run.sh passes them)
 #        WAITMAX     seconds to wait for the desktop (default 240)
 #        DISK_INDEX  the IDE place of the image as a disk (default 0: sdC0)
 #        SHOW        files whose contents go to the serial line with the
@@ -37,9 +37,9 @@ if os.environ.get('KVM', '1') != '0':	# KVM always (KVM=0: emulation)
 		sys.exit('drive: /dev/kvm not writable (KVM=0 to emulate)')
 	q += ['-accel', 'kvm']
 if fw == 'uefi':
-	code = os.environ.get('OVMF_CODE', '/usr/share/edk2/x64/OVMF_CODE.4m.fd')
+	code = os.environ['OVMF_CODE']
 	vars = os.path.join(work, 'vars.fd')
-	shutil.copy(code.replace('CODE', 'VARS'), vars)
+	shutil.copy(os.environ['OVMF_VARS'], vars)
 	q += ['-drive', 'if=pflash,format=raw,readonly=on,file=' + code,
 		'-drive', 'if=pflash,format=raw,file=' + vars]
 if media == 'cd':

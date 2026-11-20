@@ -13,7 +13,7 @@
 for f in $objtype/9$KERNEL 386/9bootiso 386/efiboot.fat; do
 	[ -f "$ROOT/$f" ] || { skip "iso" "no $f, run $BUILDHOW and scripts/guest/build-boot.sh"; done_tests; exit; }
 done
-OVMF_CODE=${OVMF_CODE:-/usr/share/edk2/x64/OVMF_CODE.4m.fd}
+# the UEFI firmware: OVMF_CODE, OVMF_VARS of paths.env (lib.sh)
 
 IMG=${ISO:-$TMPD/9front.$objtype.iso}
 if [ -z "$ISO" ]; then
@@ -45,7 +45,7 @@ for media in cd disk; do
 		dev=/dev/sdD0/data
 		[ $media = disk ] && dev=/dev/sdC0/data
 		check "boot as $media with $fw up to the desktop ($want), root $dev" bash -c \
-			"OVMF_CODE='$OVMF_CODE' python3 '$ROOT/tests/iso/drive.py' '$IMG' $media $fw '$TMPD/$media-$fw' > '$TMPD/$media-$fw.out'; grep -q '^$dev\$' '$TMPD/$media-$fw.out' && grep -q '^desktop $want\$' '$TMPD/$media-$fw.out' || { tail -5 '$TMPD/$media-$fw.out'; false; }"
+			"OVMF_CODE='$OVMF_CODE' OVMF_VARS='$OVMF_VARS' python3 '$ROOT/tests/iso/drive.py' '$IMG' $media $fw '$TMPD/$media-$fw' > '$TMPD/$media-$fw.out'; grep -q '^$dev\$' '$TMPD/$media-$fw.out' && grep -q '^desktop $want\$' '$TMPD/$media-$fw.out' || { tail -5 '$TMPD/$media-$fw.out'; false; }"
 	done
 done
 # another system's ISO before it (a second stick, sdC0; the image as sdC1):
@@ -61,6 +61,6 @@ for fw in uefi; do
 		continue
 	fi
 	check "boot as disk with $fw after another system's ISO up to the desktop ($want), root /dev/sdC1/data" bash -c \
-		"QEMU_EXTRA='-drive file=$TMPD/other.iso,format=raw,if=ide,index=0,snapshot=on' DISK_INDEX=1 OVMF_CODE='$OVMF_CODE' python3 '$ROOT/tests/iso/drive.py' '$IMG' disk $fw '$TMPD/other-$fw' > '$TMPD/other-$fw.out'; grep -q '^/dev/sdC1/data\$' '$TMPD/other-$fw.out' && grep -q '^desktop $want\$' '$TMPD/other-$fw.out' || { tail -5 '$TMPD/other-$fw.out'; false; }"
+		"QEMU_EXTRA='-drive file=$TMPD/other.iso,format=raw,if=ide,index=0,snapshot=on' DISK_INDEX=1 OVMF_CODE='$OVMF_CODE' OVMF_VARS='$OVMF_VARS' python3 '$ROOT/tests/iso/drive.py' '$IMG' disk $fw '$TMPD/other-$fw' > '$TMPD/other-$fw.out'; grep -q '^/dev/sdC1/data\$' '$TMPD/other-$fw.out' && grep -q '^desktop $want\$' '$TMPD/other-$fw.out' || { tail -5 '$TMPD/other-$fw.out'; false; }"
 done
 done_tests

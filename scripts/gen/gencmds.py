@@ -834,7 +834,8 @@ def probe(d, name, e):
 		m['Install'] = '/tests/.probe/'
 	path = os.path.join(SRC, d, '.probe.json')
 	open(path, 'w').write(json.dumps([m]))
-	env = dict(os.environ, PLAN9=ROOT, ARCH=OBJTYPE, objtype=OBJTYPE, CPUS='4', CC='gcc', TOOLPREFIX=arch.TOOLPREFIX, TOOLPFX='')
+	env = dict(os.environ, PLAN9=ROOT, ARCH=OBJTYPE, objtype=OBJTYPE, CPUS='4', CC='gcc', TOOLPREFIX=arch.TOOLPREFIX, TOOLPFX='',
+		LC_ALL='C')	# gcc's and ld's messages in English: matched below
 	try:
 		r = subprocess.run([BUILD, '.probe.json'],
 			cwd=os.path.join(SRC, d), env=env, capture_output=True, text=True, timeout=900)
@@ -844,7 +845,7 @@ def probe(d, name, e):
 	os.remove(path)
 	if rc == 0:
 		return ''
-	for pat in (r'error: (.*)', r'(undefinierter Verweis auf [^\n]*)', r'(undefined reference[^\n]*)',
+	for pat in (r'error: (.*)', r'(undefined reference[^\n]*)',
 			r'(fatal error: [^\n]*)', r'(exit status \d+)'):
 		mm = re.search(pat, out)
 		if mm:

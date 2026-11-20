@@ -8,9 +8,19 @@ from /$objtype/lib.gcc); both run; gccmk builds hoc from its mkfile.
 usage: tests/gcc/gcc.py iso workdir objtype
    prints one line per check: ok|fail <name>
 """
-import os, sys, time
+import os, re, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../scripts/lib'))
 from vm import VM
+import paths
+
+def gccversion():
+	"""the version toolchain/gcc builds (its sources.txt: gcc-X.Y.Z)"""
+	f = os.path.join(paths.get('GCC_DIR'), 'sources.txt')
+	m = re.search(r'gcc-(\d+\.\d+\.\d+)', open(f).read())
+	if m is None:
+		sys.exit('gcc.py: no gcc version in %s' % f)
+	return m.group(1)
 
 iso, work, objtype = sys.argv[1:4]
 vm = VM(iso, work, objtype)
@@ -31,7 +41,8 @@ try:
 		sys.exit(0)
 	vm.serial('bind -b /%s/gnu/bin /bin; cd /tmp' % objtype, 2)
 	out = run('gcc --version', 'gcc-version-done', 60)
-	result('16.2' in out, 'gcc --version')
+	want = gccversion()
+	result(want in out, 'gcc --version is %s (GCC_DIR)' % want)
 
 	vm.serial("echo '#include <stdio.h>' > hello.c", 1)
 	vm.serial("echo 'int main(void){ printf(\"hello from gcc\\n\"); return 0; }' >> hello.c", 1)
