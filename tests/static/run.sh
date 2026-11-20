@@ -141,13 +141,13 @@ check "GAS ports: no 6a/8a assembly in them" gasonly
 rcsyntax(){
 	local p9p=$PLAN9PORT bad=0 f
 	[ -x "$p9p/bin/rc" ] || { echo "no $p9p/bin/rc"; return 1; }
-	for f in scripts/build/rc/*.rc scripts/guest/boot/*.rc tests/hw/*.rc tests/hw/cat/*.rc tests/hw/termrc; do
+	for f in scripts/build/rc/*.rc scripts/guest/boot/*.rc tests/hw/*.rc tests/hw/cat/*.rc tests/hw/termrc tests/gpu/*.rc; do
 		{ echo 'fn __syntax {'; cat "$f"; echo; echo '}'; } |
 			PLAN9=$p9p "$p9p/bin/rc" 2>&1 | sed "s|/dev/stdin|$f|" | grep . && bad=1
 	done
 	return $bad
 }
-check "rc scripts (scripts/build/rc, scripts/guest/boot, tests/hw) parse" rcsyntax
+check "rc scripts (scripts/build/rc, scripts/guest/boot, tests/hw, tests/gpu) parse" rcsyntax
 
 # 8. the Rust crates 9front changed (sys/src/rust) are a generated mirror of
 #    toolchain/rust's (RUST_DIR in paths.env), whose patches are their

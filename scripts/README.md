@@ -138,6 +138,7 @@ Called by `build.exe` (Pre/Post steps); rarely run by hand.
 |---|---|
 | `qemu-ctl.py` | keys, screendumps, monitor commands, and an rc on the serial line of a guest. `scripts/debug/qemu-ctl.py DIR ser 'ps -a'` |
 | `thread-dump.py` | libthread procs and threads of a guest process with stacks. `scripts/debug/thread-dump.py DIR 307 amd64/bin/rio` |
+| `kstack.py` | the kernel stacks a guest printed with `tests/gpu/kstacks.rc` (`acid -k` reads PC, SP and the stack words through `/proc/N/mem`; the guest has no kernel symbols), resolved against the ELF kernel with addr2line. `scripts/debug/kstack.py [-e amd64/bin/9pc64] log` |
 | `shot2png.py` | the picture `tests/gpu/screenshot` prints in a guest (a passed-through GPU's screen, which QEMU cannot dump), out of a console log, as a PNG. `scripts/debug/shot2png.py $CLI_DIR/console.log shot.png` |
 | `vncshot.py` | one frame from QEMU's VNC server as PNG, and colours at points: what the host shows, also with a GL display (virtio-gpu-gl), where QMP's screendump has no surface; `boot-cli.sh` uses it with `VNC=1`. `scripts/debug/vncshot.py SOCK out.png 200,450` |
 

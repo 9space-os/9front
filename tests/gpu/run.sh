@@ -375,11 +375,16 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		cp "$HERE/wsysovl.rc" "$HERE/root/tests/wsysovl"
 		cp "$HERE/wsyscomp.rc" "$HERE/root/tests/wsyscomp"
 		cp "$HERE/wsysnoswap.rc" "$HERE/root/tests/wsysnoswap"
-		chmod +x "$HERE/root/tests/wsysnoswap"
+		# a hang's kernel stacks (bootwsys): the procs' and the kernel run
+		cp "$HERE/kstacks.rc" "$HERE/root/tests/kstacks"
+		cmp -s "$ROOT/$KBIN" "$HERE/root/tests/9pc64.elf" || cp "$ROOT/$KBIN" "$HERE/root/tests/9pc64.elf"
+		chmod +x "$HERE/root/tests/wsysnoswap" "$HERE/root/tests/kstacks"
 		chmod +x "$HERE/root/tests/wsysvk" "$HERE/root/tests/wsysvktri" "$HERE/root/tests/wsysovl" "$HERE/root/tests/wsyscomp"
 		# in a guest of mcp-guest.sh: wsys in the background there, waited
 		# for from here; one not done in 300 s is looked at while it hangs
-		# (ps, the logs' last lines), then the guest goes
+		# (ps, the logs' last lines, the kernel stacks of the procs waiting
+		# in the kernel: kstacks.rc, resolved by scripts/debug/kstack.py),
+		# then the guest goes
 		bootwsys(){ # [wsys' options and -i script; its log in $TMPD/consolewsys]
 			local cli=$CLI_DIR g n ok=0
 			local cmd=${1:-/tests/wsys ${WSYSFLAGS:-} -p -x -i /tests/wsysvk}
@@ -402,7 +407,10 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 					timeout 60 $m rc "cat /tmp/wsys.log" 50 > "$TMPD/consolewsys" 2>&1
 				else
 					{ echo "wsys: not done in 300 s; what runs, the logs:"
-					  timeout 60 $m rc "ps; for(f in /tmp/wsys.log /tmp/wvk.log /tmp/wvkcopy.log /tmp/eframe.log /tmp/uivk.log /tmp/wca.log /tmp/wcb.log /tmp/wcc.log) { echo file $f; tail -20 $f }" 50; } > "$TMPD/consolewsys" 2>&1
+					  timeout 60 $m rc "ps; for(f in /tmp/wsys.log /tmp/wvk.log /tmp/wvkcopy.log /tmp/eframe.log /tmp/uivk.log /tmp/wca.log /tmp/wcb.log /tmp/wcc.log) { echo file $f; tail -20 $f }" 50
+					  echo "the kernel stacks:"
+					  timeout 120 $m rc "/tests/kstacks" 110 > "$TMPD/kstacks" 2>&1
+					  python3 "$ROOT/scripts/debug/kstack.py" "$TMPD/kstacks"; } > "$TMPD/consolewsys" 2>&1
 				fi
 			fi
 			kill -TERM -- -$g 2>/dev/null || kill $g 2>/dev/null

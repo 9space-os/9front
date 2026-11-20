@@ -34,6 +34,7 @@ Everything lives in `~/Devel/9space` (`dist/` the distribution's repository, `to
 ## Debugging a hung guest
 - `scripts/debug/qemu-ctl.py DIR type|ser|shot|hmp`: keys via QMP, screendumps, monitor commands, and a second rc on the serial line (QEMU needs `-qmp unix:DIR/qmp.sock,...` and the serial line as `DIR/serial.sock`; socket paths < 108 bytes).
 - `scripts/debug/thread-dump.py DIR PID BINARY`: libthread procs and threads of a guest process with stacks (needs the unstripped binary from `/$objtype/bin`).
+- Kernel stacks of processes waiting in the kernel, without gdb: `tests/gpu/kstacks.rc [name...]` in the guest (`acid -k` against the ELF kernel copied to `/tests/9pc64.elf`; not for kernel procs or other users' processes), then `scripts/debug/kstack.py log` on the host resolves the addresses. tests/gpu's bootwsys does it by itself when wsys hangs.
 - Kernel: `qemu-ctl.py DIR hmp 'gdbserver tcp::1234'`, then `gdb amd64/bin/9pc64` and `target remote :1234`.
 
 ## Checks for gcc-vs-kencc differences (scripts/check, scripts/fix)
