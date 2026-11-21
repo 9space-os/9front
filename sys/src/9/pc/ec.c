@@ -52,7 +52,22 @@ ecwait(uchar mask, uchar val)
 {
 	int i, s;
 
+	/*
+	 * 9space: the first 300 polls a microsecond apart, then a
+	 * millisecond apart up to the second as before.  An EC answers
+	 * within microseconds; a millisecond's delay from the first poll
+	 * on cost about 3 ms per byte read (four waits), busy: aux/acpi's
+	 * _Qxx and _BST took 25-45 ms each, 3% of a processor at idle on
+	 * the X1 Carbon.  As OpenBSD's acpiec_wait (sys/dev/acpi/acpiec.c),
+	 * whose delay(1) is a microsecond.
+	 */
 	s = 0;
+	for(i=0; i<300; i++){
+		s = ecrr(EC_SC);
+		if((s & mask) == val)
+			return 0;
+		microdelay(1);
+	}
 	for(i=0; i<1000; i++){
 		s = ecrr(EC_SC);
 		if((s & mask) == val)
