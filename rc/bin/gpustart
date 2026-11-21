@@ -25,8 +25,11 @@ if(! test -e /srv/gpu.esp){
 }
 if(test -e /srv/gpu.esp && mount -c /srv/gpu.esp /n/esp >[2]/dev/null)
 	log=/n/esp/$d^boot.log
-if not if(test -d /sys/log && echo -n >>/sys/log/$d^boot >[2]/dev/null)
-	log=/sys/log/$d^boot	# (test -w opens to write: never true of a directory)
+# (the probe in a subshell: a redirection rc cannot open ends the script,
+# here before the driver, where /sys/log takes no creates (a CD); test -w
+# opens to write: never true of a directory)
+if not if(test -d /sys/log && @{echo -n >>/sys/log/$d^boot} >[2]/dev/null)
+	log=/sys/log/$d^boot
 {echo '# gpustart' `{date}; cat /dev/osversion; echo; echo '## aux/'^$d $gpuflags $*} >$log >[2]/dev/null
 # line by line through esplog: the stick's FAT keeps each (dossrv writes
 # at a close), should the machine be switched off
