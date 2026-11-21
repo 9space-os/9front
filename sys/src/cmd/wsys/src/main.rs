@@ -133,7 +133,6 @@ mod draw;
 mod drawcore;
 mod font;
 mod gpu;
-mod ninep;
 mod p9;
 use desk::theme;
 
@@ -5841,17 +5840,28 @@ fn postnote(pid: u32, note: &str) {
 fn reader(fd: i32, size: usize, tx: mpsc::Sender<Ev>) {
     let f = std::mem::ManuallyDrop::new(Fd(fd));
     let mut b = vec![0u8; size];
+    // whole messages: one read need not be one (ninep::Frames)
+    let mut frames = ninep::Frames::new(size);
     loop {
         match f.read(&mut b) {
             Ok(0) | Err(_) => {
                 let _ = tx.send(Ev::Hangup);
                 return;
             }
-            Ok(n) => {
-                if tx.send(Ev::Msg(b[..n].to_vec())).is_err() {
+            Ok(n) => match frames.push(&b[..n]) {
+                Ok(ms) => {
+                    for m in ms {
+                        if tx.send(Ev::Msg(m)).is_err() {
+                            return;
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("wsys: {e}");
+                    let _ = tx.send(Ev::Hangup);
                     return;
                 }
-            }
+            },
         }
     }
 }

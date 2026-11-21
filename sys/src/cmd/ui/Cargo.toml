@@ -13,6 +13,7 @@ publish = false
 workspace = "../../rust"
 
 [dependencies]
+ninep = { path = "../../rust/plan9/ninep" }
 # Masonry's own repository (not yet released with its imaging backends: the
 # processor's vello_cpu among them), fixed at a revision
 masonry = { git = "https://github.com/linebender/xilem", rev = "dc496876a2f6ff2ce7687bfc8c19bd311bb553dc", default-features = false }

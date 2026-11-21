@@ -20,7 +20,7 @@
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
-use crate::ninep::{self, Dir, Qid, R, T, DMDIR, QTDIR};
+use ninep::{self, Dir, Qid, R, T, DMDIR, QTDIR};
 use crate::scene::{Change, Scene};
 
 const MAXEVENTS: usize = 256;

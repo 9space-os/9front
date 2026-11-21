@@ -18,7 +18,6 @@ mod fs;
 mod gpu;
 mod image;
 mod look;
-mod ninep;
 mod scene;
 
 use std::collections::{BTreeSet, HashMap};
@@ -1982,16 +1981,27 @@ impl ApplicationHandler<UserEvent> for App {
     }
 }
 
-/// a client's messages as they come over the connection: one read a message
+/// a client's messages as they come over the connection, whole: a read need
+/// not be one (a message of msize, 64 KiB and its header, is more than a
+/// pipe keeps whole: ninep::Frames)
 fn reader(fd: Fd, proxy: EventLoopProxy<UserEvent>) {
     let mut b = vec![0u8; 65536 + ninep::IOHDRSZ as usize];
-    loop {
+    let mut frames = ninep::Frames::new(b.len());
+    'conn: loop {
         match fd.read(&mut b) {
-            Ok(n) if n > 0 => {
-                if proxy.send_event(UserEvent::NineP(b[..n].to_vec())).is_err() {
+            Ok(n) if n > 0 => match frames.push(&b[..n]) {
+                Ok(ms) => {
+                    for m in ms {
+                        if proxy.send_event(UserEvent::NineP(m)).is_err() {
+                            break 'conn;
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("ui: {e}");
                     break;
                 }
-            }
+            },
             _ => break,
         }
     }

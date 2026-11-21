@@ -1674,6 +1674,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ninep"
+version = "0.1.0"
+
+[[package]]
 name = "nohash-hasher"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3153,6 +3157,7 @@ dependencies = [
  "log",
  "masonry",
  "masonry_imaging",
+ "ninep",
  "p9win",
  "png",
  "resvg",
@@ -4126,6 +4131,7 @@ version = "0.1.0"
 dependencies = [
  "ash",
  "desk",
+ "ninep",
 ]
 
 [[package]]

@@ -15,6 +15,7 @@
 			"--end-group"
 		],
 		"SourceFilesCmd": [
+			"uibig9p.c",
 			"uiclient.c",
 			"uilat.c"
 		]

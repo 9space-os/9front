@@ -66,6 +66,35 @@ test -e /mnt/ui/nodes/x && fail 'a refused transaction left node x' || ok 'a ref
 # a property through the node's props file
 echo 'text changed by props' >/mnt/ui/nodes/t/props
 grep -s '^set t text changed by props$' /mnt/ui/tree && ok 'props written: in the tree' || fail props write
+# 9P spoken to ui's srv entry directly with msize 131072 (a mount keeps it at
+# 32 KB and its header): one Twrite of ui's whole iounit is more than a pipe
+# keeps whole (qio.c's Maxatomic), so ui reads it in two; ui takes messages
+# by their size (the ninep crate's Frames) and answers in step (uibig9p.c)
+# (a ui of its own, /srv/uibig, mounted by nobody: the srv entry is one pipe)
+# a script: window(1) passes its command's words unquoted, a redirection
+# in them would be window's own
+# its pid (rc execs ui: the same process) for its note group at the end
+echo '#!/bin/rc
+echo $pid >/tmp/uibig.pid
+exec /tests/ui -s uibig >/tmp/uibig.log >[2=1]' >/tmp/uibig.rc
+chmod +x /tmp/uibig.rc
+window -r 620 100 900 300 /tmp/uibig.rc
+n=0
+while(! test -e /srv/uibig && test $n -lt 100){ sleep 0.1; n=`{echo $n+1 | hoc} }
+/tests/uibig9p /srv/uibig >/tmp/big9p >[2=1]
+if(grep -s '^ok the connection in step after it$' /tmp/big9p) ok 'a 9P message in two reads (a Twrite of 64 KB through the srv entry): answered, in step after it'
+if not fail 'big 9P message:' `{cat /tmp/big9p} `{cat /tmp/uibig.log}
+# ui and its threads' procs (its note group, proc(3) noteid), each by ctl's
+# kill: a note it may catch
+if(test -s /tmp/uibig.pid){
+	bp=`{cat /tmp/uibig.pid}
+	bng=`{cat /proc/$bp/noteid >[2]/dev/null}
+	for(p in `{ps | awk '$NF == "ui" {print $2}'})
+		if(~ `{cat /proc/$p/noteid >[2]/dev/null} $bng) echo kill >/proc/$p/ctl >[2]/dev/null
+	n=0
+	while(test -e /proc/$bp && test $n -lt 50){ sleep 0.1; n=`{echo $n+1 | hoc} }
+}
+rm -f /srv/uibig
 
 # the window's pixels: the theme's window colour (classic: white; ui's look.rs,
 # not Masonry's dark one) as the background, and widgets drawn on it

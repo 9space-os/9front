@@ -31,6 +31,20 @@ A crate of the tree uses them by `[patch.crates-io]` with paths here
   `/dev/cursor`, label, wctl, snarf; a window made again in the next wsys
   when its wsys is gone (`wsys.rs`).
 
+## The tree's own crates (not a copy)
+
+Crates of the workspace whose master is this tree; crates.sh copies only
+`crates/` and `plan9/p9win` and leaves them alone.
+
+- `plan9/ninep` (MIT, ours): 9P2000 (intro(5)) for the file servers in
+  Rust, wsys and ui: the T-messages parsed, the R-messages built, and a
+  connection's reads cut into whole messages (`Frames`: a message bigger
+  than a pipe keeps whole arrives in more than one read).
+  tests/uiserver's uibig9p checks it against ui.
+- `desk` (MIT, ours): what the desktop's programs (wsys, ui, term, wbar,
+  wdock) share: the theme (wsys(4)'s file `theme`, `/lib/theme/*`), the
+  windows of `/dev/wsys`, and with the feature `text` a TrueType font.
+
 ## Xilem's crates changed here (not a copy)
 
 `xilem/` holds crates of Xilem's repository (a git dependency of `ui`, its

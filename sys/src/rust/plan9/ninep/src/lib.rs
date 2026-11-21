@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 //
-// 9P2000 (intro(5)): the messages a file server receives, and its answers.
+//! 9P2000 (intro(5)) for 9space's file servers in Rust: the messages a
+//! file server receives (parse, T), its answers (R), and the messages
+//! taken whole from what a connection delivers (Frames). Used by wsys(4)
+//! and ui(4); once here instead of a copy in each.
 
 pub const QTDIR: u8 = 0x80;
 pub const DMDIR: u32 = 0x8000_0000;
@@ -65,6 +68,45 @@ impl Rd<'_> {
     fn str(&mut self) -> Option<String> {
         let n = self.u16()? as usize;
         Some(String::from_utf8_lossy(self.take(n)?).into_owned())
+    }
+}
+
+
+/// The 9P messages in what a connection delivers, whole by their size
+/// field (size[4] first); the rest kept for the next read. A pipe keeps a
+/// write whole only up to qio.c's Maxatomic (64 KiB), so a message as big
+/// as msize may come in two reads (and over a network in any number). A
+/// size below 7 (size[4] type[1] tag[2]) or above max: push returns Err,
+/// and the Frames is out of step with the stream from then on: the caller
+/// ends the connection and uses this Frames no more.
+pub struct Frames {
+    buf: Vec<u8>,
+    max: usize,
+}
+
+impl Frames {
+    pub fn new(max: usize) -> Frames {
+        Frames { buf: Vec::new(), max }
+    }
+
+    /// data read: the messages it completes
+    pub fn push(&mut self, data: &[u8]) -> Result<Vec<Vec<u8>>, String> {
+        self.buf.extend_from_slice(data);
+        let mut out = Vec::new();
+        let mut off = 0;
+        while self.buf.len() - off >= 4 {
+            let n = u32::from_le_bytes([self.buf[off], self.buf[off + 1], self.buf[off + 2], self.buf[off + 3]]) as usize;
+            if n < 7 || n > self.max {
+                return Err(format!("a 9P message of {n} bytes (at most {})", self.max));
+            }
+            if self.buf.len() - off < n {
+                break;
+            }
+            out.push(self.buf[off..off + n].to_vec());
+            off += n;
+        }
+        self.buf.drain(..off);
+        Ok(out)
     }
 }
 
