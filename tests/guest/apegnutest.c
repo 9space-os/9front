@@ -1095,8 +1095,20 @@ ptychild(char *name)
 	if(c >= 0)
 		close(c);
 	signal(SIGINT, ptyonint);
+	/*
+	 * the read for ^C non-canonical with a timeout (VTIME 2 s): the
+	 * note may come before the read starts (the parent writes ^C as
+	 * soon as it sees "sig"); ptyfs then drops the input, and a read
+	 * waiting for a line waited for good.  Either way the handler ran
+	 */
+	t = cooked;
+	t.c_lflag &= ~ICANON;
+	t.c_cc[VMIN] = 0;
+	t.c_cc[VTIME] = 20;
+	tcsetattr(0, TCSANOW, &t);
 	ptysay("sig\n");
 	n = read(0, buf, sizeof buf);
+	tcsetattr(0, TCSANOW, &cooked);
 	ptysay("int %d %d\n", ptyint, n);
 
 	/* VMIN and VTIME (ptyfs' timer) */
