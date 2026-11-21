@@ -19,8 +19,9 @@ if(~ $1 *[0-9][' ,'][0-9]*){
 if not {
 	while(~ $1 -* && ~ $#xflag 0)
 		switch($1){
-		case -hide -scroll -noscroll -bar
-			# (9space: -bar, a bar: wsys(4)'s, not rio's)
+		case -hide -scroll -noscroll -bar -restart
+			# (9space: -bar, a bar, and -restart, its program kept going:
+			# wsys(4)'s, not rio's)
 			spec=($spec $1)
 			shift
 		case -dx -dy -minx -miny -maxx -maxy
@@ -44,7 +45,7 @@ if not {
 		case *
 			echo usage: $argv0 '[ -m ] [ -r minx miny maxx maxy ]' \
 			'[ -dx n ] [ -dy n ] [ -minx n ] [ -miny n ] [ -maxx n ] [ -maxy n ]' \
-			'[ -cd dir ] [ -hide ] [ -scroll ] [ -noscroll ] [ -bar ] [ cmd arg ... ]' >[1=2]
+			'[ -cd dir ] [ -hide ] [ -scroll ] [ -noscroll ] [ -bar ] [ -restart ] [ cmd arg ... ]' >[1=2]
 			exit usage
 		}
 }

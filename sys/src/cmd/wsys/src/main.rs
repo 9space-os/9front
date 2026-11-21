@@ -91,6 +91,8 @@
 
 #[cfg(feature = "gpu")]
 mod comp;
+mod sup;
+use sup::{Job, Next, Sup};
 // without the feature (no Vulkan linked) -g says so
 #[cfg(not(feature = "gpu"))]
 mod comp {
@@ -190,7 +192,9 @@ enum Ev {
     Resized, // the mouse's r: the window wsys is in was made anew (moved, resized)
     Kbd(Vec<Vec<u8>>), // kbd(3) messages: k, K or c and runes
     ChildExit(String),
-    WinExit(u32), // the process wsys started in a window
+    WinExit(u32, String), // the process wsys started in a window, its wait message
+    HelperExit(u32, String), // a helper's (wctl helper), its wait message
+    Again(Job), // a supervised program's pause is over: start it again
     // the overlay's thread did a request: a present (its write's tag, unless off) or off
     Overlay { win: u32, b: u32, tag: Option<u16>, count: u32, err: Option<String> },
     // the GPU's thread (-g): a frame on its way, or it is gone
@@ -407,6 +411,7 @@ struct Win {
     refs: u32,    // fids holding the window
     pinned: bool, // made by wctl's new: kept until its process attached or ended
     pid: Option<u32>, // the note group for interrupt and hangup
+    sup: Option<Sup>, // window -restart: its program kept going
     label: String,
     wdir: String,
     text: String,     // what was written to cons and text, and the lines typed
@@ -529,6 +534,7 @@ enum Waiting {
 
 const MENU2: &[&str] = &["cut", "paste", "snarf", "plumb", "look", "send"];
 const MENU3: &[&str] = &["New", "Resize", "Move", "Delete", "Hide"];
+const MENURESTART: u32 = 1 << 31; // menu 3's window entry: restart its program (Sup), not bring it back
 
 /// a command of button 3's menu, waiting for button 3 on the screen
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -693,6 +699,7 @@ struct Opts {
     pid: Option<u32>,
     cd: Option<String>,
     bar: bool, // -bar: a bar from the start (wbar): no border or title bar
+    restart: bool, // -restart: its program started again when it goes (Sup)
     cmd: Vec<String>,
 }
 
@@ -746,6 +753,10 @@ fn opts(words: &[&str], cmd: bool) -> Result<Opts, String> {
             }
             "-bar" => {
                 o.bar = true;
+                i += 1;
+            }
+            "-restart" => {
+                o.restart = true;
                 i += 1;
             }
             "-hide" | "-scroll" | "-noscroll" => i += 1,
@@ -826,6 +837,16 @@ fn place(r: Rect, o: &Opts, mv: bool) -> Rect {
 }
 
 /// an rc word: quoted
+/// a child's wait message (empty: it ended of its own), as Ev::WinExit and
+/// Ev::HelperExit carry it (Sup::ended)
+fn waitmsg(r: std::io::Result<std::process::ExitStatus>) -> String {
+    use std::os::plan9::process::ExitStatusExt;
+    match r {
+        Ok(st) => String::from_utf8_lossy(st.msg()).into_owned(),
+        Err(e) => format!("wait: {e}"),
+    }
+}
+
 fn rcquote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
@@ -841,6 +862,8 @@ struct Wsys {
     keysdown: Vec<char>, // kbd(3)'s keys down now (k, K): Mod4 is wsys' (kbdmod4)
     focus: Option<u32>,
     nextwin: u32,
+    helpers: HashMap<u32, Sup>, // wctl helper: programs without a window, kept going
+    nexthelper: u32,
     pending: Vec<Pending>,
     d: Display,
     core: Option<drawcore::Core>, // -d: devdraw is wsys' own; its screen
@@ -1666,7 +1689,9 @@ impl Wsys {
             }
             if let Some(w) = self.wins.get_mut(&n) {
                 w.refs = w.refs.saturating_sub(1);
-                if w.refs == 0 && !w.pinned {
+                // a window -restart outlives its program's fids: its end
+                // (Ev::WinExit, winexit) decides, which comes after them
+                if w.refs == 0 && !w.pinned && w.sup.is_none() {
                     self.delwin(n, false);
                 }
             }
@@ -1986,7 +2011,7 @@ impl Wsys {
             kbd: VecDeque::new(), kbdopen: 0, mouseopen: 0, mouse: VecDeque::new(), resized: false,
             cursor: vec![], state: 1, textwin: text, scroll: 0, scrolling: false, sel: (0, 0), rows: vec![], drawn: None, hidden: false,
             hold: false, want: None, stale: false,
-            scrollr: Rect::default(), shown: (1, 0, 1), lastb: None, inside: false, nooverlay: false, ovsent: None, shownb: None, held: None, cdamage: None, queued: vec![], ovheld: None,
+            scrollr: Rect::default(), shown: (1, 0, 1), lastb: None, inside: false, nooverlay: false, ovsent: None, sup: None, shownb: None, held: None, cdamage: None, queued: vec![], ovheld: None,
             layers: vec![], lgpu: false, lheld: vec![], lqueued: vec![], scratch: None,
         });
         self.z.push(n);
@@ -2183,7 +2208,13 @@ impl Wsys {
             let o = opts(&words[1..], true)?;
             return self.spawn(o);
         }
-        let n = n.ok_or("wsys' wctl only makes new windows")?;
+        if cmd == "helper" && n.is_none() {
+            return self.helper(&words[1..]);
+        }
+        if cmd == "restart" {
+            return self.restart(n);
+        }
+        let n = n.ok_or("wsys' wctl only makes new windows, helpers, restarts")?;
         match cmd {
             "resize" | "move" => {
                 let o = opts(&words[1..], false)?;
@@ -2297,11 +2328,24 @@ impl Wsys {
         let n = self.newwin(&o, true)?;
         self.wins.get_mut(&n).unwrap().pinned = true;
         let cmd = if o.cmd.is_empty() { "rc -i".to_string() } else { o.cmd.join(" ") };
+        if o.restart {
+            self.wins.get_mut(&n).unwrap().sup = Some(Sup::new(true, cmd.clone(), o.cd.clone()));
+        }
+        if let Err(e) = self.runwin(n, &cmd, o.cd.as_deref()) {
+            self.delwin(n, false);
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    /// cmd in window n (spawn's, and a supervised window's again): its exit,
+    /// with its wait message, comes as Ev::WinExit
+    fn runwin(&mut self, n: u32, cmd: &str, cd: Option<&str>) -> Result<(), String> {
         let mut script = format!(
             "rfork ens; mount {srv} /mnt/wsys {n} || exit mount; bind -b /mnt/wsys /dev; wsys={srv}; ",
             srv = rcquote(&self.srvpath)
         );
-        if let Some(d) = &o.cd {
+        if let Some(d) = cd {
             script += &format!("cd {} >[2]/dev/null; ", rcquote(d));
         }
         // at a scale other than 1 the draw(3) programs' font as big as wsys' own
@@ -2311,25 +2355,164 @@ impl Wsys {
             script += &format!("font={}; ", rcquote(&self.fontname));
         }
         script += &format!("exec {cmd} </dev/cons >/dev/cons >[2]/dev/cons");
-        let child = std::process::Command::new("/bin/rc").arg("-c").arg(&script).spawn();
-        match child {
-            Ok(mut c) => {
-                let w = self.wins.get_mut(&n).unwrap();
-                if w.pid.is_none() {
-                    w.pid = Some(c.id());
-                }
-                let tx = self.tx.clone();
-                thread::spawn(move || {
-                    let _ = c.wait();
-                    let _ = tx.send(Ev::WinExit(n));
-                });
-                Ok(())
+        let mut c = std::process::Command::new("/bin/rc").arg("-c").arg(&script).spawn().map_err(|e| format!("new: {e}"))?;
+        let w = self.wins.get_mut(&n).unwrap();
+        if w.pid.is_none() {
+            w.pid = Some(c.id());
+        }
+        if let Some(s) = w.sup.as_mut() {
+            s.pid = Some(c.id());
+            s.running = true;
+            s.started = std::time::Instant::now();
+        }
+        let tx = self.tx.clone();
+        thread::spawn(move || {
+            let msg = waitmsg(c.wait());
+            let _ = tx.send(Ev::WinExit(n, msg));
+        });
+        Ok(())
+    }
+
+    /// wctl helper [-restart] cmd: cmd in wsys' name space with /mnt/wsys,
+    /// without a window (reform's shortcuts on kbdtap), kept going with
+    /// -restart as a window's program is (Sup)
+    fn helper(&mut self, words: &[&str]) -> Result<(), String> {
+        let (restart, cmd) = match words.first() {
+            Some(&"-restart") => (true, &words[1..]),
+            _ => (false, words),
+        };
+        if cmd.is_empty() {
+            return Err("usage: helper [-restart] cmd [arg ...]".into());
+        }
+        let id = self.nexthelper;
+        self.nexthelper += 1;
+        self.helpers.insert(id, Sup::new(restart, cmd.join(" "), None));
+        self.runhelper(id)
+    }
+
+    fn runhelper(&mut self, id: u32) -> Result<(), String> {
+        let Some(s) = self.helpers.get(&id) else { return Ok(()) };
+        let script = format!(
+            // its own redirections (shortcuts' kbdtap) inside the block win
+            "rfork ens; mount -c {srv} /mnt/wsys || exit mount; wsys={srv}; {{exec {cmd}}} </dev/null",
+            srv = rcquote(&self.srvpath),
+            cmd = s.cmd
+        );
+        let mut c = std::process::Command::new("/bin/rc").arg("-c").arg(&script).spawn().map_err(|e| format!("helper: {e}"))?;
+        let s = self.helpers.get_mut(&id).unwrap();
+        s.pid = Some(c.id());
+        s.running = true;
+        s.started = std::time::Instant::now();
+        let tx = self.tx.clone();
+        thread::spawn(move || {
+            let msg = waitmsg(c.wait());
+            let _ = tx.send(Ev::HelperExit(id, msg));
+        });
+        Ok(())
+    }
+
+    /// a supervised program in a pause: started after secs
+    fn later(&self, job: Job, secs: u64) {
+        let tx = self.tx.clone();
+        thread::spawn(move || {
+            thread::sleep(std::time::Duration::from_secs(secs));
+            let _ = tx.send(Ev::Again(job));
+        });
+    }
+
+    /// window n's program ended (Ev::WinExit): the window goes as it did,
+    /// unless it is kept going (window -restart: Sup)
+    fn winexit(&mut self, n: u32, msg: String) {
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        let next = w.sup.as_mut().map(|s| {
+            let what = format!("{} (window {n})", s.cmd);
+            s.ended(&what, &msg)
+        });
+        match next {
+            Some(Next::Again(secs, line)) => {
+                eprintln!("{line}");
+                w.pid = None;
+                self.later(Job::Win(n), secs);
+                return;
             }
-            Err(e) => {
-                self.delwin(n, false);
-                Err(format!("new: {e}"))
+            Some(Next::GaveUp(line)) => {
+                eprintln!("{line}");
+                w.pid = None;
+                self.output(n, format!("\n{line}\n").as_bytes());
+                return; // the window stays, saying so
+            }
+            _ => {}
+        }
+        // its process is gone, for good: the window too, unless files of it
+        // are open (their last clunk deletes it then: no sup any more)
+        w.sup = None;
+        w.pinned = false;
+        if w.refs == 0 {
+            self.delwin(n, false);
+        }
+    }
+
+    fn helperexit(&mut self, id: u32, msg: String) {
+        let Some(s) = self.helpers.get_mut(&id) else { return };
+        let what = format!("{} (helper {id})", s.cmd);
+        match s.ended(&what, &msg) {
+            Next::Again(secs, line) => {
+                eprintln!("{line}");
+                self.later(Job::Helper(id), secs);
+            }
+            Next::GaveUp(line) => eprintln!("{line}"), // kept: wctl restart
+            Next::Done => {
+                self.helpers.remove(&id);
             }
         }
+    }
+
+    /// Ev::Again, or started by hand (wctl restart, menu 3)
+    fn again(&mut self, job: Job) {
+        let r = match job {
+            Job::Win(n) => {
+                let Some(w) = self.wins.get_mut(&n) else { return };
+                let Some(s) = w.sup.as_ref() else { return };
+                if s.running {
+                    return;
+                }
+                let (cmd, cd) = (s.cmd.clone(), s.cd.clone());
+                w.pid = None;
+                self.runwin(n, &cmd, cd.as_deref())
+            }
+            Job::Helper(id) => {
+                if self.helpers.get(&id).is_none_or(|s| s.running) {
+                    return;
+                }
+                self.runhelper(id)
+            }
+        };
+        if let Err(e) = r {
+            eprintln!("wsys: {e}");
+        }
+    }
+
+    /// wctl restart: window n's program (n), or wsys' helpers that were given
+    /// up (none): its count of crashes anew
+    fn restart(&mut self, n: Option<u32>) -> Result<(), String> {
+        match n {
+            Some(n) => {
+                let s = self.wins.get_mut(&n).and_then(|w| w.sup.as_mut()).ok_or("not a window -restart")?;
+                if s.running {
+                    return Err("its program runs".into());
+                }
+                s.anew();
+                self.again(Job::Win(n));
+            }
+            None => {
+                let ids: Vec<u32> = self.helpers.iter().filter(|(_, s)| s.gaveup).map(|(&id, _)| id).collect();
+                for id in ids {
+                    self.helpers.get_mut(&id).unwrap().anew();
+                    self.again(Job::Helper(id));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn ctl(&mut self, n: u32, line: &str) -> Result<(), String> {
@@ -4519,11 +4702,17 @@ impl Wsys {
                 }
             };
             if mine {
-                let hidden: Vec<u32> = self.z.iter().copied().filter(|n| self.wins[n].hidden && self.wins[n].mapped).collect();
+                let mut hidden: Vec<u32> = self.z.iter().copied().filter(|n| self.wins[n].hidden && self.wins[n].mapped).collect();
                 let mut items: Vec<String> = MENU3.iter().map(|s| s.to_string()).collect();
                 for n in &hidden {
                     let w = &self.wins[n];
                     items.push(if w.label.is_empty() { format!("window {n}") } else { w.label.clone() });
+                }
+                // windows -restart whose program crashed too often: started again by hand
+                let gaveup: Vec<u32> = self.z.iter().copied().filter(|n| self.wins[n].sup.as_ref().is_some_and(|s| s.gaveup)).collect();
+                for n in gaveup {
+                    items.push(format!("restart {}", self.wins[&n].sup.as_ref().unwrap().cmd));
+                    hidden.push(n | MENURESTART);
                 }
                 self.openmenu(None, 4, items, hidden, x, y);
                 self.buttons = b;
@@ -4810,7 +4999,11 @@ impl Wsys {
     fn menu3(&mut self, i: usize, hidden: &[u32]) {
         if i >= MENU3.len() {
             if let Some(&n) = hidden.get(i - MENU3.len()) {
-                if self.wins.contains_key(&n) {
+                if n & MENURESTART != 0 {
+                    if let Err(e) = self.restart(Some(n & !MENURESTART)) {
+                        eprintln!("wsys: restart: {e}");
+                    }
+                } else if self.wins.contains_key(&n) {
                     self.hide(n, false);
                 }
             }
@@ -5836,7 +6029,9 @@ fn textfont(flag: &Option<String>, t: &theme::Theme) -> String {
     };
     if !std::path::Path::new("/n/ttf").join(TTFFONT).exists() {
         // it mounts itself on /n/ttf in this name space, then serves in the background
-        if let Err(e) = std::process::Command::new("/bin/truetypefs").status() {
+        // nokill (-k): every window's name space mounts it, a new one would
+        // reach none of them; the window manager's own font server
+        if let Err(e) = std::process::Command::new("/bin/truetypefs").arg("-k").status() {
             eprintln!("wsys: truetypefs: {e}");
         }
     }
@@ -5853,9 +6048,9 @@ fn usage() -> ! {
 }
 
 fn main() {
-    // first, before any thread: all of them inherit it (p9::noswap)
-    if let Err(e) = p9::noswap() {
-        eprintln!("wsys: noswap: {e}");
+    // first, before any thread: all of them inherit it (p9::nokill)
+    if let Err(e) = p9::nokill() {
+        eprintln!("wsys: nokill: {e}");
     }
     let mut args = std::env::args().skip(1);
     let user = std::env::var("user").unwrap_or_else(|_| "none".into());
@@ -6044,6 +6239,8 @@ fn main() {
         z: vec![],
         focus: None,
         nextwin: 0,
+        helpers: HashMap::new(),
+        nexthelper: 1,
         pending: vec![],
         imgr: core.as_ref().map_or(d.r, |c| c.r),
         outs: vec![],
@@ -6264,13 +6461,11 @@ fn main() {
                     }
                 }
             }
-            Ev::WinExit(n) => {
-                // its process is gone: the window too, unless files of it are open
-                if let Some(w) = ws.wins.get_mut(&n) {
-                    w.pinned = false;
-                    if w.refs == 0 {
-                        ws.delwin(n, false);
-                    }
+            Ev::WinExit(n, msg) => ws.winexit(n, msg),
+            Ev::HelperExit(id, msg) => ws.helperexit(id, msg),
+            Ev::Again(job) => {
+                if quit.is_none() {
+                    ws.again(job);
                 }
             }
             Ev::Overlay { win, b, tag, count, err } => ws.overlay_done(win, b, tag, count, err),
@@ -6288,6 +6483,11 @@ fn main() {
                     }
                     for w in ws.wins.values() {
                         if let Some(pid) = w.pid {
+                            postnote(pid, "hangup");
+                        }
+                    }
+                    for h in ws.helpers.values() {
+                        if let Some(pid) = h.pid {
                             postnote(pid, "hangup");
                         }
                     }

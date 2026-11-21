@@ -2,18 +2,20 @@
 # not the old syntax 'window 0,0,161,117': that makes the window from a
 # background job, which can finish after the windows below and take the
 # keyboard focus from them (the serial console window)
-# ui branch: under wsys(4) wbar(1) first, a bar along the top; stats below it
+# ui branch: under wsys(4) wbar(1) first, a bar along the top; stats below it.
+# The desktop's helpers with -restart (window) and helper -restart (wctl):
+# wsys starts them again when the pager kills them for memory (wsys(4))
 y=0
 if(~ $desktop wsys && test -x /bin/wbar){
 	# a bar from the start (-bar: no border or title bar, which would not fit
 	# in its height with the theme's title bars at a larger scale)
-	window -bar -r 0 0 1024 30 wbar
+	window -bar -restart -r 0 0 1024 30 wbar
 	y=30
 }
 # the volume and mute keys (reform(1)'s shortcuts on wsys(4)'s kbdtap)
 if(~ $desktop wsys && test -x /bin/reform/shortcuts)
-	@{ rfork n; mount $wsys /mnt/wsys && exec reform/shortcuts </mnt/wsys/kbdtap >/mnt/wsys/kbdtap } &
-window -r 0 $y 161 `{echo $y + 117 | hoc} stats -lmisce
+	echo helper -restart reform/shortcuts '</mnt/wsys/kbdtap >/mnt/wsys/kbdtap' >/mnt/wsys/wctl
+window -restart -r 0 $y 161 `{echo $y + 117 | hoc} stats -lmisce
 window -miny `{echo $y + 130 | hoc}
 
 # run a system shell on the serial console

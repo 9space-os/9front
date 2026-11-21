@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: MIT
  *
- * memhog [-m max] [-d ms] kb: takes memory without bound in children of
+ * memhog [-s] [-m max] [-d ms] kb: takes memory without bound in children of
  * kb KB each (forked one after another, ms apart, default 10; each
  * touches its pages, then sleeps),
  * until the pager kills one (devswap.c killbig: the biggest process
@@ -11,6 +11,8 @@
  * prints "memhog: N children of K KB, child P gone" (tests/gpu
  * drvnoswap.rc reads the kernel's message for who it was).  It gives up
  * after max children (default 4096) with "memhog: no child killed".
+ * -s: in this process itself, kb KB at a time, ms apart, until the pager
+ * kills it (a window's program the pager kills: tests/gpu wsyssup.rc).
  */
 #include <u.h>
 #include <libc.h>
@@ -50,12 +52,16 @@ void
 main(int argc, char **argv)
 {
 	long kb;
-	int i, max, pid, ms;
+	int i, max, pid, ms, self;
 	char *b;
 
 	max = Max;
 	ms = 10;
+	self = 0;
 	ARGBEGIN{
+	case 's':
+		self = 1;
+		break;
 	case 'd':
 		ms = atoi(EARGF(sysfatal("usage")));
 		break;
@@ -66,7 +72,15 @@ main(int argc, char **argv)
 		break;
 	}ARGEND
 	if(argc != 1 || (kb = atol(argv[0])) <= 0)
-		sysfatal("usage: memhog [-m max] [-d ms] kb");
+		sysfatal("usage: memhog [-s] [-m max] [-d ms] kb");
+	if(self){
+		for(;;){
+			if((b = malloc(kb*1024)) == nil)
+				exits("malloc");
+			memset(b, 1, kb*1024);	/* the pages taken now */
+			sleep(ms);
+		}
+	}
 	for(n = 0; n < max;){
 		switch(pid = rfork(RFPROC|RFFDG)){
 		case -1:

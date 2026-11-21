@@ -4,6 +4,8 @@ truetypefs \- TrueType font file system
 .SH SYNOPSIS
 .B truetypefs
 [
+.B -k
+] [
 .B -F
 .I fontpath
 ]
@@ -19,6 +21,16 @@ By default, fonts are loaded from
 The
 .B -F
 flag may be used to set the path TrueType fonts are loaded from.
+The
+.B -k
+flag has the pager pass the server over when memory runs out
+.RB ( nokill ,
+.IR proc (3)):
+.IR wsys (4)
+starts it so, as its own font server, which every window's name space
+mounts and a new server would not reach.
+9front's has no
+.BR -k .
 
 .I Truetypefs
 generates subfonts when they are accessed.

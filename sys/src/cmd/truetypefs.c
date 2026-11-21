@@ -550,21 +550,47 @@ Srv fssrv = {
 static void
 usage(void)
 {
-	fprint(2, "usage: %s [-F fontpath]\n", argv0);
+	fprint(2, "usage: %s [-k] [-F fontpath]\n", argv0);
 	exits("usage");
+}
+
+/*
+ * 9space: -k, the pager passes the server over (proc(3) nokill, which its
+ * procs inherit): wsys(4) starts its font server so, as part of it; every
+ * window's name space holds the mount, which a new server would not reach
+ */
+static void
+nokill(void)
+{
+	char buf[32];
+	int fd;
+
+	snprint(buf, sizeof buf, "/proc/%d/ctl", getpid());
+	if((fd = open(buf, OWRITE)) < 0 || write(fd, "nokill", 6) != 6)
+		fprint(2, "%s: nokill: %r\n", argv0);
+	if(fd >= 0)
+		close(fd);
 }
 
 void
 main(int argc, char **argv)
 {
+	int kflag;
+
+	kflag = 0;
 	ARGBEGIN {
 	case 'F':
 		fontpath = EARGF(usage());
+		break;
+	case 'k':
+		kflag = 1;
 		break;
 	default:
 		usage();
 	} ARGEND;
 	
+	if(kflag)
+		nokill();
 	unmount(nil, "/n/ttf");
 	postmountsrv(&fssrv, nil, "/n/ttf", 0);
 	exits(nil);

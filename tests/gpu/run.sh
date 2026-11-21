@@ -375,10 +375,11 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		cp "$HERE/wsysovl.rc" "$HERE/root/tests/wsysovl"
 		cp "$HERE/wsyscomp.rc" "$HERE/root/tests/wsyscomp"
 		cp "$HERE/wsysnoswap.rc" "$HERE/root/tests/wsysnoswap"
+		cp "$HERE/wsyssup.rc" "$HERE/root/tests/wsyssup"
 		# a hang's kernel stacks (bootwsys): the procs' and the kernel run
 		cp "$HERE/kstacks.rc" "$HERE/root/tests/kstacks"
 		cmp -s "$ROOT/$KBIN" "$HERE/root/tests/9pc64.elf" || cp "$ROOT/$KBIN" "$HERE/root/tests/9pc64.elf"
-		chmod +x "$HERE/root/tests/wsysnoswap" "$HERE/root/tests/kstacks"
+		chmod +x "$HERE/root/tests/wsysnoswap" "$HERE/root/tests/wsyssup" "$HERE/root/tests/kstacks"
 		chmod +x "$HERE/root/tests/wsysvk" "$HERE/root/tests/wsysvktri" "$HERE/root/tests/wsysovl" "$HERE/root/tests/wsyscomp"
 		# in a guest of mcp-guest.sh: wsys in the background there, waited
 		# for from here; one not done in 300 s is looked at while it hangs
@@ -455,6 +456,22 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		check "wsys noswap: the pager killed a child of memhog, the program of a window (it did not inherit noswap)" bash -c "grep -q '^noswap: memhog: [0-9]* children of [0-9]* KB, child [0-9]* gone' '$TMPD/lognoswapw' && grep -q '^noswap: killed: memhog ' '$TMPD/lognoswapw'"
 		check "wsys noswap: ... and not wsys (its procs all still there)" bash -c "! grep -q '^noswap: killed: wsys ' '$TMPD/lognoswapw' || exit 1; b=\$(sed -n 's/^noswap: wsys \\([0-9 ]*\\)$/\\1/p' '$TMPD/lognoswapw'); a=\" \$(sed -n 's/^noswap: wsys after //p' '$TMPD/lognoswapw') \"; [ -n \"\$b\" ] || exit 1; for p in \$b; do case \"\$a\" in *\" \$p \"*) ;; *) exit 1;; esac; done"
 		check "wsys noswap: nothing hung" grep -q '^noswap: done$' "$TMPD/lognoswapw"
+		# 9space: wsys keeps its helpers going (wsyssup.rc, wsys(4)): a window
+		# -restart's program killed by the pager comes back in the same
+		# window; a helper too; a crashing one 5 times, then given up, and
+		# restart by hand
+		check "boot with virtio-gpu-gl, wsys: its helpers kept going" bootwsys "/tests/wsys ${WSYSFLAGS:-} -x -i /tests/wsyssup"
+		tr -d '\r' < "$TMPD/consolewsys" > "$TMPD/logsup"
+		grep -E '^(sup: |wsys: .*(killed for memory|times in 10 minutes))' "$TMPD/logsup" | sed 's/^/  /'
+		check "wsys sup: a window -restart's program killed by the pager twice, started again each time" bash -c "grep -q '^sup: memhog killed by the pager [2-9]' '$TMPD/logsup' && grep -q 'killed for memory: again in' '$TMPD/logsup'"
+		check "wsys sup: its window stayed; deleted, its program not started again" bash -c "grep -q '^sup: window [0-9]* still there' '$TMPD/logsup' && grep -q '^sup: memhog running after the delete: 0' '$TMPD/logsup'"
+		check "wsys sup: a helper -restart killed for memory started again (3 runs, then its own end)" grep -q '^sup: helper killed for memory ran 3 times' "$TMPD/logsup"
+		check "wsys sup: a crashing helper given up after 5 runs, said so" bash -c "grep -q '^sup: crashing helper ran 5 times' '$TMPD/logsup' && grep -q 'times in 10 minutes: not started again' '$TMPD/logsup'"
+		check "wsys sup: restart by wctl starts it once more" grep -q '^sup: after restart it ran 6 times' "$TMPD/logsup"
+		check "wsys sup: a key through a helper's kbdtap reaches the window" bash -c "grep -q '^sup: key a in the window' '$TMPD/logsup' && grep -q '^sup: key a through the tap' '$TMPD/logsup'"
+		check "wsys sup: while the tap's reader is gone a key still reaches the window (not held back)" bash -c "grep -q '^sup: key b in the window while' '$TMPD/logsup' && grep -q '^sup: key b not through a tap' '$TMPD/logsup'"
+		check "wsys sup: after the helper's restart keys go through its tap again" bash -c "grep -q '^sup: key c in the window after' '$TMPD/logsup' && grep -q '^sup: key c through the tap again' '$TMPD/logsup' && grep -q '^sup: tap helper runs 2' '$TMPD/logsup'"
+		check "wsys sup: nothing hung" grep -q '^sup: done$' "$TMPD/logsup"
 		# the screen composed on the GPU, wsys' default (-g says so; here
 		# WSYSDEBUG=comp, so that the default is what runs) (wsyscomp.rc)
 		check "boot with virtio-gpu-gl, wsys (the GPU composes by default)" bootwsys "WSI_PLAN9_STATS=1 WSYSDEBUG=comp /tests/wsys ${WSYSFLAGS:-} -x -i /tests/wsyscomp"

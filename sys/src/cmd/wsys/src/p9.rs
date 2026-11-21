@@ -129,15 +129,21 @@ impl Drop for Fd {
 
 pub const RFNOTEG: c_int = 8;
 
-/// The pager passes wsys over when memory runs out (proc(3) noswap, as
+/// The pager passes wsys over when memory runs out (proc(3) nokill, as
 /// FreeBSD's protect(1) does for X): it kills the biggest process it may,
 /// and wsys, the windows' images and the screen's, is big; killing it ends
-/// every window. Inherited by wsys' threads, cleared by exec: the windows'
-/// programs (rc -c ... exec) and wbar may still go. Only the host owner's
-/// processes are passed over (devswap.c killbig).
-pub fn noswap() -> io::Result<()> {
-    Fd::open(&format!("/proc/{}/ctl", std::process::id()), OWRITE)?.write1(b"noswap")
+/// every window. nokill, not noswap: wsys frees no memory for others, so it
+/// has no claim on the last free pages and waits for pages as any process.
+/// Inherited by wsys' threads, cleared by exec: the windows' programs
+/// (rc -c ... exec) and wbar may still go. Only the host owner's processes
+/// are passed over (devswap.c killbig).
+pub fn nokill() -> io::Result<()> {
+    Fd::open(&format!("/proc/{}/ctl", std::process::id()), OWRITE)?.write1(NOKILL.as_bytes())
 }
+
+/// proc(3)'s word for it: wsys' own (nokill) and the flag it starts its font
+/// server with (truetypefs -k, which writes it itself: exec clears it)
+pub const NOKILL: &str = "nokill";
 
 pub fn rfork(flags: c_int) -> io::Result<()> {
     if unsafe { p9rfork(flags) } < 0 { Err(err()) } else { Ok(()) }

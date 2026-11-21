@@ -266,14 +266,20 @@ and
 not rio's: a bar from the start, without border or title bar, as the ctl
 message
 .B bar
-makes it, so that a bar's few pixels need not hold them first)
+makes it, so that a bar's few pixels need not hold them first; and
+.BR -restart ,
+not rio's either: its program started again when it goes, below)
 makes a window and attaches to its directory; a window's number attaches to
 an existing one;
 .B none
 or none at all gives the tree below.
 .B wctl
 at the root takes
-.BR new ;
+.BR new ,
+.B helper
+and
+.B restart
+(below);
 a window's
 .BR wctl ,
 .IR rio 's
@@ -1035,8 +1041,11 @@ prints the name it posted and its rectangle (for scripts); otherwise nothing.
 When memory runs out the pager passes
 .I wsys
 over: it sets
-.B noswap
-.RI ( proc (3))
+.B nokill
+.RI ( proc (3);
+not
+.BR noswap :
+it has no claim on the last free pages)
 first thing, which its threads inherit and the programs it starts in its
 windows do not (exec clears it): the pager kills the biggest process it
 may, and
@@ -1049,6 +1058,76 @@ drivers are passed over as well
 As FreeBSD's
 .IR protect (1)
 for X.
+.PP
+The desktop's helpers are kept going by
+.I wsys
+(the window manager's job): a window made with
+.B -restart
+.RB ( "window -restart" ,
+riostart's
+.IR wbar (1)
+and
+.IR stats (8)),
+and a program without a window started by
+.B helper
+.RB [ -restart ]
+.I cmd
+written to the root's
+.B wctl
+(in
+.IR wsys '
+name space with
+.B /mnt/wsys
+mounted; riostart's reform shortcuts on
+.BR kbdtap ,
+which goes to the windows again while it is gone).
+When the program ends,
+.I wsys
+tells by its wait message:
+killed by the pager for memory
+.RB ( "Killed: Insufficient physical memory" ):
+started again, in the same window, after 1 second, the pause doubling to
+30 seconds while it keeps going within a minute;
+any other status (a crash): started again the same way, each time said on
+.IR wsys '
+standard error, and after 5 crashes in 10 minutes not any more, the window
+kept with that line in it;
+no status (it ended of its own), or the note
+.BR hangup ,
+.B interrupt
+or
+.B kill
+(the user's): not started again, and its window goes;
+the window deleted (Delete,
+.BR "wctl delete" ):
+not started again either.
+.B restart
+written to such a window's
+.B wctl
+starts its program again by hand (its count of crashes anew), as does
+button 3's menu item
+.BI restart " cmd
+of a window given up;
+.B restart
+written to the root's
+.B wctl
+does so for the helpers given up.
+A riostart of one's own
+.RB ( $home/bin/rc/riostart ,
+copied at installation) keeps its old lines: the helpers there are not
+kept going until they are written as in
+.BR /sys/lib/dist/usr/glenda/bin/rc/riostart
+.RB ( "window -bar -restart" " ... " wbar ,
+.BR "window -restart" " ... " stats ,
+and reform's shortcuts by
+.BR "helper -restart" ).
+.I Wsys
+starts its own font server,
+.IR truetypefs (4)
+(at a scale other than 1), with
+.BR -k ,
+so that the pager passes it over too: every window's name space mounts it,
+and a new server would reach none of them.
 .SH EXAMPLES
 In
 .IR plan9.ini ,
