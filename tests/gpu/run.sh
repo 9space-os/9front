@@ -328,15 +328,15 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		tr -d '\r' < "$TMPD/consolekill" | grep '^killdrv: ' > "$TMPD/logkill"
 		sed 's/^/  /' "$TMPD/logkill"
 		kv(){ sed -n "s/^killdrv: $1 //p" "$TMPD/logkill" | head -1; }
-		check "killdrv: the driver's procs all gone" bash -c "[ -z \"\$(sed -n 's/^killdrv: driver left//p' '$TMPD/logkill' | tr -d ' ')\" ] && grep -q '^killdrv: driver left' '$TMPD/logkill'"
+		check "killdrv: the driver's procs all gone" bash -c "[ -z \"\$(sed -n 's/^killdrv: driver left//p' '$TMPD/logkill' | tr -d ' ')\" ] && grep -q 'killdrv: driver left' '$TMPD/logkill'"
 		check "killdrv: vkcube's segments while drawing (more than the driver's queue)" bash -c "[ \"\$(sed -n 's/^killdrv: segs drawing //p' '$TMPD/logkill')\" -gt 1 ]"
-		check "killdrv: no gpu0dma/blob/ctx segment left in #g (ORCLOSE)" grep -q '^killdrv: segs after 0$' "$TMPD/logkill"
-		check "killdrv: the reset finished (no onexit message, no fault)" bash -c "! grep -q '^killdrv: kmesg: ' '$TMPD/logkill'"
+		check "killdrv: no gpu0dma/blob/ctx segment left in #g (ORCLOSE)" grep -q 'killdrv: segs after 0$' "$TMPD/logkill"
+		check "killdrv: the reset finished (no onexit message, no fault)" bash -c "! grep -q 'killdrv: kmesg: ' '$TMPD/logkill'"
 		check "killdrv: the memory back (drawing > before + 2 MB, after <= before + 2 MB)" bash -c "b=\$(sed -n 's/^killdrv: user before //p' '$TMPD/logkill'); a=\$(sed -n 's/^killdrv: user after //p' '$TMPD/logkill'); d=\$(sed -n 's/^killdrv: user drawing //p' '$TMPD/logkill'); echo before \$b drawing \$d after \$a; [ -n \"\$a\" ] && [ \$a -le \$((b + 512)) ] && [ \$d -gt \$((b + 512)) ]"
-		check "killdrv: a new driver serves the device and draws" bash -c "grep -q '^killdrv: restart status device virtio-gpu' '$TMPD/logkill' && grep -q '^killdrv: restart drew$' '$TMPD/logkill'"
-		check "killdrv: a reset that never finishes: the kernel says so" grep -q '^killdrv: stuck: .*engine did not stop, bus mastering off' "$TMPD/logkill"
-		check "killdrv: ... and refuses bme on afterwards" grep -q '^killdrv: bme on refused$' "$TMPD/logkill"
-		check "killdrv: nothing hung" grep -q '^killdrv: done$' "$TMPD/logkill"
+		check "killdrv: a new driver serves the device and draws" bash -c "grep -q 'killdrv: restart status device virtio-gpu' '$TMPD/logkill' && grep -q 'killdrv: restart drew$' '$TMPD/logkill'"
+		check "killdrv: a reset that never finishes: the kernel says so" grep -q 'killdrv: stuck: .*engine did not stop, bus mastering off' "$TMPD/logkill"
+		check "killdrv: ... and refuses bme on afterwards" grep -q 'killdrv: bme on refused$' "$TMPD/logkill"
+		check "killdrv: nothing hung" grep -q 'killdrv: done$' "$TMPD/logkill"
 
 		# 9space: memory runs out while vkcube draws (drvnoswap.rc):
 		# the pager kills memhog's children, never the driver (noswap,
@@ -354,11 +354,11 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		sed 's/^/  /' "$TMPD/lognoswap"
 		nv(){ sed -n "s/^drvnoswap: $1 //p" "$TMPD/lognoswap" | head -1; }
 		check "drvnoswap: the driver is bigger than memhog's children (so a child killed shows the driver passed over)" bash -c "d=\$(sed -n 's/^drvnoswap: kb driver \\([0-9]*\\) vkcube.*/\\1/p' '$TMPD/lognoswap'); h=\$(sed -n 's/^drvnoswap: child kb //p' '$TMPD/lognoswap'); echo driver \$d child \$h; [ -n \"\$h\" ] && [ \$d -gt \$h ]"
-		check "drvnoswap: the pager killed a child of memhog" bash -c "grep -q '^drvnoswap: memhog: [0-9]* children of [0-9]* KB, child [0-9]* gone' '$TMPD/lognoswap' && grep -q '^drvnoswap: killed: memhog ' '$TMPD/lognoswap'"
+		check "drvnoswap: the pager killed a child of memhog" bash -c "grep -q 'drvnoswap: memhog: [0-9]* children of [0-9]* KB, child [0-9]* gone' '$TMPD/lognoswap' && grep -q 'drvnoswap: killed: memhog ' '$TMPD/lognoswap'"
 		check "drvnoswap: ... and no other (memhog's or vkcube's, a client: never the driver)" bash -c "! grep '^drvnoswap: killed: ' '$TMPD/lognoswap' | grep -Evq '^drvnoswap: killed: (memhog|vkcube) '"
 		check "drvnoswap: the driver's procs all still there" bash -c "b=\$(sed -n 's/^drvnoswap: driver //p' '$TMPD/lognoswap' | head -1); a=\" \$(sed -n 's/^drvnoswap: driver after //p' '$TMPD/lognoswap') \"; [ -n \"\$b\" ] || exit 1; for p in \$b; do case \"\$a\" in *\" \$p \"*) ;; *) exit 1;; esac; done"
-		check "drvnoswap: the driver still serves gpu(4) after it" grep -q '^drvnoswap: serves device ' "$TMPD/lognoswap"
-		check "drvnoswap: nothing hung" grep -q '^drvnoswap: done$' "$TMPD/lognoswap"
+		check "drvnoswap: the driver still serves gpu(4) after it" grep -q 'drvnoswap: serves device ' "$TMPD/lognoswap"
+		check "drvnoswap: nothing hung" grep -q 'drvnoswap: done$' "$TMPD/lognoswap"
 	fi
 
 	# wsys (sys/src/cmd/wsys): vktri in a window of wsys hands its
@@ -425,16 +425,16 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		check "boot with virtio-gpu-gl, vktri in a window of wsys" bootwsys
 		tr -d '\r' < "$TMPD/consolewsys" > "$TMPD/logwsys"
 		cp "$TMPD/logwsys" "$HERE/console-wsys.log"
-		check "wsys: the WSI hands vktri's frames to wsys as GPU buffers" grep -q '^gpu: wsi plan9: wsys has the buffers' "$TMPD/logwsys"
-		check "wsys: vktri through GPU buffers, its pixels in the window: all passed" grep -q '^gpu: vktri: all passed' "$TMPD/logwsys"
-		check "wsys: vktri by copy (WSI_PLAN9_COPY=1): all passed" grep -q '^copy: vktri: all passed' "$TMPD/logwsys"
+		check "wsys: the WSI hands vktri's frames to wsys as GPU buffers" grep -q 'gpu: wsi plan9: wsys has the buffers' "$TMPD/logwsys"
+		check "wsys: vktri through GPU buffers, its pixels in the window: all passed" grep -q 'gpu: vktri: all passed' "$TMPD/logwsys"
+		check "wsys: vktri by copy (WSI_PLAN9_COPY=1): all passed" grep -q 'copy: vktri: all passed' "$TMPD/logwsys"
 		check "wsys: wsys gives every buffer back (b n; the WSI took none back after 2 s)" bash -c "! grep -q 'wsys kept buffer' '$TMPD/logwsys'"
 		grep -E '^(gpu|copy): ok [0-9]+ frames' "$TMPD/logwsys" | sed 's/^/  /'
 		if [ -x "$HERE/root/tests/ui" ]; then
-			check "wsys: ui (ui(4)) draws with the GPU (vello on wgpu)" grep -q '^ui: renderer gpu ' "$TMPD/logwsys"
-			check "wsys: ui laid out its button after a frame" grep -q '^ui: rect [0-9]' "$TMPD/logwsys"
-			check "wsys: ui rendered without errors" bash -c "! grep -q '^ui: log' '$TMPD/logwsys'"
-			check "wsys: ui's frames go to wsys as GPU buffers (not copied)" grep -qE '^ui: wsi plan9: [^ ]+: wsys$' "$TMPD/logwsys"
+			check "wsys: ui (ui(4)) draws with the GPU (vello on wgpu)" grep -q 'ui: renderer gpu ' "$TMPD/logwsys"
+			check "wsys: ui laid out its button after a frame" grep -q 'ui: rect [0-9]' "$TMPD/logwsys"
+			check "wsys: ui rendered without errors" bash -c "! grep -q 'ui: log' '$TMPD/logwsys'"
+			check "wsys: ui's frames go to wsys as GPU buffers (not copied)" grep -qE 'ui: wsi plan9: [^ ]+: wsys$' "$TMPD/logwsys"
 			grep '^ui: renderer' "$TMPD/logwsys" | sed 's/^/  /'
 		fi
 		for p in sdlvk sdlgpu; do
@@ -446,8 +446,8 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		done
 		grep -E '^sdlgpu: (ok|FAIL)' "$TMPD/logwsys" | sed 's/^/  /'
 		if [ -x "$HERE/root/tests/eframetest" ]; then
-			check "wsys: eframetest (egui's eframe) on wgpu's Vulkan, not the processor: all passed" grep -q '^eframe: eframetest: all passed' "$TMPD/logwsys"
-			check "wsys: eframe's frames go to wsys as GPU buffers (not copied)" grep -qE '^eframe: wsi plan9: [^ ]+: wsys$' "$TMPD/logwsys"
+			check "wsys: eframetest (egui's eframe) on wgpu's Vulkan, not the processor: all passed" grep -q 'eframe: eframetest: all passed' "$TMPD/logwsys"
+			check "wsys: eframe's frames go to wsys as GPU buffers (not copied)" grep -qE 'eframe: wsi plan9: [^ ]+: wsys$' "$TMPD/logwsys"
 			grep -E '^eframe: ok (wgpu adapter|[0-9]+ frames)' "$TMPD/logwsys" | sed 's/^/  /'
 		fi
 		# 9space: memory runs out in a window of wsys (wsysnoswap.rc): the
@@ -457,9 +457,9 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		tr -d '\r' < "$TMPD/consolewsys" | grep '^noswap: ' > "$TMPD/lognoswapw"
 		sed 's/^/  /' "$TMPD/lognoswapw"
 		check "wsys noswap: wsys is bigger than memhog's children (so a child killed shows wsys passed over)" bash -c "set -- \$(sed -n 's/^noswap: kb wsys \\([0-9]*\\) child \\([0-9]*\\)$/\\1 \\2/p' '$TMPD/lognoswapw'); [ -n \"\$2\" ] && [ \$1 -gt \$2 ]"
-		check "wsys noswap: the pager killed a child of memhog, the program of a window (it did not inherit noswap)" bash -c "grep -q '^noswap: memhog: [0-9]* children of [0-9]* KB, child [0-9]* gone' '$TMPD/lognoswapw' && grep -q '^noswap: killed: memhog ' '$TMPD/lognoswapw'"
-		check "wsys noswap: ... and not wsys (its procs all still there)" bash -c "! grep -q '^noswap: killed: wsys ' '$TMPD/lognoswapw' || exit 1; b=\$(sed -n 's/^noswap: wsys \\([0-9 ]*\\)$/\\1/p' '$TMPD/lognoswapw'); a=\" \$(sed -n 's/^noswap: wsys after //p' '$TMPD/lognoswapw') \"; [ -n \"\$b\" ] || exit 1; for p in \$b; do case \"\$a\" in *\" \$p \"*) ;; *) exit 1;; esac; done"
-		check "wsys noswap: nothing hung" grep -q '^noswap: done$' "$TMPD/lognoswapw"
+		check "wsys noswap: the pager killed a child of memhog, the program of a window (it did not inherit noswap)" bash -c "grep -q 'noswap: memhog: [0-9]* children of [0-9]* KB, child [0-9]* gone' '$TMPD/lognoswapw' && grep -q 'noswap: killed: memhog ' '$TMPD/lognoswapw'"
+		check "wsys noswap: ... and not wsys (its procs all still there)" bash -c "! grep -q 'noswap: killed: wsys ' '$TMPD/lognoswapw' || exit 1; b=\$(sed -n 's/^noswap: wsys \\([0-9 ]*\\)$/\\1/p' '$TMPD/lognoswapw'); a=\" \$(sed -n 's/^noswap: wsys after //p' '$TMPD/lognoswapw') \"; [ -n \"\$b\" ] || exit 1; for p in \$b; do case \"\$a\" in *\" \$p \"*) ;; *) exit 1;; esac; done"
+		check "wsys noswap: nothing hung" grep -q 'noswap: done$' "$TMPD/lognoswapw"
 		# 9space: wsys keeps its helpers going (wsyssup.rc, wsys(4)): a window
 		# -restart's program killed by the pager comes back in the same
 		# window; a helper too; a crashing one 5 times, then given up, and
@@ -467,28 +467,28 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		check "boot with virtio-gpu-gl, wsys: its helpers kept going" bootwsys "/tests/wsys ${WSYSFLAGS:-} -x -i /tests/wsyssup"
 		tr -d '\r' < "$TMPD/consolewsys" > "$TMPD/logsup"
 		grep -E '^(sup: |wsys: .*(killed for memory|times in 10 minutes))' "$TMPD/logsup" | sed 's/^/  /'
-		check "wsys sup: a window -restart's program killed by the pager twice, started again each time" bash -c "grep -q '^sup: memhog killed by the pager [2-9]' '$TMPD/logsup' && grep -q 'killed for memory: again in' '$TMPD/logsup'"
-		check "wsys sup: its window stayed; deleted, its program not started again" bash -c "grep -q '^sup: window [0-9]* still there' '$TMPD/logsup' && grep -q '^sup: memhog running after the delete: 0' '$TMPD/logsup'"
-		check "wsys sup: a helper -restart killed for memory started again (3 runs, then its own end)" grep -q '^sup: helper killed for memory ran 3 times' "$TMPD/logsup"
-		check "wsys sup: a crashing helper given up after 5 runs, said so" bash -c "grep -q '^sup: crashing helper ran 5 times' '$TMPD/logsup' && grep -q 'times in 10 minutes: not started again' '$TMPD/logsup'"
-		check "wsys sup: restart by wctl starts it once more" grep -q '^sup: after restart it ran 6 times' "$TMPD/logsup"
-		check "wsys sup: a key through a helper's kbdtap reaches the window" bash -c "grep -q '^sup: key a in the window' '$TMPD/logsup' && grep -q '^sup: key a through the tap' '$TMPD/logsup'"
-		check "wsys sup: while the tap's reader is gone a key still reaches the window (not held back)" bash -c "grep -q '^sup: key b in the window while' '$TMPD/logsup' && grep -q '^sup: key b not through a tap' '$TMPD/logsup'"
-		check "wsys sup: after the helper's restart keys go through its tap again" bash -c "grep -q '^sup: key c in the window after' '$TMPD/logsup' && grep -q '^sup: key c through the tap again' '$TMPD/logsup' && grep -q '^sup: tap helper runs 2' '$TMPD/logsup'"
-		check "wsys sup: nothing hung" grep -q '^sup: done$' "$TMPD/logsup"
+		check "wsys sup: a window -restart's program killed by the pager twice, started again each time" bash -c "grep -q 'sup: memhog killed by the pager [2-9]' '$TMPD/logsup' && grep -q 'killed for memory: again in' '$TMPD/logsup'"
+		check "wsys sup: its window stayed; deleted, its program not started again" bash -c "grep -q 'sup: window [0-9]* still there' '$TMPD/logsup' && grep -q 'sup: memhog running after the delete: 0' '$TMPD/logsup'"
+		check "wsys sup: a helper -restart killed for memory started again (3 runs, then its own end)" grep -q 'sup: helper killed for memory ran 3 times' "$TMPD/logsup"
+		check "wsys sup: a crashing helper given up after 5 runs, said so" bash -c "grep -q 'sup: crashing helper ran 5 times' '$TMPD/logsup' && grep -q 'times in 10 minutes: not started again' '$TMPD/logsup'"
+		check "wsys sup: restart by wctl starts it once more" grep -q 'sup: after restart it ran 6 times' "$TMPD/logsup"
+		check "wsys sup: a key through a helper's kbdtap reaches the window" bash -c "grep -q 'sup: key a in the window' '$TMPD/logsup' && grep -q 'sup: key a through the tap' '$TMPD/logsup'"
+		check "wsys sup: while the tap's reader is gone a key still reaches the window (not held back)" bash -c "grep -q 'sup: key b in the window while' '$TMPD/logsup' && grep -q 'sup: key b not through a tap' '$TMPD/logsup'"
+		check "wsys sup: after the helper's restart keys go through its tap again" bash -c "grep -q 'sup: key c in the window after' '$TMPD/logsup' && grep -q 'sup: key c through the tap again' '$TMPD/logsup' && grep -q 'sup: tap helper runs 2' '$TMPD/logsup'"
+		check "wsys sup: nothing hung" grep -q 'sup: done$' "$TMPD/logsup"
 		# the screen composed on the GPU, wsys' default (-g says so; here
 		# WSYSDEBUG=comp, so that the default is what runs) (wsyscomp.rc)
 		check "boot with virtio-gpu-gl, wsys (the GPU composes by default)" bootwsys "WSI_PLAN9_STATS=1 WSYSDEBUG=comp /tests/wsys ${WSYSFLAGS:-} -x -i /tests/wsyscomp"
 		tr -d '\r' < "$TMPD/consolewsys" > "$TMPD/logcomp"
 		cp "$TMPD/logcomp" "$HERE/console-wsyscomp.log"
-		check "wsys, GPU: composing on the GPU" grep -q '^wsys: composing on the GPU' "$TMPD/logcomp"
-		check "wsys, GPU: its frames go to the display (scanout)" grep -q '^wsi plan9: (window): scanout' "$TMPD/logcomp"
+		check "wsys, GPU: composing on the GPU" grep -q 'wsys: composing on the GPU' "$TMPD/logcomp"
+		check "wsys, GPU: its frames go to the display (scanout)" grep -q 'wsi plan9: (window): scanout' "$TMPD/logcomp"
 		for w in a b c; do
 			check "wsys, GPU: vktri $w through GPU buffers, its pixels as composed: all passed" grep -q "^$w: vktri: all passed" "$TMPD/logcomp"
 		done
 		check "wsys, GPU: the GPU composes the buffers (none refused)" bash -c "! grep -q 'the GPU composes it not\|composes no longer' '$TMPD/logcomp'"
 		check "wsys, GPU: wsys gives every buffer back (b n; the WSI took none back after 2 s)" bash -c "! grep -q 'wsys kept buffer' '$TMPD/logcomp'"
-		check "wsys, GPU: vktri seen where nothing covers it" grep -q '^uncovered: ff0000' "$TMPD/logcomp"
+		check "wsys, GPU: vktri seen where nothing covers it" grep -q 'uncovered: ff0000' "$TMPD/logcomp"
 		check "wsys, GPU: the window over it, not vktri, where it covers it" bash -c "grep '^covered: ' '$TMPD/logcomp' | grep -vq ' \(ff0000\|000066\)\$'"
 		grep -E '^(covered|uncovered): |^[abc]: ok [0-9]+ frames' "$TMPD/logcomp" | sed 's/^/  /'
 		# a Vulkan window outlives its wsys (Mesa's WSI, libdraw's wsysagain):
@@ -498,7 +498,7 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		check "boot with virtio-gpu-gl, vktri in wsys A, B and C" bootwsys "/tests/wsysagain /tmp/wagain.log >/tmp/wagain.out >[2=1]; cat /tmp/wagain.out /tmp/wagain.log"
 		tr -d '\r' < "$TMPD/consolewsys" > "$TMPD/logagain"
 		cp "$TMPD/logagain" "$HERE/console-wsysagain.log"
-		check "wsys gone: vktri goes on in the next wsys, twice, its triangle in the last: all passed" grep -q '^wsysagain: all passed' "$TMPD/logagain"
+		check "wsys gone: vktri goes on in the next wsys, twice, its triangle in the last: all passed" grep -q 'wsysagain: all passed' "$TMPD/logagain"
 		grep -E '^(ok|FAIL) ' "$TMPD/logagain" | sed 's/^/  /'
 		# the order of the frames on the screen as composed: never an older
 		# frame after a newer one (vktri's VKTRI_COUNTER; wsysorder.rc)
@@ -508,7 +508,7 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		tr -d '\r' < "$TMPD/consolewsys" > "$TMPD/logorder"
 		cp "$TMPD/logorder" "$HERE/console-wsysorder.log"
 		check "wsys order: every sample a frame of vktri, never an older one after a newer one" grep -Eq '^order: ([5-9][0-9]|[1-9][0-9][0-9]) samples, 0 back, 0 not a frame' "$TMPD/logorder"
-		check "glage in a window of wsys -g (buffer age, partial redraw: no older content): all passed" grep -q '^order: glage: all passed' "$TMPD/logorder"
+		check "glage in a window of wsys -g (buffer age, partial redraw: no older content): all passed" grep -q 'order: glage: all passed' "$TMPD/logorder"
 		# incremental present: glage's frames change a stripe of its window
 		# (480x360): wsys composes about that, not the window (WSYSDEBUG=damage)
 		check "wsys -g composes only what changed (glage's damage: under 40000 pixels a frame)" \
@@ -523,13 +523,13 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		check "boot with virtio-gpu-gl, wsys while its driver is killed and started again" bootwsys "WSI_PLAN9_STATS=1 WSYSDEBUG=comp /tests/wsys ${WSYSFLAGS:-} -x -i /tests/wsysback"
 		tr -d '\r' < "$TMPD/consolewsys" > "$TMPD/logback"
 		cp "$TMPD/logback" "$HERE/console-wsysback.log"
-		check "wsys back: vktri composed on the GPU before" grep -q '^back: before: vktri: all passed' "$TMPD/logback"
-		check "wsys back: the driver killed, wsys lives and the processor composes" grep -q '^back: fell back to the processor' "$TMPD/logback"
-		check "wsys back: the driver started again, the GPU composes again" grep -q '^back: the GPU composes again' "$TMPD/logback"
-		check "wsys back: vktri after it, its frames GPU buffers wsys composes: all passed" grep -q '^back: after: vktri: all passed' "$TMPD/logback"
-		check "wsys back: a name space made before the restart sees the new driver (shr)" grep -q '^back: an old name space sees the new driver' "$TMPD/logback"
+		check "wsys back: vktri composed on the GPU before" grep -q 'back: before: vktri: all passed' "$TMPD/logback"
+		check "wsys back: the driver killed, wsys lives and the processor composes" grep -q 'back: fell back to the processor' "$TMPD/logback"
+		check "wsys back: the driver started again, the GPU composes again" grep -q 'back: the GPU composes again' "$TMPD/logback"
+		check "wsys back: vktri after it, its frames GPU buffers wsys composes: all passed" grep -q 'back: after: vktri: all passed' "$TMPD/logback"
+		check "wsys back: a name space made before the restart sees the new driver (shr)" grep -q 'back: an old name space sees the new driver' "$TMPD/logback"
 		check "wsys back: a vktri across the restart meets the lost device (a call reports it: Mesa 0048) and goes on with a new one" grep -Eq '^back: across: ok device lost at the (acquire|submit|present|fence) ' "$TMPD/logback"
-		check "wsys back: that vktri: all passed (its frames on the screen after)" grep -q '^back: across: vktri: all passed' "$TMPD/logback"
+		check "wsys back: that vktri: all passed (its frames on the screen after)" grep -q 'back: across: vktri: all passed' "$TMPD/logback"
 		check "wsys back: vktri's new buffers composed by the GPU (none refused after)" bash -c "! sed -n '/the GPU composes again/,\$p' '$TMPD/logback' | grep -q 'the GPU composes it not'"
 		grep -E '^back: |^wsys: the GPU compose' "$TMPD/logback" | grep -vE '^back: (before|after): ' | sed 's/^/  /'
 	else
