@@ -1,7 +1,8 @@
 #!/bin/rc
-# A GPU driver killed while a client draws (9space: gpu(3) onexit,
-# segment(3) ORCLOSE): its engines reset before its pages go, none of
-# its #g segments left, the memory back, and a new driver works.  Then
+# A GPU driver killed while a client draws and others walk into its
+# tree (9space: gpu(3) onexit, segment(3) ORCLOSE, shr(3)): its engines
+# reset before its pages go, none of its #g segments left, the memory
+# back, no proc of it left, and a new driver works.  Then
 # the failure path: a reset that never finishes turns bus mastering
 # off for good.  Lines "killdrv: ..." for tests/gpu/run.sh.
 rfork e
@@ -22,6 +23,15 @@ sed 3q /tmp/vkcube.log | sed 's/^/killdrv: vkcube: /'
 echo killdrv: user drawing `{userpages}
 echo killdrv: segs drawing `{drvsegs}
 
+# walks into the driver's tree in flight at the kill (shr(3)'s walk held
+# the share's lock across one: the driver's exit, removing its entry,
+# waited for it, and it for the driver: patch-upstream 0064)
+fn walker { while() ls -l $1 >/dev/null >[2=1] }
+walker /shr/gpu/0/ctx &
+w1=$apid
+walker /shr/gpu/0/status &
+w2=$apid
+sleep 1
 # as the pager does: a kill, no note handler runs
 for(p in `{drvpids})
 	@{echo kill >/proc/$p/note} >[2]/dev/null
@@ -29,6 +39,8 @@ sleep 2
 @{echo kill >/proc/$cpid/note} >[2]/dev/null
 sleep 2
 echo killdrv: driver left `{drvpids}
+for(p in $w1 $w2)
+	@{echo kill >/proc/$p/note} >[2]/dev/null
 echo killdrv: segs after `{drvsegs}
 echo killdrv: user after `{userpages}
 tail -n +`{echo $kn + 1 | hoc} /dev/kmesg | grep -e onexit -e 'did not stop' -e fault -e panic | sed 's/^/killdrv: kmesg: /'
