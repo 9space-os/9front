@@ -37,7 +37,8 @@ if(! ~ $"old $"std){
 }
 # cargo does not know the C libraries it links (libvulkan.a, APE's, lib9's):
 # a program older than one of them goes (release/p and the deps/p-hash it is
-# a link of: cargo looks at that one), so that cargo links it again
+# a link of: cargo looks at that one), so that cargo links it again (the
+# rc twin of scripts/build/cargorelink.sh)
 for(p in $*){
 	bin=$target/release/$p
 	if(test -e $bin){
