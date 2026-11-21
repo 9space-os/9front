@@ -568,6 +568,11 @@ pub trait SurfaceInterface: CommonTraits {
 
 pub trait SurfaceOutputDetailInterface: CommonTraits {
     fn present(&self);
+    /// 9front: gfx-rs/wgpu PR #10152 (commit f061efb29a8b), backported: the
+    /// damage is a hint; backends without incremental presentation present all.
+    fn present_with_damage(&self, _damage_rects: &[wgt::Rect<u32>]) {
+        self.present();
+    }
     fn texture_discard(&self);
 }
 

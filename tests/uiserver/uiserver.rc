@@ -405,6 +405,37 @@ for(y in $ys){
 if(~ $d 120 && test $between -gt 0) ok 'wheel: 120 pixels over frames, seen on the way' $between times
 if not fail wheel: scrolled $d, on the way $between times: $ys
 
+# the picture inside a scroll when its content changes, the scroll's own size
+# the same (masonry's layout pass paints again only what asked for layout or
+# changed size; what moves is composed where it is now): labels on green in a
+# scroll; one red in place, then one above it bigger: the red one moves down,
+# drawn where it is now, the screen there red
+echo clear >/mnt/ui/ctl
+echo 'new sv2 scroll
+set sv2 flex 1
+new sc2 column sv2' >/mnt/ui/ctl
+for(i in `{seq 0 29})
+	echo 'new q'$i' label sc2
+set q'$i' text line '$i'
+set q'$i' padding 6
+set q'$i' radius 0
+set q'$i' background #00ff00' >/mnt/ui/ctl
+sleep 1
+echo 'set q2 background #ff0000' >/mnt/ui/ctl
+sleep 1
+red=`{inside q2 ff0000}
+green=`{inside q2 00ff00}
+if(test $red -gt 200 && ~ $green 0) ok 'scroll: a label changed in place,' $red pixels red
+if not fail scroll: changed in place: red $red green $green, rect `{cat /mnt/ui/nodes/q2/rect}
+y0=`{top q2}
+echo 'set q1 padding 20' >/mnt/ui/ctl
+sleep 1
+y1=`{top q2}
+red=`{inside q2 ff0000}
+green=`{inside q2 00ff00}
+if(test $y1 -gt $y0 && test $red -gt 200 && ~ $green 0) ok 'scroll: moved down by its neighbour, drawn where it is now:' $y0 to $y1, $red pixels red
+if not fail scroll: moved: top $y0 to $y1, red $red green $green
+
 # the focus ring: a text box with the focus has a halo of the focus colour
 # outside it (BoxShadow); the window's background there without
 echo clear >/mnt/ui/ctl

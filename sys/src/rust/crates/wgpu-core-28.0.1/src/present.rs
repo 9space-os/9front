@@ -275,6 +275,16 @@ impl Surface {
     }
 
     pub fn present(&self) -> Result<Status, SurfaceError> {
+        self.present_with_damage(&[])
+    }
+
+    /// 9front: gfx-rs/wgpu PR #10152 (commit f061efb29a8b), backported: the
+    /// regions that changed since the last present, a hint for the backends
+    /// with incremental presentation; empty: all of it.
+    pub fn present_with_damage(
+        &self,
+        damage_rects: &[wgt::Rect<u32>],
+    ) -> Result<Status, SurfaceError> {
         profiling::scope!("Surface::present");
 
         let mut presentation = self.presentation.lock();
@@ -299,6 +309,18 @@ impl Surface {
             .take()
             .ok_or(SurfaceError::AlreadyAcquired)?;
 
+        // hal requires damage rects to be non-empty and within the surface.
+        let surface_rect = wgt::Rect {
+            x: 0,
+            y: 0,
+            w: present.config.width,
+            h: present.config.height,
+        };
+        let damage_rects = damage_rects
+            .iter()
+            .filter_map(|rect| rect.intersect(&surface_rect))
+            .collect::<Vec<_>>();
+
         let mut exclusive_snatch_guard = device.snatchable_lock.write();
         let inner = texture.inner.snatch(&mut exclusive_snatch_guard);
         drop(exclusive_snatch_guard);
@@ -309,7 +331,7 @@ impl Surface {
                 let raw_surface = self.raw(device.backend()).unwrap();
                 let raw_queue = queue.raw();
                 let _fence_lock = device.fence.write();
-                unsafe { raw_queue.present(raw_surface, raw) }
+                unsafe { raw_queue.present(raw_surface, raw, &damage_rects) }
             }
             _ => unreachable!(),
         };
@@ -404,6 +426,15 @@ impl Global {
     }
 
     pub fn surface_present(&self, surface_id: id::SurfaceId) -> Result<Status, SurfaceError> {
+        self.surface_present_with_damage(surface_id, &[])
+    }
+
+    /// 9front: gfx-rs/wgpu PR #10152, backported (Surface::present_with_damage)
+    pub fn surface_present_with_damage(
+        &self,
+        surface_id: id::SurfaceId,
+        damage_rects: &[wgt::Rect<u32>],
+    ) -> Result<Status, SurfaceError> {
         let surface = self.surfaces.get(surface_id);
 
         #[cfg(feature = "trace")]
@@ -413,7 +444,7 @@ impl Global {
             }
         }
 
-        surface.present()
+        surface.present_with_damage(damage_rects)
     }
 
     pub fn surface_texture_discard(&self, surface_id: id::SurfaceId) -> Result<(), SurfaceError> {

@@ -158,11 +158,5 @@ impl WebGpuError for RenderCommandError {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Rect<T> {
-    pub x: T,
-    pub y: T,
-    pub w: T,
-    pub h: T,
-}
+// 9front: gfx-rs/wgpu PR #10152 (commit f061efb29a8b), backported: in wgpu-types now
+pub use wgt::Rect;

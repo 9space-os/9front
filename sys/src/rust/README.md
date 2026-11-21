@@ -24,7 +24,11 @@ A crate of the tree uses them by `[patch.crates-io]` with paths here
 - `softbuffer-0.4.8`: `src/backends/plan9.rs` (without its default features).
 - `wgpu-28.0.0`, `wgpu-core-28.0.1`, `wgpu-hal-28.0.1`: Vulkan on plan9
   (the static libvulkan.a, `VK_PLAN9_surface`); programs link
-  `-l draw -l 9 -l fmt -l utf -l stdc++`.
+  `-l draw -l 9 -l fmt -l utf -l stdc++`. With `wgpu-types-28.0.0`:
+  `Queue::present_with_damage` (`wgpu::Rect`; VK_KHR_incremental_present's
+  regions), gfx-rs/wgpu PR #10152 (commit f061efb29a8b) backported under
+  upstream's names, so that a wgpu with it replaces these 1:1; ui presents
+  the part it drew (`../cmd/ui/src/gpu.rs`).
 - `imaging_vello-0.0.1`: `VelloRenderer::with_pipeline_cache` (vello's
   `RendererOptions.pipeline_cache`), for ui's pipeline cache.
 - `plan9/p9win` (MIT, ours): draw(3), `/dev/mouse`, `/dev/kbd`, `/dev/wctl`,
@@ -59,7 +63,12 @@ Their master is this tree (crates.sh leaves `xilem/` alone).
   a TODO in its paint pass): the bounding boxes of the widgets painted
   again and of those moved (where they were and are), all of it when the
   layers change; `RenderRoot::take_damage` gives them to the renderer,
-  which draws only that again (`ui`).
+  which draws only that again (`ui`). A widget laid out again paints again
+  only if it asked for layout itself or its size or paint insets changed
+  (upstream's TODO in `passes/layout.rs`): a progress bar's change no longer
+  repaints the root, so the damage is the bar, not the window;
+  `LayoutCtx::request_paint_only` for a widget whose paint reads its children's
+  layout (masonry's CollapsePanel). An upstream candidate.
 - `masonry-0.4.0` (Apache-2.0): ProgressBar's min-content is its label's
   width, not its default 400 pixels (its preferred width): a bar with flex
   in a row no longer keeps the row wider than a narrower window.

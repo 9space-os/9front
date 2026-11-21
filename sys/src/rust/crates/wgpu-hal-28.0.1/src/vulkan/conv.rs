@@ -1035,3 +1035,24 @@ pub fn map_acceleration_structure_usage_to_barrier(
 
     (stages, access)
 }
+
+/// 9front: gfx-rs/wgpu PR #10152 (commit f061efb29a8b), backported: the damage
+/// rects (top-left origin, clipped to the surface by wgpu-core) as
+/// `VkPresentRegionKHR`'s rectangles, all in layer 0.
+pub fn map_damage_rects(damage_rects: &[wgt::Rect<u32>]) -> Vec<vk::RectLayerKHR> {
+    damage_rects
+        .iter()
+        .map(|rect| {
+            vk::RectLayerKHR::default()
+                .offset(vk::Offset2D {
+                    x: rect.x as i32,
+                    y: rect.y as i32,
+                })
+                .extent(vk::Extent2D {
+                    width: rect.w,
+                    height: rect.h,
+                })
+                .layer(0)
+        })
+        .collect()
+}

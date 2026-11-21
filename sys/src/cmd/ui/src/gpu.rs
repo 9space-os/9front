@@ -304,7 +304,16 @@ impl Gpu {
         let out = tex.texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.blitter.copy(&self.device, &mut enc, &self.view, &out);
         self.queue.submit([enc.finish()]);
-        tex.present();
+        // the damage of this present (VK_KHR_incremental_present through
+        // wgpu's present_with_damage, wsys composing only that): what changed
+        // since the last present is the part drawn now, as the image presented
+        // holds the whole picture (the blit above copies all of target into
+        // whichever of the swapchain's images it is). Blitting only the part
+        // would leave the rest of that image as it was frames ago: the damage
+        // then had to be the union since that image was presented. All of it
+        // (a new target, a resize, the first frame): no rects.
+        let damage = part.map(|(x, y, w, h)| wgpu::Rect { x, y, w, h });
+        self.queue.present_with_damage(tex, damage.as_slice());
         // the first frame's pipelines into the cache's file, once
         if !self.saved {
             self.saved = true;

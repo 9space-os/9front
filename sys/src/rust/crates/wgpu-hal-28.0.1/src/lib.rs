@@ -1226,10 +1226,17 @@ pub trait Queue: WasmNotSendSync {
         surface_textures: &[&<Self::A as Api>::SurfaceTexture],
         signal_fence: (&mut <Self::A as Api>::Fence, FenceValue),
     ) -> Result<(), DeviceError>;
+    /// `damage_rects` are the regions that changed since the last present, as a
+    /// hint for backends that support incremental presentation. An empty slice
+    /// means the whole surface changed. Every rect in `damage_rects` must be
+    /// non-empty and lie within the surface's configured extent.
+    ///
+    /// 9front: gfx-rs/wgpu PR #10152 (commit f061efb29a8b), backported.
     unsafe fn present(
         &self,
         surface: &<Self::A as Api>::Surface,
         texture: <Self::A as Api>::SurfaceTexture,
+        damage_rects: &[wgt::Rect<u32>],
     ) -> Result<(), SurfaceError>;
     unsafe fn get_timestamp_period(&self) -> f32;
 }

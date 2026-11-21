@@ -225,6 +225,7 @@ impl Widget for CollapsePanel {
     }
 
     fn layout(&mut self, ctx: &mut LayoutCtx<'_>, props: &PropertiesRef<'_>, size: Size) {
+        let separator_before = self.separator_line_y;
         let cache = ctx.property_cache();
         let border = props.get::<BorderWidth>(cache);
         let header_x_padding = theme::WIDGET_CONTROL_COMPONENT_PADDING;
@@ -289,6 +290,12 @@ impl Widget for CollapsePanel {
                 Some(header_height + SEPARATOR_PAD.top.get() + border_width * 0.5);
         } else {
             self.separator_line_y = None;
+        }
+        // 9space: the separator painted where the header now ends (its layout
+        // alone, the panel's size the same, no longer repaints the panel:
+        // masonry_core's passes::layout::run_layout)
+        if self.separator_line_y != separator_before {
+            ctx.request_paint_only();
         }
 
         ctx.derive_baselines(&self.header_label);

@@ -1162,6 +1162,12 @@ impl PhysicalDeviceProperties {
             extensions.push(khr::swapchain_mutable_format::NAME);
         }
 
+        // Optional `VK_KHR_incremental_present` (9front: gfx-rs/wgpu PR #10152,
+        // commit f061efb29a8b, backported: present's damage)
+        if self.supports_extension(khr::incremental_present::NAME) {
+            extensions.push(khr::incremental_present::NAME);
+        }
+
         // Optional `VK_EXT_robustness2`
         if self.supports_extension(ext::robustness2::NAME) {
             extensions.push(ext::robustness2::NAME);
@@ -1998,6 +2004,8 @@ impl super::Instance {
                 .map(|a| a.max_multiview_instance_index)
                 .unwrap_or(0),
             scratch_buffer_alignment: alignments.ray_tracing_scratch_buffer_alignment,
+            incremental_present: phd_capabilities
+                .supports_extension(khr::incremental_present::NAME),
         };
         let capabilities = crate::Capabilities {
             limits: phd_capabilities.to_wgpu_limits(),

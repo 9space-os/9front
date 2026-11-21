@@ -345,3 +345,23 @@ impl Queue {
         }
     }
 }
+
+/// 9front: gfx-rs/wgpu PR #10152 (commit f061efb29a8b), backported: upstream's
+/// `Queue::present_with_damage`, so that a wgpu with it replaces this 1:1
+/// (`SurfaceTexture::present` stays as 28's).
+impl Queue {
+    /// Like [`SurfaceTexture::present`], but with a hint of which regions changed since the last
+    /// present, in pixels. Rects are clipped to the surface, and backends without incremental
+    /// presentation ignore them.
+    ///
+    /// The texture must still contain the whole frame, since the compositor may use any part
+    /// of it.
+    pub fn present_with_damage(
+        &self,
+        mut surface_texture: SurfaceTexture,
+        damage_rects: &[wgt::Rect<u32>],
+    ) {
+        surface_texture.presented = true;
+        surface_texture.detail.present_with_damage(damage_rects);
+    }
+}

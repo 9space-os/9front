@@ -495,6 +495,7 @@ impl crate::Queue for Queue {
         &self,
         _surface: &Surface,
         texture: SurfaceTexture,
+        _damage_rects: &[wgt::Rect<u32>],
     ) -> Result<(), crate::SurfaceError> {
         let queue = &self.raw.lock();
         objc::rc::autoreleasepool(|| {

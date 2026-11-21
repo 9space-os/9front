@@ -394,6 +394,10 @@ struct PrivateCapabilities {
     /// these usages do not have as high of an alignment requirement using the buffer as
     ///  a scratch buffer when building acceleration structures.
     scratch_buffer_alignment: u32,
+
+    /// True if `VK_KHR_incremental_present` is enabled on the device.
+    /// (9front: gfx-rs/wgpu PR #10152, backported)
+    incremental_present: bool,
 }
 
 bitflags::bitflags!(
@@ -1349,10 +1353,16 @@ impl crate::Queue for Queue {
         &self,
         surface: &Surface,
         texture: SurfaceTexture,
+        damage_rects: &[wgt::Rect<u32>],
     ) -> Result<(), crate::SurfaceError> {
         let mut swapchain = surface.swapchain.write();
 
-        unsafe { swapchain.as_mut().unwrap().present(self, texture) }
+        unsafe {
+            swapchain
+                .as_mut()
+                .unwrap()
+                .present(self, texture, damage_rects)
+        }
     }
 
     unsafe fn get_timestamp_period(&self) -> f32 {

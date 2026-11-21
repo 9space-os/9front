@@ -359,15 +359,35 @@ pub(crate) fn run_layout_on(
         state.request_layout = false;
         return;
     }
+    // 9space: upstream's "TODO - Not everything that has been re-laid out needs
+    // to be repainted" (xilem issue #789, damage regions): a widget laid out
+    // again paints again only if it asked for layout itself, or its size or
+    // its paint insets changed (below, after its layout). The ancestors laid
+    // out on the way to a descendant that asked keep their picture; the
+    // children they move are damaged by compose (where they were and are).
+    // Else every change of a progress bar repainted the root: the window was
+    // all damage (ui presented all of it). A widget whose paint reads what
+    // its layout computed from its children says so itself
+    // (LayoutCtx::request_paint_only): of masonry-0.4.0's widgets only
+    // CollapsePanel (its separator under the header). The others' paint
+    // reads only their own state, which their own request_layout or
+    // request_render changes (Label's and TextArea's text layout, Split's
+    // bar, Slider's, Switch's thumb, ProgressBar), or what another widget
+    // asks for them (Portal: request_render on its scroll bars when their
+    // sizes change), or nothing (Flex, Grid, Portal, SizedBox, ZStack, ...:
+    // the box's background and border come from its own size).
+    let repaint = state.request_layout || state.layout_border_box_size != border_box_size;
+    let insets_before = state.paint_box_insets;
     state.layout_border_box_size = border_box_size;
 
-    // TODO - Not everything that has been re-laid out needs to be repainted.
-    state.needs_paint = true;
+    if repaint {
+        state.needs_paint = true;
+        state.request_pre_paint = true;
+        state.request_paint = true;
+        state.request_post_paint = true;
+    }
     state.needs_compose = true;
     state.needs_accessibility = true;
-    state.request_pre_paint = true;
-    state.request_paint = true;
-    state.request_post_paint = true;
     state.request_compose = true;
     state.request_accessibility = true;
 
@@ -435,6 +455,14 @@ pub(crate) fn run_layout_on(
             x1: state.paint_box_insets.x1.max(shadow_insets.x1),
             y1: state.paint_box_insets.y1.max(shadow_insets.y1),
         };
+    }
+
+    // 9space: paint insets changed (a shadow, a focus ring): paint again
+    if state.paint_box_insets != insets_before {
+        state.needs_paint = true;
+        state.request_pre_paint = true;
+        state.request_paint = true;
+        state.request_post_paint = true;
     }
 
     if trace {

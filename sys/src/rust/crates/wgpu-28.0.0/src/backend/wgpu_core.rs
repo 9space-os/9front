@@ -3932,7 +3932,15 @@ impl Drop for CoreSurface {
 
 impl dispatch::SurfaceOutputDetailInterface for CoreSurfaceOutputDetail {
     fn present(&self) {
-        match self.context.0.surface_present(self.surface_id) {
+        self.present_with_damage(&[]);
+    }
+
+    fn present_with_damage(&self, damage_rects: &[wgt::Rect<u32>]) {
+        match self
+            .context
+            .0
+            .surface_present_with_damage(self.surface_id, damage_rects)
+        {
             Ok(_status) => (),
             Err(err) => {
                 self.context

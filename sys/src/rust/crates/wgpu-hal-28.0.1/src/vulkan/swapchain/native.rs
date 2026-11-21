@@ -531,6 +531,7 @@ impl Swapchain for NativeSwapchain {
         &mut self,
         queue: &crate::vulkan::Queue,
         texture: crate::vulkan::SurfaceTexture,
+        damage_rects: &[wgt::Rect<u32>],
     ) -> Result<(), crate::SurfaceError> {
         let metadata = texture
             .metadata
@@ -576,6 +577,22 @@ impl Swapchain for NativeSwapchain {
         } else {
             vk_info
         };
+
+        // 9front: gfx-rs/wgpu PR #10152 (commit f061efb29a8b), backported: the
+        // damage as VK_KHR_incremental_present's regions, when it is enabled
+        let rects: Vec<vk::RectLayerKHR>;
+        let present_region;
+        let mut present_regions;
+        let vk_info =
+            if self.device.private_caps.incremental_present && !damage_rects.is_empty() {
+                rects = conv::map_damage_rects(damage_rects);
+                present_region = vk::PresentRegionKHR::default().rectangles(&rects);
+                present_regions = vk::PresentRegionsKHR::default()
+                    .regions(core::slice::from_ref(&present_region));
+                vk_info.push_next(&mut present_regions)
+            } else {
+                vk_info
+            };
 
         let suboptimal = {
             profiling::scope!("vkQueuePresentKHR");

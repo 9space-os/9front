@@ -758,6 +758,17 @@ impl MeasureCtx<'_> {
 
 // --- MARK: UPDATE LAYOUT
 impl LayoutCtx<'_> {
+    /// 9space: requests a paint of this widget from its layout: for a widget
+    /// whose paint reads what its layout computed from its children (a widget
+    /// laid out again only on the way to a descendant keeps its picture,
+    /// passes::layout::run_layout). As
+    /// [`request_paint_only`](EventCtx::request_paint_only) elsewhere.
+    pub fn request_paint_only(&mut self) {
+        trace!("request_paint_only");
+        self.widget_state.request_paint = true;
+        self.widget_state.needs_paint = true;
+    }
+
     #[track_caller]
     fn assert_layout_done(&self, child: &WidgetPod<impl Widget + ?Sized>, method_name: &str) {
         let child_state = self.get_child_state(child);

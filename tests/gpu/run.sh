@@ -29,8 +29,8 @@
 # of mcp-guest.sh: vktri, ui, SDL and eframetest in its windows as GPU
 # buffers (wsysvk.rc), memory running out (wsysnoswap.rc), the GPU
 # composing (wsyscomp.rc), a Vulkan window outliving its wsys
-# (wsysagain.rc), the frames' order (wsysorder.rc), the driver restarted
-# under it (wsysback.rc). Last: vkcube in a rio window, resized, quit
+# (wsysagain.rc), the frames' order (wsysorder.rc), ui's damage reaching
+# wsys (uidamage.rc), the driver restarted under it (wsysback.rc). Last: vkcube in a rio window, resized, quit
 # with q (riovk.rc).
 # usage: bash tests/gpu/run.sh   (amd64 only; needs a build)
 . "$(dirname "$0")/../lib.sh"
@@ -515,6 +515,19 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 			bash -c "grep -a '^wsys: damage: ' '$TMPD/logorder' | awk '{ if(\$5 + 0 > 1000 && \$5 + 0 < 40000) ok = 1 } END { exit !ok }'"
 		grep -a '^wsys: damage: ' "$TMPD/logorder" | tail -3 | sed 's/^/  /'
 		grep '^order: ' "$TMPD/logorder" | sed 's/^/  /'
+		# ui's damage reaches wsys (uidamage.rc): only ui's progress bar
+		# changes, ui presents the part it drew as the frame's damage (wgpu's
+		# present_with_damage), wsys composes about the bar, not the 500x400
+		# window (WSYSDEBUG=damage, as glage's above)
+		if [ -x "$HERE/root/tests/ui" ]; then
+			cp "$HERE/uidamage.rc" "$HERE/root/tests/uidamage"
+			chmod +x "$HERE/root/tests/uidamage"
+			check "boot with virtio-gpu-gl, wsys -g: ui in a window, only its bar changing" bootwsys "WSI_PLAN9_STATS=1 WSYSDEBUG=damage /tests/wsys ${WSYSFLAGS:-} -x -i /tests/uidamage"
+			tr -d '\r' < "$TMPD/consolewsys" > "$TMPD/logdamage"
+			check "ui's damage reaches wsys (its bar: under 40000 of the window's 200000 pixels a frame)" \
+				bash -c "grep -a 'wsys: damage: ' '$TMPD/logdamage' | awk '{ if(\$5 + 0 > 0 && \$5 + 0 < 40000) ok = 1 } END { exit !ok }'"
+			grep -a -E 'wsys: damage: |uidamage: ' "$TMPD/logdamage" | sed 's/^/  /'
+		fi
 		# the driver killed while wsys composes on the GPU and started again
 		# (wsysback.rc, as killdrv.rc): venus reports the device lost (Mesa
 		# 0045), wsys composes on the processor meanwhile, on the GPU again
