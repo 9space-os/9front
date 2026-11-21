@@ -1,0 +1,72 @@
+From 4a0fbe002194a4830bc5f3a1a2dfff1f7e27047e Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sat, 21 Nov 2026 02:51:13 +0100
+Subject: [PATCH 65/65] chan.c: createdir clones the mount without the mount
+ head's lock
+
+createdir held the head's rlock across cclone of the MCREATE mount, a
+walk: an RPC to the server mounted there. An unmount or a share entry's
+removal (wlock) behind it then waited for a server that may itself be
+waiting to go, the deadlock shr(3)'s walk had. The clone now goes on a
+reference taken under the lock, as findmount does.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/port/chan.c | 34 +++++++++++++++++++++++-----------
+ 1 file changed, 23 insertions(+), 11 deletions(-)
+
+diff --git a/sys/src/9/port/chan.c b/sys/src/9/port/chan.c
+index 5ebced699..1ced1c96e 100644
+--- a/sys/src/9/port/chan.c
++++ b/sys/src/9/port/chan.c
+@@ -1144,24 +1144,36 @@ walk(Chan **cp, char **names, int nnames, int nomount, int *nerror)
+ Chan*
+ createdir(Chan *c, Mhead *m)
+ {
+-	Chan *nc;
++	Chan *nc, *to;
+ 	Mount *f;
+ 
++	/*
++	 * the clone (a walk: an RPC to a mounted server) on a
++	 * reference taken under the lock, not under it, as findmount
++	 * does: an unmount or a removal (wlock) waited for this rlock
++	 * while the clone waited for a server that was going (devshr.c)
++	 */
++	to = nil;
+ 	rlock(&m->lock);
+-	if(waserror()){
+-		runlock(&m->lock);
+-		nexterror();
+-	}
+ 	for(f = m->mount; f != nil; f = f->next){
+ 		if((f->mflag&MCREATE) != 0){
+-			nc = cclone(f->to);
+-			runlock(&m->lock);
+-			poperror();
+-			cclose(c);
+-			return nc;
++			to = f->to;
++			incref(to);
++			break;
+ 		}
+ 	}
+-	error(Enocreate);
++	runlock(&m->lock);
++	if(to == nil)
++		error(Enocreate);
++	if(waserror()){
++		cclose(to);
++		nexterror();
++	}
++	nc = cclone(to);
++	poperror();
++	cclose(to);
++	cclose(c);
++	return nc;
+ }
+ 
+ void
+-- 
+2.56.0
+

@@ -1,0 +1,83 @@
+From e00ae9ab562dcae8f0c458ab141d5cc48e490ee5 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sat, 21 Nov 2026 02:51:13 +0100
+Subject: [PATCH 64/65] shr(3): a walk into a share's mounts without the
+ share's lock
+
+shrwalk held the share's rlock across the walk into each mount, an RPC
+to the file server mounted there. A server that removes its entry as it
+exits (ORCLOSE: shrremove's wlock) then waited for that rlock while the
+walk waited for the server's answer, which never came: its pipe stays
+open until its exit, which waited. Both hung for good: a file server
+posted in a share with ORCLOSE, killed while a client walks into its
+tree (its last proc in pexit, closefgrp, shrremove's wlock; the client
+in shrwalk, mntwalk, rpcattn). The walk now goes on references to the
+mounts' chans taken under the lock, as findmount does with a name space.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/port/devshr.c | 33 +++++++++++++++++++++++++++------
+ 1 file changed, 27 insertions(+), 6 deletions(-)
+
+diff --git a/sys/src/9/port/devshr.c b/sys/src/9/port/devshr.c
+index 60d448b0e..d27e93f62 100644
+--- a/sys/src/9/port/devshr.c
++++ b/sys/src/9/port/devshr.c
+@@ -176,7 +176,8 @@ static Walkqid*
+ shrwalk(Chan *c, Chan *nc, char **name, int nname)
+ {
+ 	Walkqid *wq, *wq2;
+-	int alloc, j;
++	int alloc, j, i, nto;
++	Chan **to;
+ 	char *nam;
+ 	Sch *sch;
+ 	Shr *shr;
+@@ -255,19 +256,39 @@ shrwalk(Chan *c, Chan *nc, char **name, int nname)
+ 			sch->mpt = mpt;
+ 			nc->qid = shrqid(sch->level = Qcmpt, mpt->id);
+ 		} else if(sch->level == Qshr) {
++			/*
++			 * the walk into the mounts goes on without the share's
++			 * lock, on references taken under it (as findmount
++			 * does): a walk is an RPC to the server mounted there,
++			 * and a server removing its entry as it exits
++			 * (ORCLOSE: shrremove's wlock) waited for this rlock
++			 * while this walk waited for its answer, forever
++			 */
+ 			shr = sch->shr;
+ 			h = &shr->umh;
+ 			wq2 = nil;
+ 			rlock(&h->lock);
+-			for(m = h->mount; m != nil && wq2 == nil; m = m->next){
+-				if(m->to == nil)
+-					continue;
++			nto = 0;
++			for(m = h->mount; m != nil; m = m->next)
++				if(m->to != nil)
++					nto++;
++			to = smalloc((nto + 1) * sizeof(Chan*));
++			nto = 0;
++			for(m = h->mount; m != nil; m = m->next)
++				if(m->to != nil){
++					incref(m->to);
++					to[nto++] = m->to;
++				}
++			runlock(&h->lock);
++			for(i = 0; i < nto && wq2 == nil; i++){
+ 				if(waserror())
+ 					continue;
+-				wq2 = devtab[m->to->type]->walk(m->to, nil, name + j, nname - j);
++				wq2 = devtab[to[i]->type]->walk(to[i], nil, name + j, nname - j);
+ 				poperror();
+ 			}
+-			runlock(&h->lock);
++			for(i = 0; i < nto; i++)
++				cclose(to[i]);
++			free(to);
+ 			if(wq2 == nil)
+ 				error(Enonexist);
+ 			memmove(wq->qid + wq->nqid, wq2->qid, wq2->nqid * sizeof(Qid));
+-- 
+2.56.0
+

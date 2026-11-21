@@ -34,7 +34,8 @@ All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 `6ae667969` (2026-11-15), 0039 to 0044 on them there (2026-11-16), 0045
 on them there (2026-11-17), 0046 and 0047 on them there (2026-11-18);
 all 59 at `cb9e5e7e9` (2026-11-19), 0060 on them there (2026-11-19), 0061 to
-0063 on them there (2026-11-20). Each applies alone too, except:
+0063 on them there (2026-11-20), 0064 and 0065 on them there (2026-11-21).
+Each applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
 - 0010 needs 0007 and 0009,
@@ -72,7 +73,9 @@ made with an AI assistant); drop it if 9front does not want it.
   `auth/factotum`'s `wpapsk`, `ip`'s `tftpfs` and `socksd`, each with
   `6c` (amd64) and `8c` (386) by their mkfiles, the same way: no errors,
   no warnings. 0060: `port/devsegment.c`
-  with `6c` (pc64) and `8c` (pc), the same way.
+  with `6c` (pc64) and `8c` (pc), the same way. 0064 and 0065: not yet
+  compiled with `6c`/`8c`; their code is the `gcc` branch's but for the
+  member paths, built there for amd64, 386 and arm64.
 - **Not done**: a kernel and ext4srv built with 9front's compilers and run
   with these patches. The kernel conf (0014), riostart (0015) and the
   dist mkfile (0024) are not compiled code; the gcc branch makes its CD
@@ -146,6 +149,8 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0061 | factotum: wpapsk ordered the nonces by 6 bytes, not 32 | bug fix |
 | 0062 | ip/tftpfs, ip/socksd: sizeof(Udphdr) is 56 under 6c, udp(3) wants 52 | bug fix |
 | 0063 | pipe(3): writes are atomic up to 65536 bytes, not "typically 32768" | documentation |
+| 0064 | shr(3): a walk held the share's lock across the RPC to the mounted server: deadlock with a server removing its ORCLOSE entry at exit | bug fix |
+| 0065 | chan.c: createdir held the mount head's lock across cclone (a walk RPC): the same deadlock | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -882,6 +887,31 @@ The kernel's queues take a write whole up to `Maxatomic`, 64*1024
 size; devpipe writes through `qwrite`. `Maxatomic` has been 64 KB at
 least since the sources of 2011 (the first import); the page still said
 32768.
+
+### 0064 shr(3): a walk into a share's mounts without the share's lock
+
+`shrwalk` held the share's `rlock` across the walk into each mount, an
+RPC to the file server mounted there. A server that removes its entry
+as it exits (ORCLOSE: `shrremove`'s `wlock`) then waited for that
+`rlock` while the walk waited for the server's answer, which never
+came: its pipe stays open until its exit, which waited. Both hung for
+good. Found with a GPU driver posted in `/shr/gpu/N` (9space's gpu(4)),
+killed while clients walk into its tree: about one run in ten, nearly
+every run with a loop walking there across the kill. Kernel stacks:
+the server's last proc in `pexit`, `closefgrp`, `cclose`, `shrremove`,
+`wlock`; the client in `shrwalk`, `mntwalk`, `mountrpc`, `rpcattn`. The
+walk now goes on references to the mounts' chans taken under the lock,
+as `findmount` does with a name space: with it no hang in ten runs of
+the loop that hung two in three.
+
+### 0065 chan.c: createdir clones the mount without the mount head's lock
+
+`createdir` held the head's `rlock` across `cclone` of the MCREATE
+mount, a walk: an RPC to the server mounted there. An unmount or a
+share entry's removal (`wlock`) behind it then waited for a server that
+may itself be waiting to go, the deadlock 0064 removes from shr(3)'s
+walk. The clone now goes on a reference taken under the lock, as
+`findmount` does. Not seen hanging; found reading for 0064's pattern.
 
 ## Not included
 
