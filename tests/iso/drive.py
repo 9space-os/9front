@@ -17,6 +17,10 @@
 #        DISK_INDEX  the IDE place of the image as a disk (default 0: sdC0)
 #        SHOW        files whose contents go to the serial line with the
 #                    marker (e.g. /dev/vgactl: whose screen it is)
+#        TYPE        more to type into the window once the marker came (a command
+#                    line; its output to '#t/eia0' lands in the serial log), then
+#        TYPEWAIT    seconds to wait (default 60) before a screendump,
+#                    workdir/typed.ppm (e.g. a program's window)
 import json, os, shutil, socket, subprocess, sys, time
 
 iso, media, fw, work = sys.argv[1:5]
@@ -78,7 +82,9 @@ KEYS = {' ': 'spc', '-': 'minus', '/': 'slash', '.': 'dot', '\n': 'ret', "'": 'a
 	';': 'semicolon', '=': 'equal', ',': 'comma', '#': ('shift', '3'), '>': ('shift', 'dot'),
 	'|': ('shift', 'backslash'), '*': ('shift', '8'), '{': ('shift', 'bracket_left'),
 	'}': ('shift', 'bracket_right'), '!': ('shift', '1'), '$': ('shift', '4'),
-	'(': ('shift', '9'), ')': ('shift', '0')}
+	'(': ('shift', '9'), ')': ('shift', '0'), ':': ('shift', 'semicolon'),
+	'_': ('shift', 'minus'), '`': 'grave_accent', '&': ('shift', '7'), '?': ('shift', 'slash')}
+KEYS.update({c: ('shift', c.lower()) for c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'})
 def type_(text):
 	for ch in text:
 		k = KEYS.get(ch, ch)
@@ -136,6 +142,11 @@ while time.time() < end and vm.poll() is None:
 			if marked():
 				ok = True
 				break
+		if ok and os.environ.get('TYPE'):
+			type_(os.environ['TYPE'] + '\n')
+			time.sleep(float(os.environ.get('TYPEWAIT', '60')))
+			cmd({'execute': 'screendump', 'arguments': {'filename': os.path.join(work, 'typed.ppm')}})
+			time.sleep(0.5)
 		break
 	type_('\n')	# a boot prompt's default
 	time.sleep(4)

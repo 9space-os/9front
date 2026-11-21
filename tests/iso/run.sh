@@ -27,6 +27,13 @@ xorriso -osirrox on -indev "$IMG" -extract /sys/lib/dist/omitted "$TMPD/omitted"
 	omitx="-x $TMPD/omitted"
 check "the CD holds everything mk install installs (scripts/build/check-install.py)" \
 	bash -c "python3 '$ROOT/scripts/build/check-install.py' -i '$IMG' $omitx > '$TMPD/check-install' || { grep -v '^ok' '$TMPD/check-install' | head; false; }"
+if [ "${BROWSER:-0}" = 1 ]; then
+	check "the browser on the CD (BROWSER=1): servoshell, webfs-rs, browser, its licences and source offer, the CA roots" bash -c "
+		for f in /${objtype:-amd64}/bin/servoshell /${objtype:-amd64}/bin/webfs-rs /rc/bin/browser \
+			/sys/lib/browser/LICENSES.md /sys/lib/browser/LICENSE.MPL-2.0 /sys/lib/browser/SOURCES /sys/lib/tls/ca.pem; do
+			xorriso -osirrox on -indev '$IMG' -find \$f 2>/dev/null | grep -q . || { echo missing \$f; exit 1; }
+		done"
+fi
 check "hybrid MBR: active ESP partition" python3 -c "
 import sys
 m = open('$IMG', 'rb').read(512)

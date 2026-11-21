@@ -35,7 +35,11 @@
 # /$objtype/lib.gcc, Rust from RUST_OUT (default its out/$objtype), Go from GO_OUT
 # (likewise); Rust links with gcc, so rust takes gcc along. Without DEV, as before:
 # gcc if it is built, Rust and Go if RUST_OUT, GO_OUT are set. MCP=1: the MCP server
-# (MCP_DIR, tools/mcp) as /$objtype/bin/9front-mcp, built with 9space's Go.
+# (MCP_DIR, tools/mcp) as /$objtype/bin/9front-mcp, built with 9space's Go. BROWSER=1:
+# the browser (BROWSER_DIR: its out/$objtype, ./build.sh there) as /$objtype/bin/servoshell
+# and webfs-rs, /rc/bin/browser (browser(1)) and /sys/lib/browser (its licences, the MPL's
+# source offer); it needs the ui and gpu groups (PROFILE full: wsys and the fonts, a GPU
+# driver for Servo's drawing).
 # /lib/firmware: linux-firmware's WLAN and GPU firmware (scripts/guest/firmware.spec,
 # checked against firmware.list; the GPUs' in the gpu group); FIRMWARE=0: none.
 #
@@ -46,7 +50,7 @@
 # public key, the replica's db and log as of this CD). dir.list: each path's
 # mode and owners as the CD has them (scripts/guest/proto.py -l).
 #
-# usage: [objtype=386] [PROFILE=p] [DEV=list] [MCP=1] [FIRMWARE=0] [REPLICA_DIR=d REPLICA_KEY=k REPLICA_URL=u]
+# usage: [objtype=386] [PROFILE=p] [DEV=list] [MCP=1] [BROWSER=1] [FIRMWARE=0] [REPLICA_DIR=d REPLICA_KEY=k REPLICA_URL=u]
 #        scripts/guest/stage-dist.sh dir
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
@@ -218,13 +222,35 @@ if [ "$MCP" = 1 ]; then
 	(cd "$MCP_DIR" && GOOS=plan9 GOARCH=$A CGO_ENABLED=0 "$go" build -trimpath "-ldflags=-s -w" -o "$OUT/$A/bin/9front-mcp" .)
 	mkdir -p "$OUT/sys/lib/mcp"
 	install -m 644 "$MCP_DIR/deny.example" "$OUT/sys/lib/mcp/deny"
+	# made after proto.py: dir.list (the replica, the CD's modes) learns them here
+	printf '%s\t775\tsys\tsys\n' "$A/bin/9front-mcp" >> "$OUT.list"
+	printf 'sys/lib/mcp\t20000000775\tsys\tsys\nsys/lib/mcp/deny\t664\tsys\tsys\n' >> "$OUT.list"
+	LC_ALL=C sort -u -o "$OUT.list" "$OUT.list"
 	echo "stage-dist: the MCP server as /$A/bin/9front-mcp" >&2
 fi
-# the CA roots, with Rust or Go: /sys/lib/tls/ca.pem, where Go's crypto/x509 and our
-# crates (rustls-native-certs, curl-sys) look; cargo and go reach crates.io and the
-# module proxy over https with them. Mozilla's list as curl extracts it (MPL-2.0):
+# the browser (BROWSER=1; BROWSER_DIR, Servo for 9space): its scripts/cd-files.sh puts its
+# programs, /rc/bin/browser and /sys/lib/browser into the stage and names them; servoshell
+# runs in wsys with the ui group's fonts (lib/font/ttf, lib/fontconfig) and draws through
+# Mesa on a GPU driver of the gpu group (gpustart, aux/i915, amdgpu, virtiogpu)
+if [ "${BROWSER:-0}" = 1 ]; then
+	has ui && has gpu || { echo "stage-dist: BROWSER=1 needs the groups ui and gpu (PROFILE full): servoshell runs in wsys, with its fonts, on a GPU driver" >&2; exit 1; }
+	bash "$BROWSER_DIR/scripts/cd-files.sh" "$OUT" "$A" > "$OUT.browser" || exit 1
+	{
+		echo "sys/lib/browser	20000000775	sys	sys"
+		sed 's#^/##' "$OUT.browser" | while read -r p; do
+			case $p in */bin/*) m=775 ;; *) m=664 ;; esac
+			printf '%s\t%s\tsys\tsys\n' "$p" "$m"
+		done
+	} >> "$OUT.list"
+	LC_ALL=C sort -u -o "$OUT.list" "$OUT.list"
+	echo "stage-dist: the browser: $(tr '\n' ' ' < "$OUT.browser")" >&2
+fi
+# the CA roots, with Rust, Go or the browser: /sys/lib/tls/ca.pem, where Go's crypto/x509
+# and our crates (rustls-native-certs, curl-sys; webfs-rs' rustls) look; cargo and go reach
+# crates.io and the module proxy over https with them, the browser the web. Mozilla's
+# list as curl extracts it (MPL-2.0):
 # like firmware a file of its own, not in the tree (DISTFILES, dist/distfiles.list)
-if [ -n "$RUST_OUT" ] || [ -n "$GO_OUT" ]; then
+if [ -n "$RUST_OUT" ] || [ -n "$GO_OUT" ] || [ "${BROWSER:-0}" = 1 ]; then
 	ca=$(ls "$DISTFILES"/cacert-*.pem 2>/dev/null | sort | tail -1)
 	if [ -n "$ca" ]; then
 		mkdir -p "$OUT/sys/lib/tls"
