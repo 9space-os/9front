@@ -1144,24 +1144,37 @@ walk(Chan **cp, char **names, int nnames, int nomount, int *nerror)
 Chan*
 createdir(Chan *c, Mhead *m)
 {
-	Chan *nc;
+	Chan *nc, *to;
 	Mount *f;
 
+	/*
+	 * the clone (a walk: an RPC to a mounted server) on a
+	 * reference taken under the lock, not under it, as findmount
+	 * does: an unmount or a removal (wlock) waited for this rlock
+	 * while the clone waited for a server that was going (devshr.c;
+	 * a 9front bug, patch-upstream 0065)
+	 */
+	to = nil;
 	rlock(&m->lock);
-	if(waserror()){
-		runlock(&m->lock);
-		nexterror();
-	}
 	for(f = m->mount; f != nil; f = f->next){
 		if((f->mflag&MCREATE) != 0){
-			nc = cclone(f->to);
-			runlock(&m->lock);
-			poperror();
-			cclose(c);
-			return nc;
+			to = f->to;
+			incref(&to->Ref);
+			break;
 		}
 	}
-	error(Enocreate);
+	runlock(&m->lock);
+	if(to == nil)
+		error(Enocreate);
+	if(waserror()){
+		cclose(to);
+		nexterror();
+	}
+	nc = cclone(to);
+	poperror();
+	cclose(to);
+	cclose(c);
+	return nc;
 }
 
 void
