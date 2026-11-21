@@ -36,6 +36,12 @@ put(){
 for s in tri.vert tri.frag; do
 	glslc -O -mfmt=c -o "$O/$s.inc" "$HERE/shaders/$s"
 done
+# futexstress: Mesa's futex for 9front, the vendored util/futex.c compiled in (the
+# tree's file, as libvulkan.a has it; mesa.json's -DHAVE_STRUCT_TIMESPEC), no Vulkan
+V=$ROOT/sys/src/mesa/vendor/src
+"$CROSS/$TRIPLE-gcc" -std=gnu11 -O2 -Wall -DHAVE_STRUCT_TIMESPEC -I"$V" \
+	-o "$O/futexstress" "$HERE/futexstress.c" "$V/util/futex.c"
+put "$O/futexstress"
 for p in vktest vkdraw vktri vkspeed vkshare radvtest vktimeline gltest gldesk glwin glage; do
 	extra=
 	case $p in

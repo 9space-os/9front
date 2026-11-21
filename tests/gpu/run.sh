@@ -243,6 +243,7 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 			'cat /shr/gpu/0/status' \
 			'/tests/gpuctxtest' \
 			'cat /shr/gpu/0/status' \
+			"test ! -x /tests/futexstress || /tests/futexstress" \
 			"test ! -x /tests/vktest || /tests/vktest" \
 			"bind -a '#i' /dev" \
 			"test ! -x /tests/vkdraw || WSI_PLAN9_COPY=1 /tests/vkdraw 3" \
@@ -275,6 +276,9 @@ if [ -r /dev/dri/renderD128 ] && [ -w /dev/dri/renderD128 ] &&
 		esac
 	done < <(grep -E '^(ok|FAIL) ' "$TMPD/log3d")
 	check "gpuctxtest: all passed" grep -q '^gpuctxtest: all passed' "$TMPD/log3d"
+	if [ -x "$HERE/root/tests/futexstress" ]; then
+		check "futexstress (Mesa's futex for 9front: a wake reaches its address's waiter, timeouts, a futex mutex): all passed" grep -q '^futexstress: all passed' "$TMPD/log3d"
+	fi
 	if [ -x "$HERE/root/tests/vktest" ]; then
 		check "vktest (Vulkan through venus): all passed" grep -q '^vktest: all passed' "$TMPD/log3d"
 		check "vkdraw (VK_PLAN9_surface, swapchain on the screen): all passed" grep -q '^vkdraw: all passed' "$TMPD/log3d"
