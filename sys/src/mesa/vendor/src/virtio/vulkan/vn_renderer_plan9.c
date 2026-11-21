@@ -92,17 +92,6 @@ struct plan9 {
    uint64_t fence;     /* last submission */
    uint64_t done;      /* done, with all before it */
 
-   /*
-    * the host visible bar, through the segments the driver names for
-    * the blobs: one for each way the host maps them (cached,
-    * write-combining, uncached; gpu(4) map)
-    */
-   struct {
-      char name[32];
-      uint8_t *addr;
-   } bar_seg[3];
-   uint64_t bar_size;
-
    struct virgl_renderer_capset_venus capset;
 
    struct util_sparse_array shmem_array;
@@ -434,7 +423,13 @@ plan9_bo_flush(struct vn_renderer *renderer,
    /* nop */
 }
 
-/* the address of resource res_id in the host visible bar; with the mutex */
+/*
+ * the address of resource res_id: the driver's segment of just that blob
+ * (gpu(4) map: "map id seg va size info"), attached here, detached when
+ * the resource goes (plan9_unmap); with the mutex.  Not the whole host
+ * visible bar: a client that outlived a driver would write into blobs the
+ * next driver gives others, and would see every client's host memory.
+ */
 static void *
 plan9_map_locked(struct plan9 *p9, uint32_t res_id, size_t size)
 {
@@ -442,30 +437,25 @@ plan9_map_locked(struct plan9 *p9, uint32_t res_id, size_t size)
 
    if (!plan9_ctl(p9, buf, sizeof(buf), "map %u", res_id))
       return NULL;
-   /* map res seg barsize offset size info */
-   if (plan9_fields(buf, f, 8) != 7 || strcmp(f[0], "map"))
+   if (plan9_fields(buf, f, 8) != 6 || strcmp(f[0], "map"))
       return NULL;
-   const uint64_t off = strtoull(f[4], NULL, 0);
-   unsigned i;
-   for (i = 0; i < ARRAY_SIZE(p9->bar_seg) && p9->bar_seg[i].addr; i++) {
-      if (strcmp(p9->bar_seg[i].name, f[2]) == 0)
-         break;
+   const uint64_t segsize = strtoull(f[4], NULL, 0);
+   if (size > segsize)
+      return NULL;
+   void *p = segattach(0, f[2], NULL, segsize);
+   if (p == (void *)-1) {
+      vn_log(p9->instance, "plan9: segattach %s failed", f[2]);
+      return NULL;
    }
-   if (i == ARRAY_SIZE(p9->bar_seg))
-      return NULL;
-   if (!p9->bar_seg[i].addr) {
-      p9->bar_size = strtoull(f[3], NULL, 0);
-      void *bar = segattach(0, f[2], NULL, p9->bar_size);
-      if (bar == (void *)-1) {
-         vn_log(p9->instance, "plan9: segattach %s failed", f[2]);
-         return NULL;
-      }
-      snprintf(p9->bar_seg[i].name, sizeof(p9->bar_seg[i].name), "%s", f[2]);
-      p9->bar_seg[i].addr = bar;
-   }
-   if (off + size > p9->bar_size)
-      return NULL;
-   return p9->bar_seg[i].addr + off;
+   return p;
+}
+
+/* a mapping of plan9_map_locked's gone (before its resource's unref) */
+static void
+plan9_unmap(void *p)
+{
+   if (p)
+      segdetach(p);
 }
 
 static void *
@@ -583,6 +573,8 @@ plan9_bo_destroy(struct vn_renderer *renderer, struct vn_renderer_bo *_bo)
       mtx_unlock(&p9->mutex);
       return false;
    }
+   plan9_unmap(_bo->mmap_ptr);
+   _bo->mmap_ptr = NULL;
    plan9_ctl(p9, NULL, 0, "unref %u", _bo->res_id);
    /* gone: an import of the resource later is a new bo */
    _bo->res_id = 0;
@@ -672,6 +664,7 @@ plan9_shmem_destroy_now(struct vn_renderer *renderer,
    struct plan9 *p9 = (struct plan9 *)renderer;
 
    mtx_lock(&p9->mutex);
+   plan9_unmap(shmem->mmap_ptr);
    plan9_ctl(p9, NULL, 0, "unref %u", shmem->res_id);
    mtx_unlock(&p9->mutex);
 }
@@ -782,10 +775,6 @@ plan9_destroy(struct vn_renderer *renderer,
 
    if (p9->shmem_cache.initialized)
       vn_renderer_shmem_cache_fini(&p9->shmem_cache);
-   for (unsigned i = 0; i < ARRAY_SIZE(p9->bar_seg); i++) {
-      if (p9->bar_seg[i].addr)
-         segdetach(p9->bar_seg[i].addr);
-   }
    if (p9->cmd)
       segdetach(p9->cmd);
    /* closing the files destroys the context */

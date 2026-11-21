@@ -11,7 +11,6 @@
 // aux/i915's (a GEM object, its pages a segment of its own).
 
 use crate::p9::{Fd, ORDWR, Seg};
-use std::collections::HashMap;
 use std::io;
 use std::rc::Rc;
 
@@ -26,7 +25,6 @@ pub struct Gpu {
     ctl: Rc<Fd>,
     drv: Drv,
     ctx: Option<u32>, // the context's number (clone's "ctx n"): its ctl for another fid
-    bars: HashMap<String, Seg>, // virtio: the host visible memory, by segment class
     dir: String,                // the device's: gpudir()/n
 }
 
@@ -34,7 +32,7 @@ pub struct Gpu {
 pub struct GpuMem {
     ctl: Rc<Fd>,
     res: u32,         // the resource (virtio) or the object's handle (amd)
-    seg: Option<Seg>, // amd: the object's own segment
+    seg: Option<Seg>, // the object's own segment (virtio's blob, amd's, intel's)
     va: usize,
     pub len: usize,
     copy: Vec<u8>, // what read read last
@@ -165,7 +163,7 @@ impl Gpu {
         let mut b = [0u8; 64];
         let n = ctl.pread(&mut b, 0).unwrap_or(0);
         let ctx = String::from_utf8_lossy(&b[..n]).split_whitespace().nth(1).and_then(|x| x.parse::<u32>().ok());
-        let g = Gpu { ctl: Rc::new(ctl), drv, ctx, bars: HashMap::new(), dir };
+        let g = Gpu { ctl: Rc::new(ctl), drv, ctx, dir };
         if drv == Drv::Virtio {
             g.req("init 4")?;
         }
@@ -212,22 +210,20 @@ impl Gpu {
         if rsize < size {
             return Err(io::Error::other(format!("gpu: buffer of {rsize} bytes, {size} wanted")));
         }
-        // map r seg barsize offset size info
+        // map r seg va size info: the blob's own segment (gpu(4)), as
+        // aux/amdgpu's and aux/i915's objects; its size in decimal
         let rep = self.req(&format!("map {res}"))?;
         let f: Vec<&str> = rep.split_whitespace().collect();
-        let hex = |x: &str| usize::from_str_radix(x.trim_start_matches("0x"), 16).ok();
-        let (Some(&"map"), Some(&class), Some(barsize), Some(off)) = (f.first(), f.get(2), f.get(3).and_then(|x| hex(x)), f.get(4).and_then(|x| hex(x))) else {
+        let (Some(&"map"), Some(&seg), Some(len)) = (f.first(), f.get(2), f.get(4).and_then(|x| x.parse::<usize>().ok())) else {
             return Err(bad("map", &rep));
         };
-        if !self.bars.contains_key(class) {
-            self.bars.insert(class.to_string(), Seg::phys(class, barsize)?);
+        if len < size {
+            return Err(bad("map: smaller than the buffer", &rep));
         }
-        let bar = &self.bars[class];
-        if off.checked_add(size).is_none_or(|e| e > bar.len) {
-            return Err(bad("map: outside the bar", &rep));
-        }
-        m.va = bar.va + off;
+        let s = Seg::phys(seg, len)?;
+        m.va = s.va;
         m.len = size;
+        m.seg = Some(s);
         Ok(m)
     }
 

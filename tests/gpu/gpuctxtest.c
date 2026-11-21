@@ -213,12 +213,44 @@ Out:
 	closectx(&c);
 }
 
+/*
+ * a touch of a at a child's: its wait message, "" if it did not fault.
+ * A fork's child, not RFMEM: the segment the view is in is inherited all
+ * the same, and nothing of ours is in a child that faults (run 1 with
+ * RFMEM: the parent printed nothing after the child's fault)
+ */
+static char*
+touch(uchar *a, char *msg, int n)
+{
+	Waitmsg *w;
+	int pid;
+
+	switch(pid = rfork(RFPROC|RFFDG)){
+	case -1:
+		snprint(msg, n, "rfork: %r");
+		return msg;
+	case 0:
+		*(volatile uchar*)a;
+		_exits(nil);
+	}
+	msg[0] = 0;
+	while((w = wait()) != nil){
+		if(w->pid == pid){
+			snprint(msg, n, "%s", w->msg);
+			free(w);
+			break;
+		}
+		free(w);
+	}
+	return msg;
+}
+
 static void
 venustest(void)
 {
-	char *r, *f[8], seg[32];
-	uvlong barsize, off, size;
-	uchar *bar;
+	char *r, *f[8], seg[32], msg[ERRMAX];
+	uvlong size, segsize;
+	uchar *view;
 	ulong *p;
 	int i, res, bad;
 	Ctx c;
@@ -237,65 +269,73 @@ venustest(void)
 		goto Out;
 	}
 	res = atoi(f[1]);
-	if((r = ctl(c.ctl, "map %d", res)) == nil || tokenize(r, f, nelem(f)) != 7){
+	/* map id seg va size info: the blob's own segment, not the bar's (gpu(4)) */
+	if((r = ctl(c.ctl, "map %d", res)) == nil || tokenize(r, f, nelem(f)) != 6){
 		fail("venus: map: %r");
 		goto Out;
 	}
 	snprint(seg, sizeof seg, "%s", f[2]);
-	barsize = strtoull(f[3], nil, 0);
-	off = strtoull(f[4], nil, 0);
-	size = strtoull(f[5], nil, 0);
-	if((bar = segattach(0, seg, nil, barsize)) == (uchar*)-1){
+	segsize = strtoull(f[4], nil, 0);
+	size = 65536;
+	if(segsize < size){
+		fail("venus: map: a segment of %llud bytes for %llud", segsize, size);
+		goto Out;
+	}
+	if((view = segattach(0, seg, nil, segsize)) == (uchar*)-1){
 		fail("venus: segattach %s: %r", seg);
 		goto Out;
 	}
-	p = (ulong*)(bar + off);
+	p = (ulong*)view;
 	for(i = 0; i < size/4; i++)
 		p[i] = i*2654435761UL;
 	bad = 0;
 	for(i = 0; i < size/4; i++)
 		if(p[i] != (ulong)(i*2654435761UL))
 			bad++;
-	/* how fast the processor reads host memory, both mappings (4 MB blob) */
-	if(getenv("GPUCTX_SPEED") != nil){
-		char *r2, *g[8], ucseg[32];
-		uchar *cb, *ub;
-		vlong t0, t1, t2;
-		ulong sum;
-		int res2, n;
-
-		if((r2 = ctl(c.ctl, "blob 2 1 0 4194304")) != nil && tokenize(r2, g, nelem(g)) >= 3){
-			res2 = atoi(g[1]);
-			if((r2 = ctl(c.ctl, "map %d", res2)) != nil && tokenize(r2, g, nelem(g)) == 7){
-				off = strtoull(g[4], nil, 0);
-				snprint(ucseg, sizeof ucseg, "%s", g[2]);
-				n = strlen(ucseg);	/* gpu0bar4c, gpu0bar4w -> gpu0bar4 */
-				if(n > 0 && (ucseg[n-1] == 'c' || ucseg[n-1] == 'w'))
-					ucseg[n-1] = 0;
-				cb = segattach(0, g[2], nil, barsize);
-				ub = segattach(0, ucseg, nil, barsize);
-				if(cb != (uchar*)-1 && ub != (uchar*)-1){
-					sum = 0;
-					t0 = nsec();
-					for(i = 0; i < 4194304; i += 8)
-						sum += *(volatile uvlong*)(cb+off+i);
-					t1 = nsec();
-					for(i = 0; i < 4194304; i += 8)
-						sum += *(volatile uvlong*)(ub+off+i);
-					t2 = nsec();
-					print("speed: 4 MB read %s %lld ms, %s %lld ms (%lud)\n", g[2],
-						(t1-t0)/1000000, ucseg, (t2-t1)/1000000, sum & 1);
-				}
-			}
-		}
-	}
-	segdetach(bar);
 	if(bad)
 		fail("venus: blob %d: %d words differ", res, bad);
 	else
-		ok("venus: blob %d mapped at %s+%#llux, %llud bytes written and read", res, seg, off, size);
-	if(ctl(c.ctl, "unmap %d", res) == nil || ctl(c.ctl, "unref %d", res) == nil)
-		fail("venus: unmap/unref: %r");
+		ok("venus: blob %d mapped through its own segment %s, %llud bytes written and read", res, seg, size);
+	/* only the blob: a page past its end is no other memory of the bar */
+	print("venus: touching past the blob's end (a child)\n");
+	if(strstr(touch(view + segsize, msg, sizeof msg), "fault") != nil)
+		ok("venus: past the blob's end faults (%s)", msg);
+	else
+		fail("venus: past the blob's end: no fault (%s)", msg[0] ? msg : "read");
+	/* how fast the processor reads host memory through the view (4 MB blob) */
+	if(getenv("GPUCTX_SPEED") != nil){
+		char *r2, *g[8];
+		uchar *v2;
+		vlong t0, t1;
+		ulong sum;
+
+		if((r2 = ctl(c.ctl, "blob 2 1 0 4194304")) != nil && tokenize(r2, g, nelem(g)) >= 3
+		&& (r2 = ctl(c.ctl, "map %d", atoi(g[1]))) != nil && tokenize(r2, g, nelem(g)) == 6
+		&& (v2 = segattach(0, g[2], nil, strtoull(g[4], nil, 0))) != (uchar*)-1){
+			sum = 0;
+			t0 = nsec();
+			for(i = 0; i < 4194304; i += 8)
+				sum += *(volatile uvlong*)(v2+i);
+			t1 = nsec();
+			print("speed: 4 MB read %s (info %s) %lld ms (%lud)\n", g[2], g[5],
+				(t1-t0)/1000000, sum & 1);
+			segdetach(v2);
+		}
+	}
+	/* unmapped: the view revoked, a touch faults (a freed object is no one's) */
+	if(ctl(c.ctl, "unmap %d", res) == nil){
+		fail("venus: unmap: %r");
+		segdetach(view);
+		goto Out;
+	}
+	print("venus: touching the view after unmap (a child)\n");
+	if(strstr(touch(view, msg, sizeof msg), "fault") != nil)
+		ok("venus: the view after unmap faults (%s)", msg);
+	else
+		fail("venus: the view after unmap: no fault (%s)", msg[0] ? msg : "read");
+	segdetach(view);
+	if(ctl(c.ctl, "unref %d", res) == nil)
+		fail("venus: unref: %r");
 Out:
 	closectx(&c);
 }

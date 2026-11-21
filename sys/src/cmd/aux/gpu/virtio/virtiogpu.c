@@ -204,6 +204,7 @@ struct Res
 	int	mapped;		/* host memory in the hostmem bar */
 	uvlong	mapoff;
 	int	mapinfo;
+	char	view[32];	/* its view for the clients: a phys segment of that part of the bar (blobview) */
 };
 
 struct Hold
@@ -1303,6 +1304,9 @@ blobcreate(Vctx *c, int mem, int flags, uvlong blobid, uvlong size)
 	return resreply(c, r);
 }
 
+static char	*blobview(Res*);
+static char	*blobunmap(Res*);
+
 static char*
 blobmap(Vctx *c, int id)
 {
@@ -1310,6 +1314,7 @@ blobmap(Vctx *c, int id)
 	Hold *hd;
 	Res *r;
 	uvlong off;
+	char *e;
 
 	if((hd = findhold(c, id)) == nil)
 		return "unknown resource";
@@ -1331,13 +1336,67 @@ blobmap(Vctx *c, int id)
 	r->mapped = 1;
 	r->mapoff = off;
 	r->mapinfo = GBIT32(rs+Hdrsz);
+	if((e = blobview(r)) != nil){
+		blobunmap(r);
+		return e;
+	}
 Reply:
 	if(!hd->mapped){
 		hd->mapped = 1;
 		r->nmapped++;
 	}
-	return ctxreply(c, "map %d %s %#llux %#llux %llud %#ux\n", id,
-		mapseg(r->mapinfo), barsize[shm.bar], r->mapoff, r->size, r->mapinfo);
+	/* map id seg va size info: the blob's own segment (blobview), as amdgpu's */
+	return ctxreply(c, "map %d %s 0 %llud %#ux\n", id, r->view, r->size, r->mapinfo);
+}
+
+/*
+ * 9space: a mapped blob's view for the clients, a #g phys segment of
+ * just its part of the host visible bar (segment(3) "va 0 len phys
+ * physseg off"), a view (gpuseg.c: ORCLOSE always) marked lost: when we
+ * die, a client still writing there writes into a page of its own until
+ * its next request says the device is lost; revoked when the blob is
+ * unmapped.  Before, the clients attached the whole bar: a client that
+ * outlived a driver kept writing into the bar at offsets the next driver
+ * gives other blobs (venus' ring of a new context met an old ring's
+ * tail), and every client saw every other's host memory.
+ */
+static char*
+blobview(Res *r)
+{
+	char path[64];
+	int fd;
+
+	/* gdir is "#G/n" (fixed "#G/0" today); an option for the GPU later: the number from the device instead */
+	snprint(r->view, sizeof r->view, "gpu%smap%d", gdir+3, r->id);
+	/*
+	 * a view of this name left over (a driver before us that could not
+	 * remove it): removed, revoked for whoever still has it, made anew
+	 */
+	switch(segcreate(r->view, 0770, 1)){
+	case 0:
+		segrm(r->view);
+		if(segcreate(r->view, 0770, 1) <= 0)
+			goto err;
+		break;
+	case -1:
+		goto err;
+	}
+	if(segmode(r->view, 0770) < 0)
+		goto err;
+	snprint(path, sizeof path, "#g/%s/ctl", r->view);
+	if((fd = open(path, OWRITE)) < 0)
+		goto err;
+	if(fprint(fd, "va 0 %#llux phys %s %#llux", (r->size + 0xFFF) & ~0xFFFULL,
+	   mapseg(r->mapinfo), r->mapoff) < 0 || write(fd, "lost", 4) != 4){
+		close(fd);
+		goto err;
+	}
+	close(fd);
+	return nil;
+err:
+	segrm(r->view);
+	r->view[0] = 0;
+	return "no view of the blob (segment)";
 }
 
 /*
@@ -1363,6 +1422,11 @@ blobunmap(Res *r)
 
 	if(!r->mapped)
 		return nil;
+	/* the clients' view first: whoever still has it attached faults */
+	if(r->view[0]){
+		segrm(r->view);
+		r->view[0] = 0;
+	}
 	p = hdr(rq, Resunmapblob);
 	PBIT32(p, r->id);
 	PBIT32(p+4, 0);

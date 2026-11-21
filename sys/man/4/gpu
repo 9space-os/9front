@@ -251,21 +251,27 @@ the segment holding it.
 .TP
 .BI map " r
 map host memory into the device's host visible bar; reply
-.BI map " r seg barsize offset size info" :
+.BI map " r seg va size info" :
 attach
 .I seg
-.RI ( barsize
-bytes) and use
-.I size
-bytes at
-.IR offset .
+.RI ( size
+bytes), a segment of just this resource's part of the bar
+.RB ( phys ,
+.IR segment (3)),
+with the attributes of the bar's segment that maps it as the host does.
 .I Info
 is how the host maps the memory (virtio-gpu's map_info: 1 cached, 2
-uncached, 3 write-combining), and
-.I seg
-the bar's segment of that kind
-.RI ( gpu (3)),
-so that the processor sees the memory as the host does.
+uncached, 3 write-combining).
+The segment is revoked when the memory is unmapped (the resource's last
+.B unmap
+or
+.BR unref ),
+and lost when the driver dies: a client still writing there writes into
+a page of its own until its next request says that the device is lost.
+A client sees only the resources it maps, not the whole bar, and one that
+outlives a driver cannot write into what the next driver gives others at
+the same place.
+9space's: before, the reply named the whole bar's segment and an offset.
 .TP
 .BI unmap " r
 .TP
