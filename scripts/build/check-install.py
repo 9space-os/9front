@@ -28,9 +28,9 @@ usage: scripts/build/check-install.py [-r] [-d dist [-x omitted]] [-i iso]
 	-r	remove stale files
 	-d	also check the distribution tree staged by scripts/guest/stage-dist.sh
 		(all but the programs' local archives, /sys/src/.../lib*.a6)
-	-x	paths the distribution leaves out (its profile, scripts/guest/profiles;
-		stage-dist.sh writes them, a directory stands for all in it): not
-		missing there
+	-x	paths the profile leaves out (scripts/guest/profiles; stage-dist.sh
+		and dist/bin/build-profile write them, a directory stands for all
+		in it): not missing, in the tree's build or the distribution
 	-i	also check the files of a CD image (scripts/guest/mkiso.sh; xorriso
 		lists them)
 exit status 1 if anything is missing (or stale without -r)
@@ -132,10 +132,13 @@ def main():
 	for p, name in sorted(exp.items()):
 		# program-local archives are intermediates (the release's mk clean)
 		local = p.startswith('/sys/src/')
-		out = left_out(p)
-		nomit += out
-		where = [('tree', g.ROOT)] + ([('dist', dist)] if dist and not local and not out else [])
-		if iso is not None and not local and not out:
+		# left out by the profile: not needed in the tree's build either
+		# (dist/bin/build-profile builds only the profile's groups)
+		if left_out(p):
+			nomit += 1
+			continue
+		where = [('tree', g.ROOT)] + ([('dist', dist)] if dist and not local else [])
+		if iso is not None and not local:
 			where.append(('iso', None))
 		for what, root in where:
 			if not (p in iso if root is None else os.path.exists(root + p)):
@@ -146,7 +149,9 @@ def main():
 					bad = 1
 				break
 	for p, name in sorted(rust.items()):
-		if not os.path.exists(g.ROOT + p):
+		if left_out(p):
+			nomit += 1
+		elif not os.path.exists(g.ROOT + p):
 			if haverust:
 				print('missing tree %s (%s)' % (p, name))
 				bad = 1
@@ -156,7 +161,9 @@ def main():
 	ape = apeprogs_()
 	havecross = apeprogs.cross(A)
 	for p, name in sorted(ape.items()):
-		if not os.path.exists(g.ROOT + p):
+		if left_out(p):
+			nomit += 1
+		elif not os.path.exists(g.ROOT + p):
 			if havecross:
 				print('missing tree %s (%s)' % (p, name))
 				bad = 1

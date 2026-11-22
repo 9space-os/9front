@@ -59,10 +59,12 @@ ui	$objtype/bin/ui
 ui	$objtype/bin/uicount
 ui	$objtype/bin/uitick
 ui	$objtype/bin/uitodo
+ui	$objtype/bin/uiwidgets
 ui	$objtype/bin/wbar
 ui	$objtype/bin/wdock
 ui	$objtype/bin/wlsys
 ui	$objtype/bin/wsys
+ui	$objtype/bin/cxxwidgets
 ui	$objtype/bin/ape/ptyfs
 ui	$objtype/lib.gcc/libui.a
 ui	$objtype/lib.gcc/ape/libdevdraw.a
