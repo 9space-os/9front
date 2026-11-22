@@ -15,7 +15,7 @@ A=$ROOT/$objtype/lib.gcc/ape/libap.a
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 # member: symbol, for the defined globals
-${P}nm -A -g --defined-only "$A" 2>/dev/null |
+${P}${NM:-nm} -A -g --defined-only "$A" 2>/dev/null |
 	awk '$(NF-1) ~ /^[TDBRCVW]$/ {n = split($1, f, ":"); print f[n-1], $NF}' > "$T/defs"
 awk '$1 !~ /\.musl\.o$/ {print $2}' "$T/defs" | sort -u > "$T/ape"
 cd "$T"
@@ -23,10 +23,10 @@ changed=
 for m in $(awk '$1 ~ /\.musl\.o$/ {print $1}' defs | sort -u); do
 	syms=$(awk -v m="$m" '$1 == m {print $2}' defs | sort -u | comm -12 - ape)
 	[ -n "$syms" ] || continue
-	${P}ar x "$A" "$m"
+	${P}${AR:-ar} x "$A" "$m"
 	${P}objcopy $(for s in $syms; do printf -- '--localize-symbol=%s ' "$s"; done) "$m"
-	${P}ar r "$A" "$m"
+	${P}${AR:-ar} r "$A" "$m"
 	echo "musl-localize: $m: $syms"
 	changed=1
 done
-[ -z "$changed" ] || ${P}ranlib "$A"
+[ -z "$changed" ] || ${P}${RANLIB:-ranlib} "$A"

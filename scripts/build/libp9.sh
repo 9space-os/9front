@@ -5,6 +5,9 @@
 # define open, read, malloc, ...). The libc manifest's Post step, after
 # libc.a is installed; replaced only when it changes (build.exe -D).
 #
+# NM, RANLIB: as build.exe's (TOOLPREFIX in front): arm64 with gcc-nm, gcc-ranlib
+# (dist/lib/tree-build.sh: aarch64-linux-musl-cross's own hang on LLVMgold.so)
+#
 # usage: objtype=386|amd64|arm64 scripts/build/libp9.sh   (build.exe sets objtype)
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
@@ -13,7 +16,7 @@ case $objtype in arm64) P=${TOOLPREFIX-aarch64-linux-musl-} ;; *) P= ;; esac
 L=$ROOT/$objtype/lib.gcc
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
-${P}nm -g --defined-only "$L/libc.a" | awk 'NF == 3 {print $3, "__p9_" $3}' | sort -u > "$T/syms"
+${P}${NM:-nm} -g --defined-only "$L/libc.a" | awk 'NF == 3 {print $3, "__p9_" $3}' | sort -u > "$T/syms"
 ${P}objcopy --redefine-syms="$T/syms" "$L/libc.a" "$T/libp9.a"
-${P}ranlib "$T/libp9.a"
+${P}${RANLIB:-ranlib} "$T/libp9.a"
 cmp -s "$T/libp9.a" "$L/libp9.a" || cp "$T/libp9.a" "$L/libp9.a"
