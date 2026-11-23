@@ -41,7 +41,8 @@
 # source offer); it needs the ui and gpu groups (PROFILE full: wsys and the fonts, a GPU
 # driver for Servo's drawing).
 # /lib/firmware: linux-firmware's WLAN and GPU firmware (scripts/guest/firmware.spec,
-# checked against firmware.list; the GPUs' in the gpu group); FIRMWARE=0: none.
+# checked against firmware.list; the GPUs' in the gpu group): only with FIRMWARE=1;
+# the CDs and update archives have none (dist/bin/mkfirmware makes its own archive).
 #
 # REPLICA_DIR (with REPLICA_KEY, REPLICA_URL): the stage is published there for
 # pull(1), updates over HTTP (scripts/replica/publish.py; REPLICA_DIR is what a web
@@ -50,7 +51,7 @@
 # public key, the replica's db and log as of this CD). dir.list: each path's
 # mode and owners as the CD has them (scripts/guest/proto.py -l).
 #
-# usage: [objtype=386] [PROFILE=p] [DEV=list] [MCP=1] [BROWSER=1] [FIRMWARE=0] [REPLICA_DIR=d REPLICA_KEY=k REPLICA_URL=u]
+# usage: [objtype=386] [PROFILE=p] [DEV=list] [MCP=1] [BROWSER=1] [FIRMWARE=1] [REPLICA_DIR=d REPLICA_KEY=k REPLICA_URL=u]
 #        scripts/guest/stage-dist.sh dir
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
@@ -192,9 +193,10 @@ python3 "$ROOT/scripts/guest/proto.py" -s "$VIEW" -d "$OUT" -l "$OUT.list" \
 # the firmware (scripts/guest/firmware.spec, firmware.list): linux-firmware's
 # files under the names the drivers read, each checked against its sha256
 # (stage-firmware.py: FWDIR, the host's /usr/lib/firmware by default), with
-# their licences; FIRMWARE=0: none, as 9front's CD. The GPUs' are in the
-# profiles' gpu group
-if [ "${FIRMWARE:-1}" = 1 ]; then
+# their licences; only with FIRMWARE=1: by default none, as 9front's CD (the
+# firmware comes as an archive of its own: dist/bin/mkfirmware). The GPUs' are in
+# the profiles' gpu group
+if [ "${FIRMWARE:-0}" = 1 ]; then
 	python3 "$ROOT/scripts/guest/stage-firmware.py" "$OUT/lib/firmware" || exit 1
 	(cd "$OUT" && find lib/firmware -type d -printf '%p\t20000000775\tsys\tsys\n' \
 		-o -type f -printf '%p\t664\tsys\tsys\n') >> "$OUT.list"

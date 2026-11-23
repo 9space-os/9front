@@ -94,7 +94,7 @@ Called by `build.exe` (Pre/Post steps); rarely run by hand.
 | `build-uboot.sh` | u-boot for QEMU arm64 (used by `boot-cli.sh`) |
 | `mkiso.sh` | install/live CD, made in the guest. `objtype=386 scripts/guest/mkiso.sh`; `PLAN9INI='monitor=i915'` sets lines of the CD's plan9.ini (a GPU driver as the screen from the start) |
 | `mkdisk.sh` | installed disk image (hjfs). `scripts/guest/mkdisk.sh` |
-| `stage-dist.sh` | the distribution tree the guest gets for mkiso/mkdisk; `PROFILE` (minimal, gpu, ui, full) leaves the other groups' files off, `DEV` (gcc, rust, go) picks the languages (`dist/bin/mkcd`); `REPLICA_DIR`, `REPLICA_KEY`, `REPLICA_URL` publish it for pull(1) and put the client on the CD; `FIRMWARE=0` leaves /lib/firmware empty |
+| `stage-dist.sh` | the distribution tree the guest gets for mkiso/mkdisk; `PROFILE` (minimal, gpu, ui, full) leaves the other groups' files off, `DEV` (gcc, rust, go) picks the languages (`dist/bin/mkcd`); `REPLICA_DIR`, `REPLICA_KEY`, `REPLICA_URL` publish it for pull(1) and put the client on the CD; /lib/firmware only with `FIRMWARE=1` (the CDs have none: `dist/bin/mkfirmware`) |
 | `stage-firmware.py` | the CD's /lib/firmware: linux-firmware's WLAN and GPU firmware under the drivers' names (`firmware.spec`), each file checked against `firmware.list` (sha256); `-u` makes the list anew from `FWDIR` (default /usr/lib/firmware). `scripts/guest/stage-firmware.py dir` |
 | `profiles` | the CD's installation profiles and the files of their groups (gpu, ui) |
 | `gen-ufs-root.sh`, `proto.py` | root tree for the guest; files of a 9front proto (`proto.py -l`: each path's mode and owners as mkfs gives them) |
