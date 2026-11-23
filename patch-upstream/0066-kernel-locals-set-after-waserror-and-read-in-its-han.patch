@@ -1,0 +1,124 @@
+From 59ce1116368a2bc75f8486f696a46733d07cbb35 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Mon, 23 Nov 2026 15:51:23 +0100
+Subject: [PATCH] kernel: locals set after waserror() and read in its handler
+ are volatile
+
+After error()'s longjmp (gotolabel) a local that changed after its
+waserror() (setlabel) is indeterminate unless it is volatile (C11
+7.13.2.1, as for setjmp). A compiler that keeps it in a register hands
+the handler the value it had at waserror() time. With gcc this made
+devmnt's mntwalk lose its clone chan on every failed walk (alloc read
+as 0): a kernel built with gcc ran out of heap during a build ("no
+memory for allocb"); a kencc kernel of the same source does not leak.
+
+The same pattern, found by reading each handler:
+- mntwalk: alloc (the clone was not closed)
+- write: n (the chan's offset was not restored)
+- shrcreate: nc (a stale chan closed)
+- tlswstat: d (the Dir not freed)
+- wifictl: cb (the Cmdbuf not freed)
+- pcmread, pcmwrite: m (the window not unmapped)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/pc/devi82365.c | 4 ++--
+ sys/src/9/port/devmnt.c  | 3 ++-
+ sys/src/9/port/devshr.c  | 2 +-
+ sys/src/9/port/devtls.c  | 2 +-
+ sys/src/9/port/sysfile.c | 3 ++-
+ sys/src/9/port/wifi.c    | 2 +-
+ 6 files changed, 9 insertions(+), 7 deletions(-)
+
+diff --git a/sys/src/9/pc/devi82365.c b/sys/src/9/pc/devi82365.c
+index 3feed57fb..d5c356cdc 100644
+--- a/sys/src/9/pc/devi82365.c
++++ b/sys/src/9/pc/devi82365.c
+@@ -723,7 +723,7 @@ static long
+ pcmread(int slotno, int attr, void *a, long n, vlong off)
+ {
+ 	int i, len;
+-	PCMmap *m;
++	PCMmap *volatile m;
+ 	uchar *ac;
+ 	PCMslot *pp;
+ 	ulong offset = off;
+@@ -808,7 +808,7 @@ static long
+ pcmwrite(int dev, int attr, void *a, long n, vlong off)
+ {
+ 	int i, len;
+-	PCMmap *m;
++	PCMmap *volatile m;
+ 	uchar *ac;
+ 	PCMslot *pp;
+ 	ulong offset = off;
+diff --git a/sys/src/9/port/devmnt.c b/sys/src/9/port/devmnt.c
+index 479622886..2300e415c 100644
+--- a/sys/src/9/port/devmnt.c
++++ b/sys/src/9/port/devmnt.c
+@@ -411,7 +411,8 @@ mntchan(void)
+ static Walkqid*
+ mntwalk(Chan *c, Chan *nc, char **name, int nname)
+ {
+-	int i, alloc;
++	int i;
++	volatile int alloc;
+ 	Mnt *m;
+ 	Mntrpc *r;
+ 	Walkqid *wq;
+diff --git a/sys/src/9/port/devshr.c b/sys/src/9/port/devshr.c
+index d27e93f62..68b9f4ce7 100644
+--- a/sys/src/9/port/devshr.c
++++ b/sys/src/9/port/devshr.c
+@@ -454,7 +454,7 @@ shrcreate(Chan *c, char *name, int omode, ulong perm)
+ 	Mpt *mpt;
+ 	Mhead *h;
+ 	Mount *m;
+-	Chan *nc;
++	Chan *volatile nc;
+ 	int mode;
+ 
+ 	mode = openmode(omode);
+diff --git a/sys/src/9/port/devtls.c b/sys/src/9/port/devtls.c
+index 10d8c0d2b..e1d2c22cc 100644
+--- a/sys/src/9/port/devtls.c
++++ b/sys/src/9/port/devtls.c
+@@ -502,7 +502,7 @@ tlsopen(Chan *c, int omode)
+ static int
+ tlswstat(Chan *c, uchar *dp, int n)
+ {
+-	Dir *d;
++	Dir *volatile d;
+ 	TlsRec *tr;
+ 	int rv;
+ 
+diff --git a/sys/src/9/port/sysfile.c b/sys/src/9/port/sysfile.c
+index c8217849c..76b2e071f 100644
+--- a/sys/src/9/port/sysfile.c
++++ b/sys/src/9/port/sysfile.c
+@@ -754,7 +754,8 @@ static long
+ write(int fd, void *buf, long len, vlong *offp)
+ {
+ 	Chan *c;
+-	long m, n;
++	long m;
++	volatile long n;
+ 	vlong off;
+ 
+ 	validaddr((uintptr)buf, len, 0);
+diff --git a/sys/src/9/port/wifi.c b/sys/src/9/port/wifi.c
+index cccbb2d9a..c1ea15989 100644
+--- a/sys/src/9/port/wifi.c
++++ b/sys/src/9/port/wifi.c
+@@ -982,7 +982,7 @@ long
+ wifictl(Wifi *wifi, void *buf, long n)
+ {
+ 	uchar addr[Eaddrlen];
+-	Cmdbuf *cb;
++	Cmdbuf *volatile cb;
+ 	Cmdtab *ct;
+ 	Wnode *wn;
+ 	Wkey *k, **kk;
+-- 
+2.56.1
+

@@ -34,7 +34,8 @@ All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 `6ae667969` (2026-11-15), 0039 to 0044 on them there (2026-11-16), 0045
 on them there (2026-11-17), 0046 and 0047 on them there (2026-11-18);
 all 59 at `cb9e5e7e9` (2026-11-19), 0060 on them there (2026-11-19), 0061 to
-0063 on them there (2026-11-20), 0064 and 0065 on them there (2026-11-21).
+0063 on them there (2026-11-20), 0064 and 0065 on them there (2026-11-21),
+0066 on them there (2026-11-23).
 Each applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
@@ -151,6 +152,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0063 | pipe(3): writes are atomic up to 65536 bytes, not "typically 32768" | documentation |
 | 0064 | shr(3): a walk held the share's lock across the RPC to the mounted server: deadlock with a server removing its ORCLOSE entry at exit | bug fix |
 | 0065 | chan.c: createdir held the mount head's lock across cclone (a walk RPC): the same deadlock | bug fix |
+| 0066 | kernel: locals set after waserror() and read in its handler are volatile (mntwalk leaked a chan per failed walk) | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -912,6 +914,24 @@ share entry's removal (`wlock`) behind it then waited for a server that
 may itself be waiting to go, the deadlock 0064 removes from shr(3)'s
 walk. The clone now goes on a reference taken under the lock, as
 `findmount` does. Not seen hanging; found reading for 0064's pattern.
+
+### 0066 kernel: locals set after waserror() and read in its handler are volatile
+
+After error()'s longjmp a local that changed after its waserror() is
+indeterminate unless volatile (C11 7.13.2.1); a compiler that keeps it in
+a register gives the handler its value at waserror() time. Built with gcc,
+devmnt's mntwalk read `alloc` as 0 and lost the clone chan of every failed
+walk: 300 failed walks leaked 524 KB in a union directory, a gcc-built
+kernel ran out of heap during a build; a kencc kernel of the same source
+leaked nothing. The others of the pattern, found by reading each handler
+(tree's scripts/check/find-clobbered.py lists the candidates): write (n:
+the chan's offset not restored), shrcreate (nc), tlswstat (d), wifictl
+(cb), pcmread/pcmwrite (m). namec's c is not among them: its address goes
+to walk and domount, so it lives in memory. Tested: the walk leak with a
+gcc kernel on an installed 9space (gone, and a whole gccmk build kept the
+kernel heap at 5.7-7.1 MB); the six files with `6c -FTVw` in a guest
+(devmnt, devshr, devtls, sysfile from `upstream`; devi82365 and wifi in
+`main`'s form, whose headers the guest has).
 
 ## Not included
 
