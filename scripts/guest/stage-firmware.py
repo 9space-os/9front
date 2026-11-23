@@ -5,7 +5,8 @@
 sha256; a file that differs (another linux-firmware) stops it.
 
 stage-firmware.py -u: firmware.list made anew from firmware.spec and FWDIR
-(the globs expanded, the sha256 of each file's contents, the version of
+(the globs expanded, of them only what the drivers can load: firmware.used,
+made by firmware-used.py; the sha256 of each file's contents, the version of
 linux-firmware where pacman knows it).
 
 Licences are looked for in FWDIR, then in /usr/share/licenses/linux-firmware*
@@ -15,6 +16,7 @@ import glob, hashlib, lzma, os, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 SPEC = os.path.join(HERE, 'firmware.spec')
 LIST = os.path.join(HERE, 'firmware.list')
+USED = os.path.join(HERE, 'firmware.used')
 FWDIR = os.environ.get('FWDIR', '/usr/lib/firmware')
 LICDIRS = sorted(glob.glob('/usr/share/licenses/linux-firmware*'))
 PACKED = ('.zst', '.xz', '')
@@ -61,8 +63,14 @@ def spec():
 			yield src, dst
 
 
+def used():
+	"""firmware.used: the names the drivers declare (firmware-used.py)"""
+	return {l.strip() for l in open(USED) if l.strip() and not l.startswith('#')}
+
+
 def update():
 	out = []
+	keep = used()
 	for src, dst in spec():
 		if any(c in src for c in '*?['):
 			paths = sorted(glob.glob(os.path.join(FWDIR, src)))
@@ -73,6 +81,8 @@ def update():
 					continue
 				rel = unpacked(os.path.relpath(p, FWDIR))
 				name = dst + os.path.basename(rel) if dst.endswith('/') else dst
+				if name not in keep:
+					continue	# no driver of the tree loads it
 				out.append((rel, name, hashlib.sha256(contents(p)).hexdigest()))
 		else:
 			p = find(src)
