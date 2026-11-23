@@ -723,7 +723,7 @@ static long
 pcmread(int slotno, int attr, void *a, long n, vlong off)
 {
 	int i, len;
-	PCMmap *m;
+	PCMmap *volatile m;
 	uchar *ac;
 	PCMslot *pp;
 	ulong offset = off;
@@ -808,7 +808,7 @@ static long
 pcmwrite(int dev, int attr, void *a, long n, vlong off)
 {
 	int i, len;
-	PCMmap *m;
+	PCMmap *volatile m;
 	uchar *ac;
 	PCMslot *pp;
 	ulong offset = off;
