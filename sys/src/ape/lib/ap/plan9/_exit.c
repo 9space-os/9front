@@ -17,15 +17,20 @@ extern _Noreturn void __plan9_exit(char *) __attribute__((weak));
 
 static char exitstatus[ERRMAX];
 
+#ifdef __GNUC_MINOR__
 /* 9space: _exit ends a C program's other pthreads too, as exit does by
- * its atexit function (gnu/pthread.c, if linked) */
+ * its atexit function (gnu/pthread.c, if linked; gcc's only: kencc's
+ * programs have none) */
 extern void __pthread_killothers(void) __attribute__((weak));
+#endif
 
 _Noreturn void
 _exit(int status)
 {
+#ifdef __GNUC_MINOR__
 	if(__pthread_killothers)
 		__pthread_killothers();
+#endif
 	_finish(status, 0);
 }
 

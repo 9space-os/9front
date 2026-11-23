@@ -32,12 +32,14 @@ gpuserved(void)
 	return access(path, AEXIST) == 0;
 }
 
-/* the file server into the share gpu as entry N */
+/*
+ * the file server into the share gpu as entry N, by post: postsharesrv,
+ * or threadpostsharesrv for a threaded driver.  The caller names it: a
+ * reference to the other here would link libthread (its main) into a
+ * driver without threads under kencc, which keeps unused branches
+ */
 static void
-gpupost(Srv *s, int threaded)
+gpupost(Srv *s, void (*post)(Srv*, char*, char*, char*))
 {
-	if(threaded)
-		threadpostsharesrv(s, nil, "gpu", gpuname);
-	else
-		postsharesrv(s, nil, "gpu", gpuname);
+	post(s, nil, "gpu", gpuname);
 }

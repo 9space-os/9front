@@ -5,6 +5,9 @@
 			"/$ARCH/cflags.json"
 		],
 		"Install": "/$ARCH/bin/aux/",
+		"Cflags": [
+			"-I.."
+		],
 		"Oflags": [
 			"--entry=_main"
 		],

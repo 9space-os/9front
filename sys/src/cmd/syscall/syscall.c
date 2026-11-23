@@ -29,7 +29,11 @@ int	_nsec(vlong*);
 
 struct Call{
 	char	*name;
+#ifdef __GNUC__
 	int	(*func)();	/* GCC port: was (...), which gcc accepts without a named argument from C23 only (the arm64 cross gcc 11 not under gnu17); () takes any arguments here */
+#else
+	int	(*func)(...);	/* kencc: () is a function without arguments */
+#endif
 };
 #include "tab.h"
 

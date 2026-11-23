@@ -62,8 +62,8 @@ extern int	nerrlab;
 extern char	errbuf[ERRMAX];
 #define	waserror()	(setjmp(errlab[nerrlab++]))
 #define	poperror()	(nerrlab--)
-extern void	nexterror(void);
-extern void	error(char*);
+extern _Noreturn void	nexterror(void);	/* as the kernel's: kencc wants no return after them */
+extern _Noreturn void	error(char*);
 
 extern char Enomem[], Ebadarg[], Einuse[], Enodev[], Eisdir[], Ebadusefd[];
 extern char Eblock[];	/* a refresh read with nothing to read: drawfs.c answers it later */

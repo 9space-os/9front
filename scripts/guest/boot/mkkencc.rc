@@ -5,7 +5,9 @@
 # cd /sys/src; mk install (libraries, ape, acme, cmd, games) and the
 # kernel pc64 (mk in sys/src/9/pc64); "mkkencc kernel" only the
 # libraries and the kernel; "mkkencc arm64" the arm64 libraries
-# (objtype=arm64: 7c/7a/7l) and the arm64 qemu kernel, 9qemu.u. The sources are the build host's
+# (objtype=arm64: 7c/7a/7l) and the arm64 qemu kernel, 9qemu.u; "mkkencc
+# gcc" the same mkfiles with gccmk (the native gcc, /$objtype/gnu: libraries
+# into /$objtype/lib.gcc), userland only, as gccmk builds no kernel. The sources are the build host's
 # copy, served as /n/src9; mk install installs into the guest's root
 # (scripts/guest/gen-ufs-root.sh makes it anew for every boot), over the
 # gcc-built programs, as 9front's own build does: what is built later
@@ -30,6 +32,12 @@ bind -c /n/src9/acme /acme || fail bind acme
 # stopping at the first failure (its recipe runs under rc -e): every
 # break shows in one run
 objtype=amd64
+MK=mk
+if(~ $1 gcc){
+	test -x /$objtype/gnu/bin/gccmk || fail no /$objtype/gnu/bin/gccmk
+	bind -b /$objtype/gnu/bin /bin || fail bind gnu/bin
+	MK=gccmk
+}
 NPROC=`{wc -l </dev/sysstat}	# mk's parallelism, as termrc/cpurc set it
 cd /sys/src || fail cd /sys/src
 fn mkvar{
@@ -51,13 +59,17 @@ echo mkkencc: mk install $dirs
 bad=()
 for(i in $dirs){
 	echo mkkencc: dir $i
-	@{cd $i && mk -k install >[2=1]}
+	@{cd $i && $MK -k install >[2=1]}
 	if(! ~ $status ''){
 		bad=($bad $i)
 		echo mkkencc: status $i $status
 	}
 }
 echo mkkencc: dirs with errors: $bad
+if(~ $1 gcc){	# gccmk: userland only
+	echo mkkencc: done
+	exit
+}
 if(~ $1 arm64){
 	# the qemu kernel and its u-boot image (arm64/mkfile's $p$CONF.u);
 	# its bootfs takes the build's gcc-built arm64 programs

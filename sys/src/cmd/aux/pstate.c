@@ -125,10 +125,24 @@ static int	noenable;	/* -n: HWP and CPPC are not switched on (they stay on until
 static Cpu	cpus[MAXCPU];
 static int	ncpu;
 
+/*
+ * CPUID by gcc's inline assembly on x86; kencc has none (and its
+ * preprocessor no #if): built by 9front's compilers, or on another
+ * machine, the probe finds no P-states and says so
+ */
+#ifdef __GNUC__
+#ifdef __x86_64__
+#define HAVECPUID
+#endif
+#ifdef __i386__
+#define HAVECPUID
+#endif
+#endif
+
 static void
 cpuid(uint leaf, uint sub, uint r[4])
 {
-#if defined(__x86_64__) || defined(__i386__)
+#ifdef HAVECPUID
 	__asm__ volatile("cpuid" : "=a"(r[0]), "=b"(r[1]), "=c"(r[2]), "=d"(r[3]) : "a"(leaf), "c"(sub));
 #else
 	USED(leaf, sub);
@@ -265,8 +279,8 @@ probe(void)
 	char vendor[13];
 	uvlong v;
 
-#if !defined(__x86_64__) && !defined(__i386__)
-	why = "not an x86 processor";
+#ifndef HAVECPUID
+	why = "no CPUID (not an x86 processor, or not built by gcc)";
 	return;
 #endif
 	cpuid(0, 0, r);

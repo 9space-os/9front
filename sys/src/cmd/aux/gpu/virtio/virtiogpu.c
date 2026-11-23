@@ -2129,6 +2129,6 @@ main(int argc, char **argv)
 	}
 
 	gpufsinit(features & (Fvirgl|Fctxinit));
-	gpupost(&fs, 0);
+	gpupost(&fs, postsharesrv);
 	exits(nil);
 }

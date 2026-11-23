@@ -6,3 +6,6 @@ TARG=virtiogpu
 OFILES=virtiogpu.$O
 
 </sys/src/cmd/mkone
+
+# ../gpufs.c includes gpushare.c beside it: gcc looks there, kencc in -I
+CFLAGS=$CFLAGS -I..

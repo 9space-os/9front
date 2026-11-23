@@ -429,7 +429,7 @@ served(char *gdir)
 void
 serve(void)
 {
-	gpupost(&fs, 0);
+	gpupost(&fs, postsharesrv);
 }
 
 void

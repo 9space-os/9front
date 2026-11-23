@@ -512,9 +512,14 @@ memsetio(volatile void *d, int c, long n)
  * some volatile loads under a mask (mmio[R] & 0xFF stored into a field)
  * into byte loads; an atomic load is one access of the object's width.
  * scripts/check/find-narrow-mmio.py finds the loads that need it.
+ * kencc never narrows a load: a plain one there.
  */
 static inline u32int
 mmio32r(volatile u32int *p)
 {
+#ifdef __GNUC__
 	return __atomic_load_n(p, __ATOMIC_RELAXED);
+#else
+	return *p;
+#endif
 }

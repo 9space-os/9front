@@ -11,7 +11,6 @@
 		"Libs": [
 			"--start-group",
 			"/sys/src/cmd/map/libmap/libmap.a7",
-			"/sys/src/cmd/map/libmap/libmap.a7",
 			"/$ARCH/lib.gcc/libdisk.a",
 			"/$ARCH/lib.gcc/libcontrol.a",
 			"/$ARCH/lib.gcc/libhtml.a",

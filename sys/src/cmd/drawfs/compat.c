@@ -30,7 +30,7 @@ emallocz(ulong n)
 	return v;
 }
 
-void
+_Noreturn void
 nexterror(void)
 {
 	if(nerrlab <= 0)
@@ -38,7 +38,7 @@ nexterror(void)
 	longjmp(errlab[--nerrlab], 1);
 }
 
-void
+_Noreturn void
 error(char *e)
 {
 	snprint(errbuf, sizeof errbuf, "%s", e);

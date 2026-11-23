@@ -278,6 +278,6 @@ kmsserve(void)
 	kmsc = chancreate(sizeof(void*), 0);
 	for(i = 0; i < Nkmsproc; i++)
 		proccreate(kmsproc, nil, 1024*1024);
-	gpupost(&fs, 1);
+	gpupost(&fs, threadpostsharesrv);
 	repostusers(&fs);
 }

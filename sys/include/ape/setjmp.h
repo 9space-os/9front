@@ -33,13 +33,20 @@ typedef int sigjmp_buf[10];
 extern "C" {
 #endif
 
+/* 9space: longjmp does not return (C11), as libc.h's says */
+#ifdef __cplusplus
+#define _SETJMP_NORETURN	[[noreturn]]
+#else
+#define _SETJMP_NORETURN	_Noreturn
+#endif
 extern int setjmp(jmp_buf);
-extern void longjmp(jmp_buf, int);
+extern _SETJMP_NORETURN void longjmp(jmp_buf, int);
 
 #ifdef _POSIX_SOURCE
 extern int sigsetjmp(sigjmp_buf, int);
 extern void siglongjmp(sigjmp_buf, int);
 #endif
+#undef _SETJMP_NORETURN
 
 #ifdef __cplusplus
 }

@@ -238,7 +238,8 @@ def variables(text):
 	v = {'objtype': [OBJTYPE], 'O': [O], 'cputype': [OBJTYPE], 'CPUS': [OBJTYPE]}
 	if isape(text):	# sys/src/ape/config
 		v.update({'APE': ['/sys/src/ape'], 'APEBIN': ['/%s/bin/ape' % OBJTYPE], 'FAMILY': ['plan9'],
-			'APELIB': ['/rc/bin/ape'], 'CC': ['pcc'], 'CFLAGS': ['-Fw']})
+			'APELIB': ['/rc/bin/ape'], 'CC': ['pcc'], 'CFLAGS': ['-Fw'],
+			'APEGNU': ['-D_APE_GNU']})	# gcc's APE (devdraw's mkfile; gccmk's mkfile sets it, kencc's not)
 	for m in re.finditer(r'^(\w+)\s*=(.*)$', text, re.M):
 		# rc quoting: FS='64', FS='', -D'PROGRAMNAME="troff, Plan 9 edition"'
 		# `{...} (doom's `{~ $objtype mips && echo -D__BIG_ENDIAN__}) is not run
@@ -762,8 +763,9 @@ def buildentry(e, name):
 	m['Oflags'] = ['--entry=_main']
 	syslibs = ['/$ARCH/lib.gcc/ape/%s.a' % l for l in APELIBS] if e.get('ape') else \
 		['/$ARCH/lib.gcc/%s.a' % l for l in LIBS]
-	m['Libs'] = ['--start-group'] + [l.replace('$O', O) for l in e.get('Libs', [])] + \
-		syslibs + ['--end-group']
+	# a library the mkfile names (LIB) and a header's #pragma lib names too: once
+	own = list(dict.fromkeys(l.replace('$O', O) for l in e.get('Libs', [])))
+	m['Libs'] = ['--start-group'] + own + syslibs + ['--end-group']
 	if 'single' in e:
 		m['SourceFilesCmd'] = [e['single']]
 	else:

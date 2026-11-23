@@ -61,6 +61,7 @@ typedef int    Devgen(Chan*, char*, Dirtab*, int, int, Dir*);
 #pragma incomplete Edf
 #pragma incomplete Mntcache
 #pragma incomplete Mntrpc
+#pragma incomplete Pager	/* 9front-ng: devsegment.c's */
 #pragma incomplete Mnt
 #pragma incomplete Queue
 #pragma incomplete Timers

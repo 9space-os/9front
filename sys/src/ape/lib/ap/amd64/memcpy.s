@@ -2,7 +2,7 @@ TEXT memcpy(SB), $0
 	MOVQ	RARG, DI
 	MOVQ	DI, AX			/* return value */
 	MOVQ	p2+8(FP), SI
-	MOVQ	n+16(FP), BX
+	MOVL	n+16(FP), BX		/* 9space: size_t, 32 bits under kencc (gcc builds the .S); MOVL zero-extends */
 	CMPQ	BX, $0
 	JGT	_ok
 	JEQ	_return			/* nothing to do if n == 0 */

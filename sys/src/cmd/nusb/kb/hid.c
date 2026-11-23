@@ -11,10 +11,7 @@ int hiddebug;
 
 static int tpinput(Hid*, uchar*, int);
 
-/*
- * scan codes >= 0x80 are extended (E0 XX)
- */
-#define isext(sc)	((sc) >= 0x80)
+/* scan codes >= 0x80 are extended (E0 XX): hid.h's isext */
 
 static char sctab[2*256] =
 {

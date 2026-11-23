@@ -13,6 +13,10 @@
  * without a lock, an insertion takes one.  The word is the three-state
  * mutex of pthread.c (Drepper's "Futexes are tricky", with a 9front
  * semaphore for the futex).
+ *
+ * kencc has no __atomic builtins, and its programs no pthreads
+ * (gnu/pthread.c is gcc's): there the word is a lock.h Lock and a lookup
+ * takes the table's lock; only an explicit flockfile gets here.
  */
 #define _PLAN9_SOURCE
 #include "iolib.h"
@@ -32,6 +36,9 @@ struct Flock {
 	int	owner;	/* the holder's pid */
 	int	count;	/* how often it holds it */
 	Flock	*next;
+#ifndef __GNUC_MINOR__
+	Lock	wl;	/* kencc: the word */
+#endif
 };
 
 enum {
@@ -41,13 +48,21 @@ enum {
 static Flock *table[Nhash];
 static Lock tablelock;
 
+#ifdef __GNUC_MINOR__
+#define	loadhead(h)	__atomic_load_n(h, __ATOMIC_ACQUIRE)
+#define	storehead(h, l)	__atomic_store_n(h, l, __ATOMIC_RELEASE)
+#else
+#define	loadhead(h)	NULL	/* kencc: no lookup without the lock */
+#define	storehead(h, l)	(*(h) = (l))
+#endif
+
 static Flock *
 flockof(FILE *f)
 {
 	Flock **h, *l;
 
 	h = &table[((uintptr_t)f / sizeof(FILE)) % Nhash];
-	for(l = __atomic_load_n(h, __ATOMIC_ACQUIRE); l != NULL; l = l->next)
+	for(l = loadhead(h); l != NULL; l = l->next)
 		if(l->f == f)
 			return l;
 	lock(&tablelock);
@@ -62,10 +77,21 @@ flockof(FILE *f)
 		}
 		l->f = f;
 		l->next = *h;
-		__atomic_store_n(h, l, __ATOMIC_RELEASE);
+		storehead(h, l);
 	}
 	unlock(&tablelock);
 	return l;
+}
+
+#ifdef __GNUC_MINOR__
+static int
+trylockword(Flock *l)
+{
+	int c;
+
+	c = 0;
+	return __atomic_compare_exchange_n(&l->lk, &c, 1, 0,
+	    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
 }
 
 static void
@@ -94,6 +120,25 @@ unlockword(Flock *l)
 		_SEMRELEASE(&l->sem, 1);
 	}
 }
+#else
+static int
+trylockword(Flock *l)
+{
+	return canlock(&l->wl);
+}
+
+static void
+lockword(Flock *l)
+{
+	lock(&l->wl);
+}
+
+static void
+unlockword(Flock *l)
+{
+	unlock(&l->wl);
+}
+#endif
 
 void
 flockfile(FILE *f)
@@ -116,7 +161,7 @@ int
 ftrylockfile(FILE *f)
 {
 	Flock *l;
-	int me, c;
+	int me;
 
 	l = flockof(f);
 	me = getpid();
@@ -124,9 +169,7 @@ ftrylockfile(FILE *f)
 		l->count++;
 		return 0;
 	}
-	c = 0;
-	if(!__atomic_compare_exchange_n(&l->lk, &c, 1, 0,
-	    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+	if(!trylockword(l))
 		return -1;
 	l->owner = me;
 	l->count = 1;
@@ -161,5 +204,8 @@ _IO_flockforkchild(void)
 			l->sem = 0;
 			l->owner = 0;
 			l->count = 0;
+#ifndef __GNUC_MINOR__
+			l->wl.val = 0;
+#endif
 		}
 }

@@ -9,7 +9,7 @@
 # result is read from mk's messages: every "mk: ... exit status" is a
 # failure, listed with the lines before it.
 #
-# usage: scripts/guest/build-kencc.sh [kernel|arm64]   (needs the build first: CC=gcc ARCH=amd64 sys/src/cmd/build/build.exe)
+# usage: scripts/guest/build-kencc.sh [kernel|arm64|gcc]   (needs the build first: CC=gcc ARCH=amd64 sys/src/cmd/build/build.exe)
 #   kernel: only the libraries and the kernel; its bootdir then takes
 #           the guest's gcc-built ELF programs, which 9front's strip
 #           does not know (port/mkroot: "not a recognizeable binary",
@@ -18,7 +18,12 @@
 #           image, sys/src/9/arm64/9qemu.u in the copy; its bootfs takes
 #           the build's gcc-built arm64/bin (needs ARCH=arm64 built too).
 #           Boot it: objtype=arm64 BOOTKERNEL=.../9qemu.u boot-cli.sh
-#   env: WAITMAX  seconds at most for the build in the guest (10800)
+#   gcc:    the same mkfiles with gccmk instead of mk (the native gcc of
+#           GCC_DIR/out/amd64, its build.sh plan9 step; libraries into
+#           /amd64/lib.gcc, a copy of the build's): that 9front's mkfiles
+#           build with gcc too. Userland only: gccmk builds no kernel.
+#   env: WAITMAX  seconds at most for the build in the guest (10800; gcc: 28800,
+#                 gcc in the guest takes about four times as long as 6c)
 #        SMP      CPUs of the guest (4; mk builds in parallel, NPROC)
 #        MEM      its memory in MB (2048)
 set -e
@@ -53,9 +58,18 @@ for a in $(git -C "$ROOT" ls-files '*/include/*' | cut -d/ -f1 | sort -u); do
 	mkdir -p "$T/extra/$a" && cp -r "$ROOT/$a/include" "$T/extra/$a/"
 done
 cp "$ROOT/scripts/guest/boot/mkkencc.rc" "$T/extra/rc/bin/mkkencc"
-LOG=$CLI_DIR/mkkencc.log
+# gcc: the native gcc and gccmk (/amd64/gnu), the build's libraries for it
+# (gccmk binds /amd64/lib.gcc on /amd64/lib) and its linker script
+if [ "$1" = gcc ]; then
+	G=$GCC_DIR/out/amd64/amd64/gnu
+	[ -x "$G/bin/gccmk" ] && [ -r "$G/plan9/mkfile" ] || die "no gccmk in $G: objtype=amd64 $GCC_DIR/build.sh plan9"
+	mkdir -p "$T/extra/amd64/lib"
+	cp -r "$G" "$T/extra/amd64/"
+	cp -r "$ROOT/amd64/lib.gcc" "$ROOT/amd64/plan9.ld" "$T/extra/amd64/"
+fi
+LOG=$CLI_DIR/mkkencc${1:+-$1}.log
 objtype=amd64 MEM=${MEM:-2048} QEMU_EXTRA="-smp ${SMP:-4} $QEMU_EXTRA" SRC9=$S UFS_EXTRA=$T/extra WAITFOR='mkkencc: (done|failed:)' \
-	WAITMAX=${WAITMAX:-10800} CMDWAIT=5 \
+	WAITMAX=${WAITMAX:-$([ "$1" = gcc ] && echo 28800 || echo 10800)} CMDWAIT=5 \
 	bash "$ROOT/scripts/guest/boot-cli.sh" "mkkencc $1" > "$LOG" 2>&1 || true
 tr -d '\r' < "$LOG" > "$LOG.txt"
 grep -qE '^mkkencc: (done|failed:)' "$LOG.txt" || { tail -30 "$LOG.txt"; die "did not finish (log: $LOG.txt)"; }
@@ -66,7 +80,7 @@ fails="mk: .*exit status|mk: don't know how to make"
 n=$(grep -cE "$fails" "$LOG.txt" || true)
 # the kernel's mk may fail without such a line
 K=pc64; [ "$1" = arm64 ] && K=arm64
-grep -qE "^mkkencc: status kernel $K *\$" "$LOG.txt" || n=$((n+1))
+[ "$1" = gcc ] || grep -qE "^mkkencc: status kernel $K *\$" "$LOG.txt" || n=$((n+1))
 grep '^mkkencc: status' "$LOG.txt"
 echo "built: $(grep -c '^cp 6\.' "$LOG.txt" || true) programs installed, kernel: $(grep -cE "^mkkencc: status kernel $K *\$" "$LOG.txt" || true) ok"
 ls -l "$S"/sys/src/9/pc64/9pc64 "$S"/sys/src/9/arm64/9qemu.u 2>/dev/null | awk '{print $5, $9}' || true
@@ -74,4 +88,4 @@ if [ "$n" != 0 ]; then
 	grep -B3 -E "$fails" "$LOG.txt" | head -150
 	die "$n failed mk targets (log: $LOG.txt)"
 fi
-echo "ok: the tree builds with kencc"
+if [ "$1" = gcc ]; then echo "ok: 9front's mkfiles build with gccmk"; else echo "ok: the tree builds with kencc"; fi

@@ -166,3 +166,9 @@ AMD's CPPC described by ACPI alone
 is not used: such processors run on their P-state registers.
 .PP
 9space: not in 9front.
+.PP
+The probe reads the processor's identity with CPUID, by gcc's inline
+assembly. Built by 9front's own compilers, which have none,
+.I pstate
+finds no P-states and says
+.BR "no CPUID" .
