@@ -454,7 +454,7 @@ shrcreate(Chan *c, char *name, int omode, ulong perm)
 	Mpt *mpt;
 	Mhead *h;
 	Mount *m;
-	Chan *nc;
+	Chan *volatile nc;
 	int mode;
 
 	mode = openmode(omode);

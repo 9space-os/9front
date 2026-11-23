@@ -502,7 +502,7 @@ tlsopen(Chan *c, int omode)
 static int
 tlswstat(Chan *c, uchar *dp, int n)
 {
-	Dir *d;
+	Dir *volatile d;
 	TlsRec *tr;
 	int rv;
 

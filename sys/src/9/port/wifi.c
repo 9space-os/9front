@@ -982,7 +982,7 @@ long
 wifictl(Wifi *wifi, void *buf, long n)
 {
 	uchar addr[Eaddrlen];
-	Cmdbuf *cb;
+	Cmdbuf *volatile cb;
 	Cmdtab *ct;
 	Wnode *wn;
 	Wkey *k, **kk;

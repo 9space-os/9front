@@ -754,7 +754,8 @@ static long
 write(int fd, void *buf, long len, vlong *offp)
 {
 	Chan *c;
-	long m, n;
+	long m;
+	volatile long n;
 	vlong off;
 
 	validaddr((uintptr)buf, len, 0);
