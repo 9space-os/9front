@@ -84,6 +84,10 @@ typedef struct {
 
 #define FE_DFL_ENV	((const fenv_t *) -1)
 
+/* 9space: C linkage in C++ (clang makes no system header extern "C") */
+#ifdef __cplusplus
+extern "C" {
+#endif
 int feclearexcept(int);
 int fegetexceptflag(fexcept_t *, int);
 int feraiseexcept(int);
@@ -97,5 +101,8 @@ int fegetenv(fenv_t *);
 int feholdexcept(fenv_t *);
 int fesetenv(const fenv_t *);
 int feupdateenv(const fenv_t *);
+#ifdef __cplusplus
+}
+#endif
 
 #endif
