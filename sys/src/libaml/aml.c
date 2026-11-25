@@ -846,11 +846,6 @@ store(void *s, void *d)
 	switch(TAG(d)){
 	default:
 		return nil;
-	case 'f':
-	case 'u':
-		/* GCC port branch: a field as the target itself, Store (x, Index (BUFF, i)), was dropped (9front bug, patch-upstream 0032) */
-		rwfield(d, s, 1);
-		return d;
 	case 'A':
 		s = deref(s);
 		/* no break */
@@ -871,6 +866,10 @@ store(void *s, void *d)
 		break;
 	case 'N':
 		pp = &((Name*)d)->v;
+		break;
+	case 'f':
+	case 'u':
+		pp = &d;
 		break;
 	}
 	p = *pp;

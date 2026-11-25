@@ -176,8 +176,9 @@ static Walkqid*
 shrwalk(Chan *c, Chan *nc, char **name, int nname)
 {
 	Walkqid *wq, *wq2;
-	int alloc, j;
+	int alloc, j, i, nto;
 	char *nam;
+	Chan **to;
 	Sch *sch;
 	Shr *shr;
 	Mpt *mpt;
@@ -255,19 +256,41 @@ shrwalk(Chan *c, Chan *nc, char **name, int nname)
 			sch->mpt = mpt;
 			nc->qid = shrqid(sch->level = Qcmpt, mpt->Ent.id);
 		} else if(sch->level == Qshr) {
+			/*
+			 * the walk into the mounts goes on without the
+			 * share's lock, on references taken under it (as
+			 * findmount does with a name space): a walk is an RPC
+			 * to the file server mounted there, and the server
+			 * removing its entry as it exits (ORCLOSE, shrremove's
+			 * wlock) waited for this rlock while this walk waited
+			 * for the server's answer: both forever (a 9front
+			 * bug, patch-upstream 0064)
+			 */
 			shr = sch->shr;
 			h = &shr->umh;
 			wq2 = nil;
 			rlock(&h->lock);
-			for(m = h->mount; m != nil && wq2 == nil; m = m->next){
-				if(m->to == nil)
-					continue;
+			nto = 0;
+			for(m = h->mount; m != nil; m = m->next)
+				if(m->to != nil)
+					nto++;
+			to = smalloc((nto + 1) * sizeof(Chan*));
+			nto = 0;
+			for(m = h->mount; m != nil; m = m->next)
+				if(m->to != nil){
+					incref(&m->to->Ref);
+					to[nto++] = m->to;
+				}
+			runlock(&h->lock);
+			for(i = 0; i < nto && wq2 == nil; i++){
 				if(waserror())
 					continue;
-				wq2 = devtab[m->to->type]->walk(m->to, nil, name + j, nname - j);
+				wq2 = devtab[to[i]->type]->walk(to[i], nil, name + j, nname - j);
 				poperror();
 			}
-			runlock(&h->lock);
+			for(i = 0; i < nto; i++)
+				cclose(to[i]);
+			free(to);
 			if(wq2 == nil)
 				error(Enonexist);
 			memmove(wq->qid + wq->nqid, wq2->qid, wq2->nqid * sizeof(Qid));
@@ -433,7 +456,7 @@ shrcreate(Chan *c, char *name, int omode, ulong perm)
 	Mpt *mpt;
 	Mhead *h;
 	Mount *m;
-	Chan *nc;
+	Chan *volatile nc;
 	int mode;
 
 	mode = openmode(omode);
