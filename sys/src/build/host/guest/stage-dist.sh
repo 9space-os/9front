@@ -272,6 +272,9 @@ if [ -n "$RUST_OUT" ] || [ -n "$GO_OUT" ] || [ "${BROWSER:-0}" = 1 ]; then
 	if [ -n "$ca" ]; then
 		mkdir -p "$OUT/sys/lib/tls"
 		install -m 644 "$ca" "$OUT/sys/lib/tls/ca.pem"
+		# made after proto.py: the list (the update archives, the replica) learns it here
+		printf 'sys/lib/tls\t20000000775\tsys\tsys\nsys/lib/tls/ca.pem\t664\tsys\tsys\n' >> "$OUT.list"
+		LC_ALL=C sort -u -o "$OUT.list" "$OUT.list"
 		echo "stage-dist: CA roots $(basename "$ca") as /sys/lib/tls/ca.pem" >&2
 	else
 		echo "stage-dist: no CA roots ($DISTFILES/cacert-*.pem, dist/bin/fetch): cargo and go cannot reach https" >&2
