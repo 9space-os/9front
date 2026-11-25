@@ -52,6 +52,8 @@ link
 #	devpccard	pci
 #	devi82365
 	cputemp		pci
+	acpisleep
+	cstate
 	smbios
 #	ether2000	ether8390
 	ether2114x	pci

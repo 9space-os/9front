@@ -38,7 +38,9 @@
 #include	"../port/pci.h"
 #include	"mp.h"
 
-#include	"apbootstrap.i"	/* mp.c's is static */
+/* mp.c includes apbootstrap.i too, and mk's %.i (portmkfile) is not static: this copy under a name of its own */
+#define	apbootstrap	sleepapbootstrap
+#include	"apbootstrap.i"
 
 enum {
 	Patmsr	= 0x277,
