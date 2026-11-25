@@ -104,6 +104,14 @@ mkpipe(int *w, int flags)
 		return -1;
 	if(flags & 02000000)	/* EPOLL_CLOEXEC, TFD_CLOEXEC, EFD_CLOEXEC */
 		fcntl(p[0], F_SETFD, FD_CLOEXEC);
+	/*
+	 * TFD_NONBLOCK, EFD_NONBLOCK: Linux's O_NONBLOCK (04000), not APE's:
+	 * without it a read of a timerfd whose expiration timerfd_settime
+	 * dropped after epoll_wait saw it waited for ever (foot's delayed
+	 * render: typing stopped after a few keys)
+	 */
+	if(flags & 04000)
+		fcntl(p[0], F_SETFL, O_NONBLOCK);
 	fcntl(p[1], F_SETFD, FD_CLOEXEC);
 	*w = p[1];
 	return p[0];
