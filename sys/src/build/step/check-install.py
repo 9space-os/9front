@@ -49,6 +49,9 @@ def expected():
 			out['/%s/lib.gcc/' % A + b['Library']] = os.path.relpath(k, g.SRC)
 	for k in KERNELS:
 		out['/%s/%s' % (A, k)] = 'kernel'
+	# the build tool itself, for the installed system (sys/src/build/step/build-tool.sh)
+	if A in ('amd64', '386', 'arm64'):
+		out['/%s/bin/build' % A] = 'cmd/build'
 	for d in g.dirs([]):
 		for name, e in g.entries(d):
 			if 'library' in e:
