@@ -1221,7 +1221,7 @@ func main() {
 	setup()
 
 	// on Plan 9 the installed system builds itself: its native gcc
-	// (/$objtype/gnu/bin, bound after /bin) and its own architecture
+	// (/$cputype/gnu/bin, findTools) and its own architecture
 	if runtime.GOOS == "plan9" {
 		if _, ok := os.LookupEnv("CC"); !ok {
 			os.Setenv("CC", "gcc")
@@ -1309,6 +1309,16 @@ func findTools(toolprefix string) {
 	for k, v := range tools {
 		if x := os.Getenv(strings.ToUpper(k)); x != "" {
 			v = x
+		}
+		// on Plan 9 the native toolchain's (toolchain/gcc: /$cputype/gnu/bin)
+		// before $path: 9front's own ar, nm, strip come first in /bin and
+		// take other options
+		if n := toolprefix + v; runtime.GOOS == "plan9" && !strings.Contains(n, "/") {
+			g := "/" + os.Getenv("cputype") + "/gnu/bin/" + n
+			if _, e := os.Stat(g); e == nil {
+				tools[k] = g
+				continue
+			}
 		}
 		v, err = exec.LookPath(toolprefix + v)
 		fail(err)
