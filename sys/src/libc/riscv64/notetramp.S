@@ -7,7 +7,7 @@
  * message's address at 16(sp), 0(sp) a fake return pc. A gcc-compiled
  * handler expects them in a0 and a1. notify(fn) keeps fn and installs
  * _notetramp through the raw system call _notify
- * (scripts/build/gen-9syscall.sh); _notetramp calls fn(nureg, msg)
+ * (sys/src/build/step/gen-9syscall.sh); _notetramp calls fn(nureg, msg)
  * from a 16-byte aligned stack (the kernel's is 8-byte aligned).
  */
 

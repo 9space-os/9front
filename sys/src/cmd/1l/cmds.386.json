@@ -6,7 +6,7 @@
 		],
 		"Install": "/$ARCH/bin/",
 		"Pre": [
-			"bash ../../../../scripts/build/gen-src.sh cmd/1l"
+			"bash /sys/src/build/step/gen-src.sh cmd/1l"
 		],
 		"Oflags": [
 			"--entry=_main"

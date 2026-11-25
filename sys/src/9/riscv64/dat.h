@@ -146,7 +146,7 @@ struct PMMU
  * system call arguments, as jc lays them out on the user stack (its
  * va_arg in riscv64/include/u.h): types up to 4 bytes take 4 bytes,
  * wider ones are 8-byte aligned. The syscall stubs of gcc-built
- * programs build the same layout (scripts/build/gen-9syscall.sh).
+ * programs build the same layout (sys/src/build/step/gen-9syscall.sh).
  */
 #define ARG(list, T) (sizeof(T) <= 4 ? \
 	(((list) += 4), *(T*)((list) - 4)) : \

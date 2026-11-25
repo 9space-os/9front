@@ -35,12 +35,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
 // setup finds the 9front root.  PLAN9 wins; HARVEY is honoured as a
-// fallback for old habit; as a last resort the top level of the
-// surrounding git repository is used.  The current process env is
+// fallback for old habit; then the top level of the surrounding git
+// repository; on Plan 9 at last / (the installed system's tree).  The current process env is
 // patched so the rest of the code can rely on $PLAN9, $ARCH.
 func setup() {
 	plan9 = os.Getenv("PLAN9")
@@ -54,6 +55,10 @@ func setup() {
 			plan9 = strings.TrimSpace(string(out))
 		}
 	}
+	// On Plan 9 the installed system is the tree: its own /sys/src
+	if plan9 == "" && runtime.GOOS == "plan9" {
+		plan9 = "/"
+	}
 	// If we still haven't found the path, bail out.
 	if plan9 == "" {
 		log.Fatal("Set the PLAN9 environment variable or run from a git checkout.")
@@ -65,7 +70,4 @@ func setup() {
 	}
 	plan9 = filepath.ToSlash(plan9)
 
-	// util is where the plan9 tools (mk, rc, sam, ...) used by the
-	// projects land; prepend it to $PATH.
-	os.Setenv("PATH", strings.Join([]string{fromRoot("/util"), os.Getenv("PATH")}, string(os.PathListSeparator)))
 }

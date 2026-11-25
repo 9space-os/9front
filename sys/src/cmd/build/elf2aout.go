@@ -1,7 +1,7 @@
 package main
 
 // elf2aout: the Plan 9 a.out kernel from the gcc-built ELF kernel, as
-// scripts/build/elf2aout.py (whose description this follows): 6l's fat
+// sys/src/build/step/elf2aout.py (whose description this follows): 6l's fat
 // header (S_MAGIC, 7l's R_MAGIC for AArch64) or 8l's plain one (I_MAGIC)
 // with the sizes and the entry, then the text and data bytes. The build
 // tool runs it for the install step on 9front, where there is no python

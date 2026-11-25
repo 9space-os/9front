@@ -1,0 +1,453 @@
+#!/bin/bash
+# Boot the gcc-built pc64 kernel (objtype=386: pc) in QEMU into the system, with the root
+# file system served by the build host: an rc on the serial console
+# (service=cpu) or rio (service=terminal, see KARGS).
+#
+# Guest boot path, 9front's own: initcode -> /boot/boot -> bootrc with
+# nobootprompt=tcp: ipconfig (QEMU's DHCP), srv tcp!fs!564 -- QEMU
+# forwards fs (10.0.2.100) port 564 to the host's ufs -- factotum,
+# init -> newns(/lib/namespace) -> cpurc or termrc.
+#
+# Host side: builds the root tree (sys/src/build/host/guest/gen-ufs-root.sh) and a GRUB
+# multiboot ISO in $CLI_DIR, starts Harvey's ufs on :5640, runs QEMU.
+#
+# usage: sys/src/build/host/guest/boot-cli.sh               interactive (Ctrl-A x quits)
+#        sys/src/build/host/guest/boot-cli.sh cmd [cmd ...]  type each argument as one line
+#                                          at the rc prompt, print the
+#                                          console log, quit
+#   env:  CLI_DIR     work dir (default: CLI_DIR of dist/paths.env, 9space/cache/cli)
+#         UFS         ufs binary (default: ufs in PATH, else ~/go/bin/ufs)
+#         SERVICE     cpu (default: cpurc, console rc) or terminal
+#         SCREENSHOT  PNG file: screen dump after the commands (QMP)
+#         SRC9        a directory the guest can mount: a second ufs serves
+#                     it as tcp!10.0.2.101!5641 (srv tcp!10.0.2.101!5641 src9)
+#         DISK        raw disk image attached as the first IDE disk (sdC0)
+#         WAITFOR     after the commands, wait until the console shows this
+#                     (grep -E), at most WAITMAX seconds (3600)
+#         BOOTDISK    boot this disk image instead (sys/src/build/host/guest/mkdisk.sh): no
+#                     host root, the image's boot loader, kernel and hjfs
+#         BOOTISO     boot this CD image instead (sys/src/build/host/guest/mkiso.sh)
+#         UEFI        1: UEFI firmware (OVMF, $OVMF_CODE) instead of the BIOS
+#         KVM         0: no KVM acceleration; otherwise x86 guests need /dev/kvm
+#                     (an arm64 guest on an x86 host is always emulated)
+#         KARGS       more kernel parameters (plan9.ini variables), e.g.
+#                     "vgasize=1024x768x16 monitor=vesa mouseport=ps2"
+#         MEM NIC     QEMU memory (256) and NIC model (e1000)
+#         PMU         1: x86 guests get KVM's virtual performance counters
+#                     (pmu=on; +perfctr-core: AMD's 6 core counters); qemu64
+#                     has none by default. arm64 (TCG) always has PMUv3
+#         SMP         QEMU processors (QEMU's default: 1; sys/src/build/host/tests/lib.sh sets 4)
+#         QEMU_EXTRA  extra QEMU flags (e.g. "-s -S" for gdb)
+#         MACHINE     riscv64: virt (default), pf (qemu's PolarFire Icicle
+#                     Kit, the kernel 9pf; needs dtc, cpp) or um (qemu's
+#                     sifive_u, the kernel 9um of the HiFive Unmatched)
+#         BOOT        riscv64: "uboot" boots through u-boot and a FAT disk
+#                     with boot.scr, plan9.ini and 9virt.u (as the disk image
+#                     does; sys/src/build/host/guest/build-boot.sh) instead of -kernel
+#         BOOTKERNEL  the kernel to boot (default: the build's
+#                     $objtype/bin/$KNAME; e.g. one built with kencc);
+#                     on arm64 its u-boot image (default arm64/9qemu.u)
+#         UFS_EXTRA   directory whose contents are added to the root
+#                     (sys/src/build/host/tests/guest puts its test programs in /tests)
+#         BOOTWAIT    seconds at most for the boot: until rc prompts (300;
+#                     with SERVICE=cpu no prompt by then is a failure: exit 1,
+#                     the logs kept in $CLI_DIR/noprompt.TIME);
+#                     each line waits for rc's prompt (PROMPTWAIT, 300 s); meanwhile
+#                     factotum's nvram prompts get AUTHID (glenda),
+#                     AUTHDOM (9front), PASSWORD (gccport9), empty
+#                     secstore key and the p9sk1 default
+#         CMDWAIT     seconds at most per line: until rc prompts after its
+#                     output (60; input typed into a rio window gets no prompt
+#                     on the serial line, there it is the pause)
+#         HOLD        1: after the commands keep the guest running (until
+#                     this script is killed); sys/src/build/host/guest/guest-cmd.sh types
+#                     further lines into it
+set -e
+
+ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
+. "$ROOT/sys/src/build/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
+# objtype: the system to boot, amd64 (pc64) or 386 (pc)
+case ${objtype:=amd64} in
+amd64)	KNAME=9pc64 QEMU=qemu-system-x86_64 CPU=qemu64,+rdrand ;;
+386)	KNAME=9pc QEMU=qemu-system-i386 CPU=qemu32,+rdrand ;;
+arm64)	KNAME=9qemu QEMU=qemu-system-aarch64 CPU=cortex-a72 ;;
+riscv64)	KNAME=9virt.bin QEMU=qemu-system-riscv64 CPU=rv64 ;;
+*)	echo "boot-cli: objtype=$objtype: no kernel" >&2; exit 1 ;;
+esac
+[ "${PMU:-0}" = 0 ] || [ $objtype = arm64 ] || CPU=$CPU,pmu=on,+perfctr-core	# pmc(3) tests (sys/src/build/host/tests/pmc)
+export objtype
+KERNEL=${BOOTKERNEL:-$ROOT/$objtype/bin/$KNAME}
+# riscv64: the raw image beside the a.out the install step makes (elf2aout.py, jl -H1)
+# riscv64 MACHINE: virt (default), pf (qemu's microchip-icicle-kit), um (sifive_u)
+[ $objtype = riscv64 ] && KERNEL=${BOOTKERNEL:-$ROOT/riscv64/9${MACHINE:-virt}.bin}
+UFS=${UFS:-$(command -v ufs 2>/dev/null || echo "$HOME/go/bin/ufs")}
+UFS_PORT=${UFS_PORT:-5640}	# host ports of the ufs servers (another boot-cli may run)
+SERVICE=${SERVICE:-cpu}
+MEM=${MEM:-256}
+NIC=${NIC:-e1000}
+# bootrc's tcp root: fs!564, which QEMU forwards to the host's ufs
+FSADDR=10.0.2.100
+SRC9ADDR=10.0.2.101
+# KVM always for x86 guests (KVM=0: emulation); same CPU model either way
+accel=()
+if [ "${KVM:-1}" != 0 ] && [ $objtype != arm64 ]; then
+	[ -w /dev/kvm ] || { echo "boot-cli: /dev/kvm not writable (KVM=0 to emulate)" >&2; exit 1; }
+	accel=(-accel kvm)
+fi
+SRC9_PORT=${SRC9_PORT:-5641}	# host port of the src9 ufs; the guest's is always 5641
+
+die(){ echo "boot-cli: $*" >&2; exit 1; }
+port_open(){ timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$UFS_PORT" 2>/dev/null; }
+
+cmds=("$@")
+
+[ -f "$KERNEL" ] || die "$KERNEL missing, run CC=gcc ARCH=$objtype sys/src/cmd/build/build.exe"
+command -v $QEMU >/dev/null || die "$QEMU missing"
+mkdir -p "$CLI_DIR"
+pids=()
+cleanup(){ [ ${#pids[@]} -gt 0 ] && kill "${pids[@]}" 2>/dev/null; wait 2>/dev/null; rm -f /tmp/boot-cli.$$.qmp; return 0; }
+trap cleanup EXIT
+
+fw=()
+if [ "${UEFI:-0}" != 0 ]; then
+	OVMF_CODE=${OVMF_CODE:-/usr/share/edk2/x64/OVMF_CODE.4m.fd}
+	[ -f "$OVMF_CODE" ] || die "no OVMF firmware ($OVMF_CODE)"
+	cp "${OVMF_CODE%CODE*}VARS${OVMF_CODE##*CODE}" "$CLI_DIR/ovmf_vars.fd" || die "no OVMF variable store"
+	fw=(-drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
+		-drive "if=pflash,format=raw,file=$CLI_DIR/ovmf_vars.fd")
+fi
+if [ -n "$BOOTDISK$BOOTISO" ]; then
+	# an installed system (sys/src/build/host/guest/mkdisk.sh) or the CD (sys/src/build/host/guest/mkiso.sh):
+	# its own boot loader and root
+	if [ -n "$BOOTISO" ]; then
+		[ -f "$BOOTISO" ] || die "$BOOTISO missing"
+		media=(-drive "file=$BOOTISO,format=raw,if=ide,index=2,media=cdrom")
+	else
+		[ -f "$BOOTDISK" ] || die "$BOOTDISK missing"
+		media=(-drive "file=$BOOTDISK,format=raw,if=ide,index=0")
+	fi
+	if [ $objtype = riscv64 ]; then
+		# OpenSBI, u-boot (sys/src/build/host/guest/build-uboot.sh), the image's
+		# boot.scr on its FAT partition (as 9front's arm64 image)
+		[ -n "$BOOTDISK" ] || die "riscv64: no CD, BOOTDISK only"
+		objtype=riscv64 bash "$ROOT/sys/src/build/host/guest/build-uboot.sh" > "$CLI_DIR/uboot.log" 2>&1 \
+			|| die "u-boot build failed (log: $CLI_DIR/uboot.log)"
+		qemu=($QEMU -M virt -cpu $CPU -m "$MEM"
+			-bios default -kernel "$CLI_DIR/uboot.riscv64/u-boot.bin"
+			-drive "file=$BOOTDISK,format=raw,if=none,id=d0" -device virtio-blk-pci,drive=d0,disable-legacy=on
+			-display none -no-reboot -monitor none
+			-netdev user,id=net0 -device virtio-net-pci,netdev=net0,disable-legacy=on)
+	else
+	qemu=($QEMU "${fw[@]}" "${media[@]}" -m "$MEM" ${SMP:+-smp "$SMP"}
+		-display none -no-reboot -monitor none
+		-netdev user,id=net0 -device "$NIC",netdev=net0
+		-cpu $CPU "${accel[@]}")
+	fi
+else
+[ $objtype = arm64 ] || [ $objtype = riscv64 ] || command -v grub-mkrescue >/dev/null || die "grub-mkrescue missing"
+[ -x "$UFS" ] || die "ufs missing (go install github.com/Harvey-OS/ninep/cmd/ufs@latest, or set UFS)"
+# a ufs left over from an earlier run would serve a stale root
+port_open && die "port $UFS_PORT is in use (old ufs still running?)"
+
+# root file system
+bash "$ROOT/sys/src/build/host/guest/gen-ufs-root.sh" "$CLI_DIR/ufsroot" > /dev/null
+[ -z "$UFS_EXTRA" ] || cp -r "$UFS_EXTRA"/. "$CLI_DIR/ufsroot/"
+
+# riscv64 BOOT=uboot: the disk's way instead of -kernel (u-boot runs
+# sys/src/boot/virt's boot.scr from the FAT partition, as on arm64)
+if [ $objtype = arm64 ] || { [ $objtype = riscv64 ] && [ "$BOOT" = uboot ]; }; then
+	case $objtype in
+	arm64)	scr=$ROOT/sys/src/boot/qemu/boot.scr uimg=$ROOT/arm64/9qemu.u uname=9qemu.u UBOOTBIN=$CLI_DIR/uboot/u-boot.bin ;;
+	riscv64)	scr=$ROOT/sys/src/boot/virt/boot.scr uimg=$ROOT/riscv64/9virt.u uname=9virt.u UBOOTBIN=$CLI_DIR/uboot.riscv64/u-boot.bin ;;
+	esac
+	# 9front's arm64 qemu boot (sys/lib/dist/mkfile, %.arm64.qcow2):
+	# u-boot (sys/src/build/host/guest/build-uboot.sh) runs boot.scr from the FAT
+	# partition, which loads plan9.ini and the u-boot image 9qemu.u
+	# (sys/src/build/host/guest/build-boot.sh makes both with aux/txt2uimage, aux/aout2uimage)
+	# arm64 BOOTKERNEL: another u-boot image (e.g. build-kencc.sh arm64's;
+	# riscv64's BOOTKERNEL is the raw image for -kernel)
+	[ $objtype != arm64 ] || uimg=${BOOTKERNEL:-$uimg}
+	for f in "$scr" "$uimg"; do
+		[ -s "$f" ] || die "$f missing, run sys/src/build/host/guest/build-boot.sh"
+	done
+	# 9qemu.u is made from 9qemu by build-boot.sh: an older one would
+	# boot the kernel of an earlier build, silently
+	[ $objtype != arm64 ] || [ -n "$BOOTKERNEL" ] || [ ! "$ROOT/arm64/9qemu" -nt "$ROOT/arm64/9qemu.u" ] \
+		|| die "arm64/9qemu.u is older than arm64/9qemu, run sys/src/build/host/guest/build-boot.sh"
+	bash "$ROOT/sys/src/build/host/guest/build-uboot.sh" > "$CLI_DIR/uboot.log" 2>&1 \
+		|| die "u-boot build failed (log: $CLI_DIR/uboot.log)"
+	{
+		echo console=0
+		echo service=$SERVICE
+		echo nobootprompt=tcp
+		echo fs=$FSADDR
+		echo auth=$FSADDR
+		for a in $KARGS; do echo "$a"; done
+	} > "$CLI_DIR/plan9.ini"
+	FAT=$CLI_DIR/${objtype}boot.img
+	rm -f "$FAT"
+	truncate -s 64M "$FAT"
+	echo 'start=2048, type=c, bootable' | sfdisk -q "$FAT" > /dev/null
+	mformat -i "$FAT@@1M" -F :: > /dev/null
+	cp "$uimg" "$CLI_DIR/$uname"
+	mcopy -i "$FAT@@1M" "$scr" "$CLI_DIR/plan9.ini" "$CLI_DIR/$uname" ::
+elif [ $objtype = riscv64 ]; then
+	# OpenSBI (qemu's -bios default) loads the raw kernel at 0x80200000
+	# and passes the device tree, whose /chosen/bootargs is -append
+	# (riscv64/bootargs.c); BOOT=uboot above. MACHINE=pf: qemu makes no
+	# device tree for the icicle (Linux's, sys/src/build/host/guest/build-dtb.sh)
+	# and passes no -append: plan9.ini goes to CONFADDR (riscv64/mem.h)
+	if [ "$MACHINE" = pf ]; then
+		bash "$ROOT/sys/src/build/host/guest/build-dtb.sh" icicle > "$CLI_DIR/dtb.log" 2>&1 \
+			|| die "device tree failed (log: $CLI_DIR/dtb.log)"
+		{
+			echo console=0
+			echo service=$SERVICE
+			echo nobootprompt=tcp
+			echo fs=$FSADDR
+			echo auth=$FSADDR
+			for a in $KARGS; do echo "$a"; done
+		} > "$CLI_DIR/plan9.ini"
+	fi
+else
+	# GRUB multiboot ISO; GRUB itself also talks on the serial line, so a
+	# boot that stops at the grub> prompt is visible
+	rm -rf "$CLI_DIR/iso"
+	mkdir -p "$CLI_DIR/iso/boot/grub"
+	cp "$KERNEL" "$CLI_DIR/iso/boot/$KNAME"
+	cat > "$CLI_DIR/iso/boot/grub/grub.cfg" <<-EOF
+	set timeout=0
+	serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1
+	terminal_output serial console
+	multiboot /boot/$KNAME console=0 service=$SERVICE nobootprompt=tcp fs=$FSADDR auth=$FSADDR $KARGS
+	boot
+	EOF
+	grub-mkrescue -o "$CLI_DIR/$KNAME.iso" "$CLI_DIR/iso" > "$CLI_DIR/grub-mkrescue.log" 2>&1 \
+		|| die "grub-mkrescue failed (log: $CLI_DIR/grub-mkrescue.log)"
+fi
+
+"$UFS" -root="$CLI_DIR/ufsroot" -addr=":$UFS_PORT" > "$CLI_DIR/ufs.log" 2>&1 &
+pids+=($!)
+for _ in $(seq 50); do port_open && break; sleep 0.2; done
+port_open || die "ufs did not come up (log: $CLI_DIR/ufs.log)"
+fwd=guestfwd=tcp:$FSADDR:564-tcp:127.0.0.1:$UFS_PORT
+if [ -n "$SRC9" ]; then
+	"$UFS" -root="$SRC9" -addr=":$SRC9_PORT" > "$CLI_DIR/ufs-src9.log" 2>&1 &
+	pids+=($!)
+	# the guest always dials tcp!10.0.2.101!5641 (not 564 too: QEMU
+	# names the forwards by guest port); SRC9_PORT is the host's side
+	fwd=$fwd,guestfwd=tcp:$SRC9ADDR:5641-tcp:127.0.0.1:$SRC9_PORT
+fi
+disk=()
+# the kernel CD boots first: the BIOS would try a disk with a boot
+# signature (any MBR, a GPT's protective one) before the CD
+[ -z "$DISK" ] || disk=(-drive "file=$DISK,format=raw,if=ide,index=0,media=disk" -boot order=d)
+
+if [ $objtype = arm64 ]; then
+	# pciqemu.c expects the low PCIe ECAM window (0x3f000000): highmem=off
+	[ -z "$DISK" ] || disk=(-drive "file=$DISK,format=raw,if=none,id=d0" -device virtio-blk-pci,drive=d0,disable-legacy=on)
+	qemu=($QEMU -M virt,gic-version=3,highmem=off -cpu $CPU -m "$MEM" ${SMP:+-smp "$SMP"}
+		-bios "$UBOOTBIN"
+		-drive "file=$FAT,format=raw,if=none,id=fat" -device virtio-blk-pci,drive=fat,disable-legacy=on
+		-display none -no-reboot -monitor none
+		-netdev user,id=net0,$fwd -device virtio-net-pci,netdev=net0,disable-legacy=on "${disk[@]}")	# virtio 1.0 only (ethervirtio10.c, sdvirtio10.c)
+elif [ $objtype = riscv64 ]; then
+	[ -z "$DISK" ] || disk=(-drive "file=$DISK,format=raw,if=none,id=d0" -device virtio-blk-pci,drive=d0,disable-legacy=on)
+	if [ "$BOOT" = uboot ]; then
+		# OpenSBI starts u-boot (S-mode) where it would start the kernel
+		boot=(-bios default -kernel "$UBOOTBIN"
+			-drive "file=$FAT,format=raw,if=none,id=fat" -device virtio-blk-pci,drive=fat,disable-legacy=on)
+	else
+		boot=(-bios default -kernel "$KERNEL"
+			-append "console=0 service=$SERVICE nobootprompt=tcp fs=$FSADDR auth=$FSADDR $KARGS")
+	fi
+	if [ "$MACHINE" = um ]; then
+		# qemu's FU540 for the Unmatched's FU740: harts 1-4 (U54) and
+		# the E51, which makes its device tree and takes -append
+		qemu=($QEMU -M sifive_u -smp 5 -m 2G -bios default -kernel "$KERNEL"
+			-append "console=0 service=$SERVICE nobootprompt=tcp fs=$FSADDR auth=$FSADDR $KARGS"
+			-display none -no-reboot -monitor none -nic user,$fwd)
+	elif [ "$MACHINE" = pf ]; then
+		# harts 1-4 (U54) and the E51; 1GB low memory and 1GB high;
+		# the console is mmuart1, the second serial line; the nic gem0
+		qemu=($QEMU -M microchip-icicle-kit -smp 5 -m 2G
+			-bios default -kernel "$KERNEL" -dtb "$CLI_DIR/dtb/icicle.dtb"
+			-device loader,file="$CLI_DIR/plan9.ini",addr=0x80100000,force-raw=on
+			-display none -no-reboot -monitor none
+			-nic user,$fwd -serial null)
+	else
+	qemu=($QEMU -M virt -cpu $CPU -m "$MEM" "${boot[@]}"
+		-display none -no-reboot -monitor none
+		-netdev user,id=net0,$fwd -device virtio-net-pci,netdev=net0,disable-legacy=on "${disk[@]}")	# virtio 1.0 only (ethervirtio10.c, sdvirtio10.c)
+	fi
+else
+qemu=($QEMU "${fw[@]}" -cdrom "$CLI_DIR/$KNAME.iso" -m "$MEM" ${SMP:+-smp "$SMP"}
+	-display none -no-reboot -monitor none
+	-netdev user,id=net0,$fwd -device "$NIC",netdev=net0 "${disk[@]}"
+	-cpu $CPU "${accel[@]}")	# RDRAND: kernel entropy fast path, dial() needs it
+fi
+fi
+
+if [ ${#cmds[@]} -eq 0 ]; then
+	echo "boot-cli: starting QEMU (Ctrl-A x quits)" >&2
+	"${qemu[@]}" -serial mon:stdio $QEMU_EXTRA
+	exit
+fi
+
+# scripted: serial console on a pty, type the commands, collect output.
+# QEMU starts stopped (-S) and runs on (QMP cont) once the pty is read
+# and QEMU has seen that: its pty backend drops output until its 1s
+# poll finds the reader, and a uart whose bytes are dropped may never
+# send again (qemu's sifive uart, sifive_u: OpenSBI waits on a full
+# fifo); the 16550 just loses them. The QMP socket's path must stay
+# short (108 bytes)
+qsock=$CLI_DIR/qmp.sock
+[ ${#qsock} -lt 100 ] || qsock=/tmp/boot-cli.$$.qmp
+rm -f "$qsock"
+qmp=(-S -qmp "unix:$qsock,server,nowait")
+"${qemu[@]}" -serial pty "${qmp[@]}" $QEMU_EXTRA > "$CLI_DIR/qemu.log" 2>&1 &
+pids+=($!)
+for _ in $(seq 50); do
+	pts=$(grep -oE "/dev/pts/[0-9]+" "$CLI_DIR/qemu.log" | head -1)
+	[ -n "$pts" ] && break
+	sleep 0.1
+done
+[ -n "$pts" ] || die "no QEMU serial pty (log: $CLI_DIR/qemu.log)"
+stty -F "$pts" raw -echo
+# empty now, not in the background job: the prompt checks below must
+# not see the previous boot's log
+: > "$CLI_DIR/console.log"
+cat "$pts" >> "$CLI_DIR/console.log" &
+pids+=($!)
+python3 - "$qsock" <<'PY' || die "QMP cont failed (log: $CLI_DIR/qemu.log)"
+import json, socket, sys, time
+s = socket.socket(socket.AF_UNIX)
+for _ in range(50):
+	try:
+		s.connect(sys.argv[1])
+		break
+	except OSError:
+		time.sleep(0.1)
+f = s.makefile('rw')
+f.readline()
+time.sleep(1.5)		# the pty backend's poll (see above)
+for cmd in ({'execute': 'qmp_capabilities'}, {'execute': 'cont'}):
+	f.write(json.dumps(cmd) + '\n')
+	f.flush()
+	f.readline()
+PY
+# type a line only when rc prompts for it (term% , sysname# ): input that
+# arrives while init and cpurc/termrc still run gets lost
+prompted(){
+	local log
+	log=$(tr -d '\r' < "$CLI_DIR/console.log")
+	case ${log##*$'\n'} in
+	*'% '|*'# ')	return 0 ;;
+	esac
+	return 1
+}
+# rc prompted since the console log had $1 bytes, after a newline (the
+# echoed input line)
+replied(){
+	local out
+	out=$(tail -c +$(($1 + 1)) "$CLI_DIR/console.log" | tr -d '\r')
+	[ "$out" != "${out%%$'\n'*}" ] || return 1
+	case ${out##*$'\n'} in
+	*'% '|*'# ')	return 0 ;;
+	esac
+	return 1
+}
+# while booting, answer factotum's nvram questions (readnvram(2): no
+# nvram in QEMU) as the console user would; each prompt once
+answered=0
+end=$((SECONDS + ${BOOTWAIT:-300}))
+while [ $SECONDS -lt $end ] && ! prompted; do
+	log=$(tr -d '\r' < "$CLI_DIR/console.log")
+	last=${log##*$'\n'}
+	ans=-
+	if [ ${#log} -gt $answered ]; then
+		case $last in
+		*'authid: ')			ans=${AUTHID:-glenda} ;;
+		*'authdom: ')			ans=${AUTHDOM:-9front} ;;
+		*'secstore key: ')		ans= ;;
+		*'password: ')			ans=${PASSWORD:-gccport9} ;;	# and confirm password
+		*'enable legacy p9sk1'*': ')	ans= ;;
+		*'user['*']: ')		ans= ;;	# -u: hostowner, default
+		*'bootargs is ('*')['*'] ')	ans= ;;	# the default bootrc found
+		esac
+	fi
+	if [ "$ans" != - ]; then
+		printf '%s\r' "$ans" > "$pts"
+		answered=${#log}
+	fi
+	sleep 0.5
+done
+# service=cpu and no rc prompt: the boot failed (a terminal's rc is in a
+# rio window, the serial line shows no prompt). The lines are not typed;
+# the logs are kept (the caller's copy is often in a temporary directory),
+# the screen dump and HOLD still happen, and the script ends with 1.
+noprompt=
+if [ "$SERVICE" = cpu ] && ! prompted; then
+	noprompt=$CLI_DIR/noprompt.$(date +%Y%m%d-%H%M%S)
+	mkdir -p "$noprompt"
+	cp "$CLI_DIR/console.log" "$CLI_DIR/qemu.log" "$noprompt/" 2>/dev/null || true
+	echo "boot-cli: no rc prompt after ${BOOTWAIT:-300} s, logs in $noprompt" >&2
+	cmds=() WAITFOR=
+fi
+for c in "${cmds[@]}"; do
+	end=$((SECONDS + ${PROMPTWAIT:-300}))
+	until prompted || [ $SECONDS -ge $end ]; do
+		sleep 1
+	done
+	# in pieces: the serial input buffer drops what exceeds about 128
+	# bytes at once (the rest of a long line, its newline with it)
+	start=$(stat -c %s "$CLI_DIR/console.log")
+	l=$c$'\r'
+	while [ -n "$l" ]; do
+		printf '%s' "${l:0:32}" > "$pts"
+		l=${l:32}
+		sleep 0.2
+	done
+	end=$((SECONDS + ${CMDWAIT:-60}))
+	until replied $start || [ $SECONDS -ge $end ]; do
+		sleep 0.5
+	done
+done
+if [ -n "$WAITFOR" ]; then
+	end=$((SECONDS + ${WAITMAX:-3600}))
+	until tr -d '\r' < "$CLI_DIR/console.log" | grep -qE "$WAITFOR" || [ $SECONDS -ge $end ]; do
+		sleep 2
+	done
+fi
+sleep 1
+if [ -n "$SCREENSHOT" ]; then	# QMP screendump (PPM), stored as PNG
+	python3 - "$qsock" "$CLI_DIR/screen.ppm" "$SCREENSHOT" <<'PY'
+import json, socket, struct, sys, zlib
+s = socket.socket(socket.AF_UNIX)
+s.connect(sys.argv[1])
+f = s.makefile('rw')
+f.readline()
+for cmd in ({'execute': 'qmp_capabilities'},
+		{'execute': 'screendump', 'arguments': {'filename': sys.argv[2]}}):
+	f.write(json.dumps(cmd) + '\n')
+	f.flush()
+	f.readline()
+d = open(sys.argv[2], 'rb').read()
+magic, w, h, mx, px = d.split(maxsplit=4)
+w, h = int(w), int(h)
+raw = b''.join(b'\0' + px[y*w*3:(y+1)*w*3] for y in range(h))
+def chunk(t, b):
+	return struct.pack('>I', len(b)) + t + b + struct.pack('>I', zlib.crc32(t + b))
+open(sys.argv[3], 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+	+ chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+PY
+fi
+if [ -n "$HOLD" ]; then
+	echo "$pts" > "$CLI_DIR/pts"
+	echo "guest running on $pts: sys/src/build/host/guest/guest-cmd.sh 'cmd'"
+	wait
+fi
+cleanup
+pids=()
+tr -d '\r' < "$CLI_DIR/console.log"
+[ -z "$noprompt" ] || exit 1

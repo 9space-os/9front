@@ -1,5 +1,5 @@
 /*
- * GCC port: notify(fn) is the system call (scripts/gen-9syscall.sh names
+ * GCC port: notify(fn) is the system call (sys/src/build/step/gen-9syscall.sh names
  * the stub for sys.h's NOTIFY _notify): fn is up->notify, per process, as
  * in 9front.
  *

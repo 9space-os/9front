@@ -269,7 +269,7 @@
 		],
 		"Install": "/$ARCH/bin/",
 		"Pre": [
-			"bash ../../../scripts/build/yacc.sh -d -o bc.c -s bc bc.y"
+			"bash /sys/src/build/step/yacc.sh -d -o bc.c -s bc bc.y"
 		],
 		"Oflags": [
 			"--entry=_main"
@@ -338,7 +338,7 @@
 		],
 		"Install": "/$ARCH/bin/",
 		"Pre": [
-			"bash ../../../scripts/build/yacc.sh -d -o mpc.c -s mpc mpc.y"
+			"bash /sys/src/build/step/yacc.sh -d -o mpc.c -s mpc mpc.y"
 		],
 		"Oflags": [
 			"--entry=_main"
@@ -407,7 +407,7 @@
 		],
 		"Install": "/$ARCH/bin/",
 		"Pre": [
-			"bash ../../../scripts/build/yacc.sh -d -o pc.c -s pc pc.y"
+			"bash /sys/src/build/step/yacc.sh -d -o pc.c -s pc pc.y"
 		],
 		"Oflags": [
 			"--entry=_main"
@@ -476,7 +476,7 @@
 		],
 		"Install": "/$ARCH/bin/",
 		"Pre": [
-			"bash ../../../scripts/build/yacc.sh -d -o units.c -s units units.y"
+			"bash /sys/src/build/step/yacc.sh -d -o units.c -s units units.y"
 		],
 		"Oflags": [
 			"--entry=_main"

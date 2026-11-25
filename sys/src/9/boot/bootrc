@@ -202,7 +202,7 @@ for(i in /rc/lib/*.rc){
 # add partitions and binds
 configlocal
 
-# GCC port (hardware tests, tests/hw/README.md): bootpart=name boots the
+# GCC port (hardware tests, sys/src/build/host/tests/hw/README.md): bootpart=name boots the
 # partition of that name on a USB disk (never an internal one), waiting
 # up to 30 seconds for nusb to find it; without bootpart nothing changes
 if(~ $#nobootprompt 0 && ! ~ $#bootpart 0){

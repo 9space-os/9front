@@ -236,7 +236,7 @@ var (
 		"riscv64": true,
 	}
 	// per $ARCH defaults for the environment of the manifests and of
-	// their Pre/Post steps (scripts/gen/arch.py has the same table):
+	// their Pre/Post steps (sys/src/build/gen/arch.py has the same table):
 	// objtype as 9front's mkfiles name it, O the object letter, SUFFIX
 	// of the generated per-arch manifests (none for amd64), CONF the
 	// kernel configuration, TOOLPREFIX of the gcc/binutils
@@ -847,7 +847,7 @@ func clean(b *build) {
 	if b.Program != "" {
 		files = append(files, b.Program, b.Program+".r.o", b.Program+".weak")
 	}
-	if b.Library != "" && !strings.HasPrefix(b.Install, fromRoot("/$ARCH")+"/") && !strings.HasPrefix(b.Install, fromRoot("/tests")+"/") {
+	if b.Library != "" && !strings.HasPrefix(b.Install, fromRoot("/$ARCH")+"/") && !strings.HasPrefix(b.Install, fromRoot("/sys/src/build/host/tests")+"/") {
 		files = append(files, path.Join(b.Install, b.Library))
 	}
 	if b.Kernel != nil {
@@ -1153,18 +1153,18 @@ func environ() []string {
 }
 
 // plan9step: on 9front the build steps of the manifests are the rc
-// scripts beside the Linux ones -- bash .../scripts/build/X.sh and
-// python3 .../scripts/build/X.py run as rc .../scripts/build/rc/X.rc,
+// scripts beside the Linux ones -- bash .../sys/src/build/step/X.sh and
+// python3 .../sys/src/build/step/X.py run as rc .../sys/src/build/step/rc/X.rc,
 // which do the same with 9front's own tools (mk, yacc, awk, ...);
-// install(1), which 9front has not, as rc .../scripts/build/rc/install.rc.
+// install(1), which 9front has not, as rc .../sys/src/build/step/rc/install.rc.
 func plan9step(exp []string) []string {
-	if (exp[0] == "bash" || exp[0] == "python3") && len(exp) > 1 && strings.Contains(exp[1], "scripts/build/") {
+	if (exp[0] == "bash" || exp[0] == "python3") && len(exp) > 1 && strings.Contains(exp[1], "sys/src/build/step/") {
 		dir, f := path.Split(exp[1])
 		name := strings.TrimSuffix(strings.TrimSuffix(f, ".sh"), ".py")
 		return append([]string{"rc", dir + "rc/" + name + ".rc"}, exp[2:]...)
 	}
 	if exp[0] == "install" {
-		return append([]string{"rc", fromRoot("/scripts/build/rc/install.rc")}, exp[1:]...)
+		return append([]string{"rc", fromRoot("/sys/src/build/step/rc/install.rc")}, exp[1:]...)
 	}
 	return exp
 }
@@ -1275,10 +1275,10 @@ func main() {
 			bf = f
 		}
 	} else {
-		// build.json here, else the tree's: everything for $ARCH
+		// build.json here, else the tree's (sys/src/build): everything for $ARCH
 		f, err := findBuildfile("build.json")
 		if err != nil {
-			f, err = findBuildfile(path.Join(plan9, "build.json"))
+			f, err = findBuildfile(path.Join(plan9, "sys/src/build/build.json"))
 		}
 		fail(err)
 		bf = f
