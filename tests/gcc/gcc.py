@@ -11,7 +11,7 @@ usage: tests/gcc/gcc.py iso workdir objtype
 import os, re, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../scripts/lib'))
-from vm import VM
+from vm import machine
 import paths
 
 def gccversion():
@@ -23,10 +23,8 @@ def gccversion():
 	return m.group(1)
 
 iso, work, objtype = sys.argv[1:4]
-vm = VM(iso, work, objtype)
-def result(ok, name):
-	print('%s %s' % ('ok' if ok else 'fail', name), flush=True)
-	return ok
+vm = machine(iso, work, objtype)
+result = vm.result	# ok|fail lines; a failed one keeps the work directory
 
 def run(line, marker, secs):
 	"""line on the serial rc, then echo marker; output until it shows"""
@@ -39,7 +37,8 @@ def run(line, marker, secs):
 try:
 	if not result(vm.boot(), 'boot to rio, serial rc'):
 		sys.exit(0)
-	vm.serial('bind -b /%s/gnu/bin /bin; cd /tmp' % objtype, 2)
+	vm.serial('bind -b /%s/gnu/bin /bin' % objtype, 2)
+	W = vm.workdir('gcc')
 	out = run('gcc --version', 'gcc-version-done', 60)
 	want = gccversion()
 	result(want in out, 'gcc --version is %s (GCC_DIR)' % want)
@@ -57,8 +56,8 @@ try:
 
 	# 9front's mkfile with gcc (the CD's /sys/src is read-only: a copy)
 	O = {'amd64': '6', '386': '8'}[objtype]
-	mk = ("mkdir /tmp/hoc && dircp /sys/src/cmd/hoc /tmp/hoc && cd /tmp/hoc && gccmk >/tmp/hoc.log"
-		" && echo '6*7' | ./%s.out | sed 's/^/hoc says /'") % O
+	mk = ("mkdir %s/hoc && dircp /sys/src/cmd/hoc %s/hoc && cd %s/hoc && gccmk >%s/hoc.log"
+		" && echo '6*7' | ./%s.out | sed 's/^/hoc says /'") % (W, W, W, W, O)
 	out = run(mk, 'mk-done', 600)
 	result('hoc says 42' in out, 'gccmk: hoc from its mkfile, runs')
 finally:

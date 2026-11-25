@@ -68,6 +68,7 @@ the guest: Harvey's, without TCP keepalive, built from `scripts/hw/ufs` with Go 
 Options (environment):
 
 - `ISO=file.iso` — `iso` tests this CD instead of building one; `rio` and `usb` use it, else the last CD `scripts/guest/mkiso.sh` made (`$CLI_DIR/9front.$objtype.iso`; CLI_DIR is `cache/cli` in paths.env). `objtype=386 ISO=$CLI_DIR/9front.386.iso bash tests/run.sh iso`
+- `INSTANCE=1` — `gcc`, `go`, `rust`, `mcp`, `rio` and `workflow` run on the instance instead of a CD: an installed 9space in QEMU at `INSTANCE_DIR` (the environment, else `dist/local.env`, not in git), which `dist/bin/instance up` first brings up to date with this build; it keeps running, and each test tidies up after itself (`vm.workdir`: its directory emptied before, removed after when every check passed; `tests/vm.py` `machine()`, `tests/lib.sh` `cdimage`; the wiki's Testing page). `INSTANCE=1 bash tests/run.sh gcc go rust mcp rio workflow`
 - `USB_CTLRS="xhci ehci"` — `usb` tests only these controllers.
 - `CPU`, `SMP`, `MEM` — QEMU's `-cpu`, `-smp`, `-m` for `rio` and `usb` (e.g. `CPU=n270 SMP=2` for an Atom netbook).
 - `DISKIMG=file.img` — `disk` boots this image instead of building one.

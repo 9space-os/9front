@@ -5,7 +5,7 @@ scripts/guest/boot/rustproto; dist/bin/mkcd with -dev rust, or RUST_OUT for
 mkiso.sh): boot to the desktop, then over the serial rc: rustc --version, rustc
 builds a program with threads, a channel and files and it runs (rustc links
 with the CD's gcc, /$objtype/gnu), cargo new / build / run / test offline
-(CARGO_HOME in /tmp: the live CD's $home is read-only), a crate from crates.io
+(CARGO_HOME in the test's directory, vm.workdir: the live CD's $home is read-only), a crate from crates.io
 over https (the CD's CA roots), rustfmt, rustdoc and cargo clippy.
 
 usage: tests/rust/rust.py iso workdir objtype
@@ -13,13 +13,11 @@ usage: tests/rust/rust.py iso workdir objtype
 """
 import os, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-from vm import VM
+from vm import machine
 
 iso, work, objtype = sys.argv[1:4]
-vm = VM(iso, work, objtype)
-def result(ok, name):
-	print('%s %s' % ('ok' if ok else 'fail', name), flush=True)
-	return ok
+vm = machine(iso, work, objtype)
+result = vm.result	# ok|fail lines; a failed one keeps the work directory
 
 def run(line, marker, secs):
 	"""line on the serial rc, then echo marker; output until it shows"""
@@ -44,8 +42,8 @@ fn main() {
     for h in hs { h.join().unwrap(); }
     drop(tx);
     let sum: i32 = rx.iter().sum();
-    std::fs::write("/tmp/rs.txt", format!("{}", sum)).unwrap();
-    let back = std::fs::read_to_string("/tmp/rs.txt").unwrap();
+    std::fs::write("rs.txt", format!("{}", sum)).unwrap();
+    let back = std::fs::read_to_string("rs.txt").unwrap();
     println!("hello from rust {} {}", back, std::env::consts::ARCH);
 }'''
 
@@ -56,7 +54,9 @@ try:
 	if 'has-rust\n' not in out:
 		print('skip no /%s/rust on the CD (dist/bin/mkcd -dev rust, or RUST_OUT for mkiso.sh)' % objtype, flush=True)
 		sys.exit(0)
-	vm.serial('bind -b /%s/gnu/bin /bin; bind -b /%s/rust/bin /bin; cd /tmp; CARGO_HOME=/tmp/cargo' % (objtype, objtype), 2)
+	vm.serial('bind -b /%s/gnu/bin /bin; bind -b /%s/rust/bin /bin' % (objtype, objtype), 2)
+	W = vm.workdir('rust')
+	vm.serial('CARGO_HOME=%s/cargo' % W, 2)
 	arch = {'amd64': 'x86_64', '386': 'x86', 'arm64': 'aarch64'}[objtype]
 	out = run('rustc --version --verbose', 'version-done', 60)
 	result('host: %s-unknown-plan9' % ('i686' if objtype == '386' else arch) in out, 'rustc --version')
@@ -80,20 +80,20 @@ try:
 		result(False, 'CA roots /sys/lib/tls/ca.pem on the CD')
 	else:
 		vm.serial('test -e /net/ipifc/0/ctl || ip/ipconfig; test -e /net/dns || ndb/dns -r', 15)
-		vm.serial('cd /tmp; cargo new --vcs none --bin dep && cd dep', 5)
+		vm.serial('cd %s; cargo new --vcs none --bin dep && cd dep' % W, 5)
 		vm.serial("echo 'itoa = \"1\"' >> Cargo.toml", 1)
 		lines('src/main.rs', 'fn main() { let mut b = itoa::Buffer::new(); println!("itoa says {}", b.format(4242)); }')
 		out = run('cargo run', 'dep-done', 900)
 		result('itoa says 4242' in out, 'cargo: a crate from crates.io over https (CA roots), builds and runs')
 
-	vm.serial('cd /tmp', 1)
+	vm.serial('cd ' + W, 1)
 	lines('fmt.rs', 'fn main(){let x=1;println!("{}",x);}')
 	out = run('rustfmt --edition 2024 fmt.rs && cat fmt.rs', 'fmt-done', 120)
 	result('    let x = 1;' in out, 'rustfmt formats a file')
 	lines('doc.rs', '//! A crate.\n/// Adds two numbers.\npub fn add(a: i32, b: i32) -> i32 { a + b }')
 	out = run('rustdoc --edition 2024 --crate-type lib doc.rs && test -f doc/doc/fn.add.html && echo has-doc', 'doc-done', 300)
 	result('has-doc\n' in out.replace('\r', ''), 'rustdoc writes the docs')
-	vm.serial('cd /tmp/hi', 1)
+	vm.serial('cd %s/hi' % W, 1)
 	lines('src/main.rs', 'fn main() { let v = vec![1, 2, 3]; if v.len() == 0 { println!("empty"); } }')
 	out = run('cargo clippy --offline', 'clippy-done', 600)
 	result('len_zero' in out or 'is_empty' in out, 'cargo clippy finds a lint')

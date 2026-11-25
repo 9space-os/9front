@@ -4,16 +4,15 @@
 # term, sam, paint (draw(3)), uitodo (ui(4)), foot (Wayland, wlsys), the
 # session's files over 9P from the host; at the end all of them running,
 # nothing Broken. Needs a CD of the profile ui or full (wsys): ISO, else
-# the last one dist/bin/mkcd made of them; skipped on rio.
+# the last one dist/bin/mkcd made of them, INSTANCE=1 the instance
+# (dist/bin/instance; tests/lib.sh cdimage); skipped on rio.
 . "$(dirname "$0")/../lib.sh"
 [ "$objtype" = amd64 ] || { skip "workflow" "objtype=$objtype (wsys' desktop: amd64)"; done_tests; exit; }
-IMG=${ISO:-}
-if [ -z "$IMG" ]; then
-	for f in "$CLI_DIR"/9space-ui.$objtype.iso "$CLI_DIR"/9space-full*.$objtype.iso; do
-		[ -f "$f" ] && { [ -z "$IMG" ] || [ "$f" -nt "$IMG" ]; } && IMG=$f
-	done
-fi
-[ -n "$IMG" ] && [ -f "$IMG" ] || { skip "workflow" "no CD with wsys: dist/bin/mkcd ui, or set ISO"; done_tests; exit; }
+newest=
+for f in "$CLI_DIR"/9space-ui.$objtype.iso "$CLI_DIR"/9space-full*.$objtype.iso; do
+	[ -f "$f" ] && { [ -z "$newest" ] || [ "$f" -nt "$newest" ]; } && newest=$f
+done
+cdimage "$newest" || { skip "workflow" "no CD with wsys: dist/bin/mkcd ui, or set ISO"; done_tests; exit; }
 P9=$PLAN9PORT/bin/9p
 [ -x "$P9" ] || { skip "workflow" "no plan9port 9p ($P9): its ./INSTALL"; done_tests; exit; }
 echo "  CD: $IMG"

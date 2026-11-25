@@ -17,13 +17,11 @@ usage: tests/rio/rio.py iso workdir objtype
 """
 import os, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-from vm import VM
+from vm import machine
 
 iso, work, objtype = sys.argv[1:4]
-vm = VM(iso, work, objtype)
-def result(ok, name):
-	print('%s %s' % ('ok' if ok else 'fail', name), flush=True)
-	return ok
+vm = machine(iso, work, objtype)
+result = vm.result	# ok|fail lines; a failed one keeps the work directory
 
 def typed(marker):
 	vm.type("echo %s >'#t/eia0'\n" % marker)

@@ -3,7 +3,7 @@
 Go on the install CD (/$objtype/go, from toolchain/go (GO_DIR in paths.env) via
 scripts/guest/boot/goproto, GO_OUT for mkiso.sh): boot to the desktop, then over the
 serial rc: go version, go finds its tree (GOROOT) with no $GOROOT, go run and
-go build of a program that uses goroutines (GOCACHE in /tmp: the live CD's
+go build of a program that uses goroutines (GOCACHE in the test's directory, vm.workdir: the live CD's
 $home is read-only), cgo with the CD's gcc (/$objtype/gnu), a module from the
 proxy over https (the CD's CA roots), and an ELF file of Go's test data is unchanged (stage-dist.sh strips ELF files, not in /$objtype/go).
 
@@ -12,15 +12,13 @@ usage: tests/go/go.py iso workdir objtype [sha1-of-testdata]
 """
 import os, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-from vm import VM
+from vm import machine
 
 iso, work, objtype = sys.argv[1:4]
 want = sys.argv[4] if len(sys.argv) > 4 else ''
 TESTDATA = '/%s/go/src/debug/elf/testdata/go-relocation-test-gcc441-x86-64.obj' % objtype
-vm = VM(iso, work, objtype)
-def result(ok, name):
-	print('%s %s' % ('ok' if ok else 'fail', name), flush=True)
-	return ok
+vm = machine(iso, work, objtype)
+result = vm.result	# ok|fail lines; a failed one keeps the work directory
 
 def run(line, marker, secs):
 	"""line on the serial rc, then echo marker; output until it shows"""
@@ -37,8 +35,10 @@ try:
 	if 'has-go\n' not in out:
 		print('skip no /%s/go on the CD (GO_OUT for mkiso.sh)' % objtype, flush=True)
 		sys.exit(0)
-	# the live CD's $home is read-only: the build cache in /tmp (a ramfs)
-	vm.serial('bind -b /%s/go/bin /bin; cd /tmp; GOCACHE=/tmp/go-build' % objtype, 2)
+	# the live CD's $home is read-only: the build cache in the test's directory
+	vm.serial('bind -b /%s/go/bin /bin' % objtype, 2)
+	W = vm.workdir('go')
+	vm.serial('GOCACHE=%s/go-build' % W, 2)
 	out = run('go version', 'version-done', 60)
 	result(('plan9/%s' % objtype) in out, 'go version')
 	out = run('go env GOROOT', 'goroot-done', 60)
@@ -73,13 +73,13 @@ try:
 		result(False, 'CA roots /sys/lib/tls/ca.pem on the CD')
 	else:
 		vm.serial('test -e /net/ipifc/0/ctl || ip/ipconfig; test -e /net/dns || ndb/dns -r', 15)
-		vm.serial('mkdir /tmp/mod && cd /tmp/mod; GOPATH=/tmp/gopath; go mod init example.com/m', 10)
+		vm.serial('mkdir %s/mod && cd %s/mod; GOPATH=%s/gopath; go mod init example.com/m' % (W, W, W), 10)
 		vm.serial("echo 'package main' > m.go", 1)
 		vm.serial("echo 'import (\"fmt\"; \"rsc.io/quote\")' >> m.go", 1)
 		vm.serial("echo 'func main(){ fmt.Println(\"quote says\", quote.Hello()) }' >> m.go", 1)
 		out = run('go mod tidy && go run .', 'mod-done', 900)
 		result('quote says Hello, world.' in out, 'go: a module from the proxy over https (CA roots), builds and runs')
-		vm.serial('cd /tmp', 1)
+		vm.serial('cd ' + W, 1)
 
 	if want:
 		out = run('sha1sum %s' % TESTDATA, 'sha-done', 30)

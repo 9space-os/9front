@@ -5,9 +5,9 @@
 # build, run and test offline, a crate from crates.io over https, rustfmt, rustdoc,
 # cargo clippy (tests/rust/rust.py).
 # Skips a CD without Rust. Uses ISO, else the last CD scripts/guest/mkiso.sh made.
+# INSTANCE=1: the instance (dist/bin/instance; tests/lib.sh cdimage).
 . "$(dirname "$0")/../lib.sh"
-IMG=${ISO:-$CLI_DIR/9front.$objtype.iso}
-[ -f "$IMG" ] || { skip "rust" "no CD $IMG, run dist/bin/mkcd -dev rust ... or set ISO"; done_tests; exit; }
+cdimage "$CLI_DIR/9front.$objtype.iso" || { skip "rust" "no CD $IMG, run dist/bin/mkcd -dev rust ... or set ISO"; done_tests; exit; }
 
 python3 "$ROOT/tests/rust/rust.py" "$IMG" "$TMPD/vm" $objtype > "$TMPD/results" 2>&1
 while read -r r name; do

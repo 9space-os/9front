@@ -3,10 +3,10 @@
 # toolchain/gcc (GCC_DIR in paths.env) via scripts/guest/boot/gnuproto) compile, link and run a
 # POSIX and a native Plan 9 program, and gccmk builds hoc from its mkfile
 # (tests/gcc/gcc.py).
-# Uses ISO, else the last CD scripts/guest/mkiso.sh made.
+# Uses ISO, else the last CD scripts/guest/mkiso.sh made; INSTANCE=1: the
+# instance (dist/bin/instance; tests/lib.sh cdimage).
 . "$(dirname "$0")/../lib.sh"
-IMG=${ISO:-$CLI_DIR/9front.$objtype.iso}
-[ -f "$IMG" ] || { skip "gcc" "no CD $IMG, run objtype=$objtype scripts/guest/mkiso.sh or set ISO"; done_tests; exit; }
+cdimage "$CLI_DIR/9front.$objtype.iso" || { skip "gcc" "no CD $IMG, run objtype=$objtype scripts/guest/mkiso.sh or set ISO"; done_tests; exit; }
 
 python3 "$ROOT/tests/gcc/gcc.py" "$IMG" "$TMPD/vm" $objtype > "$TMPD/results" 2>&1
 while read -r r name; do

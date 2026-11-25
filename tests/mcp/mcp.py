@@ -10,13 +10,11 @@ usage: tests/mcp/mcp.py iso workdir objtype
 """
 import os, re, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-from vm import VM
+from vm import machine
 
 iso, work, objtype = sys.argv[1:4]
-vm = VM(iso, work, objtype)
-def result(ok, name):
-	print('%s %s' % ('ok' if ok else 'fail', name), flush=True)
-	return ok
+vm = machine(iso, work, objtype)
+result = vm.result	# ok|fail lines; a failed one keeps the work directory
 
 def run(line, marker, secs):
 	"""line on the serial rc, then echo marker; output until it shows"""
@@ -42,11 +40,12 @@ try:
 		sys.exit(0)
 	out = run('test -s /sys/lib/mcp/deny && echo has-deny', 'deny-done', 10)
 	result('has-deny\n' in out, 'its deny list /sys/lib/mcp/deny')
+	W = vm.workdir('mcp')
 	op = '>'
 	for r in REQ:
-		vm.serial("echo '%s' %s /tmp/mcp.req" % (r, op), 1)
+		vm.serial("echo '%s' %s mcp.req" % (r, op), 1)
 		op = '>>'
-	out = run('9front-mcp -stdio -deny /sys/lib/mcp/deny -dir /tmp < /tmp/mcp.req > /tmp/mcp.out; cat /tmp/mcp.out', 'mcp-done', 60)
+	out = run('9front-mcp -stdio -deny /sys/lib/mcp/deny -dir %s < mcp.req > mcp.out; cat mcp.out' % W, 'mcp-done', 60)
 	result('"serverInfo"' in out and '"id":1' in out, 'initialize: the server answers')
 	result(re.search(r'mcp-rc-says [A-Za-z0-9]', out) is not None and '"id":2' in out, 'tools/call rc runs a command ($sysname expanded)')
 	result('"id":3' in out and 'deny list' in out, 'the deny list refuses fshalt')

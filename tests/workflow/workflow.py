@@ -3,7 +3,8 @@
 The reference workflow (dist/docs/roadmap.md, phase 1): a working session
 on the CD's desktop as a user has it, keys and mouse from the host
 through QMP, the programs of the profile ui (wsys, term, foot) and of
-9front together on one boot, the work in /tmp/wf:
+9front together on one boot, the work in /tmp/wf (emptied first, removed
+with the session's windows when every check passed: tests/vm.py workdir):
 
 	term	typed into: a file written, its output on term's screen
 		(TERMDEBUG=screen)
@@ -30,7 +31,7 @@ usage: tests/workflow/workflow.py iso workdir objtype 9p
 """
 import os, re, socket, subprocess, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-from vm import VM
+from vm import machine
 
 iso, work, objtype, p9p = sys.argv[1:5]
 
@@ -43,11 +44,9 @@ def freeport():
 
 GPORT = 5640	# the guest's 9P port (aux/listen1)
 hport = freeport()
-vm = VM(iso, work, objtype, net='user,id=n0,hostfwd=tcp:127.0.0.1:%d-:%d' % (hport, GPORT))
+vm = machine(iso, work, objtype, net='user,id=n0,hostfwd=tcp:127.0.0.1:%d-:%d' % (hport, GPORT))
 
-def result(ok, name):
-	print('%s %s' % ('ok' if ok else 'fail', name), flush=True)
-	return ok
+result = vm.result	# ok|fail lines; a failed one keeps /tmp/wf and the windows
 
 def note(s):
 	print('# ' + s, flush=True)
@@ -87,6 +86,7 @@ def newwin(old, secs=20):
 			w = max(n, key=int)
 			r = sh('c=`{cat /mnt/wsys/%s/ctl}; echo $c(2-5)' % w).split()
 			if len(r) == 4 and all(x.lstrip('-').isdigit() for x in r):
+				sh('echo %s >>/tmp/wf/windows' % w)	# deleted when done (tidy)
 				return w, [int(x) for x in r]
 		time.sleep(0.5)
 	return None, None
@@ -96,6 +96,10 @@ def window(rect, cmd):
 	old = wins()
 	sh("window -r %s %s" % (rect, cmd))
 	return newwin(old)
+
+def tidy():
+	"""the windows this test made (newwin's list in /tmp/wf/windows) deleted"""
+	sh("if(test -e /tmp/wf/windows) for(w in `{cat /tmp/wf/windows}) echo delete >/mnt/wsys/$w/wctl >[2]/dev/null")
 
 def key(name):
 	"""one key by its QMP name (end, home, ...)"""
@@ -120,10 +124,16 @@ try:
 		print('skip the reference workflow (the desktop is rio: a CD of the profile ui or full)', flush=True)
 		sys.exit(0)
 	# the serial rc: a name space and environment of its own (the first
-	# window's stay as they were), wsys' tree at /mnt/wsys
-	sh("rfork en; if(! test -e /mnt/wsys/clone && ! ~ $#wsys 0) mount -c $wsys /mnt/wsys")
-	result('yes' in sh('test -e /mnt/wsys/clone && echo yes'), "wsys' tree at /mnt/wsys")
-	sh('mkdir -p /tmp/wf')
+	# window's stay as they were), wsys' tree of all windows at /mnt/wsys
+	# (a window's own /mnt/wsys is its directory alone: clone, but no
+	# numbered windows, which wins() lists)
+	sh("rfork en; if(! ls -p /mnt/wsys | grep -s '^[0-9]+$' && ! ~ $#wsys 0) mount -c $wsys /mnt/wsys")
+	result('yes' in sh("ls -p /mnt/wsys | grep -s '^[0-9]+$' && echo yes"), "wsys' tree at /mnt/wsys")
+	# an earlier run's windows (its list, kept when a check failed) and
+	# term's screens go first; then /tmp/wf, empty
+	tidy()
+	sh('rm -f /tmp/term.*.screen')
+	vm.workdir('workflow', '/tmp/wf')
 	user = sh('echo $user') or 'glenda'
 
 	# term: typed into, as in a terminal
@@ -308,5 +318,7 @@ try:
 	broken = [l for l in ps.splitlines() if ' Broken ' in l]
 	result(not broken, 'no process Broken' + (': ' + '; '.join(broken) if broken else ''))
 	vm.shot('final')
+	if vm.ok:	# all well: the session's windows go (vm.close removes /tmp/wf)
+		tidy()
 finally:
 	vm.close()

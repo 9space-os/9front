@@ -42,4 +42,17 @@ skip(){ echo "  SKIP $1 ($2)"; }
 # skipall name reason: the whole category skipped (a prerequisite missing,
 # another objtype): not a failure for tests/run.sh
 skipall(){ skip "$1" "$2"; exit 0; }
+# cdimage DEFAULT: IMG, what a test of the installed system (gcc, go, rust, mcp,
+# rio, workflow) runs on: with INSTANCE=1 "instance" (dist/bin/instance: the
+# installed 9space at INSTANCE_DIR of dist/local.env, brought up to date with
+# the build first; tests/vm.py's machine()), else the CD ISO, else DEFAULT.
+# Fails when there is no such CD (the caller skips).
+cdimage(){
+	if [ "$INSTANCE" = 1 ]; then
+		[ -n "$INSTANCE_DIR" ] || { echo "tests: INSTANCE=1 but no INSTANCE_DIR (dist/local.env)" >&2; exit 1; }
+		IMG=instance; return 0
+	fi
+	IMG=${ISO:-$1}
+	[ -n "$IMG" ] && [ -f "$IMG" ]
+}
 done_tests(){ echo "  -- $npass passed, $nfail failed"; [ $nfail -eq 0 ]; }

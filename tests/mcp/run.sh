@@ -3,9 +3,9 @@
 # dist/bin/mkcd -mcp, stage-dist.sh MCP=1): initialize, an rc command through it, its
 # deny list refusing fshalt (tests/mcp/mcp.py).
 # Skips a CD without it. Uses ISO, else the last CD scripts/guest/mkiso.sh made.
+# INSTANCE=1: the instance (dist/bin/instance; tests/lib.sh cdimage).
 . "$(dirname "$0")/../lib.sh"
-IMG=${ISO:-$CLI_DIR/9front.$objtype.iso}
-[ -f "$IMG" ] || { skip "mcp" "no CD $IMG, run dist/bin/mkcd -mcp ... or set ISO"; done_tests; exit; }
+cdimage "$CLI_DIR/9front.$objtype.iso" || { skip "mcp" "no CD $IMG, run dist/bin/mkcd -mcp ... or set ISO"; done_tests; exit; }
 
 python3 "$ROOT/tests/mcp/mcp.py" "$IMG" "$TMPD/vm" $objtype > "$TMPD/results" 2>&1
 while read -r r name; do
