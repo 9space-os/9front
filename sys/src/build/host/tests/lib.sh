@@ -55,4 +55,65 @@ cdimage(){
 	IMG=${ISO:-$1}
 	[ -n "$IMG" ] && [ -f "$IMG" ]
 }
+# deskguest LOG [first command ...]: the guest of a test that brings its own
+# desktop (draw, sdl, glfw, winit, uiserver, wayland: wsys -x -i on the
+# screen, keys by QMP), its MCP server at MCPURL (exported), QMP at $QMP;
+# deskguest_stop ends it (registered with atexit). Takes UFS_EXTRA (laid over
+# the guest's /: its tests/ the test programs), KARGS, MEM, QEMU_EXTRA as
+# sys/src/build/host/guest/mcp-guest.sh, which it runs (its output into LOG),
+# the first commands typed before its server starts.
+# With INSTANCE=1 the instance instead (dist/bin/instance fresh: up to date,
+# then a throwaway boot, QEMU_EXTRA its devices; nothing done stays): UFS_EXTRA
+# laid over its / (tests/ replaced, the rest merged), its desktop ended (deskoff.rc), then a server like
+# mcp-guest.sh's (no deny list, /tmp/mcp) in place of the profile's, with the
+# first commands in its name space (KARGS: the screen is plan9.ini's, unless a
+# first command sets another, e.g. aux/vga -l)
+deskguest(){
+	local log=$1; shift
+	if [ "$INSTANCE" != 1 ]; then
+		setsid bash "$ROOT/sys/src/build/host/guest/mcp-guest.sh" "$@" >"$log" 2>&1 &
+		__deskguest=$!
+		QMP=$CLI_DIR/qmp.sock
+		atexit deskguest_stop
+		return 0
+	fi
+	[ -n "$INSTANCE_DIR" ] || { echo "tests: INSTANCE=1 but no INSTANCE_DIR (dist/local.env)" >&2; exit 1; }
+	# the instance's own settings (instance.env), not the guest's of mcp-guest.sh
+	# (MEM, SMP: a console guest's, too small for a desktop system)
+	local inst="env -u MEM -u SMP $DIST/bin/instance" first="" c
+	atexit deskguest_stop
+	QEMU_EXTRA=$QEMU_EXTRA $inst fresh >"$log" 2>&1 || { echo "tests: instance fresh failed ($log)" >&2; return 1; }
+	QMP=$INSTANCE_DIR/qmp.sock
+	export MCPURL=http://127.0.0.1:$(. "$INSTANCE_DIR/instance.env" 2>/dev/null; echo "${MCP_PORT:-18090}")/mcp
+	MCPTOKEN=$(cat "$INSTANCE_DIR/mcptoken"); export MCPTOKEN
+	# UFS_EXTRA is laid over / (as mcp-guest.sh's root): its tests/ the test's
+	# own (replaced), anything else merged into what the system has (fonts)
+	local e
+	if [ -n "$UFS_EXTRA" ]; then
+		for e in "$UFS_EXTRA"/*; do
+			[ -d "$e" ] || { echo "tests: deskguest: $e is not a directory (only directories are put on)" >&2; return 1; }
+			if [ "$(basename "$e")" = tests ]; then $inst put "$e" /tests
+			else $inst put -m "$e" "/$(basename "$e")"; fi >>"$log" 2>&1 || return 1
+		done
+	fi
+	local M="python3 $ROOT/sys/src/build/host/guest/mcp.py"
+	$M rc - 60 <"$ROOT/sys/src/build/host/tests/deskoff.rc" >>"$log" 2>&1 || { echo "tests: the instance's desktop did not end ($log)" >&2; return 1; }
+	# the commands, then the server, detached: the profile's server goes first
+	# (its port), this call with it; aux/realemu too (the boot's /dev/realmode
+	# is its own name space's, not the server's: aux/vga -l needs one)
+	for c in "$@"; do first="$first $c >[2=1];"; done
+	$M rc "{rfork sF; sleep 1; for(p in \`{ps | awk '\$NF==\"9front-mcp\" {print \$2}'}) echo kill >/proc/\$p/ctl; sleep 1;$first mkdir -p /tmp/mcp; 9front-mcp -http 'tcp!*!8090' -tokenfile \$home/lib/mcptoken -dir /tmp/mcp -disks >/tmp/mcp.log >[2=1]} </dev/null >/dev/null >[2=1] &" 30 >>"$log" 2>&1 || true
+	sleep 3
+	$M wait 120 >>"$log" 2>&1 || { echo "tests: no MCP server in the instance after deskoff ($log)" >&2; return 1; }
+}
+deskguest_stop(){
+	if [ "$INSTANCE" = 1 ]; then
+		"$DIST/bin/instance" stop >/dev/null 2>&1 || true	# the throwaway boot's end: nothing stays
+		unset MCPURL MCPTOKEN	# a guest of mcp-guest.sh after it: mcp.py's defaults
+	elif [ -n "$__deskguest" ]; then
+		kill -TERM -- -"$__deskguest" 2>/dev/null || kill "$__deskguest" 2>/dev/null
+		wait "$__deskguest" 2>/dev/null || true
+	fi
+	__deskguest=
+}
 done_tests(){ echo "  -- $npass passed, $nfail failed"; [ $nfail -eq 0 ]; }

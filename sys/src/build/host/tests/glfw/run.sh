@@ -24,17 +24,15 @@ cp "$HERE/glfw.rc" "$HERE/root/tests/glfw"
 chmod +x "$HERE/root/tests/glfw"
 
 UFS_EXTRA=$HERE/root MEM=1024 KARGS="vgasize=1024x768x32 monitor=vesa mouseport=ps2" \
-	setsid bash "$ROOT/sys/src/build/host/guest/mcp-guest.sh" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
-	"bind -a '#i' /dev" "bind -a '#m' /dev" >"$CLI_DIR/glfwguest.log" 2>&1 &
-guest=$!
-atexit 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true'
+	deskguest "$CLI_DIR/glfwguest.log" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
+	"bind -a '#i' /dev" "bind -a '#m' /dev" || { echo "FAIL no guest ($CLI_DIR/glfwguest.log)"; exit 1; }
 M="python3 $ROOT/sys/src/build/host/guest/mcp.py"
 $M wait 600 >/dev/null
 $M rc '/tests/wsys -x -i /tests/glfw >/tmp/wsys.log >[2=1] </dev/null' 180 >"$CLI_DIR/glfw.out" &
 run=$!
 # the keys, once glfwtest -e waits for them
 for i in $(seq 300); do $M rc 'test -e /tmp/glfwe.ready' 10 >/dev/null 2>&1 && break; sleep 0.2; done
-python3 - "$CLI_DIR/qmp.sock" <<'PY'
+python3 - "$QMP" <<'PY'
 import json, socket, sys, time
 s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); f = s.makefile('rw'); f.readline()
 def cmd(c):
@@ -70,7 +68,6 @@ check "keyboard: return up" '^event key up 257 '
 ag=$($M rc '/tests/glfwagain.rc' 200 2>&1) || true
 echo "$ag" | grep -E '^(ok|FAIL)' | sed 's/^/  /'
 if echo "$ag" | grep -q '^glfwagain.rc: all passed'; then echo "ok a GLFW window outlives its wsys (twice)"; else echo "FAIL a GLFW window outlives its wsys"; fail=1; fi
-kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null
-wait $guest 2>/dev/null || true
+deskguest_stop
 [ $fail = 0 ] && echo "glfw: all passed" || echo "glfw: failed"
 exit $fail

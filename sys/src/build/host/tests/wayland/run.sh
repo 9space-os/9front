@@ -63,14 +63,12 @@ weston(){ # output prefix title
 		echo "FAIL weston-simple-$2"; fail=1
 	fi
 }
-stop(){ [ -n "$guest" ] || return 0; kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true; }
+stop(){ deskguest_stop; [ -n "$guest" ] || return 0; kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true; guest=; }
 atexit stop	# whichever guest runs (both stop it themselves too)
 
 if [ "${VKONLY:-0}" = 0 ]; then
 	UFS_EXTRA=$HERE/root MEM=1024 KARGS="vgasize=1024x768x32 monitor=vesa mouseport=ps2" \
-		setsid bash "$ROOT/sys/src/build/host/guest/mcp-guest.sh" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
-		>"$CLI_DIR/waylandguest.log" 2>&1 &
-	guest=$!
+		deskguest "$CLI_DIR/waylandguest.log" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' || { echo "FAIL no guest ($CLI_DIR/waylandguest.log)"; exit 1; }
 	timeout 660 python3 "$ROOT/sys/src/build/host/guest/mcp.py" wait 600 >/dev/null
 	out=$($M rc '/tests/wltest >[2=1]' 120) || true
 	echo "$out"

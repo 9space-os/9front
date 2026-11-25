@@ -1,0 +1,38 @@
+#!/bin/rc
+# deskoff.rc: the desktop of the instance's throwaway boot ends (sys/src/build/host/tests/lib.sh
+# deskguest): its wsys (or rio) and every process under it, the windows'
+# programs included (libdraw's wsysagain would take them over into the
+# test's own wsys). The profile then ends and init starts a plain rc on the
+# console; what the profile started before the desktop (the MCP server,
+# plumber, webfs) stays. Prints "deskoff: N processes" or why not.
+rfork n
+fn kids {	# pid: its children, and theirs
+	for(p in /proc/[0-9]*){
+		if(~ `{cat $p/ppid >[2]/dev/null} $1){
+			q=`{basename $p}
+			echo $q
+			kids $q
+		}
+	}
+}
+top=`{ps | awk '$NF=="wsys" || $NF=="rio" {print $2}'}
+if(~ $#top 0){
+	echo deskoff: no desktop
+	exit
+}
+all=($top)
+for(t in $top)
+	all=($all `{kids $t})
+for(p in $all)
+	if(test -e /proc/$p/ctl) @{echo kill >/proc/$p/ctl} >[2]/dev/null	# gone meanwhile: with the desktop
+sleep 1
+left=`{ps | awk '$NF=="wsys" || $NF=="rio" {print $2}'}
+if(! ~ $#left 0){
+	echo deskoff: still running: $left
+	exit left
+}
+# a killed wsys cannot take its screen's segments out of #g (wsys.screen.PID,
+# wsys.screen.PID.N: drawcore.rs): they would stay, and hold their memory
+for(t in $top)
+	rm -f '#g/wsys.screen.'$t '#g/wsys.screen.'$t.* >[2]/dev/null
+echo deskoff: $#all processes

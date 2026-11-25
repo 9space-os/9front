@@ -59,10 +59,8 @@ cp "$ROOT/sys/src/build/host/tests/ui/plumbrules" "$HERE/root/tests/plumbrules"
 chmod +x "$HERE/root/tests/uiserver" "$HERE/root/tests/uirestart"
 
 UFS_EXTRA=$HERE/root MEM=1024 KARGS="vgasize=1024x768x32 monitor=vesa mouseport=ps2" \
-	setsid bash "$ROOT/sys/src/build/host/guest/mcp-guest.sh" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
-	"bind -a '#i' /dev" "bind -a '#m' /dev" >"$CLI_DIR/uiserverguest.log" 2>&1 &
-guest=$!
-atexit 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true'
+	deskguest "$CLI_DIR/uiserverguest.log" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
+	"bind -a '#i' /dev" "bind -a '#m' /dev" || { echo "FAIL no guest ($CLI_DIR/uiserverguest.log)"; exit 1; }
 M="timeout 1000 python3 $ROOT/sys/src/build/host/guest/mcp.py"
 $M wait 600 >/dev/null
 $M rc 'bind /tests/ui /bin/ui; plumber -p /tests/plumbrules >/dev/null >[2=1] </dev/null; /tests/wsys -x -i /tests/uiserver >/tmp/wsys.log >[2=1] </dev/null' 900 >"$CLI_DIR/uiserver.out" || true
@@ -74,8 +72,7 @@ echo "$out" | grep -q '^uiserver: all passed' || fail=1
 ur=$($M rc '/tests/uirestart' 200 2>&1) || true
 echo "$ur" | grep -E '^(ok|FAIL)'
 echo "$ur" | grep -q '^uirestart: all passed' && echo "ok a ui program outlives its wsys, its count kept" || { echo "FAIL a ui program outlives its wsys"; fail=1; }
-kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null
-wait $guest 2>/dev/null || true
+deskguest_stop
 
 # ui across its GPU driver's restart (uilost.rc): venus (virtio-gpu-gl), wsys -g;
 # the host's render node is needed (none while the card is VFIO's)

@@ -56,10 +56,8 @@ cp "$HERE/winit.rc" "$HERE/root/tests/winit"
 chmod +x "$HERE/root/tests/winit"
 
 UFS_EXTRA=$HERE/root MEM=1024 KARGS="vgasize=1024x768x32 monitor=vesa mouseport=ps2" \
-	setsid bash "$ROOT/sys/src/build/host/guest/mcp-guest.sh" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
-	"bind -a '#i' /dev" "bind -a '#m' /dev" >"$CLI_DIR/winitguest.log" 2>&1 &
-guest=$!
-atexit 'kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true'
+	deskguest "$CLI_DIR/winitguest.log" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
+	"bind -a '#i' /dev" "bind -a '#m' /dev" || { echo "FAIL no guest ($CLI_DIR/winitguest.log)"; exit 1; }
 M="python3 $ROOT/sys/src/build/host/guest/mcp.py"
 $M wait 600 >/dev/null
 $M rc '/tests/wsys -x -i /tests/winit >/tmp/wsys.log >[2=1] </dev/null' 240 >"$CLI_DIR/winit.out" &
@@ -67,7 +65,7 @@ run=$!
 keys() { # ready-file key...
 	for i in $(seq 400); do $M rc "test -e $1" 10 >/dev/null 2>&1 && break; sleep 0.2; done
 	shift
-	python3 - "$CLI_DIR/qmp.sock" "$@" <<'PY'
+	python3 - "$QMP" "$@" <<'PY'
 import json, socket, sys, time
 s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); f = s.makefile('rw'); f.readline()
 def cmd(c):
@@ -116,7 +114,6 @@ if [ -f "$HERE/root/tests/icedtest" ]; then
 	# open: iced's button takes no click (its press yes, the release finds it not pressed)
 	echo "$out" | grep -q '^iced event clicked 1' && echo "ok iced: button clicked" || echo "open iced: button clicked"
 fi
-kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null
-wait $guest 2>/dev/null || true
+deskguest_stop
 [ $fail = 0 ] && echo "winit: all passed" || echo "winit: failed"
 exit $fail

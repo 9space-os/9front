@@ -13,18 +13,15 @@ ROOT=$(cd "$HERE/../../../../../.." && pwd)
 [ -x "$ROOT/amd64/bin/drawfs" ] || skipall draw "no amd64/bin/drawfs (a build)"
 (cd "$HERE" && CC=gcc ARCH=amd64 "$ROOT/sys/src/cmd/build/build.exe" build.json >/dev/null 2>&1) || { echo "FAIL draw: building drawcmp"; exit 1; }
 M="timeout 300 python3 $ROOT/sys/src/build/host/guest/mcp.py"
+# the guest (INSTANCE=1: the instance's throwaway boot; lib.sh deskguest)
 UFS_EXTRA=$HERE/root MEM=1024 KARGS="vgasize=1024x768x32 monitor=vesa mouseport=ps2" \
-	setsid bash "$ROOT/sys/src/build/host/guest/mcp-guest.sh" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
-	>"$CLI_DIR/drawguest.log" 2>&1 &
-guest=$!
-stop(){ kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true; }
-atexit stop
+	deskguest "$CLI_DIR/drawguest.log" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' || { echo "FAIL draw: no guest ($CLI_DIR/drawguest.log)"; exit 1; }
 timeout 660 python3 "$ROOT/sys/src/build/host/guest/mcp.py" wait 600 >/dev/null
 k=$($M rc "bind -a '#i' /dev; /tests/drawcmp >[2=1]" 120) || true
 d=$($M rc "rfork n; drawfs -r 640 480; cat /dev/drawfs/screen; /tests/drawcmp >[2=1]" 120) || true
 # wsys with its own devdraw (-d): drawcmp in its name space draws through wsys
 w=$($M rc "bind -a '#i' /dev; bind -a '#m' /dev; wsys -d -x -i 'bind -b /mnt/wsys /dev; ls /dev/draw/new >/tmp/wls; /tests/drawcmp >/tmp/wcmp >[2=1]' >/tmp/wsysd.log >[2=1]; cat /tmp/wls /tmp/wcmp /tmp/wsysd.log; echo segs \`{ls '#g' | grep -c wsys.screen}" 180) || true
-stop
+deskguest_stop
 fail=0
 echo "$d" | grep -q '^drawfs\.[0-9]* x8r8g8b8 0 0 640 480 640' && echo "ok drawcmp's second run on drawfs (its screen)" ||
 	{ echo "FAIL drawfs not mounted: $(echo "$d" | head -2 | tr '\n' ' ')"; fail=1; }
