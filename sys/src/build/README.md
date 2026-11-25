@@ -70,6 +70,7 @@ Called by `build.exe` (Pre/Post steps); rarely run by hand.
 | `yacc.sh`, `lex.sh` | 9front's yacc/lex templates with plan9port's tools |
 | `mkinstall.py` | the install rules of the mkfiles (scripts, data files) |
 | `elf2aout.py` | Plan 9 a.out of the ELF kernel, where 9boot loads it. `sys/src/build/step/elf2aout.py amd64/bin/9pc64 amd64/9pc64` |
+| `build-tool.sh` | the build tool itself for 9space: `sys/src/cmd/build` with GOOS=plan9 as `/$objtype/bin/build` (amd64, 386, arm64; Go of `toolchain/go`, GO_DIR, else the host's), so the CD and the update archives carry it; an unchanged tool keeps its time. build.exe's step `install`; rc twin `rc/build-tool.rc` (9space's Go; without Go the installed tool stays). `objtype=arm64 sys/src/build/step/build-tool.sh` |
 | `check-install.py` | is everything `mk install` installs there? `-r` removes stale files, `-i x.iso` checks a CD. `sys/src/build/step/check-install.py` |
 | `clean.sh` | remove the build's files from the source dirs (`-i`: installed files too). `sys/src/build/step/clean.sh` |
 | `cargo.sh` | a Rust crate of the tree (its programs in `rust.json`, `sys/src/build/gen/rustcrates.py`; no network: `vendor/`), built with the stage-1 rustc of `toolchain/rust` (RUST_DIR) and linked against this tree; programs to `/$objtype/bin` (amd64, 386, arm64; `-n`: without the default features, `gpu`, where there is no Mesa); without Rust it skips (check-install: norust). build.exe's step `rust`; rc twin `rc/cargo.rc` (native cargo, rustc, gcc). `sys/src/build/step/cargo.sh sys/src/cmd/wsys wsys` |

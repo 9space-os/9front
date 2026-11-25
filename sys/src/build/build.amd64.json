@@ -425,6 +425,7 @@
 		"Name": "install",
 		"Post": [
 			"python3 /sys/src/build/step/elf2aout.py /amd64/bin/9pc64 /amd64/9pc64",
+			"bash /sys/src/build/step/build-tool.sh",
 			"python3 /sys/src/build/step/check-install.py -r"
 		]
 	}

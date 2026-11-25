@@ -100,8 +100,10 @@ def main():
 		] if objtype in rustcrates.OBJTYPES and rustcrates.crates() else []) + [
 			{'Name': 'kernelgen', 'Pre': gens, 'Clean': genclean.clean(gens, ROOT)},
 			{'Name': 'kernel', 'Projects': [kern]},
-			{'Name': 'install', 'Post': ['python3 /sys/src/build/step/elf2aout.py %s %s' % (elf, aout),
-				'python3 /sys/src/build/step/check-install.py -r']},
+			# the build tool itself, for the installed system (sys/src/build/step/build-tool.sh)
+			{'Name': 'install', 'Post': ['python3 /sys/src/build/step/elf2aout.py %s %s' % (elf, aout)]
+				+ (['bash /sys/src/build/step/build-tool.sh'] if objtype in ('amd64', '386', 'arm64') else [])
+				+ ['python3 /sys/src/build/step/check-install.py -r']},
 		])
 	write('sys/src/build/build.json', [{'Name': 'all', 'Projects': ['/sys/src/build/build.$ARCH.json']}])
 

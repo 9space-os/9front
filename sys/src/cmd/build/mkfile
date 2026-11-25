@@ -1,0 +1,25 @@
+</$objtype/mkfile
+# build(1), the tree's build tool (Go): with 9space's Go, else nothing (kencc's
+# and gccmk's mk install go on without it). The tree's build makes it by
+# sys/src/build/step/build-tool.sh (rc: build-tool.rc), as /$objtype/bin/build.
+
+BIN=/$objtype/bin
+GO=/$cputype/go/bin/go
+
+all:V:
+	if(test -x $GO)
+		GOOS=plan9 GOARCH=$objtype GO111MODULE=off CGO_ENABLED=0 $GO build -trimpath -o $O.build .
+	if not
+		echo build: no Go in /$cputype/go, not built
+
+install:V: all
+	if(test -e $O.build && ! cmp -s $O.build $BIN/build){
+		cp $O.build $BIN/build.new
+		mv $BIN/build.new $BIN/build
+	}
+
+clean nuke:V:
+	rm -f $O.build build.exe
+
+test:VQ:
+	# nothing
