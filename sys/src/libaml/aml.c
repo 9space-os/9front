@@ -872,6 +872,10 @@ store(void *s, void *d)
 	case 'N':
 		pp = &((Name*)d)->v;
 		break;
+	case 'f':
+	case 'u':
+		pp = &d;
+		break;
 	}
 	p = *pp;
 	if(p != nil && TAG(p) != 'N'){
