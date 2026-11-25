@@ -262,6 +262,12 @@ if [ "${BROWSER:-0}" = 1 ]; then
 	LC_ALL=C sort -u -o "$OUT.list" "$OUT.list"
 	echo "stage-dist: the browser: $(tr '\n' ' ' < "$OUT.browser")" >&2
 fi
+# the expected files of the tree's build (check-install.py -l) for
+# check-install.rc on the installed system, which builds itself (the
+# mkfile parser is python's): its build's step install checks against it
+objtype=$A python3 "$ROOT/sys/src/build/step/check-install.py" -l > "$OUT/sys/src/build/check-install.$A"
+printf 'sys/src/build/check-install.%s\t664\tsys\tsys\n' "$A" >> "$OUT.list"
+LC_ALL=C sort -u -o "$OUT.list" "$OUT.list"
 # the CA roots, with Rust, Go or the browser: /sys/lib/tls/ca.pem, where Go's crypto/x509
 # and our crates (rustls-native-certs, curl-sys; webfs-rs' rustls) look; cargo and go reach
 # crates.io and the module proxy over https with them, the browser the web. Mozilla's
