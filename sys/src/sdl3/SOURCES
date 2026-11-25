@@ -1,5 +1,5 @@
-# SDL3's files 9front builds (sys/src/sdl3, scripts/sdl3/vendor.py): those
-# SDL's CMake compiles for a unix without X11 (scripts/sdl3/README), less
+# SDL3's files 9front builds (sys/src/sdl3, sys/src/build/sdl3/vendor.py): those
+# SDL's CMake compiles for a unix without X11 (sys/src/build/sdl3/README), less
 # the platforms' and dlopen's; one a line, under SDL's source tree
 src/SDL.c
 src/SDL_assert.c

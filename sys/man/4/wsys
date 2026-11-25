@@ -1192,7 +1192,7 @@ A client in C: see
 .SH SOURCE
 .B /sys/src/cmd/wsys
 (Rust;
-.BR scripts/build/cargo.sh )
+.BR sys/src/build/step/cargo.sh )
 .SH SEE ALSO
 .IR proc (3),
 .IR gpu (4),

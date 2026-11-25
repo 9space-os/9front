@@ -1,4 +1,4 @@
-# GLFW's files 9front builds (sys/src/glfw, scripts/glfw/vendor.py): the
+# GLFW's files 9front builds (sys/src/glfw, sys/src/build/glfw/vendor.py): the
 # shared ones, EGL and OSMesa, the null platform (always there: GLFW's
 # platform.c connects it on request), POSIX time and threads; not
 # posix_module.c (dlopen: plan9/plan9_module.c instead) nor the window

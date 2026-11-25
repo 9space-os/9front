@@ -1,4 +1,4 @@
-# libwayland's files 9front builds (sys/src/wayland, scripts/wayland/vendor.py),
+# libwayland's files 9front builds (sys/src/wayland, sys/src/build/wayland/vendor.py),
 # one a line under the release's tree: the libraries as upstream builds
 # them (client, server: the shared part, libwayland-private, in each; egl:
 # libwayland-egl, wl_egl_window; cursor: libwayland-cursor), and the protocols

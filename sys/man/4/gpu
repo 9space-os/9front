@@ -1261,7 +1261,7 @@ panel at half brightness:
 .EE
 .PP
 A context, one submission, wait for it, in C (the source tree's
-.B tests/gpu/gpuctxtest.c
+.B sys/src/build/host/tests/gpu/gpuctxtest.c
 does more):
 .EX
 	fd = open("/shr/gpu/0/clone", ORDWR);
@@ -1277,7 +1277,7 @@ does more):
 Mesa's venus driver
 .RB ( /sys/src/mesa ,
 built by the source tree's
-.BR scripts/mesa )
+.BR sys/src/build/mesa )
 uses this interface as its renderer: one context with capability
 set 4, its command streams through
 .BR submit ,

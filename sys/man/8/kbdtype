@@ -41,8 +41,8 @@ message, of which kbdfs makes the
 and
 .B c
 messages a program reads.
-It is for tests and scripts that drive a window system, as tests/ui's and
-tests/gpu's do.
+It is for tests and scripts that drive a window system, as sys/src/build/host/tests/ui's and
+sys/src/build/host/tests/gpu's do.
 .SH SOURCE
 .B /sys/src/cmd/aux/kbdtype.c
 .SH SEE ALSO

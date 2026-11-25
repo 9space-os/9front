@@ -2,7 +2,7 @@
  * httpfs: a replica's server tree over HTTP, read-only, for
  * replica/pull (replica(1)'s servermount).
  *
- * The server publishes, under one base URL (scripts/replica/publish.py):
+ * The server publishes, under one base URL (sys/src/build/host/replica/publish.py):
  *	index		every file of the tree served here:
  *			path mode uid gid mtime length sha256
  *			(quoted as tokenize(2) reads; a directory has sha256 -)

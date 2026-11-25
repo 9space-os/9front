@@ -162,7 +162,7 @@ the server's log as far as the system has it
 .B /sys/src/cmd/replica/httpfs.c
 .br
 the server side, on the build host:
-.B scripts/replica/publish.py
+.B sys/src/build/host/replica/publish.py
 of 9space's tree
 .SH SEE ALSO
 .IR replica (1),

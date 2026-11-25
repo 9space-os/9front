@@ -5,7 +5,7 @@
  * in x1 and wants a 16-byte aligned stack.
  *
  *  _NOTIFY(fn)	keeps fn, installs _notifytramp through the raw stub
- *		__NOTIFY (scripts/gen-9syscall.sh --ape)
+ *		__NOTIFY (sys/src/build/step/gen-9syscall.sh --ape)
  *  _notecont	where notetramp.c's _notetramp sends a note (u->pc):
  *		calls notecont(u, msg)
  */

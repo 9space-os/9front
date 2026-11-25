@@ -1,4 +1,4 @@
-# The kernel configuration the Linux code is built with (scripts/linux/
+# The kernel configuration the Linux code is built with (sys/src/build/linux/
 # kbuild.py chooses the objects with it, kpi/include/generated/autoconf.h
 # is made from it).  What is not here is off.
 CONFIG_X86=y

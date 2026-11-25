@@ -3,7 +3,7 @@
 		"Name": "cmd-upas-binscripts-install",
 		"Install": "",
 		"Post": [
-			"python3 ../../../../../scripts/build/mkinstall.py cmd/upas/binscripts -- /isspam /msgcat /spam /tfmt /unspam"
+			"python3 /sys/src/build/step/mkinstall.py cmd/upas/binscripts -- /isspam /msgcat /spam /tfmt /unspam"
 		]
 	}
 ]

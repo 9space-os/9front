@@ -5,19 +5,19 @@ The crates.io crates 9front changed for its window systems, and our own
 on 9front itself (`build-self.sh`, cargo on 9front). **Generated from
 toolchain/rust** (RUST_DIR in paths.env; `patches/crates/<crate>.patch` over
 crates.io's release, `plan9/p9win`; its README: "Window system crates") by
-`scripts/rust/crates.sh`: **change them there, not here**, then
+`sys/src/build/rust/crates.sh`: **change them there, not here**, then
 
-    scripts/rust/crates.sh        # this mirror again, from toolchain/rust
-    scripts/rust/crates.sh -n     # only say what differs (tests/static does)
+    sys/src/build/rust/crates.sh        # this mirror again, from toolchain/rust
+    sys/src/build/rust/crates.sh -n     # only say what differs (sys/src/build/host/tests/static does)
 
-tests/static fails while this mirror differs from toolchain/rust.
+sys/src/build/host/tests/static fails while this mirror differs from toolchain/rust.
 
 `CRATES` names the crates (name-version); the layout is toolchain/rust's,
 `crates/<crate>` and `plan9/p9win`, so the paths between them (winit and
 softbuffer depend on p9win) are the same in both.
 
 A crate of the tree uses them by `[patch.crates-io]` with paths here
-(`tests/winit/Cargo.toml`) and vendors the rest (`scripts/rust/vendor.sh`).
+(`sys/src/build/host/tests/winit/Cargo.toml`) and vendors the rest (`sys/src/build/rust/vendor.sh`).
 
 - `raw-window-handle-0.6.2`: `RawWindowHandle::Plan9`, `RawDisplayHandle::Plan9`.
 - `winit-0.30.13`: `src/platform_impl/plan9`, the process's window of wsys or rio.
@@ -44,7 +44,7 @@ Crates of the workspace whose master is this tree; crates.sh copies only
   Rust, wsys and ui: the T-messages parsed, the R-messages built, and a
   connection's reads cut into whole messages (`Frames`: a message bigger
   than a pipe keeps whole arrives in more than one read).
-  tests/uiserver's uibig9p checks it against ui.
+  sys/src/build/host/tests/uiserver's uibig9p checks it against ui.
 - `desk` (MIT, ours): what the desktop's programs (wsys, ui, term, wbar,
   wdock) share: the theme (wsys(4)'s file `theme`, `/lib/theme/*`), the
   windows of `/dev/wsys`, and with the feature `text` a TrueType font.

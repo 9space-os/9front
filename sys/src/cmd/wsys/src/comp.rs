@@ -17,7 +17,7 @@
 // wsys' layers) one pipeline: a triangle cut to the layer's rectangles whose
 // fragment shader reads the client's buffer itself (a storage buffer) and is
 // blended over the frame (ONE, ONE_MINUS_SRC_ALPHA: premultiplied); its
-// SPIR-V is in ../shaders (scripts/build/wsys-shaders.sh). Without the
+// SPIR-V is in ../shaders (sys/src/build/step/wsys-shaders.sh). Without the
 // pipeline (the swapchain's images cannot be drawn into) such a layer is
 // copied: it shows, its alpha ignored. The frames are paced by the display
 // (FIFO); what changes meanwhile goes into the next one. The main loop tells

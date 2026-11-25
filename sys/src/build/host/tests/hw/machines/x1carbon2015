@@ -1,0 +1,27 @@
+# Lenovo ThinkPad X1 Carbon, 3rd generation (2015: Broadwell, HD 5500,
+# Intel Wireless 7265): booted by PXE through Lenovo's Ethernet adapter
+# (sys/src/build/host/hw/pxe.sh mac x1carbon2015). Its internal SSD is only read
+# (sys/src/build/host/tests/hw/README.md): nothing in this boot mounts or writes it; the
+# kernel does not even see it (its M.2 SSD is SATA: AHCI; NVMe too, in
+# case of a newer one)
+*noahci=1
+*nonvme=1
+# booted without questions: the screen by aux/i915 (the panel's mode; vgasize
+# is VESA's, if i915 fails), the keyboard's and touchpad's PS/2 port
+monitor=i915
+vgasize=1920x1080x32
+# its touchpad as a laptop's (Synaptics clickpad, the TrackPoint behind it:
+# mouse(3)): ps2, as an installed system has it (the installer's default
+# answer); the kernel finds the Synaptics pad on its own
+mouseport=ps2
+# the TrackPoint scrolls by its middle button (mouse(3))
+midscroll=on
+# WLAN: etheriwl's firmware for the 7265 under the name it reads; the
+# X1's card is a 7265D (hardware revision type 0x210): 7265D-29
+firmware iwlwifi-7265-17.ucode.zst iwm-7265-17
+firmware iwlwifi-7265D-29.ucode.zst iwm-7265D-29
+# the processors' clock by aux/pstate (pstate(8)), policy auto:
+# intel-eist: ~680 MHz idle, the package 2.28 W instead of 2.55 W,
+# measured 2026-11-20; the deeper idle states (*cstates=) stay off until
+# tested with the user at the machine
+pstate=auto

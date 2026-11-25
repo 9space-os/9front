@@ -14,7 +14,7 @@
 		],
 		"Name": "ape-lib-musl-libap.a",
 		"Pre": [
-			"bash ../../../../../scripts/build/gen-musl-bits.sh aarch64"
+			"bash /sys/src/build/step/gen-musl-bits.sh aarch64"
 		],
 		"Clean": [
 			"obj/aarch64/include/bits/*.h"
@@ -566,7 +566,7 @@
 			"ape/bridge.c"
 		],
 		"Post": [
-			"bash ../../../../../scripts/build/musl-localize.sh"
+			"bash /sys/src/build/step/musl-localize.sh"
 		]
 	}
 ]

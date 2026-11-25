@@ -2,7 +2,7 @@
  * libxkbcommon's configuration for APE (meson's config.h): keymaps come
  * from the compositor as text (wlsys: kbdfs' tables), no XKB data on the
  * system yet; its paths where such data would go.  The parser's code is
- * the host's bison's (scripts/ape/vendor.sh: VENDOR.json's gen).
+ * the host's bison's (sys/src/build/ape/vendor.sh: VENDOR.json's gen).
  */
 #define EXIT_INVALID_USAGE 2
 #define LIBXKBCOMMON_VERSION "1.13.2"

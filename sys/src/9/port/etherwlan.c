@@ -2,7 +2,7 @@
  * 9space: an 802.11 interface whose radio is a program: wifi.c (scanning,
  * authentication, association, its ciphers; aux/wpa for WPA) over a
  * device driven by a user-level driver (aux/rtw89: Linux's rtw89 on the
- * LinuxKPI) or a simulation (tests/wlan).  plan9.ini: etherN=type=wlan
+ * LinuxKPI) or a simulation (sys/src/build/host/tests/wlan).  plan9.ini: etherN=type=wlan
  * [ea=...] [essid=...].  The radio's side, #ω/wlanN:
  *
  *	data	read: a frame wifi.c sends, or a tune request (no frame):

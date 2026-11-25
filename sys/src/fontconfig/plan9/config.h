@@ -4,7 +4,7 @@
  * the system's cache in /lib/fontconfig/cache (else the user's in
  * $HOME/.cache/fontconfig).  XML by expat, threads by APE's pthreads, no
  * mmap of caches (read into memory).  The generated headers are the
- * host's gperf's and the release's scripts' (scripts/ape/vendor.sh:
+ * host's gperf's and the release's scripts' (sys/src/build/ape/vendor.sh:
  * VENDOR.json's gen).
  */
 #define FC_VERSION_MAJOR 2

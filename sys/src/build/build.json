@@ -1,0 +1,8 @@
+[
+	{
+		"Name": "all",
+		"Projects": [
+			"/sys/src/build/build.$ARCH.json"
+		]
+	}
+]

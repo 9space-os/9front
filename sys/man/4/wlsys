@@ -388,7 +388,7 @@ wlsys -s wayland-0 &
 .SH SOURCE
 .B /sys/src/cmd/wlsys
 (C on APE with libwayland-server,
-.BR scripts/wayland/build.sh )
+.BR sys/src/build/wayland/build.sh )
 .SH SEE ALSO
 .IR wsys (4),
 .IR gpu (4),

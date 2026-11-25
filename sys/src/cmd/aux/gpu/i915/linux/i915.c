@@ -181,7 +181,7 @@ firmware_selftest(void)
 	if (adr != ((unsigned long long)PCI_SLOT(p->devfn) << 16 | PCI_FUNC(p->devfn)))
 		return -EIO;
 	/*
-	 * tests/gpu's SSDT (nfst.py), where loaded: a store through Index
+	 * sys/src/build/host/tests/gpu's SSDT (nfst.py), where loaded: a store through Index
 	 * changes the named buffer (firmware fills its replies so: ATIF)
 	 */
 	if (acpi_get_handle(NULL, "\\NFST", &h) == AE_OK) {

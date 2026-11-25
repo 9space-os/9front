@@ -1,5 +1,5 @@
 # Khronos' Vulkan-Tools (vkcube, vulkaninfo; Apache-2.0) used with the
-# Mesa port (scripts/mesa/vktools.sh): the tag whose headers match Mesa's
+# Mesa port (sys/src/build/mesa/vktools.sh): the tag whose headers match Mesa's
 # (VK_HEADER_VERSION 354)
 version	1.4.354
 url	https://github.com/KhronosGroup/Vulkan-Tools/archive/refs/tags/v1.4.354.tar.gz

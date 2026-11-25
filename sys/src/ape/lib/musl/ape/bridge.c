@@ -1,6 +1,6 @@
 /*
  * APE's (GCC port): the bridge from musl's printf and scanf (vfprintf.c,
- * vfscanf.c, built in musl's own headers: scripts/gen/genmusl.py) to APE's
+ * vfscanf.c, built in musl's own headers: sys/src/build/gen/genmusl.py) to APE's
  * FILE. The engine's entry points are the __apecompat_m* below (and musl's
  * vsnprintf, vsscanf, strto[fd]l renamed so, -D); what else it defines
  * under APE's or a program's names is renamed __musl_* (genmusl.py).

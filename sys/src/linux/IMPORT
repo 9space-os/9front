@@ -1,4 +1,4 @@
-# What scripts/linux/import.py takes from a Linux tree into vendor/:
+# What sys/src/build/linux/import.py takes from a Linux tree into vendor/:
 # globs relative to the tree's root; ! leaves out.  Files whose notice is
 # not MIT-like (GPL only, or none) are not taken: REJECTED lists them,
 # the layer (kpi/, replace/) stands in for what is needed of them.

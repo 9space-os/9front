@@ -1,0 +1,31 @@
+#!/bin/rc
+# check-install.py: everything mk install installs is in the tree. The
+# list of expected files is check-install.py -l's, written beside the
+# tree ($PLAN9/sys/src/build/check-install.$objtype, sys/src/build/host/guest/build-self.sh)
+# where it was made on the build host (the mkfile parser is python's).
+#	check-install.rc [-r]	(-r is accepted and ignored: no stale check here)
+. $PLAN9/sys/src/build/step/rc/lib.rc
+list=$PLAN9/sys/src/build/check-install.$objtype
+test -r $list || die no $list
+bad=0
+n=0
+for(p in `{cat $list}){
+	n=`{echo $n + 1 | hoc}
+	if(~ $p '?'*){
+		# a Rust crate's or APE's program: built where there is Rust
+		# (cargo.rc) or the native gcc (ape.rc); reported as norust either way
+		p=`{echo $p | sed 's/^.//'}
+		if(! test -e $PLAN9$p)
+			echo norust $p
+	}
+	if not if(! test -e $PLAN9$p){
+		echo missing tree $p
+		bad=1
+	}
+}
+if(~ $bad 0){
+	echo $n files expected, ok
+	exit ''
+}
+echo $n files expected
+exit missing

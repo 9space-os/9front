@@ -940,7 +940,7 @@ tput(unsigned char *out, size_t size, size_t off, int type, uint64_t v)
  * "name v ..." lines into out by fields t; codec: "k.name v" into
  * codec_info[k].  The names only one side knows (a newer header on one of
  * them) go to DRM9DEBUG's output: a field of ours the driver did not send
- * stays 0 without that (tests/gpu/amdall.rc checks for them).
+ * stays 0 without that (sys/src/build/host/tests/gpu/amdall.rc checks for them).
  */
 enum { Maxfld = 128 };
 static void

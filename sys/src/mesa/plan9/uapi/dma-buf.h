@@ -28,7 +28,7 @@
  * 9front: drm-kmod's uapi/linux/dma-buf.h (sys/src/linux/freebsd, drm_v6.14)
  * in place of Mesa's drm-uapi/dma-buf.h (Linux's, GPL with the syscall
  * note): the sync-file requests Mesa sends and plan9/drm's libdrm9 serves
- * in the process (drm9.c's dmabufioctl).  scripts/mesa/vendor.py puts it
+ * in the process (drm9.c's dmabufioctl).  sys/src/build/mesa/vendor.py puts it
  * under vendor/include/drm-uapi.  Changes marked 9front.
  */
 

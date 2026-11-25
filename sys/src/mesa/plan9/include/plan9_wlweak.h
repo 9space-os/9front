@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: MIT
  *
  * Mesa's Wayland platform (Vulkan's WSI, EGL) refers to libwayland-client
- * weakly on 9front (included in every file: scripts/mesa/build.sh):
+ * weakly on 9front (included in every file: sys/src/build/mesa/build.sh):
  * libvulkan.a is linked whole into every Vulkan and GL program, most of
  * which speak no Wayland and link no libwayland.  A program that does
  * (its own wl_display for VK_KHR_wayland_surface or EGL's Wayland

@@ -17,11 +17,11 @@ the headers in `/sys/include/ape/SDL3`. Programs are APE programs:
   a process. Vulkan:
   `VK_PLAN9_surface`, the static libvulkan.a by a weak reference (a program with
   SDL's Vulkan links `-Wl,-u,vkGetInstanceProcAddr -lSDL3 -lvulkan -lz`); then SDL's
-  Vulkan renderer is there too (`tests/sdl/sdlvk.c`, on the card `tests/gpu/amdsdl.rc`).
+  Vulkan renderer is there too (`sys/src/build/host/tests/sdl/sdlvk.c`, on the card `sys/src/build/host/tests/gpu/amdsdl.rc`).
   OpenGL and OpenGL ES (`SDL_GL_*`, SDL's GL and GLES2 renderers): EGL's plan9
   platform (zink), the native window `""` the process's window, by weak references
   in `SDL_plan9opengl.c` (SDL's `SDL_egl.c` loads libEGL by name: not used); a program
-  links `-Wl,-u,eglGetDisplay -lSDL3 -lvulkan -lz` (`tests/sdl/sdlgl.c`).
+  links `-Wl,-u,eglGetDisplay -lSDL3 -lvulkan -lz` (`sys/src/build/host/tests/sdl/sdlgl.c`).
 - `plan9/audio`: the audio driver `plan9` (`SDL_AUDIO_DRIVER_PRIVATE`): `/dev/audio`,
   16-bit stereo at 44100 Hz.
 - `plan9/include/build_config/SDL_build_config.h`: what SDL's CMake found for APE
@@ -31,11 +31,11 @@ the headers in `/sys/include/ape/SDL3`. Programs are APE programs:
   (no SIGWINCH, no POSIX scheduling), `render/vulkan/SDL_render_vulkan.c` (a new
   swapchain after VK_SUBOPTIMAL_KHR: wsys' overlay plane shows the renderer's own images).
 - `vendor`: SDL's files that `SOURCES` names and the headers they include, made by
-  `scripts/sdl3/vendor.sh` from the release (`VERSION`; its tarball in
+  `sys/src/build/sdl3/vendor.sh` from the release (`VERSION`; its tarball in
   ../9front-ui/src) with the overlay over it; `build.json` too.
 
 SDL's GPU API (`SDL_gpu`, its Vulkan backend: `SDL_GPU_VULKAN` in the build config,
-`src/gpu` in `SOURCES`) over the same Vulkan: `tests/sdl/sdlgpu.c` (a render pass
-clearing the window), in tests/gpu on venus.
+`src/gpu` in `SOURCES`) over the same Vulkan: `sys/src/build/host/tests/sdl/sdlgpu.c` (a render pass
+clearing the window), in sys/src/build/host/tests/gpu on venus.
 
 Not yet: joysticks, more than one window.

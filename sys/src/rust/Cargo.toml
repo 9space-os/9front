@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 # The Rust programs of the tree that use crates of crates.io, as one
-# workspace: one Cargo.lock, one vendor/ (scripts/rust/vendor.sh), and the
+# workspace: one Cargo.lock, one vendor/ (sys/src/build/rust/vendor.sh), and the
 # crates 9front changed patched in here (crates/, plan9/: a copy of
-# ../9front-rust's, scripts/rust/crates.sh).
+# ../9front-rust's, sys/src/build/rust/crates.sh).
 [workspace]
 resolver = "2"
-members = ["desk", "../cmd/wsys", "../cmd/ui", "../cmd/term", "../cmd/wbar", "../cmd/wdock", "../libui/rust", "../cmd/uidemo", "../cmd/files", "../../../tests/winit"]
+members = ["desk", "../cmd/wsys", "../cmd/ui", "../cmd/term", "../cmd/wbar", "../cmd/wdock", "../libui/rust", "../cmd/uidemo", "../cmd/files", "../build/host/tests/winit"]
 
 [patch.crates-io]
 raw-window-handle = { path = "crates/raw-window-handle-0.6.2" }

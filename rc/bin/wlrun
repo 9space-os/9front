@@ -1,6 +1,6 @@
 #!/bin/rc
-# wlrun: the Wayland tests of tests/wayland on this machine (the laptop,
-# booted from a CD made with them: scripts/guest/stage-dist.sh puts them in
+# wlrun: the Wayland tests of sys/src/build/host/tests/wayland on this machine (the laptop,
+# booted from a CD made with them: sys/src/build/host/guest/stage-dist.sh puts them in
 # /tests), in a window of wsys (desktop=wsys); their output into wl.log on
 # the ESP (FAT) of the USB stick the system booted from, as i915run's
 # (written through: it survives a hang), else in /tmp.  Each part runs in a
@@ -24,7 +24,7 @@ if(! test -e /mnt/wsys/clone){
 	exit wsys
 }
 if(! test -x /tests/wlsys){
-	echo 'wlrun: no /tests/wlsys: a CD with the programs of tests/wayland'
+	echo 'wlrun: no /tests/wlsys: a CD with the programs of sys/src/build/host/tests/wayland'
 	exit tests
 }
 dir=/tmp

@@ -17,7 +17,7 @@ workarounds (gt/intel_workarounds.c) are 6.6's code as it is there.
 
 Much of the code was first written after Linux v4.4; the notices of
 the v4.4 files it came from follow, then those of the 6.6 files it
-follows now (scripts/check/i915-upstream.py -n writes that part).
+follows now (sys/src/build/host/check/i915-upstream.py -n writes that part).
 
 ---- drivers/gpu/drm/i915/intel_lrc.c
 /*

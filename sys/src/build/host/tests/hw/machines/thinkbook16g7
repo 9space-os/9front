@@ -1,0 +1,22 @@
+# Lenovo ThinkBook 16 G7 ARP (Ryzen 7 7735HS, Radeon 680M): booted by PXE
+# (sys/src/build/host/hw/pxe.sh mac thinkbook16g7). Its internal NVMe (another system)
+# must never be touched, not even read: the kernel leaves NVMe alone.
+*nonvme=1
+# the Radeon 680M (Rembrandt, "yellow carp") for aux/amdgpu
+firmware amdgpu/yellow_carp_*
+# booted without questions: the screen by aux/amdgpu (its panel's mode;
+# vgasize is VESA's, if amdgpu fails), the keyboard's PS/2 port (the
+# touchpad is aux/i2chid's)
+monitor=amdgpu
+vgasize=1920x1200x32
+mouseport=ps2
+# WLAN: the RTL8852CE to the user-level driver aux/rtw89 (gpu(3)'s
+# *userpci), its interface ether1 (wlan(3)), rtw89's firmware
+*userpci=10ec/c852
+ether1=type=wlan
+firmware rtw89/rtw8852c_fw*
+# the processors' clock by aux/pstate (pstate(8)), policy auto:
+# amd-cppc: ~1.5 GHz idle, the package 2.97 W instead of 3.05 W,
+# measured 2026-11-20; the deeper idle states (*cstates=) stay off until
+# tested with the user at the machine
+pstate=auto

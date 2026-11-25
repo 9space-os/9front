@@ -3,17 +3,17 @@
 #
 # base	linux-6.6 ffc253263a1375a65fa6c9f62a893e9767fbebfa
 #
-# Following an update of Linux (scripts/check/i915-upstream.py OLD NEW):
+# Following an update of Linux (sys/src/build/host/check/i915-upstream.py OLD NEW):
 # the changes between the two trees in the files below, the hunks that
 # touch the names listed; port them into our file of the same name, then
-# set the base here, scripts/gen/i915-regs.py NEW for the register
-# excerpts, scripts/check/i915-upstream.py -n NEW for NOTICE.
+# set the base here, sys/src/build/gen/i915-regs.py NEW for the register
+# excerpts, sys/src/build/host/check/i915-upstream.py -n NEW for NOTICE.
 #
 # A line: our file, Linux's file (from the tree's root), the functions:
 #	name		the same in both
 #	ours=linux	our function does what Linux's does
 #	-ours		ours only (Plan 9: segments, the file server, the hang watch)
-#	*		a verbatim excerpt: the names it defines (scripts/gen/i915-regs.py)
+#	*		a verbatim excerpt: the names it defines (sys/src/build/gen/i915-regs.py)
 #	+		the same, made by hand
 
 i915_driver.c	drivers/gpu/drm/i915/i915_driver.c	i915_driver_probe -cfg16
@@ -56,7 +56,7 @@ display/intel_dpll_mgr.c	drivers/gpu/drm/i915/display/intel_dpll_mgr.c	hsw_wrpll
 display/intel_gmbus.c	drivers/gpu/drm/i915/display/intel_gmbus.c	gmbus_wait intel_gmbus_reset gmedid=gmbus_index_xfer
 
 # verbatim excerpts: register macros, bits, commands, enums, made by
-# scripts/gen/i915-regs.py (the order is its priority for a name defined
+# sys/src/build/gen/i915-regs.py (the order is its priority for a name defined
 # twice); + an excerpt made by hand (structs and tables)
 i915_reg_defs.h	drivers/gpu/drm/i915/i915_reg_defs.h	*
 display/intel_display_limits.h	drivers/gpu/drm/i915/display/intel_display_limits.h	*

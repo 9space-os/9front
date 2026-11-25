@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-/* LinuxKPI for 9front: intel_uncore_trace.h, made by scripts/linux/gentrace.py: no tracing */
+/* LinuxKPI for 9front: intel_uncore_trace.h, made by sys/src/build/linux/gentrace.py: no tracing */
 #ifndef _KPI_TRACE_INTEL_UNCORE_TRACE_H
 #define _KPI_TRACE_INTEL_UNCORE_TRACE_H
 

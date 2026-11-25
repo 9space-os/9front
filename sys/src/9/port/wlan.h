@@ -26,7 +26,7 @@ struct Wlan {
 	/*
 	 * ctl "irq on": the frames received go to wifiiq from a timer
 	 * function, at interrupt level, as a real radio's driver calls it
-	 * from its interrupt (tests/wlan)
+	 * from its interrupt (sys/src/build/host/tests/wlan)
 	 */
 	int	irq;
 	Lock	irqlk;

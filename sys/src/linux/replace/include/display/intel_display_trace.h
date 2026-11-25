@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-/* LinuxKPI for 9front: display/intel_display_trace.h, made by scripts/linux/gentrace.py: no tracing */
+/* LinuxKPI for 9front: display/intel_display_trace.h, made by sys/src/build/linux/gentrace.py: no tracing */
 #ifndef _KPI_TRACE_DISPLAY_INTEL_DISPLAY_TRACE_H
 #define _KPI_TRACE_DISPLAY_INTEL_DISPLAY_TRACE_H
 

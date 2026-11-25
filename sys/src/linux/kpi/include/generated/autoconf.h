@@ -1,4 +1,4 @@
-/* made by scripts/linux/kbuild.py from sys/src/linux/kconfig */
+/* made by sys/src/build/linux/kbuild.py from sys/src/linux/kconfig */
 #define CONFIG_X86 1
 #define CONFIG_X86_64 1
 #define CONFIG_64BIT 1

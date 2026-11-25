@@ -1,0 +1,32 @@
+#!/bin/rc
+# run by wsys -x -i (sys/src/build/host/tests/gpu/run.sh): the pager passes wsys over (wsys(4),
+# proc(3) noswap), not the programs it starts. memhog runs in a window of
+# wsys, its children half wsys' size, until the pager kills one: a child
+# killed while wsys is bigger shows wsys was passed over; a child killed at
+# all shows the window's program did not inherit noswap (exec clears it;
+# else the pager could kill none of them). Lines "noswap: ...".
+fn kb { awk '{print $10}' /proc/$1/status }
+kn=`{wc -l </dev/kmesg}
+w=`{ps | awk '$NF == "wsys" {print $2}'}
+echo noswap: wsys $w
+wkb=`{kb $w(1)}
+h=`{echo $wkb | awk '{h = int($1 / 2); if(h < 16) h = 16; print h}'}
+echo noswap: kb wsys $wkb child $h
+# the test's channel to the host (the guest's MCP server, bigger than a
+# child) is not what is tested: passed over too, else the pager kills it
+# first and the test's lines are lost
+for(p in `{ps | awk '$NF == "9front-mcp" {print $2}'})
+	echo noswap >/proc/$p/ctl >[2]/dev/null
+rm -f /tmp/mh.log
+echo '#!/bin/rc
+/tests/memhog '^$h^' >/tmp/mh.log >[2=1]
+echo memhog: exit $status >>/tmp/mh.log' >/tmp/runmh
+chmod +x /tmp/runmh
+window -r 20 20 500 380 /tmp/runmh
+n=0
+while(! grep -s '^memhog: exit' /tmp/mh.log && test $n -lt 1200){ sleep 0.1; n=`{echo $n+1 | hoc} }
+sed 's/^/noswap: /' /tmp/mh.log
+echo noswap: wsys after `{ps | awk '$NF == "wsys" {print $2}'}
+# the kernel's line, after whatever the console held before it (a prompt)
+tail -n +`{echo $kn + 1 | hoc} /dev/kmesg | sed -n 's/^(.*[# ])?([^ #]+ [0-9]+: Killed: Insufficient physical memory)/noswap: killed: \2/p'
+echo noswap: done

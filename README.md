@@ -43,7 +43,7 @@ which are still built the 9front way (with 8c/6c/7c) — inside a QEMU
 guest running the system built in step 2:
 
 ```sh
-scripts/guest/build-boot.sh
+sys/src/build/host/guest/build-boot.sh
 ```
 
 The results are installed into `386/` and `arm64/`.
@@ -51,18 +51,18 @@ The results are installed into `386/` and `arm64/`.
 ## 4. Make the ISO
 
 ```sh
-scripts/guest/mkiso.sh
+sys/src/build/host/guest/mkiso.sh
 ```
 
 This stages the distribution tree, boots it in a QEMU guest and makes
 the CD there (hybrid ISO: BIOS/El Torito + UEFI, also boots from disk or
 USB). The result is written to
 `~/Devel/9space/cache/cli/9front.amd64.iso` (override the output as the first
-argument). For the 386 image: `objtype=386 scripts/guest/mkiso.sh`.
+argument). For the 386 image: `objtype=386 sys/src/build/host/guest/mkiso.sh`.
 
 That's it — burn or `dd` the ISO and boot it.
 
 ## Notes
 
-- See `scripts/README.md` for what every script in `scripts/` does.
-- See `MEMORY.md` for the status and open items of the port.
+- See `sys/src/build/README.md` for what every script in `sys/src/build` does.
+- See `sys/src/build/host/MEMORY.md` for the status and open items of the port.

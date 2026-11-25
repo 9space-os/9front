@@ -1,4 +1,4 @@
-# the crates scripts/rust/crates.sh copies from toolchain/rust's crates (RUST_DIR; name-version)
+# the crates sys/src/build/rust/crates.sh copies from toolchain/rust's crates (RUST_DIR; name-version)
 raw-window-handle-0.6.2
 winit-0.30.13
 softbuffer-0.4.8

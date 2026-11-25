@@ -1,4 +1,4 @@
-# the crates come from vendor/ (scripts/rust/vendor.sh), the build needs no network
+# the crates come from vendor/ (sys/src/build/rust/vendor.sh), the build needs no network
 [source.crates-io]
 replace-with = "vendored-sources"
 

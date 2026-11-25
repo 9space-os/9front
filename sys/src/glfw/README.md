@@ -28,8 +28,8 @@ loader; GLFW refers to them weakly, `-u` pulls them in; g++ for Mesa's C++):
   (`GLFW_PLATFORM_PLAN9`), `src/platform.c` (the platform in the table), `src/platform.h`
   (its state in GLFW's structures).
 - `vendor`: GLFW's files that `SOURCES` names and the headers they include, made by
-  `scripts/glfw/vendor.sh` from the release (`VERSION`; its zip in ../9front-ui/src)
+  `sys/src/build/glfw/vendor.sh` from the release (`VERSION`; its zip in ../9front-ui/src)
   with the overlay over it; `build.json` too.
 
 Not yet: joysticks, more than one window, window icons, gamma ramps.
-Tests: `tests/glfw/run.sh` (VESA, under wsys), `tests/gpu/amdglfw.rc` (OpenGL, Vulkan).
+Tests: `sys/src/build/host/tests/glfw/run.sh` (VESA, under wsys), `sys/src/build/host/tests/gpu/amdglfw.rc` (OpenGL, Vulkan).

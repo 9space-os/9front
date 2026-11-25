@@ -11,7 +11,7 @@
 # test, then by an ordinary one again; the theme is put back at the end.
 # The log into desk.log on the ESP (FAT) of the USB stick the system booted
 # from, a line at a time (esplog: it survives a hang), else in /tmp.
-# Needs /tests/uipeek (the CD has it, from tests/ui).
+# Needs /tests/uipeek (the CD has it, from sys/src/build/host/tests/ui).
 rfork e
 if(! test -e /mnt/wsys/clone && ! ~ $#wsys 0){
 	rfork n
@@ -22,7 +22,7 @@ if(! test -e /mnt/wsys/clone){
 	exit wsys
 }
 if(! test -x /tests/uipeek || ! test -x /bin/wbar){
-	echo deskrun: no /tests/uipeek or /bin/wbar: a CD made with tests/ui
+	echo deskrun: no /tests/uipeek or /bin/wbar: a CD made with sys/src/build/host/tests/ui
 	exit tests
 }
 dir=/tmp

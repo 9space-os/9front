@@ -21,7 +21,7 @@
 /*
  * 9front's SDL_build_config.h (sys/src/sdl3): what SDL's CMake found for
  * APE with ../9front-gcc's cross compiler (a unix without X11 or Wayland:
- * scripts/sdl3/README), changed where marked "9front:": the plan9 video
+ * sys/src/build/sdl3/README), changed where marked "9front:": the plan9 video
  * and audio drivers in SDL's slots for drivers outside its tree, Vulkan,
  * no dlopen.
  */

@@ -9,7 +9,7 @@
 			"-I../common"
 		],
 		"Pre": [
-			"bash ../../../../../scripts/build/gen-upas-yacc.sh"
+			"bash /sys/src/build/step/gen-upas-yacc.sh"
 		],
 		"Oflags": [
 			"--entry=_main"
@@ -83,7 +83,7 @@
 			"-I../common"
 		],
 		"Pre": [
-			"bash ../../../../../scripts/build/gen-upas-yacc.sh"
+			"bash /sys/src/build/step/gen-upas-yacc.sh"
 		],
 		"Oflags": [
 			"--entry=_main"
@@ -157,7 +157,7 @@
 			"-I../common"
 		],
 		"Pre": [
-			"bash ../../../../../scripts/build/gen-upas-yacc.sh"
+			"bash /sys/src/build/step/gen-upas-yacc.sh"
 		],
 		"Oflags": [
 			"--entry=_main"

@@ -2,5 +2,5 @@
 /*
  * LinuxKPI for 9front: i915_trace_points.c (ours: Linux's is GPL).
  * Linux makes its trace points here; without tracing there is nothing to
- * make (replace/include/*trace.h, scripts/linux/gentrace.py).
+ * make (replace/include/*trace.h, sys/src/build/linux/gentrace.py).
  */

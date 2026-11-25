@@ -6,8 +6,8 @@
 		],
 		"Install": "/$ARCH/bin/",
 		"Pre": [
-			"bash ../../../../scripts/build/yacc.sh -o awkgram.c -d awkgram.y",
-			"bash ../../../../scripts/build/gen-awk-proctab.sh"
+			"bash /sys/src/build/step/yacc.sh -o awkgram.c -d awkgram.y",
+			"bash /sys/src/build/step/gen-awk-proctab.sh"
 		],
 		"Oflags": [
 			"--entry=_main"

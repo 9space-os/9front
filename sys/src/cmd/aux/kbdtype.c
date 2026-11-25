@@ -6,8 +6,8 @@
  * aux/kbdtype -p hex, -r hex: the key of that rune pressed, let go
  * (kbdfs(8)'s r and R messages: kbdfs makes the k, K and c messages
  * of them), e.g. Kmod4 f868
- * For tests and scripts: tests/ui, tests/gpu's wsyssup.rc, browser/tests
- * (9space's; before, tests/ui's uipeek -k, -p, -r).
+ * For tests and scripts: sys/src/build/host/tests/ui, sys/src/build/host/tests/gpu's wsyssup.rc, browser/tests
+ * (9space's; before, sys/src/build/host/tests/ui's uipeek -k, -p, -r).
  */
 #include <u.h>
 #include <libc.h>
