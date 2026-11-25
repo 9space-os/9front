@@ -36,8 +36,7 @@ A buildfile is a json object containing build objects. By convention, it's
 broken out onto multiple lines indented by tabs, and the keys are TitleCased.
 
 The environment variables PLAN9 (HARVEY is honoured as a fallback) and ARCH
-are guaranteed to be set for the buildfile. PATH is modified so that
-"$PLAN9/util" is included.
+are guaranteed to be set for the buildfile.
 
 From ARCH the tool sets, unless they are in the environment already,
 objtype (9front's name for it), O (the object letter), SUFFIX (of the
@@ -45,14 +44,19 @@ generated per-arch manifests, none for amd64), CONF (the kernel
 configuration: pc, pc64, qemu), TOOLPREFIX (arm64: aarch64-linux-musl-)
 and CPUS (the processors: the source files of a manifest are compiled
 CPUS at a time, each by a compiler run of its own; CPUS=1 one after the
-other). PLAN9 defaults to the git checkout. Without an argument the
-tool builds build.json of the current directory, else the tree's, which
-builds everything for ARCH (build.$ARCH.json, sys/src/build/gen/genbuild.py):
+other). PLAN9 defaults to the git checkout, on Plan 9 without one to /
+(the installed system's tree). Without an argument the tool builds
+build.json of the current directory, else the tree's
+sys/src/build/build.json, which builds everything for ARCH
+(sys/src/build/build.$ARCH.json, sys/src/build/gen/genbuild.py):
 
 	CC=gcc ARCH=amd64 sys/src/cmd/build/build.exe
 
 Any key that takes a path or array of paths as its value has absolute paths
-re-rooted to the plan9 tree and variables in the string expanded once.
+re-rooted to the plan9 tree and variables in the string expanded once; so
+are the words of the Pre and Post steps, which name the tree's steps by
+absolute paths (bash /sys/src/build/step/X.sh) whatever directory the
+manifest is in.
 
 The shell commands in the "Pre" and "Post" steps must be in the subset of
 syntax that's accepted by both POSIX sh and rc. Practically, this means
