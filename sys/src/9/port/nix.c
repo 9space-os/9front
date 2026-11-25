@@ -57,7 +57,7 @@ nixboot(int ncpu)
 
 	/*
 	 * hwskip=1, typed at 9boot after this configuration hung while
-	 * booting (tests/hw): boot without NIX's options
+	 * booting (sys/src/build/host/tests/hw): boot without NIX's options
 	 */
 	if(getconf("hwskip") != nil)
 		return 0;

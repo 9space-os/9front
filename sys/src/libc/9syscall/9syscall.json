@@ -2,7 +2,7 @@
 	{
 		"Name": "9syscall",
 		"Pre": [
-			"bash ../../../../scripts/build/gen-9syscall.sh ."
+			"bash /sys/src/build/step/gen-9syscall.sh ."
 		],
 		"Clean": [
 			"*.S"

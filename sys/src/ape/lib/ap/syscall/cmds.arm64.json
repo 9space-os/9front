@@ -7,7 +7,7 @@
 		],
 		"Install": "/$ARCH/lib.gcc/ape/",
 		"Pre": [
-			"bash ../../../../../../scripts/build/gen-9syscall.sh --ape ."
+			"bash /sys/src/build/step/gen-9syscall.sh --ape ."
 		],
 		"Ape": true,
 		"Library": "libap.a",

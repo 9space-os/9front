@@ -14,7 +14,7 @@
 			"9syscall/9syscall.json"
 		],
 		"Pre": [
-			"bash ../../../scripts/build/gen-runetype.sh"
+			"bash /sys/src/build/step/gen-runetype.sh"
 		],
 		"Clean": [
 			"ucd/runenormdata",
@@ -23,7 +23,7 @@
 			"ucd/runebreakdata"
 		],
 		"Post": [
-			"bash ../../../scripts/build/libp9.sh"
+			"bash /sys/src/build/step/libp9.sh"
 		],
 		"SourceFiles": [
 			"9sys/abort.c",

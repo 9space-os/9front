@@ -543,7 +543,7 @@ memsetio(volatile void *d, int c, long n)
  * GCC port: a 32-bit device register read gcc cannot narrow. It turns
  * some volatile loads under a mask (mmio[R] & 0xFF stored into a field)
  * into byte loads; an atomic load is one access of the object's width.
- * scripts/check/find-narrow-mmio.py finds the loads that need it.
+ * sys/src/build/host/check/find-narrow-mmio.py finds the loads that need it.
  */
 static inline u32int
 mmio32r(volatile u32int *p)

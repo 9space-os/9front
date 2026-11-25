@@ -45,7 +45,7 @@
 		"Name": "cmd-postscript-postgif-install",
 		"Install": "",
 		"Post": [
-			"python3 ../../../../../scripts/build/mkinstall.py cmd/postscript/postgif -- /sys/lib/postscript/prologues/postgif.ps"
+			"python3 /sys/src/build/step/mkinstall.py cmd/postscript/postgif -- /sys/lib/postscript/prologues/postgif.ps"
 		]
 	}
 ]

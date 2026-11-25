@@ -1,3 +1,0 @@
-#!/bin/rc
-# gen-rebootcode-pc-i.sh: the 386 kernel's rebootcode.i (pc)
-exec rc $PLAN9/scripts/build/rc/gen-rebootcode-i.rc pc
