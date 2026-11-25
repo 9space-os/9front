@@ -43,7 +43,7 @@ extern size_t strlen(const char *);
 extern size_t strnlen(const char *, size_t);
 
 #ifdef _REENTRANT_SOURCE
-extern char *strerror_r(int, const char *, int);
+extern char *strerror_r(int, char *, int);
 extern char *strtok_r(char *, const char *, char **);
 #endif
 
@@ -61,7 +61,7 @@ extern char *strtok_r(char *, const char *, char **);
 /* GCC port: <string.h> as POSIX.1-2008 has it: stpcpy, stpncpy, strndup, memmem
  * (ap/gnu/string.c), strsignal (ap/gnu/posix.c), strcasecmp & co. from
  * <strings.h> as glibc, musl and the BSDs have them here too; strtok_r is
- * libap's, APE declares it only with _REENTRANT_SOURCE (and its strerror_r) */
+ * libap's, APE declares it only with _REENTRANT_SOURCE, as its strerror_r */
 #include <strings.h>
 #ifdef __cplusplus
 extern "C" {
@@ -71,6 +71,7 @@ extern char	*stpcpy(char *, const char *);
 extern char	*stpncpy(char *, const char *, size_t);
 extern char	*strndup(const char *, size_t);
 extern char	*strtok_r(char *, const char *, char **);
+extern char	*strerror_r(int, char *, int);	/* 9space: libap's (GNU's form: the message), for libc++ */
 extern void	*memmem(const void *, size_t, const void *, size_t);
 extern char	*strsignal(int);
 extern char	*strchrnul(const char *, int);	/* GNU's, the BSDs' (ap/gnu/gnuext.c) */
