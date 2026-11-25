@@ -24,8 +24,18 @@ SECTIONS
 	 * of the native gcc (../9front-gcc): its crtbegin.o registers
 	 * .eh_frame, crtend.o ends it; the language-specific data with it */
 	.eh_frame : {
+		PROVIDE(__eh_frame_start = .);
 		KEEP(*(.eh_frame))
+		PROVIDE(__eh_frame_end = .);
 	} :text
+	/* clang's libunwind (toolchain/clang) finds the tables by these
+	 * symbols, as on bare metal (no dl_iterate_phdr); the index only
+	 * with ld --eh-frame-hdr (clang's driver), empty otherwise */
+	.eh_frame_hdr : {
+		KEEP(*(.eh_frame_hdr))
+	} :text
+	PROVIDE(__eh_frame_hdr_start = SIZEOF(.eh_frame_hdr) > 0 ? ADDR(.eh_frame_hdr) : 0);
+	PROVIDE(__eh_frame_hdr_end = SIZEOF(.eh_frame_hdr) > 0 ? ADDR(.eh_frame_hdr) + SIZEOF(.eh_frame_hdr) : 0);
 	.gcc_except_table : {
 		*(.gcc_except_table .gcc_except_table.*)
 	} :text

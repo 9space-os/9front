@@ -86,6 +86,10 @@ extern double yn(int, double);
  * macros are gcc's type-generic builtins. HUGE_VAL stays APE's: its
  * strtod returns that on overflow.
  */
+/* 9space: C linkage in C++ (clang makes no system header extern "C") */
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 
 #if __FLT_EVAL_METHOD__ == 2
@@ -355,6 +359,9 @@ long double truncl(long double);
 #define M_2_SQRTPI	1.12837916709551257390
 #define M_SQRT2		1.41421356237309504880
 #define M_SQRT1_2	0.70710678118654752440
+#endif
+#ifdef __cplusplus
+}
 #endif
 #endif
 #endif /* __MATH */

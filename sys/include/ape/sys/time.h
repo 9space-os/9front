@@ -29,9 +29,16 @@ struct timezone {
 #if defined(__GNUC__) || defined(_APE_GNU)
 struct timezone;	/* GCC port: gettimeofday's, also without _BSD_EXTENSION */
 #endif
+/* 9space: C linkage in C++ (clang makes no system header extern "C") */
+#ifdef __cplusplus
+extern "C" {
+#endif
 extern int gettimeofday(struct timeval *, struct timezone *);
 int getitimer(int, struct itimerval *);
 int setitimer(int, const struct itimerval *, struct itimerval *);
+#ifdef __cplusplus
+}
+#endif
 
 #if defined(__GNUC__) || defined(_APE_GNU)
 /* GCC port: utimes (ap/gnu/posix.c: seconds, stat(5) has no more) */
