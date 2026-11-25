@@ -1298,6 +1298,16 @@ func main() {
 	flag.Parse()
 	setup()
 
+	// on Plan 9 the installed system builds itself: its native gcc
+	// (/$objtype/gnu/bin, bound after /bin) and its own architecture
+	if runtime.GOOS == "plan9" {
+		if _, ok := os.LookupEnv("CC"); !ok {
+			os.Setenv("CC", "gcc")
+		}
+		if os.Getenv("ARCH") == "" {
+			os.Setenv("ARCH", os.Getenv("objtype"))
+		}
+	}
 	if os.Getenv("CC") == "" {
 		log.Fatalf("You need to set the CC environment variable (e.g. gcc, clang, clang-3.6, ...)")
 	}
