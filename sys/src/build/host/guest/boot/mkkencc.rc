@@ -35,7 +35,9 @@ objtype=amd64
 MK=mk
 if(~ $1 gcc){
 	test -x /$objtype/gnu/bin/gccmk || fail no /$objtype/gnu/bin/gccmk
-	bind -b /$objtype/gnu/bin /bin || fail bind gnu/bin
+	# after /bin, as toolchain/gcc's README says: GNU's cpp before 9front's
+	# breaks aux/na (cpp -+: an empty sd53c8xx.i, the kernel's sd53c8xx.c fails)
+	bind -a /$objtype/gnu/bin /bin || fail bind gnu/bin
 	MK=gccmk
 }
 NPROC=`{wc -l </dev/sysstat}	# mk's parallelism, as termrc/cpurc set it
