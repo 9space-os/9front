@@ -199,7 +199,9 @@ i8253timerset(uvlong next)
 	want = next>>Tickshift;
 	now = i8253.ticks;	/* assuming whomever called us just did fastticks() */
 
-	period = want - now;
+	/* GCC port: the ulongs' difference as a signed 32 bits: a deadline
+	   past is negative (kencc's 32-bit long), not 4 G (gcc's 64-bit long) */
+	period = (int)(want - now);
 	if(period < MinPeriod)
 		period = MinPeriod;
 	else if(period > MaxPeriod)

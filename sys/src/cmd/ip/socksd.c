@@ -90,14 +90,20 @@ addr2str(char *proto, uchar *a){
 int
 udprelay(int fd, char *dir)
 {
-	struct {
-		Udphdr;
-		uchar data[8*1024];
-	} msg;
+	/*
+	 * the header Udphdrsize bytes, the data right after it: not a struct
+	 * with Udphdr in it, whose size the compiler may round up (kencc's 6c to
+	 * 56; the data would then start 4 bytes after where udp(3) takes it;
+	 * a 9front bug, patch-upstream 0062)
+	 */
+	uchar msg[Udphdrsize + 8*1024], *mdata;
+	Udphdr *uh;
 	char addr[128], ldir[40];
 	int r, n, rfd, cfd;
 	uchar *p;
 
+	uh = (Udphdr*)msg;
+	mdata = msg + Udphdrsize;
 	snprint(addr, sizeof(addr), "%s/udp!*!0", outside);
 	if((cfd = announce(addr, ldir)) < 0)
 		return -1;
@@ -121,10 +127,10 @@ udprelay(int fd, char *dir)
 	case -1:
 		return -1;
 	case 0:
-		while((r = read(fd, msg.data, sizeof(msg.data))) > 0){
+		while((r = read(fd, mdata, (sizeof msg - Udphdrsize))) > 0){
 			if(r < 4)
 				continue;
-			p = msg.data;
+			p = mdata;
 			if(p[0] | p[1] | p[2])
 				continue;
 			p += 3;
@@ -135,51 +141,51 @@ udprelay(int fd, char *dir)
 				r -= 2+1+1+4+2;
 				if(r < 0)
 					continue;
-				v4tov6(msg.raddr, p);
+				v4tov6(uh->raddr, p);
 				p += 4;
 				break;
 			case 0x04:
 				r -= 2+1+1+16+2;
 				if(r < 0)
 					continue;
-				memmove(msg.raddr, p, 16);
+				memmove(uh->raddr, p, 16);
 				p += 16;
 				break;
 			}
-			memmove(msg.rport, p, 2);
+			memmove(uh->rport, p, 2);
 			p += 2;
-			memmove(msg.data, p, r);
-			write(rfd, &msg, sizeof(Udphdr)+r);
+			memmove(mdata, p, r);
+			write(rfd, msg, Udphdrsize+r);
 		}
 		break;
 	default:
-		while((r = read(rfd, &msg, sizeof(msg))) > 0){
-			r -= sizeof(Udphdr);
+		while((r = read(rfd, msg, sizeof(msg))) > 0){
+			r -= Udphdrsize;
 			if(r < 0)
 				continue;
-			p = msg.data;
-			if(isv4(msg.raddr))
+			p = mdata;
+			if(isv4(uh->raddr))
 				n = 2+1+1+4+2;
 			else
 				n = 2+1+1+16+2;
-			if(r+n > sizeof(msg.data))
-				r = sizeof(msg.data)-n;
+			if(r+n > (sizeof msg - Udphdrsize))
+				r = (sizeof msg - Udphdrsize)-n;
 			memmove(p+n, p, r);
 			*p++ = 0;
 			*p++ = 0;
 			*p++ = 0;
-			if(isv4(msg.raddr)){
+			if(isv4(uh->raddr)){
 				*p++ = 0x01;
-				v6tov4(p, msg.raddr);
+				v6tov4(p, uh->raddr);
 				p += 4;
 			} else {
 				*p++ = 0x04;
-				memmove(p, msg.raddr, 16);
+				memmove(p, uh->raddr, 16);
 				p += 16;
 			}
-			memmove(p, msg.rport, 2);
+			memmove(p, uh->rport, 2);
 			r += n;
-			write(fd, msg.data, r);
+			write(fd, mdata, r);
 		}
 	}
 	return -1;
