@@ -45,7 +45,9 @@ configuration: pc, pc64, qemu), TOOLPREFIX (arm64: aarch64-linux-musl-)
 and CPUS (the processors: the source files of a manifest are compiled
 CPUS at a time, each by a compiler run of its own; CPUS=1 one after the
 other). PLAN9 defaults to the git checkout, on Plan 9 without one to /
-(the installed system's tree). Without an argument the tool builds
+(the installed system's tree); on Plan 9 CC defaults to gcc (the native
+one, /$objtype/gnu/bin after /bin) and ARCH to $objtype, so that there
+`cd /sys/src; build` builds the installed system. Without an argument the tool builds
 build.json of the current directory, else the tree's
 sys/src/build/build.json, which builds everything for ARCH
 (sys/src/build/build.$ARCH.json, sys/src/build/gen/genbuild.py):
