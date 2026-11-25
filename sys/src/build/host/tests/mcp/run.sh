@@ -1,7 +1,7 @@
 #!/bin/bash
 # mcp: the MCP server on the install CD (/$objtype/bin/9front-mcp, tools/mcp;
 # dist/bin/mkcd -mcp, stage-dist.sh MCP=1): initialize, an rc command through it, its
-# deny list refusing fshalt (sys/src/build/host/tests/mcp/mcp.py).
+# deny list refusing a write to /dev/sd (sys/src/build/host/tests/mcp/mcp.py).
 # Skips a CD without it. Uses ISO, else the last CD sys/src/build/host/guest/mkiso.sh made.
 # INSTANCE=1: the instance (dist/bin/instance; sys/src/build/host/tests/lib.sh cdimage).
 . "$(dirname "$0")/../lib.sh"

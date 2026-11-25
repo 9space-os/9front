@@ -3,7 +3,9 @@
 The MCP server on the install CD (/$objtype/bin/9front-mcp from tools/mcp,
 dist/bin/mkcd -mcp; stage-dist.sh MCP=1): boot to rio, then over the serial rc
 9front-mcp -stdio with the CD's deny list (/sys/lib/mcp/deny) gets initialize,
-a tools/call of rc that runs a command, and one the deny list refuses (fshalt).
+a tools/call of rc that runs a command, and one the deny list refuses (a write to
+a /dev/sd device that does not exist: harmless if it ran; not fshalt, which
+deny.example leaves allowed: dist/bin/instance stops a machine with it).
 
 usage: sys/src/build/host/tests/mcp/mcp.py iso workdir objtype
    prints one line per check: ok|fail|skip <name>
@@ -28,7 +30,7 @@ REQ = [
 	'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"cdtest","version":"1"}}}',
 	'{"jsonrpc":"2.0","method":"notifications/initialized"}',
 	'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"rc","arguments":{"command":"echo mcp-rc-says $sysname"}}}',
-	'{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"rc","arguments":{"command":"fshalt"}}}',
+	'{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"rc","arguments":{"command":"echo x >/dev/sdZZ/data"}}}',
 ]
 
 try:
@@ -48,6 +50,6 @@ try:
 	out = run('9front-mcp -stdio -deny /sys/lib/mcp/deny -dir %s < mcp.req > mcp.out; cat mcp.out' % W, 'mcp-done', 60)
 	result('"serverInfo"' in out and '"id":1' in out, 'initialize: the server answers')
 	result(re.search(r'mcp-rc-says [A-Za-z0-9]', out) is not None and '"id":2' in out, 'tools/call rc runs a command ($sysname expanded)')
-	result('"id":3' in out and 'deny list' in out, 'the deny list refuses fshalt')
+	result('"id":3' in out and 'deny list' in out, 'the deny list refuses a write to /dev/sd')
 finally:
 	vm.close()
