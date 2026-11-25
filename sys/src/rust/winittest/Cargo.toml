@@ -4,14 +4,14 @@
 # drawn by hdrshot-egui-backend: egui_software_backend for egui 0.37); eframetest
 # (eframe on wgpu's Vulkan, on the processor without a GPU) is toolchain/rust's
 # (tests/crates/eframetest),
-# in a window of wsys or rio. Part of the workspace in sys/src/rust (its
-# vendor/, its crates with plan9 backends).
+# in a window of wsys or rio; run by sys/src/build/host/tests/winit. Part of
+# the workspace in sys/src/rust (its vendor/, its crates with plan9 backends).
 [package]
 name = "winittest"
 version = "0.1.0"
 edition = "2024"
 publish = false
-workspace = "../../../../rust"
+workspace = ".."
 
 [dependencies]
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }

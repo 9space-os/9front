@@ -17,7 +17,7 @@ sys/src/build/host/tests/static fails while this mirror differs from toolchain/r
 softbuffer depend on p9win) are the same in both.
 
 A crate of the tree uses them by `[patch.crates-io]` with paths here
-(`sys/src/build/host/tests/winit/Cargo.toml`) and vendors the rest (`sys/src/build/rust/vendor.sh`).
+(`winittest/Cargo.toml`, the programs sys/src/build/host/tests/winit runs) and vendors the rest (`sys/src/build/rust/vendor.sh`).
 
 - `raw-window-handle-0.6.2`: `RawWindowHandle::Plan9`, `RawDisplayHandle::Plan9`.
 - `winit-0.30.13`: `src/platform_impl/plan9`, the process's window of wsys or rio.
