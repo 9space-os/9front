@@ -11,7 +11,7 @@
 			"-D_PLAN9"
 		],
 		"Pre": [
-			"bash ../../../../scripts/build/yacc.sh -S -d spin.y"
+			"bash /sys/src/build/step/yacc.sh -S -d spin.y"
 		],
 		"Ape": true,
 		"Oflags": [

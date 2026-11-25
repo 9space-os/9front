@@ -7,9 +7,9 @@
 		],
 		"Install": "/$ARCH/bin/",
 		"Pre": [
-			"bash ../../../../scripts/build/yacc.sh -d -S grap.y",
+			"bash /sys/src/build/step/yacc.sh -d -S grap.y",
 			"mv y.tab.c grap.c",
-			"bash ../../../../scripts/build/lex.sh --out grapl.c -t grapl.lx"
+			"bash /sys/src/build/step/lex.sh --out grapl.c -t grapl.lx"
 		],
 		"Ape": true,
 		"Oflags": [

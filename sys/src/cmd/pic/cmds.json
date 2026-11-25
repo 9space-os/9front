@@ -7,9 +7,9 @@
 		],
 		"Install": "/$ARCH/bin/",
 		"Pre": [
-			"bash ../../../../scripts/build/yacc.sh -S -d picy.y",
+			"bash /sys/src/build/step/yacc.sh -S -d picy.y",
 			"mv y.tab.c picy.c",
-			"bash ../../../../scripts/build/lex.sh --out picl.c -t picl.lx"
+			"bash /sys/src/build/step/lex.sh --out picl.c -t picl.lx"
 		],
 		"Ape": true,
 		"Oflags": [

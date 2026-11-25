@@ -6,7 +6,7 @@
  * does for notify() -- trampolines translate:
  *
  * _NOTIFY(f) stashes f and registers _notifytramp with the raw system
- * call __NOTIFY (scripts/gen-9syscall.sh --ape); _NOTIFY(nil) clears the
+ * call __NOTIFY (sys/src/build/step/gen-9syscall.sh --ape); _NOTIFY(nil) clears the
  * handler. _notecont is the pc notetramp.c's _notetramp() resumes at
  * (NSAVE) and calls its notecont(Ureg*, char*). Neither handler
  * returns (they end in _NOTED); should one, the note gets the default

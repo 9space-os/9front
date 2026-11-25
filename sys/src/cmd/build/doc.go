@@ -47,7 +47,7 @@ and CPUS (the processors: the source files of a manifest are compiled
 CPUS at a time, each by a compiler run of its own; CPUS=1 one after the
 other). PLAN9 defaults to the git checkout. Without an argument the
 tool builds build.json of the current directory, else the tree's, which
-builds everything for ARCH (build.$ARCH.json, scripts/gen/genbuild.py):
+builds everything for ARCH (build.$ARCH.json, sys/src/build/gen/genbuild.py):
 
 	CC=gcc ARCH=amd64 sys/src/cmd/build/build.exe
 
