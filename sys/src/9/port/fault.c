@@ -356,14 +356,8 @@ fault(uintptr addr, uintptr pc, int read)
 			goto done;
 		}
 
-		/*
-		 * GCC port: parenthesized (a 9front bug, patch-upstream 0023):
-		 * || binds tighter than ?:, so an SG_FAULT segment faulted only
-		 * where an exec fault would (zynq's and cycv's axi before the
-		 * FPGA is loaded)
-		 */
 		if((attr & SG_FAULT) != 0
-		|| (read? ((attr & SG_NOEXEC) != 0 || s->flushme == 0) && (addr & -BY2PG) == (pc & -BY2PG):
+		|| (read ? ((attr & SG_NOEXEC) != 0 || s->flushme == 0) && (addr & -BY2PG) == (pc & -BY2PG):
 			 (attr & SG_RONLY) != 0)) {
 			qunlock(&s->QLock);
 			segunref(s);

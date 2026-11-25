@@ -531,11 +531,6 @@ tcpclose(Conv *c)
 		break;
 	case Established:
 		if(tcb->bypass != nil){
-			/*
-			 * GCC port branch: only if the other is still ours, as tcpbypass
-			 * checks: a closed one clears its own link only, and its Conv may be
-			 * a new conversation by now (its rq hung up: "listen hungup").
-			 */
 			if(((Tcpctl*)tcb->bypass->ptcl)->bypass == c)
 				qhangup(tcb->bypass->rq, nil);
 			localclose(c, nil);
@@ -623,13 +618,13 @@ tcprcvwin(Conv *s)				/* Call with tcb locked */
 
 	w = tcb->window - qlen(s->rq);
 
-	/* RFC 1122 § 4.2.3 silly window syndrome avoidance */
+	/* RFC 1122 § 4.2.3.3 silly window syndrome avoidance */
 	if((int)w < tcb->rcv.wnd + tcb->mss)
 		w = 0;
 
 	w += tcb->rcv.nxt;
 
-	/* RFC 1122 § 4.2.16 do not move right edge of window left */
+	/* RFC 1122 § 4.2.2.16 do not move right edge of window left */
 	if(seq_lt(w, tcb->rcv.wptr))
 		w = tcb->rcv.wptr;
 
@@ -1607,12 +1602,6 @@ tcpbypass(void *arg, Block *b)
 
 	if(o == nil || ((Tcpctl*)o->ptcl)->bypass != c){
 		freeblist(b);
-		/*
-		 * GCC port branch: the other end is closed; say so as a closed queue does
-		 * (qbwrite's caller, the writer) instead of dropping the data silently (a
-		 * writer never saw an error; over the network a reset comes). tcpsplice's
-		 * qsetbypass flush does not get here: both links were just set.
-		 */
 		error(Ehungup);
 	}
 	qbwrite(o->rq, b);

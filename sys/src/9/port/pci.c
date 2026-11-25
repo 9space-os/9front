@@ -603,7 +603,9 @@ pciscan(int bno, Pcidev** list, Pcidev *parent)
 			case 0x0F:		/* sattelite communication controllers */
 			case 0x10:		/* encryption/decryption controllers */
 			case 0x11:		/* signal processing controllers */
-			case 0xFF:		/* fits no class (Realtek's card readers) */
+			case 0x12:		/* processing accelerators */
+			case 0x13:		/* non-essential instrumentation */
+			case 0xFF:		/* device does not fit any defined classes */
 				if((hdt & 0x7F) != 0)
 					break;
 				rno = PciBAR0;
