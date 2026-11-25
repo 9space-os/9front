@@ -119,9 +119,9 @@ type build struct {
 	SourceDeps  []string
 	// cmd's
 	SourceFilesCmd []string
-	// CflagsShell: shell commands whose stdout (one flag per line) is
-	// appended to Cflags at build time (rc `{...}` substitutions).
-	CflagsShell []string
+	// CflagsTime: macros defined as the build's time, in seconds since
+	// the epoch (mk's -DDATE=`{date -n}: cwfs), at build time.
+	CflagsTime []string
 	// Targets.
 	Program string
 	Library string
@@ -679,22 +679,17 @@ func compileArgs(b *build) (command string, cArgs, asmArgs []string) {
 	return command, cArgs, asmArgs
 }
 
-// shellflags: the flags b.CflagsShell's commands print (one per line),
-// evaluated when compiling, as mk runs a recipe's `{...}. They are not
-// part of the command's signature (signdeps): a date, say, changes on
-// every run, and -D compiles again only what is out of date, as mk.
-func shellflags(b *build) []string {
+// buildtime: the time the tool started, the one value of every CflagsTime
+var buildtime = time.Now().Unix()
+
+// timeflags: -DNAME=seconds for b.CflagsTime, as mk runs a recipe's
+// `{date -n}. They are not part of the command's signature (signdeps): the
+// time changes on every run, and -D compiles again only what is out of
+// date, as mk.
+func timeflags(b *build) []string {
 	var flags []string
-	for _, sh := range b.CflagsShell {
-		out, err := exec.Command("sh", "-c", sh).Output()
-		if err != nil {
-			log.Panicf("CflagsShell %q: %v", sh, err)
-		}
-		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			if line != "" {
-				flags = append(flags, line)
-			}
-		}
+	for _, n := range b.CflagsTime {
+		flags = append(flags, "-D"+n+"="+strconv.FormatInt(buildtime, 10))
 	}
 	return flags
 }
@@ -740,7 +735,7 @@ func compile(b *build) {
 			}
 			f := sourceFile
 			jobs = append(jobs, func() {
-				cmd := exec.Command(command, append(append(args[:len(args):len(args)], shellflags(b)...), f)...)
+				cmd := exec.Command(command, append(append(args[:len(args):len(args)], timeflags(b)...), f)...)
 				run(b, *shellhack, cmd)
 				signdeps(b, f, command, args)
 			})
@@ -770,7 +765,7 @@ func compile(b *build) {
 // an Objtag into its x.<Objtag>.o (-o), which leaves the x.o of the same
 // source, and gcc names the dependency file after it
 func cc(b *build, command string, args, fs []string) []func() {
-	cargs := append(args[:len(args):len(args)], shellflags(b)...)
+	cargs := append(args[:len(args):len(args)], timeflags(b)...)
 	var jobs []func()
 	for _, f := range fs {
 		f := f

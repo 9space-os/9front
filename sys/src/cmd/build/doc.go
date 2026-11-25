@@ -135,6 +135,11 @@ to the standard flags of
 The standard include paths are re-rooted to the plan9 tree if not on a plan9
 system.
 
+"CflagsTime" names macros the tool defines as the time it started, in seconds
+since the epoch: -DNAME=seconds, where a mkfile's recipe has
+-DNAME=`{date -n} (cwfs' DATE). No shell runs; the flag is no part of a
+compile's signature (-D does not compile again for it).
+
 "SourceFilesCmd" is an array of C files where each one should result in an
 executable. If this key is provided, "SourceFiles" and "Program" are ignored.
 
