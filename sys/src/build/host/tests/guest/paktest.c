@@ -14,12 +14,12 @@
 #include <libsec.h>
 #include <authsrv.h>
 
-#include "../../sys/src/libauthsrv/msqrt.mpc"
-#include "../../sys/src/libauthsrv/decaf.mpc"
-#include "../../sys/src/libauthsrv/edwards.mpc"
-#include "../../sys/src/libauthsrv/elligator2.mpc"
-#include "../../sys/src/libauthsrv/spake2ee.mpc"
-#include "../../sys/src/libauthsrv/ed448.mpc"
+#include "../../../../libauthsrv/msqrt.mpc"
+#include "../../../../libauthsrv/decaf.mpc"
+#include "../../../../libauthsrv/edwards.mpc"
+#include "../../../../libauthsrv/elligator2.mpc"
+#include "../../../../libauthsrv/spake2ee.mpc"
+#include "../../../../libauthsrv/ed448.mpc"
 
 static int nok, nfail;
 
