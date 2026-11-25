@@ -74,7 +74,7 @@ ag=$($M rc '/tests/sdlagain.rc' 200 2>&1) || true
 echo "$ag" | grep -E '^(ok|FAIL|event|signal|sdl plan9|log: )' | sed 's/^/  /'
 if echo "$ag" | grep -q '^sdlagain.rc: all passed'; then echo "ok an SDL window outlives its wsys (twice)"; else echo "FAIL an SDL window outlives its wsys"; fail=1; fi
 # the guest's end writes the WAV file whole: what it played, not silence
-deskguest_stop	# QEMU writes the WAV file whole when it ends
+deskguest_stop end	# QEMU writes the WAV file whole when it ends
 if python3 - "$wav" <<'PY'
 import struct, sys
 # QEMU's wav backend fills in the header's sizes only when it closes the file: the samples after it

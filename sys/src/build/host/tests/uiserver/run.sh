@@ -72,7 +72,7 @@ echo "$out" | grep -q '^uiserver: all passed' || fail=1
 ur=$($M rc '/tests/uirestart' 200 2>&1) || true
 echo "$ur" | grep -E '^(ok|FAIL)'
 echo "$ur" | grep -q '^uirestart: all passed' && echo "ok a ui program outlives its wsys, its count kept" || { echo "FAIL a ui program outlives its wsys"; fail=1; }
-deskguest_stop
+deskguest_stop end	# a guest of its own may follow (venus)
 
 # ui across its GPU driver's restart (uilost.rc): venus (virtio-gpu-gl), wsys -g;
 # the host's render node is needed (none while the card is VFIO's)

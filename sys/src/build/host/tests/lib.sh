@@ -67,7 +67,13 @@ cdimage(){
 # laid over its / (tests/ replaced, the rest merged), its desktop ended (deskoff.rc), then a server like
 # mcp-guest.sh's (no deny list, /tmp/mcp) in place of the profile's, with the
 # first commands in its name space (KARGS: the screen is plan9.ini's, unless a
-# first command sets another, e.g. aux/vga -l)
+# first command sets another, e.g. aux/vga -l). With DESKKEEP=1 (tests/run.sh
+# sets it for INSTANCE=1) deskguest_stop leaves that boot running, and the next
+# category's deskguest takes it over when it asks for the same QEMU_EXTRA:
+# deskoff.rc ends whatever the last one left (its server's programs, any
+# wsys), then its own server starts; "deskguest_stop end" ends it in any
+# case (sdl: QEMU writes its sound only when it ends; a guest of its own
+# after it), and tests/run.sh at its end.
 deskguest(){
 	local log=$1; shift
 	if [ "$INSTANCE" != 1 ]; then
@@ -80,12 +86,21 @@ deskguest(){
 	[ -n "$INSTANCE_DIR" ] || { echo "tests: INSTANCE=1 but no INSTANCE_DIR (dist/local.env)" >&2; exit 1; }
 	# the instance's own settings (instance.env), not the guest's of mcp-guest.sh
 	# (MEM, SMP: a console guest's, too small for a desktop system)
-	local inst="env -u MEM -u SMP $DIST/bin/instance" first="" c
+	local inst="env -u MEM -u SMP $DIST/bin/instance" first="" c D=$INSTANCE_DIR again=0
 	atexit deskguest_stop
-	QEMU_EXTRA=$QEMU_EXTRA $inst fresh >"$log" 2>&1 || { echo "tests: instance fresh failed ($log)" >&2; return 1; }
-	QMP=$INSTANCE_DIR/qmp.sock
-	export MCPURL=http://127.0.0.1:$(. "$INSTANCE_DIR/instance.env" 2>/dev/null; echo "${MCP_PORT:-18090}")/mcp
-	MCPTOKEN=$(cat "$INSTANCE_DIR/mcptoken"); export MCPTOKEN
+	QMP=$D/qmp.sock
+	export MCPURL=http://127.0.0.1:$(. "$D/instance.env" 2>/dev/null; echo "${MCP_PORT:-18090}")/mcp
+	MCPTOKEN=$(cat "$D/mcptoken"); export MCPTOKEN
+	# an earlier category's throwaway boot, with the same devices: taken over
+	if [ "$DESKKEEP" = 1 ] && [ -f "$D/qemu.desk" ] && [ -f "$D/qemu.snapshot" ] &&
+		[ -s "$D/qemu.pid" ] && kill -0 "$(cat "$D/qemu.pid")" 2>/dev/null &&
+		[ "$(cat "$D/qemu.extra" 2>/dev/null)" = "$QEMU_EXTRA" ] &&
+		python3 "$ROOT/sys/src/build/host/guest/mcp.py" rc 'echo up' 20 >/dev/null 2>&1; then
+		again=1
+		echo "tests: deskguest: the throwaway boot of the category before" >"$log"
+	else
+		QEMU_EXTRA=$QEMU_EXTRA $inst fresh >"$log" 2>&1 || { echo "tests: instance fresh failed ($log)" >&2; return 1; }
+	fi
 	# UFS_EXTRA is laid over / (as mcp-guest.sh's root): its tests/ the test's
 	# own (replaced), anything else merged into what the system has (fonts)
 	local e
@@ -97,7 +112,9 @@ deskguest(){
 		done
 	fi
 	local M="python3 $ROOT/sys/src/build/host/guest/mcp.py"
-	$M rc - 60 <"$ROOT/sys/src/build/host/tests/deskoff.rc" >>"$log" 2>&1 || { echo "tests: the instance's desktop did not end ($log)" >&2; return 1; }
+	# the desktop; taken over: also what the category before left under its server
+	{ [ $again = 1 ] && echo '*=(9front-mcp wsys rio)'; cat "$ROOT/sys/src/build/host/tests/deskoff.rc"; } |
+		$M rc - 60 >>"$log" 2>&1 || { echo "tests: the instance's desktop did not end ($log)" >&2; return 1; }
 	# the commands, then the server, detached: the profile's server goes first
 	# (its port), this call with it; aux/realemu too (the boot's /dev/realmode
 	# is its own name space's, not the server's: aux/vga -l needs one)
@@ -105,10 +122,13 @@ deskguest(){
 	$M rc "{rfork sF; sleep 1; for(p in \`{ps | awk '\$NF==\"9front-mcp\" {print \$2}'}) echo kill >/proc/\$p/ctl; sleep 1;$first mkdir -p /tmp/mcp; 9front-mcp -http 'tcp!*!8090' -tokenfile \$home/lib/mcptoken -dir /tmp/mcp -disks >/tmp/mcp.log >[2=1]} </dev/null >/dev/null >[2=1] &" 30 >>"$log" 2>&1 || true
 	sleep 3
 	$M wait 120 >>"$log" 2>&1 || { echo "tests: no MCP server in the instance after deskoff ($log)" >&2; return 1; }
+	touch "$D/qemu.desk"	# a boot deskguest made: the next category may take it over
 }
-deskguest_stop(){
+deskguest_stop(){	# [end]
 	if [ "$INSTANCE" = 1 ]; then
-		"$DIST/bin/instance" stop >/dev/null 2>&1 || true	# the throwaway boot's end: nothing stays
+		# kept for the next category (DESKKEEP), else its end: nothing stays
+		[ "$1" != end ] && [ "$DESKKEEP" = 1 ] && [ -f "$INSTANCE_DIR/qemu.desk" ] && return 0
+		"$DIST/bin/instance" stop >/dev/null 2>&1 || true
 		unset MCPURL MCPTOKEN	# a guest of mcp-guest.sh after it: mcp.py's defaults
 	elif [ -n "$__deskguest" ]; then
 		kill -TERM -- -"$__deskguest" 2>/dev/null || kill "$__deskguest" 2>/dev/null

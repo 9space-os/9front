@@ -62,6 +62,18 @@
 cd "$(dirname "$0")"
 cats=${*:-static asm hid syscall build guest boot replica pmc acpi wlan gpu gui ui draw disk iso rio usb workflow gcc go rust mcp hw}
 failed=()
+# INSTANCE=1: one build for the whole run (staged now, if a part of it is
+# newer; then STAGE=0: a file changed meanwhile does not stage it again), the
+# desktop categories share the instance's throwaway boot (lib.sh deskguest,
+# DESKKEEP); what is left of it ends with this run
+if [ "$INSTANCE" = 1 ]; then
+	export DESKKEEP=1
+	ROOT=$(git rev-parse --show-toplevel)
+	. "$ROOT/sys/src/build/lib/paths.sh"
+	"$DIST/bin/instance" stage || exit 1
+	export STAGE=0
+	trap '[ -f "$INSTANCE_DIR/qemu.desk" ] && "$DIST/bin/instance" stop >/dev/null 2>&1' EXIT
+fi
 for c in $cats; do
 	[ -x "$c/run.sh" ] || { echo "unknown category $c"; exit 2; }
 	echo "== $c"

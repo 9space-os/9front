@@ -63,7 +63,7 @@ weston(){ # output prefix title
 		echo "FAIL weston-simple-$2"; fail=1
 	fi
 }
-stop(){ deskguest_stop; [ -n "$guest" ] || return 0; kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true; guest=; }
+stop(){ deskguest_stop end; [ -n "$guest" ] || return 0; kill -TERM -- -$guest 2>/dev/null || kill $guest 2>/dev/null; wait $guest 2>/dev/null || true; guest=; }
 atexit stop	# whichever guest runs (both stop it themselves too)
 
 if [ "${VKONLY:-0}" = 0 ]; then
