@@ -16,12 +16,16 @@ They stay on the branch they come from as well (marked there) until
   size off-by-one, add early size check to make sure padding fits").
 - Source: branch `upstream` of this repository (worktree
   `../tree-upstream`, see `dist/docs/upstream.md`), one commit per patch on top of `origin/front`.
-- Regenerate after a change or a rebase of `upstream` onto a newer
-  `origin/front`:
+- The numbers stay: a patch keeps its number for good (they are quoted in
+  the branches' comments and in reviews). One 9front has taken moves,
+  unchanged, to `archive/` (see "Archive" below); the series then has a
+  gap there. Files are not regenerated as a whole: a new patch gets the
+  next free number,
 
-	git -C ../tree-upstream rebase front
-	rm patch-upstream/0*.patch
-	git format-patch -o patch-upstream front..upstream
+	git format-patch -1 --start-number N -o patch-upstream <commit on upstream>
+
+  and `upstream` is rebased onto each new `front` (`dist/docs/upstream.md`),
+  dropping the commits 9front has taken.
 
 ## Applying
 
@@ -35,7 +39,8 @@ All 31 apply as a series (on `f5df6bc0a`, on `origin/front` at
 on them there (2026-11-17), 0046 and 0047 on them there (2026-11-18);
 all 59 at `cb9e5e7e9` (2026-11-19), 0060 on them there (2026-11-19), 0061 to
 0063 on them there (2026-11-20), 0064 and 0065 on them there (2026-11-21),
-0066 on them there (2026-11-23).
+0066 on them there (2026-11-23); the 58 not archived on `2f3a62877`
+(2026-11-25), as files, unchanged (`git am --3way`).
 Each applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
@@ -83,11 +88,28 @@ made with an AI assistant); drop it if 9front does not want it.
   with the same commands in `scripts/guest/boot/mkiso.rc`, which has
   the change of 0024.
 
+## Archive
+
+`archive/` holds the patches 9front has taken (as they were sent; 9front's
+commit is its own form of the fix). On `upstream` and in the branches the
+change is then front's.
+
+| # | 9front's commit | |
+|---|---|---|
+| 0001 | `026e87832` devip/tcp: only hang up other sides rq when still pointing to us | 2026-11-22 |
+| 0020 | `890656a50` devip/tcp: raise error(Ehungup) when other side already close | 2026-11-22 |
+| 0023 | `71f7e9dd5` kernel: fix SG_FAULT handling (fix \|\| vs ? precedence bug) | 2026-11-22 |
+| 0032 | `e58d29dbf` libaml: handle Store() to anonymous (Buffer)Field | 2026-11-22 |
+| 0037 | `1dabff7ac` kernel/pci: configure bars also for base class codes (0x13, 0x14 and 0xFF) | 2026-11-22 |
+| 0046 | `9bff2eaa5` nusb/cam: fix skipping the '-' dash in pformatwrite() | 2026-11-22 |
+| 0049 | `74016e4ec` pc, pc64: default to 0 for pcibusno() when _BBN is missing from root bridge | 2026-11-22 |
+| 0061 | `11e6a6201` auth/factotum: fix wpapsk ptk calculation | 2026-11-22 |
+
 ## The patches
 
 | # | Area | Kind |
 |---|------|------|
-| 0001 | ip/tcp: stale bypass pointer hangs up a reused conversation | bug fix |
+| 0001 | ip/tcp: stale bypass pointer hangs up a reused conversation | bug fix, taken (`026e87832`, archive/) |
 | 0002 | ip/tcp: full listener queue: keep the call in limbo, no reset | behaviour change |
 | 0003 | ndb/cs: errors cut to 63 bytes | bug fix |
 | 0004 | ext4srv: holes read block 0 of the disk | bug fix (data) |
@@ -106,10 +128,10 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0017 | sd53c8xx: boot hangs 600 s in scsiverify with SMP | bug fix |
 | 0018 | ext4srv: a read of 0 bytes answers with a garbage count, ext4srv dies | bug fix |
 | 0019 | ext4srv: remove and rename ignore the directory's permission | bug fix (permissions) |
-| 0020 | ip/tcp: writes to a closed loopback peer vanish without an error | bug fix |
+| 0020 | ip/tcp: writes to a closed loopback peer vanish without an error | bug fix, taken (`890656a50`, archive/) |
 | 0021 | ext4srv: reading on in a removed directory kills ext4srv | bug fix |
 | 0022 | ape: lib9p's "file not found" is not ENOENT | bug fix |
-| 0023 | fault: SG_FAULT segments let reads and writes through | bug fix |
+| 0023 | fault: SG_FAULT segments let reads and writes through | bug fix, taken (`71f7e9dd5`, archive/) |
 | 0024 | dist: the CD's ESP can overlap the end of the ISO | bug fix (data) |
 | 0025 | ip: a closing conversation is given out again, its new connect hangs | bug fix |
 | 0026 | truetypefs: antialiased subfonts (size `Na`) | feature |
@@ -118,12 +140,12 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0029 | snap: a memory section's count ended one past its buffer | bug fix (found by gcc -O2) |
 | 0030 | cwfs: readln put the NUL past the buffer on a long line | bug fix (found by gcc -O2) |
 | 0031 | dossrv: a long name's checksum written past reserved[] | bug fix (found by gcc -O2) |
-| 0032 | libaml: a store into the field Index gives was dropped | bug fix |
+| 0032 | libaml: a store into the field Index gives was dropped | bug fix, taken (`e58d29dbf`, archive/) |
 | 0033 | 9boot (efi): the boot device first, PXE through the firmware's MTFTP | bug fix |
 | 0034 | bootrc: cdboot takes the ISO 9660 with this machine's init | bug fix |
 | 0035 | kbmap: the maps sorted by name | bug fix |
 | 0036 | nusb/kb: a collection's usage | bug fix |
-| 0037 | pci: the BARs of a device of class 0xFF | bug fix |
+| 0037 | pci: the BARs of a device of class 0xFF | bug fix, taken (`1dabff7ac`, archive/) |
 | 0038 | nusb(4): cam's file is formats | documentation |
 | 0039 | sam: journalv with snprint, not sprint | bug fix (a crash, only with -DDEBUG) |
 | 0040 | sam: a file that does not exist yet is new when first read; a command on it under samterm was lost | bug fix |
@@ -132,10 +154,10 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0043 | compress, expr, antiword, spin: the functions they call declared (compress's utime) | bug fix |
 | 0044 | news, zuke, pool, dma, doom, eqn, troff: no variable both changed and read without a sequence point | bug fix |
 | 0045 | usbohci: bufferRounding on the last Td of an input transfer: a short last packet ends it | bug fix |
-| 0046 | nusb/cam: format WxHxBPP-FOURCC in ctl: skip the '-' before the fourcc | bug fix |
+| 0046 | nusb/cam: format WxHxBPP-FOURCC in ctl: skip the '-' before the fourcc | bug fix, taken (`9bff2eaa5`, archive/) |
 | 0047 | etheriwl: send the binding's time quota where the firmware has no DYNAMIC_QUOTA, not only where it has | bug fix |
 | 0048 | kernel: the sources named instead of "stolen from" (comments) | provenance |
-| 0049 | archacpi: a PCI root bridge without _BBN or _ADR is bus 0 | bug fix |
+| 0049 | archacpi: a PCI root bridge without _BBN or _ADR is bus 0 | bug fix, taken (`74016e4ec`, archive/) |
 | 0050 | ape: sigaddset refused most signals; sigprocmask with a nil set | bug fix |
 | 0051 | ape: stdint.h's INTn_MIN usable in #if | bug fix |
 | 0052 | ape: setvbuf with no buffer and size 0 wrote past malloc(0) | bug fix (memory) |
@@ -147,7 +169,7 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0058 | wifi: putrates wrote all rates again into the extended element | bug fix |
 | 0059 | wifi: the link is up as soon as the access point is associated | bug fix |
 | 0060 | devsegment: an ORCLOSE segment directory removed whatever was in its slot | bug fix |
-| 0061 | factotum: wpapsk ordered the nonces by 6 bytes, not 32 | bug fix |
+| 0061 | factotum: wpapsk ordered the nonces by 6 bytes, not 32 | bug fix, taken (`11e6a6201`, archive/) |
 | 0062 | ip/tftpfs, ip/socksd: sizeof(Udphdr) is 56 under 6c, udp(3) wants 52 | bug fix |
 | 0063 | pipe(3): writes are atomic up to 65536 bytes, not "typically 32768" | documentation |
 | 0064 | shr(3): a walk held the share's lock across the RPC to the mounted server: deadlock with a server removing its ORCLOSE entry at exit | bug fix |
@@ -155,6 +177,8 @@ made with an AI assistant); drop it if 9front does not want it.
 | 0066 | kernel: locals set after waserror() and read in its handler are volatile (mntwalk leaked a chan per failed walk) | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
+
+*Taken by 9front as `026e87832` (2026-11-22, in its own form); the patch is in `archive/`.*
 
 A spliced loopback connection has each side's `bypass` pointing to the
 other. A side that reaches Closed clears only its own. When the other side
@@ -378,6 +402,8 @@ ext4 disk. Shown by: in a 0555 directory rm and a rename are refused, in
 
 ### 0020 ip/tcp: a write to a spliced loopback connection whose other end is closed fails
 
+*Taken by 9front as `890656a50` (2026-11-22, in its own form); the patch is in `archive/`.*
+
 When one end of a spliced (bypass) loopback connection closes, it clears
 only its own link; `tcpbypass()` then dropped everything the other end
 wrote, without an error: a writer never learnt that the peer was gone
@@ -414,6 +440,8 @@ on the first include directory without the header ("./stddef.h: file not
 found"). Shown by: the same build goes through, errno is ENOENT.
 
 ### 0023 fault: SG_FAULT segments fault on every access
+
+*Taken by 9front as `71f7e9dd5` (2026-11-22, in its own form); the patch is in `archive/`.*
 
 The check in `fault()` reads `(attr & SG_FAULT) != 0 || read? (exec
 fault) : (attr & SG_RONLY) != 0`, but `||` binds tighter than `?:`: it is
@@ -530,6 +558,8 @@ dossrv), dossrv run by the CD's boot (9fat).  Not done: compiled with
 
 ### 0032 libaml: a store into the field Index gives
 
+*Taken by 9front as `e58d29dbf` (2026-11-22, in its own form); the patch is in `archive/`.*
+
 `store()` took only references and names as its target; the buffer
 field `Index` returns fell into the default case and `Store (x, Index
 (BUFF, i))` changed nothing, without an error. A Lenovo ThinkBook 16 G7
@@ -593,6 +623,8 @@ for the touchpad's collection 0x0D0005. Not done: compiled with 9front's
 own compilers, tried on a touchscreen.
 
 ### 0037 pci: the BARs of a device of class 0xFF
+
+*Taken by 9front as `1dabff7ac` (2026-11-22, in its own form); the patch is in `archive/`.*
 
 `pciscan` read and sized the base address registers only for the classes
 it lists; a device that fits no class (0xFF: Realtek's PCI Express card
@@ -718,6 +750,8 @@ with 9front's own compilers.
 
 ### 0046 nusb/cam: format WxHxBPP-FOURCC in ctl: skip the '-' before the fourcc
 
+*Taken by 9front as `9bff2eaa5` (2026-11-22, in its own form); the patch is in `archive/`.*
+
 Writing back what `ctl` reads, `format 640x480x16-YUY2`, failed with
 "invalid argument": after the bits per pixel the parser was left on the
 `-`, so the fourcc had five characters and was compared as `-YUY`. Only
@@ -748,6 +782,8 @@ mt7688 `fpi.c` name their origin: Plan 9 from Bell Labs' ARM kernels,
 after an original by ark (Plan 9 Foundation, 9front authors; MIT).
 
 ### 0049 archacpi: a PCI root bridge without _BBN or _ADR is bus 0
+
+*Taken by 9front as `74016e4ec` (2026-11-22, in its own form); the patch is in `archive/`.*
 
 `pcibusno` failed for a root bridge (PNP0A03, PNP0A08) with neither
 `_BBN` nor `_ADR`. ACPI allows `_BBN` to be left out there, and then it
@@ -854,6 +890,8 @@ tests/gpu (its killdrv check: the driver killed while vkcube draws,
 none of its segments left). Not done: run on 9front's own kernel.
 
 ### 0061 factotum: wpapsk orders the nonces by all 32 bytes, not the first 6
+
+*Taken by 9front as `11e6a6201` (2026-11-22, in its own form); the patch is in `archive/`.*
 
 `calcptk` compared the supplicant's and the authenticator's nonces with
 `memcmp(..., Eaddrlen)`: their first 6 bytes. IEEE 802.11i's PTK takes
