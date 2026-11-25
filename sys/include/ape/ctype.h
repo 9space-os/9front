@@ -37,6 +37,9 @@ enum
 };
 
 extern unsigned char _ctype[];
+/* 9space: C++ wants these as functions ([res.on.functions]; libc++'s <cctype>
+ * names them std::isdigit, ...): the macros for C only */
+#ifndef __cplusplus
 #define	isalnum(c)	(_ctype[(unsigned char)(c)]&(_ISupper|_ISlower|_ISdigit))
 #define	isalpha(c)	(_ctype[(unsigned char)(c)]&(_ISupper|_ISlower))
 #define	isblank(c)	(_ctype[(unsigned char)(c)]&_ISblank)
@@ -49,6 +52,7 @@ extern unsigned char _ctype[];
 #define	isspace(c)	(_ctype[(unsigned char)(c)]&_ISspace)
 #define	isupper(c)	(_ctype[(unsigned char)(c)]&_ISupper)
 #define	isxdigit(c)	(_ctype[(unsigned char)(c)]&_ISxdigit)
+#endif
 
 #ifdef _BSD_EXTENSION
 #define	isascii(c) (((unsigned int)(c))<0x80)

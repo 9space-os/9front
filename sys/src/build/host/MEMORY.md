@@ -1071,3 +1071,8 @@ Vorher war eine Bibliothek **ein** gcc-Aufruf mit allen Dateien (gcc übersetzt 
 - `check-install.$objtype` (build-self.sh für mkself) liegt jetzt in `sys/src/build/`.
 - tests/static vergleicht jetzt auch die musl-Manifeste (genmusl.py): sie hatten noch die alten relativen Pfade, ohne dass es auffiel.
 - stage-dist.sh lässt `sys/src/build/host` von `/sys/src` weg.
+
+## 2026-11-25: APE für libc++ (clang-Port, toolchain/clang)
+- `ape/ctype.h`: die Makros `isalpha(c)` & Co. nur noch für C. C++ verlangt Funktionen ([res.on.functions]); libc++s `<cctype>` sagt `std::isdigit(...)`, das Makro machte daraus `std::(_ctype[...])`. libstdc++ hatte sie selbst ge-#undef-t, daher fiel es mit g++ nie auf; libap hat die Funktionen.
+- `ape/string.h`: `strerror_r` (libaps, GNUs Form: liefert den Text) auch für gcc-/clang-Programme deklariert wie `strtok_r`; der Puffer war in APEs Deklaration `const char *` (die Definition schreibt hinein: `char *`), jetzt beide `char *`.
+- `ape/locale.h`, `ap/posix/locale.c`: `struct lconv` hatte die C99-Glieder `int_p_cs_precedes` … `int_n_sign_posn` (C99 7.11) nicht; am Ende angehängt, in der C-Locale `CHAR_MAX`. Älterer Code liest nur die vorderen Glieder; libap neu gebaut (amd64; 386 und arm64 beim nächsten Bau).
