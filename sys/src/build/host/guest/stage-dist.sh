@@ -131,6 +131,20 @@ GCC_OUT=${GCC_OUT:-$GCC_DIR/out/$A}
 PROTOS=()
 lang gcc && PROTOS+=("$ROOT/sys/src/build/host/guest/boot/gccproto") || omit+=("$A/lib.gcc")
 has ui && PROTOS+=("$ROOT/sys/src/build/host/guest/boot/uiproto")
+# gccmk (toolchain/gcc build.sh plan9: its wrappers from GCC_DIR/plan9, its flags
+# from the tree's manifests) made anew when one of those is newer than what
+# it made: a commit to them alone changes nothing in GCC_OUT
+gccmk_stale(){
+	local stamp=$GCC_OUT/$A/gnu/plan9/lib.rc
+	[ -e "$stamp" ] || return 0
+	[ -n "$(find "$GCC_DIR/plan9" "$ROOT/$A/cflags.json" "$ROOT/$A/gcc.json" "$ROOT/$A/ape.json" \
+		"$ROOT/sys/src/cmd/cmds.json" "$ROOT/sys/src/ape/cmd/cmds.json" "$ROOT"/sys/src/9/*/build.json \
+		-newer "$stamp" -print -quit 2>/dev/null)" ]
+}
+if lang gcc && [ -d "$GCC_OUT/$A/gnu" ] && [ "$GCC_OUT" = "$GCC_DIR/out/$A" ] && gccmk_stale; then
+	echo "stage-dist: gccmk older than toolchain/gcc/plan9 or the tree's flags: build.sh plan9" >&2
+	(cd "$GCC_DIR" && objtype=$A PLAN9=$ROOT ./build.sh plan9) >&2
+fi
 if ! lang gcc; then
 	:
 elif [ -d "$GCC_OUT/$A/gnu" ]; then
