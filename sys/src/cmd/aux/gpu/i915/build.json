@@ -3,6 +3,7 @@
 		"Name": "aux-i915-linux",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",

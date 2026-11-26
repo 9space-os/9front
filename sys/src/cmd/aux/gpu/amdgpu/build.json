@@ -3,6 +3,7 @@
 		"Name": "aux-amdgpu-linux",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",

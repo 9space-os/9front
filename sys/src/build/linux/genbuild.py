@@ -25,8 +25,10 @@ exec(src, g)
 D = g['D']
 TREE = os.path.normpath(os.path.join(D, '../../..'))
 
-# as Linux compiles (Makefile: KBUILD_CFLAGS), without what is the kernel's own
-LINUXFLAGS = ['-std=gnu11', '-O2', '-g', '-fno-strict-aliasing', '-fno-strict-overflow',
+# as Linux compiles (Makefile: KBUILD_CFLAGS), without what is the kernel's own;
+# __linux__ as Linux's gcc has it built in: the sources test it (rtw89's core.h),
+# and 9space's gcc (and clang for Plan 9) define __plan9__ instead
+LINUXFLAGS = ['-D__linux__=1', '-std=gnu11', '-O2', '-g', '-fno-strict-aliasing', '-fno-strict-overflow',
 	'-fno-delete-null-pointer-checks', '-fno-common', '-fno-pie', '-fno-stack-protector',
 	'-fno-omit-frame-pointer', '-mcmodel=small', '-fshort-wchar', '-funsigned-char',
 	'-Wno-unused', '-Wno-pointer-sign', '-Wno-address-of-packed-member', '-Wno-format-truncation']

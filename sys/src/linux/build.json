@@ -17,6 +17,7 @@
 		"Name": "linux-kpi",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -104,6 +105,7 @@
 		"Name": "linux-selftests",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -151,6 +153,7 @@
 		"Name": "linux-drivers-dma-buf",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -195,6 +198,7 @@
 		"Name": "linux-drivers-gpu",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -239,6 +243,7 @@
 		"Name": "linux-drivers-gpu-drm",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -346,6 +351,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-amdgpu",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -725,6 +731,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-amdxcp",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -835,6 +842,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-amdgpu_dm",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -967,6 +975,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -1082,6 +1091,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-basics",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -1198,6 +1208,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-bios",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -1316,6 +1327,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-bios-dce110",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -1426,6 +1438,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-bios-dce112",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -1537,6 +1550,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-bios-dce80",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -1647,6 +1661,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -1757,6 +1772,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dce100",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -1867,6 +1883,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dce110",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -1977,6 +1994,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dce112",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -2087,6 +2105,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dce120",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -2197,6 +2216,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -2309,6 +2329,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -2419,6 +2440,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn201",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -2529,6 +2551,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn21",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -2640,6 +2663,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -2753,6 +2777,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn301",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -2864,6 +2889,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn31",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -2975,6 +3001,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn314",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -3086,6 +3113,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn315",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -3197,6 +3225,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn316",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -3308,6 +3337,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -3419,6 +3449,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -3531,6 +3562,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -3642,6 +3674,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -3753,6 +3786,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn42b",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -3863,6 +3897,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-clk_mgr-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -3974,6 +4009,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-core",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -4095,6 +4131,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dccg-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -4205,6 +4242,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dccg-dcn201",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -4315,6 +4353,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dccg-dcn21",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -4425,6 +4464,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dccg-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -4535,6 +4575,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dccg-dcn301",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -4645,6 +4686,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dccg-dcn31",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -4755,6 +4797,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dccg-dcn314",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -4865,6 +4908,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dccg-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -4975,6 +5019,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dccg-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -5085,6 +5130,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dccg-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -5195,6 +5241,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dccg-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -5305,6 +5352,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dccg-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -5415,6 +5463,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dce",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -5548,6 +5597,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dce110",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -5665,6 +5715,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dce112",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -5775,6 +5826,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dce120",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -5885,6 +5937,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dce80",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -5995,6 +6048,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -6107,6 +6161,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -6219,6 +6274,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dcn201",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -6331,6 +6387,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dcn21",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -6441,6 +6498,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -6554,6 +6612,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dcn301",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -6664,6 +6723,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dcn31",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -6777,6 +6837,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dio-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -6889,6 +6950,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dio-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -7000,6 +7062,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dio-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -7111,6 +7174,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dio-dcn301",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -7221,6 +7285,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dio-dcn31",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -7331,6 +7396,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dio-dcn314",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -7441,6 +7507,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dio-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -7552,6 +7619,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dio-dcn321",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -7662,6 +7730,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dio-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -7773,6 +7842,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dio-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -7884,6 +7954,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dio-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -7995,6 +8066,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dio-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -8106,6 +8178,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dio-virtual",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -8217,6 +8290,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -8331,6 +8405,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-calcs",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -8443,6 +8518,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -8553,6 +8629,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -8667,6 +8744,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dcn21",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -8778,6 +8856,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -8890,6 +8969,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dcn301",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -9000,6 +9080,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dcn302",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -9110,6 +9191,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dcn303",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -9220,6 +9302,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dcn31",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -9332,6 +9415,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dcn314",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -9444,6 +9528,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -9557,6 +9642,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dcn321",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -9667,6 +9753,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -9777,6 +9864,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dcn351",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -9887,6 +9975,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml-dsc",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -9997,6 +10086,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml2_0",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -10117,6 +10207,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml2_0-dml21",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -10230,6 +10321,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml2_0-dml21-src-dml2_cga",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -10341,6 +10433,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml2_0-dml21-src-dml2_core",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -10464,6 +10557,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml2_0-dml21-src-dml2_dpmm",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -10576,6 +10670,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml2_0-dml21-src-dml2_mcg",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -10688,6 +10783,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml2_0-dml21-src-dml2_pmo",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -10805,6 +10901,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml2_0-dml21-src-dml2_standalone_libraries",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -10917,6 +11014,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml2_0-dml21-src-dml2_top",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -11029,6 +11127,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dml2_0-dml21-src-dml2_utm_soc_bb",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -11141,6 +11240,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dpp-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -11253,6 +11353,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dpp-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -11364,6 +11465,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dpp-dcn201",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -11474,6 +11576,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dpp-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -11585,6 +11688,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dpp-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -11695,6 +11799,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dpp-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -11805,6 +11910,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dpp-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -11917,6 +12023,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dpp-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -12027,6 +12134,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dpp-dcn50",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -12137,6 +12245,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dpp-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -12248,6 +12357,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dsc",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -12360,6 +12470,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dsc-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -12470,6 +12581,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dsc-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -12580,6 +12692,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dsc-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -12690,6 +12803,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dsc-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -12800,6 +12914,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dwb-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -12911,6 +13026,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-dwb-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -13021,6 +13137,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -13138,6 +13255,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio-dce110",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -13249,6 +13367,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio-dce120",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -13360,6 +13479,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio-dce80",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -13471,6 +13591,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -13582,6 +13703,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -13693,6 +13815,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio-dcn21",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -13804,6 +13927,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -13915,6 +14039,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio-dcn315",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -14026,6 +14151,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -14137,6 +14263,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -14248,6 +14375,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -14359,6 +14487,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio-dcn42b",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -14470,6 +14599,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-gpio-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -14581,6 +14711,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hdcp",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -14691,6 +14822,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hpo-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -14802,6 +14934,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hpo-dcn31",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -14913,6 +15046,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hpo-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -15023,6 +15157,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hpo-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -15133,6 +15268,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hpo-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -15244,6 +15380,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hpo-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -15355,6 +15492,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubbub-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -15465,6 +15603,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubbub-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -15575,6 +15714,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubbub-dcn201",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -15685,6 +15825,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubbub-dcn21",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -15795,6 +15936,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubbub-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -15905,6 +16047,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubbub-dcn301",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -16015,6 +16158,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubbub-dcn31",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -16125,6 +16269,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubbub-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -16235,6 +16380,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubbub-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -16345,6 +16491,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubbub-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -16455,6 +16602,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubbub-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -16565,6 +16713,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubbub-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -16675,6 +16824,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubp-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -16785,6 +16935,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubp-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -16895,6 +17046,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubp-dcn201",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -17005,6 +17157,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubp-dcn21",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -17115,6 +17268,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubp-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -17225,6 +17379,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubp-dcn31",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -17335,6 +17490,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubp-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -17445,6 +17601,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubp-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -17555,6 +17712,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubp-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -17665,6 +17823,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubp-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -17775,6 +17934,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubp-dcn50",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -17885,6 +18045,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hubp-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -17995,6 +18156,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dce",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -18105,6 +18267,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dce100",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -18215,6 +18378,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dce110",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -18325,6 +18489,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dce112",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -18435,6 +18600,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dce120",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -18545,6 +18711,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dce80",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -18655,6 +18822,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -18766,6 +18934,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -18877,6 +19046,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn201",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -18988,6 +19158,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn21",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -19099,6 +19270,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -19210,6 +19382,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn301",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -19321,6 +19494,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn302",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -19432,6 +19606,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn303",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -19543,6 +19718,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn31",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -19654,6 +19830,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn314",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -19765,6 +19942,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -19876,6 +20054,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -19987,6 +20166,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn351",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -20098,6 +20278,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -20209,6 +20390,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -20320,6 +20502,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn42b",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -20431,6 +20614,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn50",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -20541,6 +20725,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-hwss-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -20652,6 +20837,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -20762,6 +20948,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dce110",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -20872,6 +21059,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dce120",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -20982,6 +21170,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dce80",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -21092,6 +21281,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -21202,6 +21392,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -21312,6 +21503,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn201",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -21422,6 +21614,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn21",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -21532,6 +21725,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -21642,6 +21836,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn302",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -21752,6 +21947,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn303",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -21862,6 +22058,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn31",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -21972,6 +22169,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn314",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -22082,6 +22280,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn315",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -22192,6 +22391,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -22302,6 +22502,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -22412,6 +22613,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn351",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -22522,6 +22724,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn36",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -22632,6 +22835,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -22742,6 +22946,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -22852,6 +23057,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-irq-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -22962,6 +23168,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-link",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -23076,6 +23283,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-link-accessories",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -23187,6 +23395,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-link-hwss",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -23303,6 +23512,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-link-protocols",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -23429,6 +23639,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-mmhubbub-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -23539,6 +23750,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-mmhubbub-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -23649,6 +23861,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-mmhubbub-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -23759,6 +23972,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-mmhubbub-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -23869,6 +24083,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-mmhubbub-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -23979,6 +24194,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-mpc-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -24089,6 +24305,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-mpc-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -24199,6 +24416,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-mpc-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -24309,6 +24527,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-mpc-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -24419,6 +24638,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-mpc-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -24529,6 +24749,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-mpc-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -24639,6 +24860,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-mpc-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -24749,6 +24971,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-opp-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -24859,6 +25082,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-opp-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -24969,6 +25193,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-opp-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -25079,6 +25304,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-opp-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -25189,6 +25415,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-optc-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -25299,6 +25526,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-optc-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -25409,6 +25637,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-optc-dcn201",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -25519,6 +25748,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-optc-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -25629,6 +25859,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-optc-dcn301",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -25739,6 +25970,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-optc-dcn31",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -25849,6 +26081,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-optc-dcn314",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -25959,6 +26192,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-optc-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -26069,6 +26303,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-optc-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -26179,6 +26414,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-optc-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -26289,6 +26525,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-optc-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -26399,6 +26636,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-optc-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -26509,6 +26747,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-pg-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -26619,6 +26858,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-pg-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -26729,6 +26969,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dce100",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -26839,6 +27080,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dce110",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -26949,6 +27191,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dce112",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -27059,6 +27302,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dce120",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -27169,6 +27413,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dce80",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -27279,6 +27524,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn10",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -27389,6 +27635,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn20",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -27499,6 +27746,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn201",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -27609,6 +27857,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn21",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -27719,6 +27968,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn30",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -27829,6 +28079,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn301",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -27939,6 +28190,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn302",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -28049,6 +28301,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn303",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -28159,6 +28412,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn31",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -28269,6 +28523,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn314",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -28379,6 +28634,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn315",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -28489,6 +28745,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn316",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -28599,6 +28856,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn32",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -28710,6 +28968,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn321",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -28820,6 +29079,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn35",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -28930,6 +29190,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn351",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -29040,6 +29301,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn36",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -29150,6 +29412,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -29260,6 +29523,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -29371,6 +29635,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn42b",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -29481,6 +29746,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-resource-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -29591,6 +29857,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-soc_and_ip_translator",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -29701,6 +29968,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-soc_and_ip_translator-dcn401",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -29811,6 +30079,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-soc_and_ip_translator-dcn42",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -29921,6 +30190,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-soc_and_ip_translator-dcn42b",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -30031,6 +30301,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-soc_and_ip_translator-dcn60",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -30141,6 +30412,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dc-sspl",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -30257,6 +30529,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-dmub-src",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -30387,6 +30660,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-modules-color",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -30498,6 +30772,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-modules-freesync",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -30608,6 +30883,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-modules-hdcp",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -30725,6 +31001,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-modules-info_packet",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -30835,6 +31112,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-display-modules-power",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -30948,6 +31226,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-pm",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -31060,6 +31339,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-pm-legacy-dpm",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -31170,6 +31450,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-pm-powerplay",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -31280,6 +31561,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-pm-powerplay-hwmgr",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -31426,6 +31708,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-pm-powerplay-smumgr",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -31549,6 +31832,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-pm-swsmu",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -31660,6 +31944,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-pm-swsmu-smu11",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -31775,6 +32060,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-pm-swsmu-smu12",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -31886,6 +32172,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-pm-swsmu-smu13",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -32004,6 +32291,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-pm-swsmu-smu14",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -32116,6 +32404,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-pm-swsmu-smu15",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -32228,6 +32517,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-ras-core",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -32356,6 +32646,7 @@
 		"Name": "linux-drivers-gpu-drm-amd-ras-ras_mgr",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -32473,6 +32764,7 @@
 		"Name": "linux-drivers-gpu-drm-display",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -32524,6 +32816,7 @@
 		"Name": "linux-drivers-gpu-drm-i915",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -32634,6 +32927,7 @@
 		"Name": "linux-drivers-gpu-drm-i915-display",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -32820,6 +33114,7 @@
 		"Name": "linux-drivers-gpu-drm-i915-gem",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -32893,6 +33188,7 @@
 		"Name": "linux-drivers-gpu-drm-i915-gem-selftests",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -32941,6 +33237,7 @@
 		"Name": "linux-drivers-gpu-drm-i915-gt",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -33046,6 +33343,7 @@
 		"Name": "linux-drivers-gpu-drm-i915-gt-uc",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -33115,6 +33413,7 @@
 		"Name": "linux-drivers-gpu-drm-i915-pxp",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -33164,6 +33463,7 @@
 		"Name": "linux-drivers-gpu-drm-i915-selftests",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -33221,6 +33521,7 @@
 		"Name": "linux-drivers-gpu-drm-scheduler",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -33267,6 +33568,7 @@
 		"Name": "linux-drivers-gpu-drm-ttm",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
@@ -33321,6 +33623,7 @@
 		"Name": "linux-drivers-video",
 		"Noinc": true,
 		"Cflags": [
+			"-D__linux__=1",
 			"-std=gnu11",
 			"-O2",
 			"-g",
