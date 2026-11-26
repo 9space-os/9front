@@ -983,8 +983,8 @@ first buffer (`STATFIXLEN+64`), a name of more than about 45 bytes for
 glenda's files. gcc's cc1 opens a file and fstats it, and called such a
 file missing (Mesa's `intel_nir_lower_non_uniform_barycentric_at_sample.c`,
 found building 9space on itself on a ThinkPad X1; ratrace showed Fstat
-returning 2). Tested: file names of 40 to 64 bytes with the native gcc on
-the installed system, before (from 46 bytes on: no such file) and after.
+returning 2). Tested before the fix: file names of 40 to 64 bytes with the
+native gcc on the installed system, from 46 bytes on: no such file.
 
 ## Not included
 
