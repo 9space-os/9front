@@ -204,8 +204,8 @@ and builds nothing, like mk clean. Installed targets stay.
 
 DEPENDENCIES (-D)
 
-Every compile writes, beside x.o, gcc's dependency file x.d (-MMD: the
-source and the headers it read) with a signature of the compile command.
+Every compile writes, beside x.o, gcc's dependency file x.d (-MD: the
+source and every header it read, the compiler's system headers too) with a signature of the compile command.
 With -D the build tool does only what is out of date, as mk does: it
 compiles a source whose object is missing, of another $ARCH, made by
 another command, or older than the source or one of its headers;
