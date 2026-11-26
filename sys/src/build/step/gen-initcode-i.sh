@@ -13,6 +13,7 @@ set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
+. "$ROOT/sys/src/build/lib/target.sh"	# CC's toolset: target_tools
 OBJCOPY=objcopy
 ENTRY=_main
 case ${objtype:=amd64} in
@@ -47,6 +48,7 @@ arm64)
 	exit 1
 	;;
 esac
+target_tools
 CFLAGS="-std=gnu17 -fno-asm -ffreestanding -nostdinc -fno-builtin -fplan9-extensions
 	-fno-omit-frame-pointer -fno-stack-protector -fno-pie -Os
 	-I$ROOT/$objtype/include -I$ROOT/sys/include"
@@ -54,8 +56,7 @@ $CC $CFLAGS -c -o "$TMP/init9.o" "$ROOT/sys/src/9/$INIT9"
 $CC $CFLAGS -c -o "$TMP/initcode.o" "$ROOT/sys/src/9/port/initcode.c"
 # -N: text and data contiguous, like 8l -R1
 $LD -N -static -Ttext=$(printf "%#x" $((UTZERO + HDR))) --entry=$ENTRY -o "$TMP/initcode.elf" \
-	"$TMP/init9.o" "$TMP/initcode.o" "$ROOT/$objtype/lib.gcc/libc.a" \
-	$( [ -f "$ROOT/$objtype/lib.gcc/libgcc.a" ] && echo "$ROOT/$objtype/lib.gcc/libgcc.a")
+	"$TMP/init9.o" "$TMP/initcode.o" "$ROOT/$objtype/lib.gcc/libc.a" $RT
 $OBJCOPY -O binary -R .bss -R .comment -R .note.gnu.property "$TMP/initcode.elf" "$TMP/initcode.bin"
 python3 - "$TMP/initcode.bin" "$ROOT/sys/src/9/port/initcode.i" $HDR $INIT9 <<'PY'
 import sys
