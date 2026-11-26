@@ -2,8 +2,11 @@
 #define __TYPES_H
 
 #pragma lib "/$M/lib/ape/libap.a"
-typedef	unsigned short	ino_t;
-typedef	unsigned short	dev_t;
+/* 9space: the whole of a file's identity (9front's APE: 16 bits each, so
+ * files' numbers collided: qid.path cut to 16 bits); ino_t is qid.path,
+ * dev_t is (type<<16)|dev (dirtostat.c) */
+typedef	unsigned long long	ino_t;
+typedef	unsigned int	dev_t;
 typedef	long long		off_t;
 typedef unsigned short	mode_t;
 typedef short		uid_t;
