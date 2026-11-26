@@ -58,9 +58,11 @@
  *	a += b;
  */
 
+/* V as the signed 32-bit displacement it is encoded as (GNU as wraps a
+ * constant of 2^31 and more, LLVM's assembler refuses it): the same code */
 #define BODY(off,V,FN,SH,A,B,C,D,A64)\
 	FN(B,C,D)\
-	leal V(A64,%rdi,1),A;\
+	leal ((V)-(((V)>>31)<<32))(A64,%rdi,1),A;\
 	addl (off)(%rbp),A;\
 	roll $SH,A;\
 	addl B,A;\

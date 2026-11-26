@@ -85,7 +85,12 @@ def main():
 			{'Name': 'libs', 'Projects': libs},
 			{'Name': 'klibs', 'Projects': klibs},
 			{'Name': 'cmds', 'Projects': cmds},
-			{'Name': 'kernelgen', 'Pre': gens, 'Clean': genclean.clean(gens, ROOT)},
+			# Clean relative to this manifest's directory (sys/src/build), as the
+			# build tool reads it: there it keeps a file's time when a step writes
+			# it the same again (else -D compiled the kernel's users of the .i
+			# files every time), and -clean finds them
+			{'Name': 'kernelgen', 'Pre': gens, 'Clean': [os.path.relpath(os.path.join(ROOT, f), os.path.join(ROOT, 'sys/src/build'))
+				for f in genclean.clean(gens, ROOT)]},
 			{'Name': 'kernel', 'Projects': [kern]},
 			# the build tool itself, for the installed system (sys/src/build/step/build-tool.sh)
 			{'Name': 'install', 'Post': ['python3 /sys/src/build/step/elf2aout.py %s %s' % ea

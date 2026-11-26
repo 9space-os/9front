@@ -15,6 +15,10 @@
  * E += x;
  * B >>> 2
  */
+/* V as the signed 32-bit displacement it is encoded as (GNU as wraps a
+ * constant of 2^31 and more, LLVM's assembler refuses it): the same code */
+#define DISP32(V) ((V)-(((V)>>31)<<32))
+
 #define BODY(off,FN,V,A,B,C,D,E,E64)\
 	movl (off-64)(%rbp),%edi;\
 	xorl (off-56)(%rbp),%edi;\
@@ -22,7 +26,7 @@
 	xorl (off-12)(%rbp),%edi;\
 	roll $1,%edi;\
 	movl %edi,off(%rbp);\
-	leal V(%rdi,E64,1),E;\
+	leal DISP32(V)(%rdi,E64,1),E;\
 	movl A,%edi;\
 	roll $5,%edi;\
 	addl %edi,E;\
@@ -34,7 +38,7 @@
 	movl off(%rbx),%edi;\
 	bswap %edi;\
 	movl %edi,off(%rbp);\
-	leal V(%rdi,E64,1),E;\
+	leal DISP32(V)(%rdi,E64,1),E;\
 	movl A,%edi;\
 	roll $5,%edi;\
 	addl %edi,E;\

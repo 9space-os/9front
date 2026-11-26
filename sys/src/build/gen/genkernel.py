@@ -43,18 +43,27 @@ K = os.path.join(ROOT, 'sys', 'src', '9')
 
 WARN = ['-Wno-error=implicit-int', '-Wall', '-Wno-missing-braces', '-Wno-parentheses', '-Wno-unknown-pragmas',
 	'-Wno-switch', '-Werror=sequence-point',	# unsequenced changes are undefined: an error (pc/dma.c had one); -Wall has no sign-compare in C
-	'-Werror=discarded-qualifiers']	# a device register's pointer keeps vmap's volatile (sys/src/build/host/check/find-dropped-volatile.py: casts too)
+	]
+# per compiler (Include): /$ARCH/kernel.$CC.json, the flags of a machine's
+# code the kernel libraries share (386's stack alignment); sys/src/9/$CC.json,
+# the kernels' own: a device register's pointer keeps vmap's volatile
+# (-Werror=discarded-qualifiers, clang's
+# -Werror=incompatible-pointer-types-discards-qualifiers;
+# sys/src/build/host/check/find-dropped-volatile.py: casts too)
+INCLUDE = ['/$ARCH/kernel.$CC.json', '/sys/src/9/$CC.json']
 
 ARCHS = {
 	'386': {
 		# the machine as for userspace (386/cflags.json): a Pentium, else
 		# the compiler's default (Linux: x86-64's cmov). Stacks 4-byte
-		# aligned, as 8c keeps them: with only incoming=2 gcc realigns
-		# every frame to 16 bytes and overflows the 4K kernel stack
-		# (MEMORY.md); with neither, the compilers' defaults differ
-		'Cflags': ['-m32', '-march=pentium', '-mincoming-stack-boundary=2', '-mpreferred-stack-boundary=2',
+		# aligned, as 8c keeps them (386/kernel.$CC.json: gcc's
+		# incoming=2 and preferred=2, clang's -mstack-alignment=4): with
+		# only incoming=2 gcc realigns every frame to 16 bytes and
+		# overflows the 4K kernel stack (MEMORY.md); with neither, the
+		# compilers' defaults differ
+		'Cflags': ['-m32', '-march=pentium',
 			'-fno-pie', '-fno-pic', '-mno-sse', '-mno-sse2', '-mno-mmx',
-			'-fplan9-extensions', '-fcommon', '-fno-builtin', '-fno-asynchronous-unwind-tables',
+			'-fplan9-extensions', '-fcommon', '-fno-builtin', '-ffreestanding', '-fno-asynchronous-unwind-tables',
 			'-fno-stack-protector', '-fno-omit-frame-pointer', '-fno-zero-initialized-in-bss',
 			'-Os', '-gdwarf-2'] + WARN,
 		'Oflags': ['-m', 'elf_i386', '-T', 'kernel.ld', '-z', 'max-page-size=0x1000'],
@@ -63,9 +72,9 @@ ARCHS = {
 	'amd64': {
 		'Cflags': ['-m64', '-fno-pie', '-fno-pic', '-mcmodel=kernel', '-mno-red-zone',
 			'-mno-sse', '-mno-sse2', '-mno-mmx', '-ffixed-r14', '-ffixed-r15',
-			'-fplan9-extensions', '-fcommon', '-fno-builtin', '-fno-asynchronous-unwind-tables',
+			'-fplan9-extensions', '-fcommon', '-fno-builtin', '-ffreestanding', '-fno-asynchronous-unwind-tables',
 			'-fno-stack-protector', '-fno-omit-frame-pointer', '-fno-zero-initialized-in-bss',
-			'-Os', '-gdwarf-2'] + WARN + ['-fno-reorder-functions'],
+			'-Os', '-gdwarf-2'] + WARN,	# pc64's manifest is hand-made (sys/src/9/pc64/$CC.json)
 		'Oflags': ['-T', 'kernel.ld', '-z', 'max-page-size=0x1000'],
 		'Libs': [],
 	},
@@ -77,7 +86,7 @@ ARCHS = {
 		# the C code _start runs before the MMU is on (mmu0init: end).
 		# -fsigned-char: Plan 9's char is signed (AAPCS64's is not)
 		'Cflags': ['-fsigned-char', '-fno-pie', '-fno-pic', '-mcmodel=large', '-mgeneral-regs-only', '-mno-outline-atomics',
-			'-ffixed-x26', '-ffixed-x27', '-fplan9-extensions', '-fcommon', '-fno-builtin',
+			'-ffixed-x26', '-ffixed-x27', '-fplan9-extensions', '-fcommon', '-fno-builtin', '-ffreestanding',
 			'-fno-asynchronous-unwind-tables', '-fno-stack-protector', '-fno-omit-frame-pointer',
 			'-fno-zero-initialized-in-bss', '-Os', '-gdwarf-2'] + WARN,
 		'Oflags': ['-T', 'kernel.ld', '-z', 'max-page-size=0x1000'],
@@ -277,6 +286,7 @@ def entry(d, conf, text, v, objtype):
 		'Pre': headerrules(text, v, d) + pre + x.get('Pre', []),
 		'Clean': [p.replace('$CONF', conf) for p in x.get('Clean', [])],
 		'Cflags': a['Cflags'],
+		'Include': INCLUDE,
 		'Oflags': a['Oflags'],
 		'Libs': libs,
 		'Kernel': {

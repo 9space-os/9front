@@ -1,0 +1,9 @@
+[
+	{
+		"Name": "buildflags",
+		"Cflags": [
+			"-mincoming-stack-boundary=2",
+			"-mpreferred-stack-boundary=2"
+		]
+	}
+]

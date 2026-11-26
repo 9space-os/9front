@@ -1700,7 +1700,7 @@ iself(void)
 	[4]	"core dump",
 	};
 
-	if (memcmp(buf, "\x7fELF", 4) == 0){
+	if (memcmp(buf, "\177ELF", 4) == 0){
 		if (!mime){
 			int isdifend = 0;
 			int n = (buf[19] << 8) | buf[18];

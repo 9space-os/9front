@@ -1,0 +1,18 @@
+[
+	{
+		"Name": "buildflags",
+		"Cflags": [
+			"-fno-align-jumps",
+			"-fno-align-functions",
+			"-fno-align-loops",
+			"-fno-align-labels",
+			"-fira-region=one",
+			"-fira-hoist-pressure",
+			"-freorder-blocks-algorithm=simple",
+			"-fno-prefetch-loop-arrays",
+			"-fno-tree-ch",
+			"-Werror=discarded-qualifiers",
+			"-Werror=discarded-array-qualifiers"
+		]
+	}
+]

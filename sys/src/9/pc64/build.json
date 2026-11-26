@@ -138,6 +138,7 @@
             "-fplan9-extensions",
             "-fcommon",
             "-fno-builtin",
+            "-ffreestanding",
             "-fno-asynchronous-unwind-tables",
             "-fno-stack-protector",
             "-fno-omit-frame-pointer",
@@ -149,9 +150,7 @@
             "-Wno-parentheses",
             "-Wno-unknown-pragmas",
             "-Wno-switch",
-            "-Werror=sequence-point",
-            "-Werror=discarded-qualifiers",
-            "-fno-reorder-functions"
+            "-Werror=sequence-point"
         ],
         "Oflags": [
             "-T",
@@ -509,6 +508,11 @@
             "sdmv50xx.c",
             "sdmylex.c",
             "sdodin.c"
+        ],
+        "Include": [
+            "/$ARCH/kernel.$CC.json",
+            "/sys/src/9/$CC.json",
+            "/sys/src/9/pc64/$CC.json"
         ]
     }
 ]
