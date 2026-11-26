@@ -388,13 +388,13 @@
 			"bash /sys/src/build/step/gen-bootfs.sh pc"
 		],
 		"Clean": [
-			"sys/src/9/pc/rebootcode.i",
-			"sys/src/9/pc/apbootstrap.i",
-			"sys/src/9/pc/sd53c8xx.i",
-			"sys/src/9/port/initcode.i",
-			"sys/src/9/pc/boot",
-			"sys/src/9/pc/pc.bootfs.paq",
-			"sys/src/9/pc/pc.bootfs.sum"
+			"../9/pc/rebootcode.i",
+			"../9/pc/apbootstrap.i",
+			"../9/pc/sd53c8xx.i",
+			"../9/port/initcode.i",
+			"../9/pc/boot",
+			"../9/pc/pc.bootfs.paq",
+			"../9/pc/pc.bootfs.sum"
 		]
 	},
 	{
