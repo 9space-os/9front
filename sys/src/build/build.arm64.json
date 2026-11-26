@@ -365,11 +365,11 @@
 			"bash /sys/src/build/step/gen-bootfs.sh qemu arm64"
 		],
 		"Clean": [
-			"sys/src/9/arm64/rebootcode.i",
-			"sys/src/9/port/initcode.i",
-			"sys/src/9/arm64/boot",
-			"sys/src/9/arm64/qemu.bootfs.paq",
-			"sys/src/9/arm64/qemu.bootfs.sum"
+			"../9/arm64/rebootcode.i",
+			"../9/port/initcode.i",
+			"../9/arm64/boot",
+			"../9/arm64/qemu.bootfs.paq",
+			"../9/arm64/qemu.bootfs.sum"
 		]
 	},
 	{

@@ -758,6 +758,12 @@ const sigTag = "# build.exe "
 // the same sources are built with other flags into the same x.o (klibc,
 // libc), -D compiles again when the command differs
 func signdeps(b *build, f, command string, args []string) {
+	// gcc does not preprocess a .s and writes no x.d for it, -MD or not: the
+	// object depends on the source alone (a dependency file left there may
+	// be another $ARCH's, from its .c: -D compiled musl's .s every time)
+	if strings.HasSuffix(f, ".s") {
+		fail(os.WriteFile(depfile(b, f), []byte(path.Base(objectOf(b, f))+": "+f+"\n"), 0666))
+	}
 	d, err := os.OpenFile(depfile(b, f), os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		return // no dependency file: -D compiles f again
