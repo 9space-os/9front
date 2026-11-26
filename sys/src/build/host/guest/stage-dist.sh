@@ -142,10 +142,15 @@ GCC_OUT=${GCC_OUT:-$GCC_DIR/out/$A}
 # patch-upstream 0067); HOW names the rebuild. gcc and binutils (build.sh
 # native relinks with the tree's libap); clang and lld (likewise). Not
 # Rust's rustc: its APE is its own
-# renamed copy (toolchain/rust's ape9), compiled and linked with it
+# renamed copy (toolchain/rust's ape9), compiled and linked with it.
+# apefresh -a FILE HOW [MACHINE]: an archive compiled over APE's headers
+# (libc++.a): only the headers count, the program it goes into links
+# the current libap. MACHINE: whose APE (default $A)
 apefresh(){
-	local stale
-	stale=$(find "$ROOT/sys/include/ape" "$ROOT/$A/include/ape" "$ROOT/$A/lib.gcc/ape/libap.a" -type f -newer "$1" -print -quit 2>/dev/null)
+	local stale lib=1
+	[ "$1" != -a ] || { lib=; shift; }
+	local m=${3:-$A}
+	stale=$(find "$ROOT/sys/include/ape" "$ROOT/$m/include/ape" ${lib:+"$ROOT/$m/lib.gcc/ape/libap.a"} -type f -newer "$1" -print -quit 2>/dev/null)
 	[ -z "$stale" ] || { echo "stage-dist: $1 is older than APE's ${stale#$ROOT/}: build it again ($2)" >&2; exit 1; }
 }
 # gccproto: /$objtype/lib.gcc, gcc's archives (with gcc); uiproto: the desktop's files
@@ -222,7 +227,7 @@ if [ -n "$CLANG_OUT" ]; then
 	[ -x "$C/bin/clang" ] || { echo "stage-dist: no $C/bin/clang (toolchain/clang: objtype=$A ./build.sh native)" >&2; exit 1; }
 	[ -f "$C/lib/libc++.a" ] && [ -d "$C/include" ] || { echo "stage-dist: no $C/lib or include (toolchain/clang: objtype=$A ./build.sh runtimes)" >&2; exit 1; }
 	apefresh "$C/bin/clang" "toolchain/clang: objtype=$A ./build.sh native"
-	apefresh "$C/lib/libc++.a" "toolchain/clang: objtype=$A ./build.sh runtimes"
+	apefresh -a "$C/lib/libc++.a" "toolchain/clang: objtype=$A ./build.sh runtimes"
 	mkdir -p "$VIEW/$A/clang"
 	ln -s "$C/bin" "$VIEW/$A/clang/bin"
 	ln -s "$C/include" "$VIEW/$A/clang/include"
@@ -235,7 +240,7 @@ if [ -n "$CLANG_OUT" ]; then
 		R=$CLANG_DIR/out/$X/$X/clang
 		[ -f "$R/lib/libc++.a" ] || { echo "stage-dist: clang for $X left out: no $R/lib (toolchain/clang: objtype=$X ./build.sh runtimes)" >&2; continue; }
 		[ -f "$ROOT/$X/lib.gcc/libc.a" ] && [ -f "$ROOT/$X/plan9.ld" ] || { echo "stage-dist: clang for $X left out: no $X/lib.gcc or plan9.ld (CC=gcc ARCH=$X build.exe)" >&2; continue; }
-		apefresh "$R/lib/libc++.a" "toolchain/clang: objtype=$X ./build.sh runtimes"
+		apefresh -a "$R/lib/libc++.a" "toolchain/clang: objtype=$X ./build.sh runtimes" $X
 		rm "$VIEW/$X"
 		mkdir -p "$VIEW/$X/clang" "$VIEW/$X/lib.gcc/ape"
 		for f in "$ROOT"/$X/*; do
