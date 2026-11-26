@@ -41,15 +41,14 @@ use std::time::Duration;
 
 // libvulkan.a's loader (vkGetInstanceProcAddr: a weak alias of vkl_GetInstanceProcAddr)
 // and what it needs after it: APE's libdraw (the plan9 WSI) with lib9, libfmt,
-// libutf, and libstdc++ (Mesa's C++); Mesa's dma-buf fds of gpu(4) tokens
-// (plan9/lib/dmabuf.c)
+// libutf; Mesa's C++ library the linker adds (the C++ driver: g++'s libstdc++,
+// clang++'s libc++); Mesa's dma-buf fds of gpu(4) tokens (plan9/lib/dmabuf.c)
 #[link(name = "vulkan")]
 #[link(name = "z")]	// APE's libz: libvulkan.a's zlib is the tree's, not Mesa's own
 #[link(name = "draw")]
 #[link(name = "9")]
 #[link(name = "fmt")]
 #[link(name = "utf")]
-#[link(name = "stdc++")]
 unsafe extern "system" {
     fn vkGetInstanceProcAddr(instance: vk::Instance, name: *const c_char) -> vk::PFN_vkVoidFunction;
 }

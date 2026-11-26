@@ -54,7 +54,7 @@ cargostd "$BUILD/cargo/${name//\//_}" $T
 cargorelink "$BUILD/cargo/${name//\//_}/$T/release" "$ROOT/$objtype/lib.gcc" "$@"
 (cd "$dir" &&
  env RUSTC="$RUSTC" CARGO_TARGET_DIR="$BUILD/cargo/${name//\//_}" \
-	"CARGO_TARGET_${V}_LINKER=$CROSS/$TRIPLE-gcc" \
+	"CARGO_TARGET_${V}_LINKER=$XCXX" \
 	cargo build --offline --release --target $T --quiet "${pkg[@]}" "${feat[@]}")
 mkdir -p "$ROOT/$objtype/bin"
 for p in "$@"; do
