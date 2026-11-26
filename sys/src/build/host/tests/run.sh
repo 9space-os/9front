@@ -49,6 +49,9 @@
 #   rust     Rust on the CD (/$objtype/rust, toolchain/rust, mkcd -dev rust): rustc,
 #            cargo build/run/test offline, rustfmt, rustdoc, clippy (same CD;
 #            skipped without Rust)
+#   clang    clang and lld on the CD (/$objtype/clang, toolchain/clang, mkcd -dev
+#            clang): an APE, a native Plan 9 and a C++ program, gcc's object
+#            linked by clang (same CD; skipped without clang)
 #   mcp      the MCP server on the CD (mkcd -mcp): initialize, rc through it, its
 #            deny list (same CD; skipped without it)
 #   hw       the hardware test stick (sys/src/build/host/tests/hw) in QEMU: boots from USB,
@@ -60,7 +63,7 @@
 #
 # usage: sys/src/build/host/tests/run.sh [category...]     (default: the list above, in its order)
 cd "$(dirname "$0")"
-cats=${*:-static asm hid syscall build guest boot replica pmc acpi wlan gpu gui ui draw disk iso rio usb workflow gcc go rust mcp hw}
+cats=${*:-static asm hid syscall build guest boot replica pmc acpi wlan gpu gui ui draw disk iso rio usb workflow gcc go rust clang mcp hw}
 failed=()
 # INSTANCE=1: one build for the whole run (staged now, if a part of it is
 # newer; then STAGE=0: a file changed meanwhile does not stage it again), the

@@ -24,17 +24,21 @@
 # RUST_OUT is set: an optional install, otherwise from its archives on the
 # installed system) and sys/src/build/host/guest/boot/goproto /amd64/go, Go of
 # toolchain/go (GO_DIR; likewise: its out/$objtype from scripts/install.sh,
-# only if GO_OUT is set); uiproto, vkproto, wlproto the ui and gpu groups' files;
+# only if GO_OUT is set), and sys/src/build/host/guest/boot/clangproto /amd64/clang,
+# clang and lld of toolchain/clang (CLANG_DIR; its out/$objtype from build.sh
+# native and runtimes; only if CLANG_OUT is set); uiproto, vkproto, wlproto the ui
+# and gpu groups' files;
 # sys/src/build/host/guest/proto.py expands the protos. Our
 # binaries carry DWARF (8l writes none) and are stripped. The guest's install script
 # (sys/src/build/host/guest/boot/mkdisk.rc; mkiso.rc, mkstick.rc) reads the result as /n/src9.
 #
 # PROFILE (sys/src/build/host/guest/profiles: minimal, gpu, ui, full; default full) leaves the
-# files of the groups it does not keep off; DEV (a list of gcc, rust, go, e.g.
+# files of the groups it does not keep off; DEV (a list of gcc, rust, go, clang, e.g.
 # DEV=gcc,rust; DEV=all; DEV= none) says which languages come along: gcc as /$objtype/gnu with
-# /$objtype/lib.gcc, Rust from RUST_OUT (default its out/$objtype), Go from GO_OUT
-# (likewise); Rust links with gcc, so rust takes gcc along. Without DEV, as before:
-# gcc if it is built, Rust and Go if RUST_OUT, GO_OUT are set. MCP=1: the MCP server
+# /$objtype/lib.gcc, Rust from RUST_OUT (default its out/$objtype), Go from GO_OUT,
+# clang from CLANG_OUT (likewise); Rust links with gcc, and clang with gcc's
+# /$objtype/lib.gcc (APE's libraries), so rust and clang take gcc along. Without DEV,
+# as before: gcc if it is built, Rust, Go and clang if RUST_OUT, GO_OUT, CLANG_OUT are set. MCP=1: the MCP server
 # (MCP_DIR, tools/mcp) as /$objtype/bin/9front-mcp, built with 9space's Go. BROWSER=1:
 # the browser (BROWSER_DIR: its out/$objtype, ./build.sh there) as /$objtype/bin/servoshell
 # and webfs-rs, /rc/bin/browser (browser(1)) and /sys/lib/browser (its licences, the MPL's
@@ -55,7 +59,7 @@
 #        sys/src/build/host/guest/stage-dist.sh dir
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
-. "$ROOT/sys/src/build/lib/paths.sh"	# GCC_DIR, RUST_DIR, GO_DIR, MCP_DIR, DISTFILES (the distribution's paths.env)
+. "$ROOT/sys/src/build/lib/paths.sh"	# GCC_DIR, RUST_DIR, GO_DIR, CLANG_DIR, MCP_DIR, DISTFILES (the distribution's paths.env)
 OUT=${1:?usage: stage-dist.sh dir}
 DIST=$ROOT/sys/lib/dist
 VIEW=$(mktemp -d)
@@ -111,10 +115,13 @@ mapfile -t omit < <(awk -v keep=" $keep " '/^[a-z]/ && $1 != "profile" && index(
 # the languages: DEV given, exactly those; else as before
 if [ -n "${DEV+set}" ]; then
 	dev=" $(echo "$DEV" | tr , ' ') "
-	for l in $dev; do case $l in gcc|rust|go) ;; all) dev=" gcc rust go " ;; *) echo "stage-dist: DEV: no language $l (gcc, rust, go)" >&2; exit 1 ;; esac; done
-	case $dev in *" rust "*) case $dev in *" gcc "*) ;; *) dev="$dev gcc "; echo "stage-dist: rust links with gcc, gcc comes along" >&2 ;; esac ;; esac
+	for l in $dev; do case $l in gcc|rust|go|clang) ;; all) dev=" gcc rust go clang " ;; *) echo "stage-dist: DEV: no language $l (gcc, rust, go, clang)" >&2; exit 1 ;; esac; done
+	for l in rust clang; do
+		case $dev in *" $l "*) case $dev in *" gcc "*) ;; *) dev="$dev gcc "; echo "stage-dist: $l links with gcc's files, gcc comes along" >&2 ;; esac ;; esac
+	done
 	case $dev in *" rust "*) RUST_OUT=${RUST_OUT:-$RUST_DIR/out/$A} ;; *) RUST_OUT= ;; esac
 	case $dev in *" go "*) GO_OUT=${GO_OUT:-$GO_DIR/out/$A} ;; *) GO_OUT= ;; esac
+	case $dev in *" clang "*) CLANG_OUT=${CLANG_OUT:-$CLANG_DIR/out/$A} ;; *) CLANG_OUT= ;; esac
 fi
 lang(){ [ -z "${DEV+set}" ] || case $dev in *" $1 "*) return 0;; *) return 1;; esac; }
 langs="as built"
@@ -132,7 +139,7 @@ GCC_OUT=${GCC_OUT:-$GCC_DIR/out/$A}
 # toolchain/gcc's ld with the old struct stat crashed when it overwrote a
 # file). No CD or update when FILE is older than APE's headers; HOW names
 # the rebuild. gcc and binutils (build.sh native relinks with the tree's
-# libap); clang's when it comes. Not Rust's rustc: its APE is its own
+# libap); clang and lld (likewise). Not Rust's rustc: its APE is its own
 # renamed copy (toolchain/rust's ape9), compiled and linked with it
 apefresh(){
 	local stale
@@ -185,6 +192,63 @@ if [ -n "$GO_OUT" ]; then
 	[ -d "$GO_OUT/$A/go" ] || { echo "stage-dist: no $GO_OUT/$A/go" >&2; exit 1; }
 	ln -s "$GO_OUT/$A/go" "$VIEW/$A/go"
 	PROTOS+=("$ROOT/sys/src/build/host/guest/boot/goproto")
+fi
+# clang only if asked (CLANG_OUT=$CLANG_DIR/out/$objtype: build.sh native and
+# runtimes there), as /$objtype/clang: bin (clang, lld and their rc scripts), lib
+# (libc++, libc++abi, libunwind, compiler-rt in lib/clang/N) and include (libc++'s
+# headers). The path is fixed: clang's resource directory is compiled in
+# (/$cputype/clang/lib/clang/N). Without lib/libc++.modules.json: it names a share/
+# that does not come along.
+# The other machines (CLANG_OBJTYPES, default 386 and arm64 but this one): clang
+# builds their programs with objtype= (each native clang has every backend), so
+# each gets /X/clang/{lib,include} (CLANG_DIR/out/X: build.sh runtimes there),
+# /X/plan9.ld and /X/lib.gcc from the tree's build of X (/X/include is
+# distproto's): its archives without the gpu group's (Mesa's libvulkan.a,
+# the LinuxKPI's: not for other machines' programs) and without the kernel's
+# (klib*.a). A machine without its runtimes or its build is said and left out
+clanglib(){	# dir to: its lib/ but libc++.modules.json, as links
+	mkdir -p "$2"
+	for f in "$1"/*; do
+		case $f in *.modules.json) ;; *) ln -s "$f" "$2/$(basename "$f")" ;; esac
+	done
+}
+if [ -n "$CLANG_OUT" ]; then
+	C=$CLANG_OUT/$A/clang
+	[ -x "$C/bin/clang" ] || { echo "stage-dist: no $C/bin/clang (toolchain/clang: objtype=$A ./build.sh native)" >&2; exit 1; }
+	[ -f "$C/lib/libc++.a" ] && [ -d "$C/include" ] || { echo "stage-dist: no $C/lib or include (toolchain/clang: objtype=$A ./build.sh runtimes)" >&2; exit 1; }
+	apefresh "$C/bin/clang" "toolchain/clang: objtype=$A ./build.sh native"
+	apefresh "$C/lib/libc++.a" "toolchain/clang: objtype=$A ./build.sh runtimes"
+	mkdir -p "$VIEW/$A/clang"
+	ln -s "$C/bin" "$VIEW/$A/clang/bin"
+	ln -s "$C/include" "$VIEW/$A/clang/include"
+	clanglib "$C/lib" "$VIEW/$A/clang/lib"
+	PROTOS+=("$ROOT/sys/src/build/host/guest/boot/clangproto")
+	gpulibs=$(echo $(awk '$1 == "gpu" && $2 ~ /^\$objtype\/lib.gcc\// { sub(/^\$objtype\/lib.gcc\//, "", $2); print $2 }' "$PROFILES"))
+	others=
+	for X in ${CLANG_OBJTYPES-386 arm64}; do
+		[ "$X" != "$A" ] || continue
+		R=$CLANG_DIR/out/$X/$X/clang
+		[ -f "$R/lib/libc++.a" ] || { echo "stage-dist: clang for $X left out: no $R/lib (toolchain/clang: objtype=$X ./build.sh runtimes)" >&2; continue; }
+		[ -f "$ROOT/$X/lib.gcc/libc.a" ] && [ -f "$ROOT/$X/plan9.ld" ] || { echo "stage-dist: clang for $X left out: no $X/lib.gcc or plan9.ld (CC=gcc ARCH=$X build.exe)" >&2; continue; }
+		apefresh "$R/lib/libc++.a" "toolchain/clang: objtype=$X ./build.sh runtimes"
+		rm "$VIEW/$X"
+		mkdir -p "$VIEW/$X/clang" "$VIEW/$X/lib.gcc/ape"
+		for f in "$ROOT"/$X/*; do
+			case ${f##*/} in lib.gcc) ;; *) ln -s "$f" "$VIEW/$X/${f##*/}" ;; esac
+		done
+		for f in "$ROOT"/$X/lib.gcc/*.a "$ROOT"/$X/lib.gcc/ape/*.a; do
+			l=${f#$ROOT/$X/lib.gcc/}
+			case " "$gpulibs" " in *" $l "*) continue ;; esac
+			case $l in klib*) continue ;; esac
+			ln -s "$f" "$VIEW/$X/lib.gcc/$l"
+		done
+		ln -s "$R/include" "$VIEW/$X/clang/include"
+		clanglib "$R/lib" "$VIEW/$X/clang/lib"
+		printf '%s\td775\n\tplan9.ld\n\tlib.gcc\td775\n\t\t+\n\tclang\td775\n\t\t+\n' $X > "$VIEW/clangproto.$X"
+		PROTOS+=("$VIEW/clangproto.$X")
+		others="$others $X"
+	done
+	echo "stage-dist: clang for $A${others:+, and objtype=${others# }}" >&2
 fi
 # the Vulkan programs sys/src/build/host/tests/gpu/build-vktest.sh built (vulkaninfo, vkcube,
 # vktri; statically linked with Mesa's drivers) and drawspeed as /$objtype/vk
