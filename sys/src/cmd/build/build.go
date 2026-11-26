@@ -758,6 +758,12 @@ const sigTag = "# build.exe "
 // the same sources are built with other flags into the same x.o (klibc,
 // libc), -D compiles again when the command differs
 func signdeps(b *build, f, command string, args []string) {
+	// gcc does not preprocess a .s and writes no x.d for it, -MD or not: the
+	// object depends on the source alone (a dependency file left there may
+	// be another $ARCH's, from its .c: -D compiled musl's .s every time)
+	if strings.HasSuffix(f, ".s") {
+		fail(os.WriteFile(depfile(b, f), []byte(path.Base(objectOf(b, f))+": "+f+"\n"), 0666))
+	}
 	d, err := os.OpenFile(depfile(b, f), os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		return // no dependency file: -D compiles f again
@@ -1313,6 +1319,12 @@ func main() {
 	}
 	if _, ok := os.LookupEnv("CPUS"); !ok {
 		os.Setenv("CPUS", strconv.Itoa(runtime.NumCPU()))
+	}
+	// BUILDTOOL: this tool, for the steps that run it again (rc/ape.rc,
+	// rc/elf2aout.rc): build.exe in a checkout, /$cputype/bin/build on an
+	// installed 9space, build-self.sh's copy in its guest
+	if exe, err := os.Executable(); err == nil {
+		os.Setenv("BUILDTOOL", exe)
 	}
 	findTools(os.Getenv("TOOLPREFIX"))
 

@@ -13,6 +13,7 @@
 			"-ffixed-r15",
 			"-fplan9-extensions",
 			"-fno-builtin",
+			"-ffreestanding",
 			"-nostdinc",
 			"-fno-asynchronous-unwind-tables",
 			"-fno-stack-protector",
@@ -100,6 +101,9 @@
 			"port/tsmemcmp.c",
 			"port/tsmemsel.c",
 			"port/x509.c"
+		],
+		"Include": [
+			"/$ARCH/kernel.$CC.json"
 		]
 	}
 ]

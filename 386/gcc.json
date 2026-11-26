@@ -4,7 +4,8 @@
 		"Cflags": [
 			"-fno-pie",
 			"-fvar-tracking",
-			"-fvar-tracking-assignments"
+			"-fvar-tracking-assignments",
+			"-mincoming-stack-boundary=2"
 		]
 	}
 ]

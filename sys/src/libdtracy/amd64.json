@@ -12,6 +12,7 @@
 			"-ffixed-r14",
 			"-ffixed-r15",
 			"-fno-builtin",
+			"-ffreestanding",
 			"-nostdinc",
 			"-fplan9-extensions",
 			"-fno-asynchronous-unwind-tables",
@@ -28,6 +29,9 @@
 			"pack.c",
 			"prog.c",
 			"prov.c"
+		],
+		"Include": [
+			"/$ARCH/kernel.$CC.json"
 		]
 	}
 ]
