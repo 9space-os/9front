@@ -9,7 +9,9 @@ CFLAGS=-I. -I../libFLAC -I../libFLAC/FLAC -D_POSIX_SOURCE -D_BSD_EXTENSION -DPla
 %.$O: %.c
 	$CC $CFLAGS -c $stem.c
 
-$O.%: %.$O ../libFLAC/libFLAC.a$O
+# 9space: the libraries (libFLAC's ogg code: libogg) by name, not only by the headers' #pragma lib
+# (gcc and gccmk do not take it)
+$O.%: %.$O ../libFLAC/libFLAC.a$O ../libogg/libogg.a$O
 	$CC -o $target $prereq
 
 all:V: $O.$TARGET

@@ -3,6 +3,9 @@
 Helpers of the gcc port. Run them from the tree root; most take
 `objtype=386|amd64|arm64` from the environment (default amd64).
 The build itself is `CC=gcc ARCH=amd64 sys/src/cmd/build/build.exe`.
+`lib/target.sh`: the compiler, linker, objcopy and runtime of CC's toolset
+(gcc, clang) for the steps that compile code for the machine themselves
+(`gen-initcode-i.sh`, `gen-rebootcode*-i.sh`, `gen-apbootstrap-i.sh`, `gen-bootfs.sh`).
 
 ## gen/ — manifest generators
 

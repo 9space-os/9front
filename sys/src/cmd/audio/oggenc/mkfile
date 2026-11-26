@@ -9,7 +9,9 @@ CFLAGS=-I../libvorbis -I../libogg
 %.$O: %.c
 	$CC $CFLAGS -c $stem.c
 
-$O.%: %.$O
+# 9space: the libraries by name, not only by the headers' #pragma lib
+# (gcc and gccmk do not take it)
+$O.%: %.$O ../libvorbis/libvorbis.a$O ../libogg/libogg.a$O
 	$CC -o $target $prereq
 
 all:V: $O.$TARGET

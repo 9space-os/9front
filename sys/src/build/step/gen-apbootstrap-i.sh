@@ -17,18 +17,21 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 # pc (objtype 386): apbootstrap.S at its APBOOTSTRAP (pc/mem.h, pc/mkfile)
+. "$ROOT/sys/src/build/lib/target.sh"	# CC's toolset: target_tools
 case ${1:-pc64} in
 pc64)
 	KDIR=$ROOT/sys/src/9/pc64
 	APBOOTSTRAP=0xffffffff80007000
 	CFLAGS="-m64 -mno-red-zone"
 	LDFLAGS=
+	LD=ld
 	;;
 pc)
 	KDIR=$ROOT/sys/src/9/pc
 	APBOOTSTRAP=0xF0007000
 	CFLAGS=-m32
 	LDFLAGS=-m32
+	LD="ld -m elf_i386"
 	;;
 *)
 	echo "usage: gen-apbootstrap-i.sh [pc64|pc]" >&2
@@ -36,14 +39,22 @@ pc)
 	;;
 esac
 
-gcc -c -std=c11 $CFLAGS -fno-pic -fno-pie \
+CC=gcc OBJCOPY=objcopy
+target_tools
+$CC -c -std=c11 $CFLAGS -fno-pic -fno-pie \
     -I "$KDIR" -I "$KDIR/../port" -I "$ROOT/sys/include" \
     "$KDIR/apbootstrap.S" -o "$TMP/apbootstrap.o"
 
-gcc $LDFLAGS -nostdlib -static -Wl,-Ttext=$APBOOTSTRAP -Wl,--entry=apbootstrap -Wl,-N \
-    -o "$TMP/apbootstrap.elf" "$TMP/apbootstrap.o"
+# clang: by the linker itself (clang's Plan 9 driver would add plan9.ld)
+if [ "${TOOLSET:-gcc}" = clang ]; then
+	$LD -static -Ttext=$APBOOTSTRAP --entry=apbootstrap -N \
+	    -o "$TMP/apbootstrap.elf" "$TMP/apbootstrap.o"
+else
+	gcc $LDFLAGS -nostdlib -static -Wl,-Ttext=$APBOOTSTRAP -Wl,--entry=apbootstrap -Wl,-N \
+	    -o "$TMP/apbootstrap.elf" "$TMP/apbootstrap.o"
+fi
 
-objcopy -O binary --only-section=.text "$TMP/apbootstrap.elf" "$TMP/apbootstrap.bin"
+$OBJCOPY -O binary --only-section=.text "$TMP/apbootstrap.elf" "$TMP/apbootstrap.bin"
 
 python3 - "$TMP/apbootstrap.bin" "$KDIR/apbootstrap.i" <<'PYEOF'
 import sys
