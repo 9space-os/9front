@@ -137,13 +137,15 @@ GCC_OUT=${GCC_OUT:-$GCC_DIR/out/$A}
 # objects compiled before a change of APE's headers, may be linked again
 # with the new libap: old struct layouts against new code (2026-11-26:
 # toolchain/gcc's ld with the old struct stat crashed when it overwrote a
-# file). No CD or update when FILE is older than APE's headers; HOW names
-# the rebuild. gcc and binutils (build.sh native relinks with the tree's
-# libap); clang and lld (likewise). Not Rust's rustc: its APE is its own
+# file). No CD or update when FILE is older than APE's headers or libap
+# (a fix in libap reaches the program only by linking it again: _dirfstat,
+# patch-upstream 0067); HOW names the rebuild. gcc and binutils (build.sh
+# native relinks with the tree's libap); clang and lld (likewise). Not
+# Rust's rustc: its APE is its own
 # renamed copy (toolchain/rust's ape9), compiled and linked with it
 apefresh(){
 	local stale
-	stale=$(find "$ROOT/sys/include/ape" "$ROOT/$A/include/ape" -type f -newer "$1" -print -quit 2>/dev/null)
+	stale=$(find "$ROOT/sys/include/ape" "$ROOT/$A/include/ape" "$ROOT/$A/lib.gcc/ape/libap.a" -type f -newer "$1" -print -quit 2>/dev/null)
 	[ -z "$stale" ] || { echo "stage-dist: $1 is older than APE's ${stale#$ROOT/}: build it again ($2)" >&2; exit 1; }
 }
 # gccproto: /$objtype/lib.gcc, gcc's archives (with gcc); uiproto: the desktop's files

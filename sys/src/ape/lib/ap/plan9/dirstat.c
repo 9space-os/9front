@@ -63,11 +63,17 @@ _dirfstat(int fd)
 
 	nd = DIRSIZE;
 	for(i=0; i<2; i++){	/* should work by the second try */
-		d = malloc(sizeof(Dir) + nd);
+		/*
+		 * the size a short reply gives excludes its own count, as
+		 * _dirstat has it: nd alone was two bytes short again, and
+		 * fstat failed for a long name (gcc's cc1: no such file;
+		 * a 9front bug, patch-upstream 0067)
+		 */
+		d = malloc(sizeof(Dir) + BIT16SZ + nd);
 		if(d == nil)
 			return nil;
 		buf = (uchar*)&d[1];
-		n = _FSTAT(fd, buf, nd);
+		n = _FSTAT(fd, buf, BIT16SZ + nd);
 		if(n < BIT16SZ){
 			free(d);
 			return nil;
@@ -77,7 +83,7 @@ _dirfstat(int fd)
 			_convM2D(buf, n, d, (char*)&d[1]);
 			return d;
 		}
-		/* else sizeof(Dir)+nd is plenty */
+		/* else sizeof(Dir)+BIT16SZ+nd is plenty */
 		free(d);
 	}
 	return nil;
