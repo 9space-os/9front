@@ -1,4 +1,6 @@
 /* GCC port: GAS translation of getfcr.s */
+/* the FP system registers also under -mgeneral-regs-only (the kernel's libc): LLVM's assembler wants the extension */
+.arch_extension fp
 .globl setfcr
 setfcr:
 	msr	fpcr, x0
