@@ -22,6 +22,9 @@
 #   env: WAITMAX  seconds at most for the build in the guest (28800)
 #        SMP      CPUs of the guest (4)
 #        MEM      its memory in MB (amd64 4096, 386 3072)
+#        ROOM     MB of the image beyond the copy, for what the build writes
+#                 (16384: amd64's objects, LinuxKPI and Mesa included; the image
+#                 is sparse, the host gives only what is written)
 #        KEEP     1: build in the copy of the last run (sys/src/build, the
 #                 build tool and the manifests renewed), e.g. after a fix
 set -e
@@ -62,7 +65,7 @@ cp "$ROOT/sys/src/build/host/guest/boot/mkself.rc" "$T/extra/rc/bin/mkself"
 # sdF0 in the guest). No journal, orphan file or metadata checksums:
 # ext4srv (lwext4) need not know them, the image is scratch
 IMG=$CLI_DIR/self.$A.img
-mb=$(( $(du -sm "$S" | cut -f1) + 4096 ))
+mb=$(( $(du -sm "$S" | cut -f1) + ${ROOM:-16384} ))
 rm -f "$IMG"
 mkfs.ext4 -q -F -L src9 -O ^has_journal,^orphan_file,^metadata_csum,^metadata_csum_seed \
 	-E root_owner=$(id -u):$(id -g) -d "$S" "$IMG" ${mb}M || die "mkfs.ext4 $IMG"
