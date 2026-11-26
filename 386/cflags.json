@@ -6,7 +6,6 @@
 			"-march=pentium",
 			"-mfpmath=387",
 			"-mno-sse",
-			"-mincoming-stack-boundary=2",
 			"-std=gnu17",
 			"-fno-asm",
 			"-ffreestanding",

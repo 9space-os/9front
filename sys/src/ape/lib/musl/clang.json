@@ -1,0 +1,9 @@
+[
+	{
+		"Name": "buildflags",
+		"Cflags": [
+			"-fno-align-functions",
+			"-Werror=incompatible-pointer-types-discards-qualifiers"
+		]
+	}
+]

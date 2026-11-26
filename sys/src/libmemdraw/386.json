@@ -4,8 +4,6 @@
         "Cflags": [
             "-m32",
             "-march=pentium",
-            "-mincoming-stack-boundary=2",
-            "-mpreferred-stack-boundary=2",
             "-nostdinc",
             "-fplan9-extensions",
             "-mno-sse",
@@ -14,6 +12,7 @@
             "-mfpmath=387",
             "-fno-pic",
             "-fno-builtin",
+            "-ffreestanding",
             "-fno-asynchronous-unwind-tables",
             "-fno-stack-protector",
             "-fno-omit-frame-pointer",
@@ -42,6 +41,9 @@
             "unload.c",
             "warp.c",
             "write.c"
+        ],
+        "Include": [
+            "/$ARCH/kernel.$CC.json"
         ]
     }
 ]

@@ -14,6 +14,7 @@
 			"-fcommon",
 			"-fplan9-extensions",
 			"-fno-builtin",
+			"-ffreestanding",
 			"-nostdinc",
 			"-fno-asynchronous-unwind-tables",
 			"-fno-stack-protector",
@@ -29,6 +30,9 @@
 			"amlmapio.c",
 			"amltime.c",
 			"amlunmapio.c"
+		],
+		"Include": [
+			"/$ARCH/kernel.$CC.json"
 		]
 	}
 ]

@@ -1,0 +1,12 @@
+[
+	{
+		"Name": "buildflags",
+		"Cflags": [
+			"--target=i686-unknown-plan9",
+			"-mstack-alignment=4"
+		],
+		"Oflags": [
+			"--no-rosegment"
+		]
+	}
+]

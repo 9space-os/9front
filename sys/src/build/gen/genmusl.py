@@ -32,7 +32,7 @@ TREEFLAGS = ['-fno-pie', '-static', '-fno-stack-protector', '-D__plan9__', '-Uli
 	'-U__linux', '-U__linux__', '-U__gnu_linux__', '-g']
 ARCHFLAGS = {
 	'amd64': ['-mcmodel=small'],
-	'386': ['-m32', '-march=pentium', '-mfpmath=387', '-mno-sse', '-mincoming-stack-boundary=2'],
+	'386': ['-m32', '-march=pentium', '-mfpmath=387', '-mno-sse'],	# the stack's: /386/$CC.json
 	'arm64': ['-fsigned-char', '-mno-outline-atomics'],
 }
 
@@ -40,17 +40,26 @@ ARCHFLAGS = {
 CFLAGS = [
 	'-std=c99', '-nostdinc', '-ffreestanding', '-fexcess-precision=standard',
 	'-frounding-math', '-fno-strict-aliasing', '-Wa,--noexecstack', '-D_XOPEN_SOURCE=700',
-	'-O2', '-fno-align-jumps', '-fno-align-functions', '-fno-align-loops', '-fno-align-labels',
-	'-fira-region=one', '-fira-hoist-pressure', '-freorder-blocks-algorithm=simple',
-	'-fno-prefetch-loop-arrays', '-fno-tree-ch', '-fomit-frame-pointer', '-fno-unwind-tables',
+	'-O2', '-fomit-frame-pointer', '-fno-unwind-tables',
 	'-fno-asynchronous-unwind-tables', '-ffunction-sections', '-fdata-sections',
 	'-Wno-pointer-to-int-cast', '-Werror=implicit-function-declaration', '-Werror=implicit-int',
 	'-Werror=pointer-sign', '-Werror=pointer-arith', '-Werror=int-conversion',
-	'-Werror=incompatible-pointer-types', '-Werror=discarded-qualifiers',
-	'-Werror=discarded-array-qualifiers',
+	'-Werror=incompatible-pointer-types',
 	# libap has its pow10(int) and signgam
 	'-Dpow10=__musl_pow10', '-Dsigngam=__musl_signgam',
 ]
+
+# musl's flags its configure takes only from a compiler that has them (tryflag):
+# gcc's, and clang's names for the same checks; DIR/$CC.json, with the
+# machine's /$ARCH/$CC.json (386's stack alignment)
+CCFLAGS = {
+	'gcc': ['-fno-align-jumps', '-fno-align-functions', '-fno-align-loops', '-fno-align-labels',
+		'-fira-region=one', '-fira-hoist-pressure', '-freorder-blocks-algorithm=simple',
+		'-fno-prefetch-loop-arrays', '-fno-tree-ch', '-Werror=discarded-qualifiers',
+		'-Werror=discarded-array-qualifiers'],
+	'clang': ['-fno-align-functions', '-Werror=incompatible-pointer-types-discards-qualifiers'],
+}
+INCLUDE = ['/$ARCH/$CC.json', '/' + DIR + '/$CC.json']
 
 # the engine: its entry points as APE's ap/gnu/stdio.c and wstdio.c call them; what
 # libap or the wide functions of ap/gnu have under the same names, out of the way
@@ -87,6 +96,7 @@ def manifests(objtype):
 		'Append': True,
 		'Objtag': 'musl',
 		'IncludePath': inc,
+		'Include': INCLUDE,
 	}
 	m = dict(base, Name='ape-lib-musl-libap.a',
 		Pre=['bash /sys/src/build/step/gen-musl-bits.sh ' + march],
@@ -105,8 +115,13 @@ def main():
 	if '--list' in sys.argv[1:]:
 		print(os.path.join(DIR, name))
 		return
+	files = {}
 	for ot in ARCHES:
 		name, builds = manifests(ot)
+		files[name] = builds
+	for cc, f in CCFLAGS.items():
+		files[cc + '.json'] = [{'Name': 'buildflags', 'Cflags': f}]
+	for name, builds in files.items():
 		s = json.dumps(builds, indent='\t') + '\n'
 		p = os.path.join(ROOT, DIR, name)
 		if not os.path.exists(p) or open(p).read() != s:
