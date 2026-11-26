@@ -58,8 +58,6 @@
 			"-DHAVE___BUILTIN_UNREACHABLE",
 			"-DHAVE___BUILTIN_TYPES_COMPATIBLE_P",
 			"-DHAVE___BUILTIN_ADD_OVERFLOW",
-			"-DHAVE___BUILTIN_ADD_OVERFLOW_P",
-			"-DHAVE___BUILTIN_SUB_OVERFLOW_P",
 			"-DHAVE_FUNC_ATTRIBUTE_CONST",
 			"-DHAVE_FUNC_ATTRIBUTE_FLATTEN",
 			"-DHAVE_FUNC_ATTRIBUTE_MALLOC",
@@ -72,7 +70,6 @@
 			"-DHAVE_FUNC_ATTRIBUTE_RETURNS_NONNULL",
 			"-DHAVE_FUNC_ATTRIBUTE_ALIAS",
 			"-DHAVE_FUNC_ATTRIBUTE_NORETURN",
-			"-DHAVE_FUNC_ATTRIBUTE_OPTIMIZE",
 			"-DHAVE_FUNC_ATTRIBUTE_COLD",
 			"-DHAVE_FUNC_ATTRIBUTE_VISIBILITY",
 			"-DHAVE_UINT128",
@@ -149,7 +146,7 @@
 			"-Werror=sizeof-array-div"
 		],
 		"Include": [
-			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
+			"/sys/src/mesa/cc/gcconly-54282ce1.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"anon_file.c",
@@ -286,8 +283,6 @@
 			"-DHAVE___BUILTIN_UNREACHABLE",
 			"-DHAVE___BUILTIN_TYPES_COMPATIBLE_P",
 			"-DHAVE___BUILTIN_ADD_OVERFLOW",
-			"-DHAVE___BUILTIN_ADD_OVERFLOW_P",
-			"-DHAVE___BUILTIN_SUB_OVERFLOW_P",
 			"-DHAVE_FUNC_ATTRIBUTE_CONST",
 			"-DHAVE_FUNC_ATTRIBUTE_FLATTEN",
 			"-DHAVE_FUNC_ATTRIBUTE_MALLOC",
@@ -300,7 +295,6 @@
 			"-DHAVE_FUNC_ATTRIBUTE_RETURNS_NONNULL",
 			"-DHAVE_FUNC_ATTRIBUTE_ALIAS",
 			"-DHAVE_FUNC_ATTRIBUTE_NORETURN",
-			"-DHAVE_FUNC_ATTRIBUTE_OPTIMIZE",
 			"-DHAVE_FUNC_ATTRIBUTE_COLD",
 			"-DHAVE_FUNC_ATTRIBUTE_VISIBILITY",
 			"-DHAVE_UINT128",
@@ -363,7 +357,7 @@
 			"-pthread"
 		],
 		"Include": [
-			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_flifetime-dse-1.$TOOLSET.json"
+			"/sys/src/mesa/cc/gcconly-1d8a56f7.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"texcompress_astc.cpp",
@@ -429,8 +423,6 @@
 			"-DHAVE___BUILTIN_UNREACHABLE",
 			"-DHAVE___BUILTIN_TYPES_COMPATIBLE_P",
 			"-DHAVE___BUILTIN_ADD_OVERFLOW",
-			"-DHAVE___BUILTIN_ADD_OVERFLOW_P",
-			"-DHAVE___BUILTIN_SUB_OVERFLOW_P",
 			"-DHAVE_FUNC_ATTRIBUTE_CONST",
 			"-DHAVE_FUNC_ATTRIBUTE_FLATTEN",
 			"-DHAVE_FUNC_ATTRIBUTE_MALLOC",
@@ -443,7 +435,6 @@
 			"-DHAVE_FUNC_ATTRIBUTE_RETURNS_NONNULL",
 			"-DHAVE_FUNC_ATTRIBUTE_ALIAS",
 			"-DHAVE_FUNC_ATTRIBUTE_NORETURN",
-			"-DHAVE_FUNC_ATTRIBUTE_OPTIMIZE",
 			"-DHAVE_FUNC_ATTRIBUTE_COLD",
 			"-DHAVE_FUNC_ATTRIBUTE_VISIBILITY",
 			"-DHAVE_UINT128",
@@ -512,7 +503,7 @@
 			"-Wno-override-init"
 		],
 		"Include": [
-			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
+			"/sys/src/mesa/cc/gcconly-54282ce1.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"cache_ops_x86.c"
@@ -575,8 +566,6 @@
 			"-DHAVE___BUILTIN_UNREACHABLE",
 			"-DHAVE___BUILTIN_TYPES_COMPATIBLE_P",
 			"-DHAVE___BUILTIN_ADD_OVERFLOW",
-			"-DHAVE___BUILTIN_ADD_OVERFLOW_P",
-			"-DHAVE___BUILTIN_SUB_OVERFLOW_P",
 			"-DHAVE_FUNC_ATTRIBUTE_CONST",
 			"-DHAVE_FUNC_ATTRIBUTE_FLATTEN",
 			"-DHAVE_FUNC_ATTRIBUTE_MALLOC",
@@ -589,7 +578,6 @@
 			"-DHAVE_FUNC_ATTRIBUTE_RETURNS_NONNULL",
 			"-DHAVE_FUNC_ATTRIBUTE_ALIAS",
 			"-DHAVE_FUNC_ATTRIBUTE_NORETURN",
-			"-DHAVE_FUNC_ATTRIBUTE_OPTIMIZE",
 			"-DHAVE_FUNC_ATTRIBUTE_COLD",
 			"-DHAVE_FUNC_ATTRIBUTE_VISIBILITY",
 			"-DHAVE_UINT128",
@@ -659,7 +647,7 @@
 			"-mclflushopt"
 		],
 		"Include": [
-			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
+			"/sys/src/mesa/cc/gcconly-54282ce1.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"cache_ops_x86_clflushopt.c"
@@ -722,8 +710,6 @@
 			"-DHAVE___BUILTIN_UNREACHABLE",
 			"-DHAVE___BUILTIN_TYPES_COMPATIBLE_P",
 			"-DHAVE___BUILTIN_ADD_OVERFLOW",
-			"-DHAVE___BUILTIN_ADD_OVERFLOW_P",
-			"-DHAVE___BUILTIN_SUB_OVERFLOW_P",
 			"-DHAVE_FUNC_ATTRIBUTE_CONST",
 			"-DHAVE_FUNC_ATTRIBUTE_FLATTEN",
 			"-DHAVE_FUNC_ATTRIBUTE_MALLOC",
@@ -736,7 +722,6 @@
 			"-DHAVE_FUNC_ATTRIBUTE_RETURNS_NONNULL",
 			"-DHAVE_FUNC_ATTRIBUTE_ALIAS",
 			"-DHAVE_FUNC_ATTRIBUTE_NORETURN",
-			"-DHAVE_FUNC_ATTRIBUTE_OPTIMIZE",
 			"-DHAVE_FUNC_ATTRIBUTE_COLD",
 			"-DHAVE_FUNC_ATTRIBUTE_VISIBILITY",
 			"-DHAVE_UINT128",
@@ -813,7 +798,7 @@
 			"-msse4.1"
 		],
 		"Include": [
-			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
+			"/sys/src/mesa/cc/gcconly-54282ce1.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"streaming-load-memcpy.c"
@@ -878,8 +863,6 @@
 			"-DHAVE___BUILTIN_UNREACHABLE",
 			"-DHAVE___BUILTIN_TYPES_COMPATIBLE_P",
 			"-DHAVE___BUILTIN_ADD_OVERFLOW",
-			"-DHAVE___BUILTIN_ADD_OVERFLOW_P",
-			"-DHAVE___BUILTIN_SUB_OVERFLOW_P",
 			"-DHAVE_FUNC_ATTRIBUTE_CONST",
 			"-DHAVE_FUNC_ATTRIBUTE_FLATTEN",
 			"-DHAVE_FUNC_ATTRIBUTE_MALLOC",
@@ -892,7 +875,6 @@
 			"-DHAVE_FUNC_ATTRIBUTE_RETURNS_NONNULL",
 			"-DHAVE_FUNC_ATTRIBUTE_ALIAS",
 			"-DHAVE_FUNC_ATTRIBUTE_NORETURN",
-			"-DHAVE_FUNC_ATTRIBUTE_OPTIMIZE",
 			"-DHAVE_FUNC_ATTRIBUTE_COLD",
 			"-DHAVE_FUNC_ATTRIBUTE_VISIBILITY",
 			"-DHAVE_UINT128",
@@ -974,7 +956,7 @@
 			"-DDATADIR=\"/usr/local/share\""
 		],
 		"Include": [
-			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
+			"/sys/src/mesa/cc/gcconly-54282ce1.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"xmlconfig.c"

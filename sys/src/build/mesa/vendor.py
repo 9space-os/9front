@@ -31,6 +31,7 @@
 # first.
 # Files that come out the same keep their time (build.exe -D).
 
+import hashlib
 import json
 import os
 import shlex
@@ -59,7 +60,7 @@ ARCHDEP = ('src/mesa/glapi/glapi/gen/marshal_generated', 'src/mesa/glapi/glapi/g
 ARCHDIR = os.path.join(VENDOR, OBJTYPE)
 # meson's flags that only gcc has (meson asked gcc for them; for clang it
 # would leave them out): not in a block's Cflags but in an Include,
-# sys/src/mesa/cc/<set>.$TOOLSET.json (build.exe's: CC is the cross
+# sys/src/mesa/cc/gcconly-<digest>.$TOOLSET.json (build.exe's: CC is the cross
 # compiler's path in sys/src/build/step/ape.sh), gcc's with them, clang's without (its
 # names for them where it has one)
 CCONLY = {
@@ -67,6 +68,10 @@ CCONLY = {
 	'-Wno-maybe-uninitialized': None,
 	'-Wno-error=maybe-uninitialized': None,
 	'-Wno-nonnull-compare': None,
+	# what meson found gcc to have: builtins and an attribute clang lacks
+	'-DHAVE___BUILTIN_ADD_OVERFLOW_P': None,
+	'-DHAVE___BUILTIN_SUB_OVERFLOW_P': None,
+	'-DHAVE_FUNC_ATTRIBUTE_OPTIMIZE': None,
 }
 CCDIR = os.path.join(ROOT, 'sys/src/mesa/cc')
 # hasvk first, then radv: their objects stand for venus' equal ones (members.py)
@@ -139,7 +144,8 @@ def copy(src, dst):
 def ccinclude(only):
 	"""the Include of a block whose flags in CCONLY are only: their file
 	for each compiler, named after them"""
-	name = '_'.join(f.lstrip('-').replace('=', '-') for f in sorted(only))
+	# named by a digest of the set (its flags are in the file)
+	name = 'gcconly-' + hashlib.sha256(' '.join(sorted(only)).encode()).hexdigest()[:8]
 	for cc in ('gcc', 'clang'):
 		fl = sorted(only) if cc == 'gcc' else [CCONLY[f] for f in sorted(only) if CCONLY[f]]
 		write(os.path.join(CCDIR, '%s.%s.json' % (name, cc)),

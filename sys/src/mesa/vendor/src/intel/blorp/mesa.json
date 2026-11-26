@@ -66,8 +66,6 @@
 			"-DHAVE___BUILTIN_UNREACHABLE",
 			"-DHAVE___BUILTIN_TYPES_COMPATIBLE_P",
 			"-DHAVE___BUILTIN_ADD_OVERFLOW",
-			"-DHAVE___BUILTIN_ADD_OVERFLOW_P",
-			"-DHAVE___BUILTIN_SUB_OVERFLOW_P",
 			"-DHAVE_FUNC_ATTRIBUTE_CONST",
 			"-DHAVE_FUNC_ATTRIBUTE_FLATTEN",
 			"-DHAVE_FUNC_ATTRIBUTE_MALLOC",
@@ -80,7 +78,6 @@
 			"-DHAVE_FUNC_ATTRIBUTE_RETURNS_NONNULL",
 			"-DHAVE_FUNC_ATTRIBUTE_ALIAS",
 			"-DHAVE_FUNC_ATTRIBUTE_NORETURN",
-			"-DHAVE_FUNC_ATTRIBUTE_OPTIMIZE",
 			"-DHAVE_FUNC_ATTRIBUTE_COLD",
 			"-DHAVE_FUNC_ATTRIBUTE_VISIBILITY",
 			"-DHAVE_UINT128",
@@ -145,7 +142,7 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0"
 		],
 		"Include": [
-			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_flifetime-dse-1.$TOOLSET.json"
+			"/sys/src/mesa/cc/gcconly-1d8a56f7.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"blorp_shaders.cpp"
@@ -218,8 +215,6 @@
 			"-DHAVE___BUILTIN_UNREACHABLE",
 			"-DHAVE___BUILTIN_TYPES_COMPATIBLE_P",
 			"-DHAVE___BUILTIN_ADD_OVERFLOW",
-			"-DHAVE___BUILTIN_ADD_OVERFLOW_P",
-			"-DHAVE___BUILTIN_SUB_OVERFLOW_P",
 			"-DHAVE_FUNC_ATTRIBUTE_CONST",
 			"-DHAVE_FUNC_ATTRIBUTE_FLATTEN",
 			"-DHAVE_FUNC_ATTRIBUTE_MALLOC",
@@ -232,7 +227,6 @@
 			"-DHAVE_FUNC_ATTRIBUTE_RETURNS_NONNULL",
 			"-DHAVE_FUNC_ATTRIBUTE_ALIAS",
 			"-DHAVE_FUNC_ATTRIBUTE_NORETURN",
-			"-DHAVE_FUNC_ATTRIBUTE_OPTIMIZE",
 			"-DHAVE_FUNC_ATTRIBUTE_COLD",
 			"-DHAVE_FUNC_ATTRIBUTE_VISIBILITY",
 			"-DHAVE_UINT128",
@@ -310,7 +304,7 @@
 			"-Werror=sizeof-array-div"
 		],
 		"Include": [
-			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
+			"/sys/src/mesa/cc/gcconly-54282ce1.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"blorp.c",
@@ -385,8 +379,6 @@
 			"-DHAVE___BUILTIN_UNREACHABLE",
 			"-DHAVE___BUILTIN_TYPES_COMPATIBLE_P",
 			"-DHAVE___BUILTIN_ADD_OVERFLOW",
-			"-DHAVE___BUILTIN_ADD_OVERFLOW_P",
-			"-DHAVE___BUILTIN_SUB_OVERFLOW_P",
 			"-DHAVE_FUNC_ATTRIBUTE_CONST",
 			"-DHAVE_FUNC_ATTRIBUTE_FLATTEN",
 			"-DHAVE_FUNC_ATTRIBUTE_MALLOC",
@@ -399,7 +391,6 @@
 			"-DHAVE_FUNC_ATTRIBUTE_RETURNS_NONNULL",
 			"-DHAVE_FUNC_ATTRIBUTE_ALIAS",
 			"-DHAVE_FUNC_ATTRIBUTE_NORETURN",
-			"-DHAVE_FUNC_ATTRIBUTE_OPTIMIZE",
 			"-DHAVE_FUNC_ATTRIBUTE_COLD",
 			"-DHAVE_FUNC_ATTRIBUTE_VISIBILITY",
 			"-DHAVE_UINT128",
@@ -477,7 +468,7 @@
 			"-Werror=sizeof-array-div"
 		],
 		"Include": [
-			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
+			"/sys/src/mesa/cc/gcconly-54282ce1.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"blorp_elk.c"
