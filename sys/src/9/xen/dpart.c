@@ -51,7 +51,7 @@ cdpart(Disk *d)
 	uchar *p;
 
 	if(readdisk(d, buf, 17*2048, 2048) == -1
-	|| strcmp((char*)buf+1, "CD001\x01EL TORITO SPECIFICATION") != 0)
+	|| strcmp((char*)buf+1, "CD001\001EL TORITO SPECIFICATION") != 0)
 		return 0;
 
 	p = buf + 0x47;

@@ -4,8 +4,6 @@
         "Cflags": [
             "-m32",
             "-march=pentium",
-            "-mincoming-stack-boundary=2",
-            "-mpreferred-stack-boundary=2",
             "-nostdinc",
             "-mno-sse",
             "-mno-sse2",
@@ -13,6 +11,7 @@
             "-fplan9-extensions",
             "-fno-pic",
             "-fno-builtin",
+            "-ffreestanding",
             "-fno-asynchronous-unwind-tables",
             "-fno-stack-protector",
             "-fno-omit-frame-pointer",
@@ -100,6 +99,9 @@
             "port/x509.c",
             "port/md5block.c",
             "port/sha1block.c"
+        ],
+        "Include": [
+            "/$ARCH/kernel.$CC.json"
         ]
     }
 ]

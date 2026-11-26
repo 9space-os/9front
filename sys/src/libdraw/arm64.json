@@ -9,6 +9,7 @@
 			"-ffixed-x27",
 			"-fno-pic",
 			"-fno-builtin",
+			"-ffreestanding",
 			"-nostdinc",
 			"-fplan9-extensions",
 			"-fno-asynchronous-unwind-tables",
@@ -80,6 +81,9 @@
 			"writecolmap.c",
 			"writeimage.c",
 			"writesubfont.c"
+		],
+		"Include": [
+			"/$ARCH/kernel.$CC.json"
 		]
 	}
 ]

@@ -36,7 +36,9 @@ SECTIONS
 	. = ALIGN(8);	/* _start clears [edata, end) by 8 bytes */
 	PROVIDE(edata = .);
 
-	.bss : AT(ADDR(.bss) - KZERO) {
+	/* no AT: the LMA follows .data's (both linkers; lld would start a
+	 * third segment for an explicit one) */
+	.bss : {
 		*(.bss .bss.* .gnu.linkonce.b.*)
 		*(COMMON)
 	}

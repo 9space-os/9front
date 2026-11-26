@@ -396,7 +396,7 @@ peer(int fd, int incoming, char *addr)
 
 	if(debug) fprint(2, "peer %s: -> handshake\n", addr);
 	n = pack(buf, sizeof(buf), "*________**", 
-		20, "\x13BitTorrent protocol",
+		20, "\023BitTorrent protocol",
 		sizeof(infohash), infohash,
 		sizeof(peerid), peerid);
 	if(write(fd, buf, n) != n)
@@ -404,7 +404,7 @@ peer(int fd, int incoming, char *addr)
 	n = 20 + 8 + sizeof(infohash);
 	if(readn(fd, buf, n) != n)
 		return 1;
-	if(memcmp(buf, "\x13BitTorrent protocol", 20))
+	if(memcmp(buf, "\023BitTorrent protocol", 20))
 		return 0;
 	if(memcmp(infohash, buf + 20 + 8, sizeof(infohash)))
 		return 0;

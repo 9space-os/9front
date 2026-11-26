@@ -9,6 +9,7 @@
 			"-ffixed-x27",
 			"-fno-pic",
 			"-fno-builtin",
+			"-ffreestanding",
 			"-nostdinc",
 			"-fplan9-extensions",
 			"-fno-asynchronous-unwind-tables",
@@ -20,6 +21,9 @@
 		],
 		"SourceFiles": [
 			"fis.c"
+		],
+		"Include": [
+			"/$ARCH/kernel.$CC.json"
 		]
 	}
 ]

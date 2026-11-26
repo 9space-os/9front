@@ -10,6 +10,7 @@
             "-fno-pic",
             "-fno-pie",
             "-fno-builtin",
+            "-ffreestanding",
             "-nostdinc",
             "-fplan9-extensions",
             "-fno-asynchronous-unwind-tables",
@@ -185,6 +186,9 @@
             "port/utfrrune.c",
             "port/utfrune.c",
             "port/utfutf.c"
+        ],
+        "Include": [
+            "/$ARCH/kernel.$CC.json"
         ]
     }
 ]

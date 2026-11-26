@@ -1,0 +1,11 @@
+[
+	{
+		"Name": "buildflags",
+		"Cflags": [
+			"--target=x86_64-unknown-plan9"
+		],
+		"Oflags": [
+			"--no-rosegment"
+		]
+	}
+]

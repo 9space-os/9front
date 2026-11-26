@@ -1,0 +1,8 @@
+[
+	{
+		"Name": "buildflags",
+		"Cflags": [
+			"-fno-reorder-functions"
+		]
+	}
+]
