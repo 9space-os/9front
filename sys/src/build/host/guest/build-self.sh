@@ -42,12 +42,15 @@ die(){ echo "build-self: $*" >&2; exit 1; }
 [ -s "$ROOT/$A/lib.gcc/libc.a" ] || die "no $A/lib.gcc/libc.a, run CC=gcc ARCH=$A sys/src/cmd/build/build.exe"
 
 S=$CLI_DIR/self.$A
+# the copy is the checkout's HEAD (git archive), not its working tree: the
+# same commit builds the same, and uncommitted work (another session's)
+# stays out
 if [ "$KEEP" = 1 ] && [ -d "$S/sys/src" ]; then
-	git -C "$ROOT" ls-files -z sys/src/build '*.json' | (cd "$ROOT" && tar -cf - --null -T -) | tar -xf - -C "$S"
+	git -C "$ROOT" archive HEAD -- sys/src/build ':(glob)**/*.json' | tar -xf - -C "$S"
 else
 	rm -rf "$S"
 	mkdir -p "$S"
-	git -C "$ROOT" ls-files -z | (cd "$ROOT" && tar -cf - --null -T -) | tar -xf - -C "$S"
+	git -C "$ROOT" archive HEAD | tar -xf - -C "$S"
 fi
 (cd "$ROOT/sys/src/cmd/build" && GOOS=plan9 GOARCH=$A GO111MODULE=off go build -o "$S/sys/src/cmd/build/build.exe" .)
 objtype=$A python3 "$ROOT/sys/src/build/step/check-install.py" -l > "$S/sys/src/build/check-install.$A"
