@@ -12,6 +12,10 @@
 			"obj/riscv64/include",
 			"include"
 		],
+		"Include": [
+			"/$ARCH/$TOOLSET.json",
+			"/sys/src/ape/lib/musl/$TOOLSET.json"
+		],
 		"Name": "ape-lib-musl-libap.a",
 		"Pre": [
 			"bash /sys/src/build/step/gen-musl-bits.sh riscv64"
@@ -43,15 +47,6 @@
 			"-Wa,--noexecstack",
 			"-D_XOPEN_SOURCE=700",
 			"-O2",
-			"-fno-align-jumps",
-			"-fno-align-functions",
-			"-fno-align-loops",
-			"-fno-align-labels",
-			"-fira-region=one",
-			"-fira-hoist-pressure",
-			"-freorder-blocks-algorithm=simple",
-			"-fno-prefetch-loop-arrays",
-			"-fno-tree-ch",
 			"-fomit-frame-pointer",
 			"-fno-unwind-tables",
 			"-fno-asynchronous-unwind-tables",
@@ -64,8 +59,6 @@
 			"-Werror=pointer-arith",
 			"-Werror=int-conversion",
 			"-Werror=incompatible-pointer-types",
-			"-Werror=discarded-qualifiers",
-			"-Werror=discarded-array-qualifiers",
 			"-Dpow10=__musl_pow10",
 			"-Dsigngam=__musl_signgam"
 		],
@@ -404,6 +397,10 @@
 			"obj/riscv64/include",
 			"include"
 		],
+		"Include": [
+			"/$ARCH/$TOOLSET.json",
+			"/sys/src/ape/lib/musl/$TOOLSET.json"
+		],
 		"Name": "ape-lib-musl-engine-libap.a",
 		"Cflags": [
 			"-fno-pie",
@@ -429,15 +426,6 @@
 			"-Wa,--noexecstack",
 			"-D_XOPEN_SOURCE=700",
 			"-O2",
-			"-fno-align-jumps",
-			"-fno-align-functions",
-			"-fno-align-loops",
-			"-fno-align-labels",
-			"-fira-region=one",
-			"-fira-hoist-pressure",
-			"-freorder-blocks-algorithm=simple",
-			"-fno-prefetch-loop-arrays",
-			"-fno-tree-ch",
 			"-fomit-frame-pointer",
 			"-fno-unwind-tables",
 			"-fno-asynchronous-unwind-tables",
@@ -450,8 +438,6 @@
 			"-Werror=pointer-arith",
 			"-Werror=int-conversion",
 			"-Werror=incompatible-pointer-types",
-			"-Werror=discarded-qualifiers",
-			"-Werror=discarded-array-qualifiers",
 			"-Dpow10=__musl_pow10",
 			"-Dsigngam=__musl_signgam",
 			"-Dfprintf=__musl_fprintf",
