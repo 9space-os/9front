@@ -23,7 +23,7 @@ $CC -c -std=c11 -fno-pic -fno-pie \
 
 # clang: by the linker itself (clang's Plan 9 driver would add plan9.ld)
 if [ "${TOOLSET:-gcc}" = clang ]; then
-	$LD -static -Ttext=$REBOOTADDR --entry=main -N \
+	$LD -static --image-base=0 -Ttext=$REBOOTADDR --entry=main -N \
 	    -o "$TMP/rebootcode.elf" "$TMP/rebootcode.o"
 else
 	gcc -m32 -nostdlib -static -Wl,-Ttext=$REBOOTADDR -Wl,--entry=main -Wl,-N \
