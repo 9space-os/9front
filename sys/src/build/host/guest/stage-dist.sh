@@ -100,10 +100,25 @@ for f in "$ROOT"/$A/*; do ln -s "$f" "$VIEW/.$A/$(basename "$f")"; done
 rm "$VIEW/$A"; mv "$VIEW/.$A" "$VIEW/$A"
 # the native toolchain (../9front-gcc: build.sh native) as /$objtype/gnu
 GCC_OUT=${GCC_OUT:-$GCC_DIR/out/$A}
+# apefresh FILE HOW: a native program linked over APE statically, its
+# objects compiled before a change of APE's headers, may be linked again
+# with the new libap: old struct layouts against new code (2026-11-26:
+# toolchain/gcc's ld with the old struct stat crashed when it overwrote a
+# file). No CD or update when FILE is older than APE's headers; HOW names
+# the rebuild. gcc and binutils (build.sh native relinks with the tree's
+# libap); clang's when it comes. Not Rust's rustc: its APE is its own
+# renamed copy (toolchain/rust's ape9), compiled and linked with it
+apefresh(){
+	local stale
+	stale=$(find "$ROOT/sys/include/ape" "$ROOT/$A/include/ape" -type f -newer "$1" -print -quit 2>/dev/null)
+	[ -z "$stale" ] || { echo "stage-dist: $1 is older than APE's ${stale#$ROOT/}: build it again ($2)" >&2; exit 1; }
+}
 PROTOS=("$ROOT/sys/src/build/host/guest/boot/gccproto")
 if ! lang gcc; then
 	:
 elif [ -d "$GCC_OUT/$A/gnu" ]; then
+	# its ld is the oldest part (binutils first)
+	apefresh "$GCC_OUT/$A/gnu/bin/ld" "toolchain/gcc: objtype=$A ./build.sh native"
 	ln -s "$GCC_OUT/$A/gnu" "$VIEW/$A/gnu"
 	PROTOS+=("$ROOT/sys/src/build/host/guest/boot/gnuproto")
 elif [ -n "${DEV+set}" ]; then
