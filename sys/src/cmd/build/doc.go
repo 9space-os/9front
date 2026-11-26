@@ -229,6 +229,10 @@ not yet installed, archives installed into a source directory, a kernel's
 generated C file and headers, the targets of "Pre" cp and mv commands --
 and builds nothing, like mk clean. Installed targets stay.
 
+The steps get BUILDTOOL, the path of the tool running them (build.exe in a
+checkout, /$cputype/bin/build on an installed 9space), for those that run
+it again (an rc step's build -D of another tree, -elf2aout).
+
 DEPENDENCIES (-D)
 
 Every compile writes, beside x.o, gcc's dependency file x.d (-MD: the

@@ -1398,6 +1398,12 @@ func main() {
 	if _, ok := os.LookupEnv("CPUS"); !ok {
 		os.Setenv("CPUS", strconv.Itoa(runtime.NumCPU()))
 	}
+	// BUILDTOOL: this tool, for the steps that run it again (rc/ape.rc,
+	// rc/elf2aout.rc): build.exe in a checkout, /$cputype/bin/build on an
+	// installed 9space, build-self.sh's copy in its guest
+	if exe, err := os.Executable(); err == nil {
+		os.Setenv("BUILDTOOL", exe)
+	}
 	findTools(os.Getenv("TOOLPREFIX"))
 
 	// ensure this is exported, in case we used a default value
