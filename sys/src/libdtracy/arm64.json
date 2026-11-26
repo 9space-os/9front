@@ -28,7 +28,7 @@
 			"prov.c"
 		],
 		"Include": [
-			"/$ARCH/kernel.$CC.json"
+			"/$ARCH/kernel.$TOOLSET.json"
 		]
 	}
 ]
