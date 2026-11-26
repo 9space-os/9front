@@ -2,7 +2,6 @@
 	{
 		"Name": "buildflags",
 		"Cflags": [
-			"--target=i686-unknown-plan9",
 			"-fno-pie",
 			"-mstackrealign"
 		]

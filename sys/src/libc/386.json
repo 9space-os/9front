@@ -217,7 +217,7 @@
             "386/strlen.S"
         ],
         "Include": [
-            "/$ARCH/kernel.$CC.json"
+            "/$ARCH/kernel.$TOOLSET.json"
         ]
     }
 ]

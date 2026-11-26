@@ -39,7 +39,7 @@
 			"/$ARCH/plan9.ld"
 		],
 		"Include": [
-			"/$ARCH/$CC.json"
+			"/$ARCH/$TOOLSET.json"
 		]
 	}
 ]
