@@ -17,7 +17,8 @@
  * back to the allocator while the device still uses them.
  *
  *	segcreate(name, perm, view)	make #g/name: 1 made here, 0 there
- *					already, -1 an error
+ *					already and ours, -1 an error (or
+ *					another user's of that name)
  *	segmode(name, perm)		its mode (devsegment gives 0660)
  *	segrm(name)			remove it: close its ORCLOSE file,
  *					else by name
@@ -50,6 +51,28 @@ segmode(const char *name, ulong perm)
 	return dirwstat(path, &d);
 }
 
+/*
+ * a #g entry that is there already: 0 when it is ours (made by this
+ * driver earlier), else -1. Any user but none may make #g entries, and
+ * its maker keeps access: one made by another user ahead of us under a
+ * name we would use (amdgpu.<pid>.<ctx>.<handle>, ...) would get the
+ * pages we put into it, another client's memory
+ */
+static int
+segours(char *path)
+{
+	Dir *d;
+	int r;
+
+	if((d = dirstat(path)) == nil)
+		return -1;
+	r = strcmp(d->uid, getuser()) == 0 ? 0 : -1;
+	if(r < 0)
+		werrstr("%s: made by %s, not by us", path, d->uid);
+	free(d);
+	return r;
+}
+
 static int
 segcreate(const char *name, ulong perm, int view)
 {
@@ -60,7 +83,7 @@ segcreate(const char *name, ulong perm, int view)
 	orclose = segorclose || view;
 	snprint(path, sizeof path, "#g/%s", name);
 	if((fd = create(path, OREAD|OCEXEC|(orclose ? ORCLOSE : 0), DMDIR|perm)) < 0)
-		return access(path, AEXIST) == 0 ? 0 : -1;
+		return segours(path);
 	if(!orclose){
 		close(fd);
 		return 1;

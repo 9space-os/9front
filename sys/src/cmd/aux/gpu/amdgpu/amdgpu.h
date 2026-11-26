@@ -19,7 +19,7 @@ void	amdgpu_test_poweroff(void);	/* -X: orderly_poweroff, as at a critical tempe
  * Linux side's, opaque here
  */
 typedef unsigned long long	u64g;
-void	*amdgpu_ctx_new(int *id);	/* or an error pointer: amdgpu_iserr */
+void	*amdgpu_ctx_new(int *id);	/* with gpufs' *id; or an error pointer: amdgpu_iserr */
 void	amdgpu_ctx_free(void *c);
 /* *gpu ~0: the driver chooses; seg at va: the object only (GTT: its pages; vram: its part of BAR 0) */
 int	amdgpu_bo_new(void *c, u64g size, u64g *gpu, int vram, int *id, char *seg, int nseg, u64g *va, u64g *size1);

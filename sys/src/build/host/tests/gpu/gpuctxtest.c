@@ -340,10 +340,50 @@ Out:
 	closectx(&c);
 }
 
+/*
+ * contexts one after another, each closed before the next: gpufs gives a
+ * freed context's number out again (2026-11-26: the drivers counted up,
+ * and from the 256th open on every clone failed, "too many contexts")
+ */
+static void
+ctxreuse(void)
+{
+	char path[64], buf[256], *f[6];
+	int i, n, fd, id, maxid;
+
+	snprint(path, sizeof path, "%s/clone", dev);
+	maxid = 0;
+	for(i = 0; i < 300; i++){
+		if((fd = open(path, ORDWR)) < 0){
+			fail("ctxreuse: open %d of 300: %r", i+1);
+			return;
+		}
+		n = pread(fd, buf, sizeof buf-1, 0);
+		close(fd);
+		if(n <= 0){
+			fail("ctxreuse: read %d of 300: %r", i+1);
+			return;
+		}
+		buf[n] = 0;
+		if(tokenize(buf, f, nelem(f)) < 2 || strcmp(f[0], "ctx") != 0){
+			fail("ctxreuse: ctl %d: %s", i+1, buf);
+			return;
+		}
+		id = atoi(f[1]);
+		if(id > maxid)
+			maxid = id;
+	}
+	if(maxid > 8)
+		fail("ctxreuse: 300 contexts, numbers up to %d: not given back", maxid);
+	else
+		ok("ctxreuse: 300 contexts one after another, numbers up to %d", maxid);
+}
+
 void
 main(void)
 {
 	dev = gpufind("virtio-gpu");
+	ctxreuse();
 	listcaps();
 	if(havecap(2))
 		virgltest(2);

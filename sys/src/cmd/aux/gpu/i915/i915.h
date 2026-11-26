@@ -16,7 +16,7 @@ int	i915_live_result(int);	/* -L: after i915_start; 0 or -errno */	/* -M: i915's
  * Linux side's, opaque here
  */
 typedef unsigned long long	u64g;
-void	*i915_ctx_new(int *id);	/* or an error pointer: i915_iserr */
+void	*i915_ctx_new(int *id);	/* with gpufs' *id; or an error pointer: i915_iserr */
 void	i915_ctx_free(void *c);
 int	i915_bo_new(void *c, u64g size, u64g *gpu, int *id, char *seg, int nseg, u64g *va, u64g *size1);	/* *gpu ~0: the driver chooses */
 int	i915_bo_bind(void *c, int id, u64g gpu);

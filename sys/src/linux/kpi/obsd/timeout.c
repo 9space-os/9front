@@ -265,23 +265,57 @@ hrtimer_forward(struct hrtimer *h, int64_t now, int64_t interval)
 	return n;
 }
 
+/*
+ * 9space: -1 running, else 1 taken off the queue, 0 not queued, as
+ * Linux's -- in one step under tolock (checking torunning, then
+ * timeout_del, let it fire in between: 0 while it ran)
+ */
 int
 hrtimer_try_to_cancel(struct hrtimer *h)
 {
-	int running;
+	struct timeout *to = &h->to;
+	int r;
 
 	mtx_enter(&tolock);
-	running = torunning == &h->to;
+	if (torunning == to)
+		r = -1;
+	else if (to->to_flags & TIMEOUT_ONQUEUE) {
+		TAILQ_REMOVE(&toq, to, to_list);
+		to->to_flags &= ~TIMEOUT_ONQUEUE;
+		r = 1;
+	} else
+		r = 0;
 	mtx_leave(&tolock);
-	if (running)
-		return -1;
-	return timeout_del(&h->to);
+	return r;
 }
 
+/*
+ * 9space: as Linux's, neither queued nor running when it returns: a
+ * function that returns HRTIMER_RESTART queues the timer again in
+ * hrtimer_fire, after timeout_del_barrier's del found nothing (i915's
+ * pmu, drm_vblank's timer: then freed while queued). Not from the
+ * timer's own function (that waits for itself, in Linux a deadlock).
+ */
 int
 hrtimer_cancel(struct hrtimer *h)
 {
-	return timeout_del_barrier(&h->to);
+	struct timeout *to = &h->to;
+	int was, busy;
+
+	was = 0;
+	for (;;) {
+		if (timeout_del(to))
+			was = 1;
+		timeout_barrier(to);
+		mtx_enter(&tolock);
+		busy = (to->to_flags & TIMEOUT_ONQUEUE) != 0 ||
+		    (torunning == to && curproc != toproc);
+		mtx_leave(&tolock);
+		if (!busy)
+			break;
+		was = 1;
+	}
+	return was;
 }
 
 /* the timeout proc's state, for a driver's status file (diagnosis) */

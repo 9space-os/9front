@@ -88,7 +88,6 @@ static u64	chooseaddr(struct gctx *c, u64 size);
 static bool	placeok(struct gctx *c, struct bo *self, u64 gpu, u64 size);
 static int	bomap(struct gctx *c, struct bo *b);
 static void	unexport(struct gctx *c);
-static atomic_t nctx;
 
 static struct drm_device *
 drmdev(void)
@@ -131,7 +130,7 @@ i915_ctx_new(int *id)
 		return ERR_PTR(r);
 	}
 	c->file = c->filp->private_data;
-	c->id = *id = atomic_inc_return(&nctx);
+	c->id = *id;	/* gpufs' lowest free number, back when the context goes */
 	return c;
 }
 

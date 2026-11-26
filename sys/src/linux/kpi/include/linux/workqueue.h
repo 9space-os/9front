@@ -110,11 +110,29 @@ cancel_work(struct work_struct *work)
 		task_del(work->tq, &work->task);
 }
 
+/*
+ * 9space: Linux's _sync: when it returns the task is neither queued nor
+ * running (task_del alone left a running one, and the caller freed its
+ * object under it); again if it queued itself meanwhile
+ */
+static inline bool
+__kpi_cancel_task_sync(struct taskq *tq, struct task *t)
+{
+	bool was = false;
+
+	do {
+		if (task_del(tq, t))
+			was = true;
+		taskq_del_barrier(tq, t);
+	} while (task_pending(t));
+	return was;
+}
+
 static inline bool
 cancel_work_sync(struct work_struct *work)
 {
 	if (work->tq != NULL)
-		return task_del(work->tq, &work->task);
+		return __kpi_cancel_task_sync(work->tq, &work->task);
 	return false;
 }
 
@@ -210,11 +228,15 @@ cancel_delayed_work(struct delayed_work *dwork)
 static inline bool
 cancel_delayed_work_sync(struct delayed_work *dwork)
 {
+	bool was;
+
 	if (dwork->tq == NULL)
 		return false;
-	if (timeout_del(&dwork->to))
-		return true;
-	return task_del(dwork->tq, &dwork->work.task);
+	/* 9space: the timer too: one firing now queues the work after a plain timeout_del */
+	was = timeout_del_barrier(&dwork->to);
+	if (__kpi_cancel_task_sync(dwork->tq, &dwork->work.task))
+		was = true;
+	return was;
 }
 
 static inline bool

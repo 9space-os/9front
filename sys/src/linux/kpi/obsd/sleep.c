@@ -144,11 +144,39 @@ kpi_procwake(struct task_struct *p)
 	p9_qunlock(p->p_qlock);
 }
 
+/*
+ * 9space: the wakeup of sleep number gen (sleep_setup's), taken off the
+ * queue under sleepqlock but delivered after it: only while that sleep
+ * lasts. A sleeper that finished meanwhile (did not sleep, or timed out)
+ * would else find p_woken set in its next sleep, which then returned at
+ * once with EWOULDBLOCK: false timeouts of fence waits
+ */
+static void
+kpi_procwake_gen(struct task_struct *p, unsigned int gen)
+{
+	p9_qlock(p->p_qlock);
+	if (__atomic_load_n(&p->p_wgen, __ATOMIC_SEQ_CST) == gen) {
+		p->p_woken = 1;
+		p9_rwakeup(p->p_rendez);
+	}
+	p9_qunlock(p->p_qlock);
+}
+
 void
 sleep_setup(const volatile void *ident, int prio, const char *wmesg)
 {
 	struct task_struct *p = curproc;
 
+	/*
+	 * 9space: a new sleep number first, then p_woken cleared, then on
+	 * the queue: a late wakeup of an earlier sleep sees the number
+	 * changed and does nothing; one of this sleep comes only once we
+	 * are queued, after the clearing
+	 */
+	__atomic_add_fetch(&p->p_wgen, 1, __ATOMIC_SEQ_CST);
+	p9_qlock(p->p_qlock);
+	p->p_woken = 0;
+	p9_qunlock(p->p_qlock);
 	mtx_enter(&sleepqlock);
 	if (!sleepqinit)
 		initsleepq();
@@ -225,13 +253,15 @@ sleep_finish(uint64_t nsecs, int do_sleep)
 int
 wakeup_proc(struct task_struct *p, int flags)
 {
+	unsigned int gen;
 	int r;
 
 	mtx_enter(&sleepqlock);
 	r = unqueue(p);
+	gen = __atomic_load_n(&p->p_wgen, __ATOMIC_SEQ_CST);
 	mtx_leave(&sleepqlock);
 	if (r)
-		kpi_procwake(p);
+		kpi_procwake_gen(p, gen);
 	return r;
 }
 
@@ -240,6 +270,7 @@ wakeup_n(const volatile void *ident, int n)
 {
 	struct task_struct *p, *np;
 	struct task_struct *woke[32];
+	unsigned int gen[32];
 	int nw, i, more;
 
 	do {
@@ -256,13 +287,14 @@ wakeup_n(const volatile void *ident, int n)
 				break;
 			}
 			unqueue(p);
+			gen[nw] = __atomic_load_n(&p->p_wgen, __ATOMIC_SEQ_CST);
 			woke[nw++] = p;
 			if (n > 0 && --n == 0)
 				break;
 		}
 		mtx_leave(&sleepqlock);
 		for (i = 0; i < nw; i++)
-			kpi_procwake(woke[i]);
+			kpi_procwake_gen(woke[i], gen[i]);
 	} while (more);
 }
 

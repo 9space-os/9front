@@ -20,9 +20,14 @@
 /*
  * the clients' requests as text (linux/req.c): a pool of procs with big
  * stacks (amdgpu's own code under them), so that one that waits (a
- * syncobj) holds up no other
+ * syncobj) holds up no other. 9space: it grows when every proc is busy,
+ * up to Nreqmax: with a fixed four, four waits without a time limit
+ * (RADV's syncwait with UINT64_MAX) held up every client, and the cs
+ * that would end them waited for a proc too
  */
-enum { Nreqproc = 4 };
+enum { Nreqproc = 4, Nreqmax = 64, Reqstack = 1024*1024 };
+static Lock reqlk;
+static int nreqidle, nreqproc;
 typedef struct Treq Treq;
 struct Treq {
 	void	*lc;
@@ -42,7 +47,13 @@ reqproc(void*)
 	Treq *q;
 
 	for(;;){
+		lock(&reqlk);
+		nreqidle++;
+		unlock(&reqlk);
 		q = recvp(reqc);
+		lock(&reqlk);
+		nreqidle--;
+		unlock(&reqlk);
 		q->r = amdgpu_req(q->lc, q->f, q->nf, q->reply, q->nreply, q->priv);
 		sendul(q->done, 1);
 	}
@@ -62,6 +73,13 @@ doreq(void *lc, char **f, int nf, char *reply, int nreply, int priv)
 	q.nreply = nreply;
 	q.priv = priv;
 	q.done = chancreate(sizeof(ulong), 0);
+	lock(&reqlk);
+	if(nreqidle == 0 && nreqproc < Nreqmax){
+		nreqproc++;
+		unlock(&reqlk);
+		proccreate(reqproc, nil, Reqstack);
+	}else
+		unlock(&reqlk);
 	sendp(reqc, &q);
 	recvul(q.done);
 	chanfree(q.done);
@@ -425,7 +443,8 @@ serve(void)
 	int i;
 
 	reqc = chancreate(sizeof(void*), 0);
+	nreqproc = Nreqproc;
 	for(i = 0; i < Nreqproc; i++)
-		proccreate(reqproc, nil, 1024*1024);
+		proccreate(reqproc, nil, Reqstack);
 	kmsserve();
 }

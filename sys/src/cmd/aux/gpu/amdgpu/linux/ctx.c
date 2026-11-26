@@ -145,7 +145,6 @@ static atomic64_t npfault, npunmap, npnopage;
 /* Linux 7.3: drm_open_helper wants the flag DRM's own GEM fops have */
 static const struct file_operations ctx_fops = { .fop_flags = FOP_UNSIGNED_OFFSET };
 static struct bo	*newbo(struct gctx *c);
-static atomic_t nctx;
 int	amdgpu_fencetrace;	/* -t: where a fence's time goes */
 
 static struct drm_device *
@@ -213,7 +212,7 @@ amdgpu_ctx_new(int *id)
 	if (r)
 		goto bad;
 	c->syncobj = sc.handle;
-	c->id = *id = atomic_inc_return(&nctx);
+	c->id = *id;	/* gpufs' lowest free number, back when the context goes */
 	return c;
 bad:
 	closefile(c);	/* the file's release frees its amdgpu context and VM */

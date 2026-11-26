@@ -70,7 +70,9 @@ struct Gfid {
 
 /* what each driver does; nil: not there (a file not served, a request refused) */
 struct Gpudrv {
-	/* a context for uid: the driver's, its number (< Nctx), its first reply; nil: werrstr */
+	/* a context for uid: the driver's, its first reply; nil: werrstr. *id comes
+	 * in as the lowest free number (1..Nctx-1), which the driver takes (or gives
+	 * back one of its own that is free too: virtio's) */
 	void*	(*ctxnew)(char *uid, int *id, char **reply);
 	void	(*ctxfree)(void *lc);
 	/* the context's words (ctl), and submit; the reply with fsetreply; nil or the error */
@@ -170,6 +172,14 @@ newctx(char *uid)
 	Gctx *c;
 	int id;
 
+	/* the lowest free number: a freed context's comes back (a counter ran
+	 * out after Nctx clients in the driver's life) */
+	for(id = 1; id < Nctx && ctxs[id] != nil; id++)
+		;
+	if(id == Nctx){
+		werrstr("too many contexts");
+		return nil;
+	}
 	reply = nil;
 	if((lc = drv.ctxnew(uid, &id, &reply)) == nil)
 		return nil;

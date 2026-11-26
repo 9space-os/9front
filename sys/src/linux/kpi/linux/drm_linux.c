@@ -244,7 +244,9 @@ struct kthread {
 	int (*func)(void *);
 	void *data;
 	struct task_struct *proc;
-	volatile u_int flags;
+	volatile u_int flags;	/* 9space: changed by the thread and by its stopper or parker
+				 * at once: atomic_setbits/clearbits only (|= lost STOPPED,
+				 * and kthread_stop waited for ever) */
 	int ret;		/* 9front: the function's result, for kthread_stop */
 #define KTHREAD_SHOULDSTOP	0x0000001
 #define KTHREAD_STOPPED		0x0000002
@@ -270,7 +272,7 @@ kthread_func(void *arg)
 	ret = thread->func(thread->data);
 	thread->ret = ret;
 	membar_producer();
-	thread->flags |= KTHREAD_STOPPED;
+	atomic_setbits_int(&thread->flags, KTHREAD_STOPPED);
 	wakeup(thread);
 	kthread_exit(ret);
 }
@@ -339,7 +341,10 @@ kthread_queue_work(struct kthread_worker *worker, struct kthread_work *work)
 bool
 kthread_cancel_work_sync(struct kthread_work *work)
 {
-	return task_del(work->tq, &work->task);
+	/* 9space: never queued: no taskq yet (drm_vblank_work_cancel_sync); and sync, as Linux's */
+	if (work->tq == NULL)
+		return false;
+	return __kpi_cancel_task_sync(work->tq, &work->task);
 }
 
 void
@@ -391,10 +396,10 @@ kthread_parkme(void)
 	struct kthread *thread = kthread_lookup(curproc);
 
 	while (thread->flags & KTHREAD_SHOULDPARK) {
-		thread->flags |= KTHREAD_PARKED;
+		atomic_setbits_int(&thread->flags, KTHREAD_PARKED);
 		wakeup(thread);
 		tsleep_nsec(thread, PPAUSE, "parkme", MSEC_TO_NSEC(10));	/* 9front: see kthread_stop */
-		thread->flags &= ~KTHREAD_PARKED;
+		atomic_clearbits_int(&thread->flags, KTHREAD_PARKED);
 	}
 }
 
@@ -404,7 +409,7 @@ kthread_park(struct task_struct *p)
 	struct kthread *thread = kthread_lookup(p);
 
 	while ((thread->flags & KTHREAD_PARKED) == 0) {
-		thread->flags |= KTHREAD_SHOULDPARK;
+		atomic_setbits_int(&thread->flags, KTHREAD_SHOULDPARK);
 		wake_up_process(thread->proc);
 		tsleep_nsec(thread, PPAUSE, "park", MSEC_TO_NSEC(10));	/* 9front: see kthread_stop */
 	}
@@ -415,7 +420,7 @@ kthread_unpark(struct task_struct *p)
 {
 	struct kthread *thread = kthread_lookup(p);
 
-	thread->flags &= ~KTHREAD_SHOULDPARK;
+	atomic_clearbits_int(&thread->flags, KTHREAD_SHOULDPARK);
 	wakeup(thread);
 }
 
@@ -433,7 +438,7 @@ kthread_stop(struct task_struct *p)
 	int ret;
 
 	while ((thread->flags & KTHREAD_STOPPED) == 0) {
-		thread->flags |= KTHREAD_SHOULDSTOP;
+		atomic_setbits_int(&thread->flags, KTHREAD_SHOULDSTOP);
 		kthread_unpark(p);
 		wake_up_process(thread->proc);
 		/* 9front: a time limit: no kernel lock orders this sleep before the thread's wakeup */
@@ -558,17 +563,24 @@ idr_alloc(struct idr *idr, void *ptr, int start, int end, gfp_t gfp_mask)
 
 	if (end <= 0)
 		end = INT_MAX;
+	if (start < 0 || start >= end) {	/* Linux: -EINVAL, or no room at all */
+		pool_put(&idr_pool, id);
+		return start < 0 ? -EINVAL : -ENOSPC;
+	}
 
 #ifdef notyet
 	id->id = begin = start + arc4random_uniform(end - start);
 #else
 	id->id = begin = start;
 #endif
+	/*
+	 * 9space: [start, end) as Linux's: after a taken id the next, back to
+	 * start at end (OpenBSD's tried end itself and could hand it out:
+	 * drm_gem_change_handle's idr_alloc(h, h+1) took h+1, another's)
+	 */
 	while (SPLAY_INSERT(idr_tree, &idr->tree, id)) {
-		if (id->id == end)
+		if (++id->id >= end)
 			id->id = start;
-		else
-			id->id++;
 		if (id->id == begin) {
 			pool_put(&idr_pool, id);
 			return -ENOSPC;
@@ -633,6 +645,10 @@ idr_get_next(struct idr *idr, int *id)
 	idr_tree_SPLAY(&idr->tree, &find);
 	res = SPLAY_ROOT(&idr->tree);
 	if (res->id < *id)
+		res = SPLAY_NEXT(idr_tree, &idr->tree, res);
+	/* past the reservations (idr_alloc with NULL), as Linux's: the walks
+	 * (idr_for_each_entry) end at a NULL entry */
+	while (res != NULL && res->ptr == NULL)
 		res = SPLAY_NEXT(idr_tree, &idr->tree, res);
 	if (res == NULL)
 		return NULL;
@@ -928,6 +944,11 @@ xa_get_next(struct xarray *xa, unsigned long *index)
 
 	/* 9space: the first index at or after *index (see idr_tree's note) */
 	res = xarray_nfind(xa, *index);
+	/* past the reservations (xa_alloc with NULL: i915's proto contexts), as
+	 * Linux's: xa_for_each ends at a NULL entry, and i915_gem_context_close
+	 * left every context after a reserved id open */
+	while (res != NULL && res->ptr == NULL)
+		res = SPLAY_NEXT(xarray_tree, &xa->xa_tree, res);
 	if (res == NULL)
 		return NULL;
 	*index = res->id;
@@ -939,9 +960,12 @@ xa_get_next(struct xarray *xa, unsigned long *index)
 int
 __xa_insert(struct xarray *xa, unsigned long index, void *entry, gfp_t gfp)
 {
+	struct xarray_entry find;
 	void *cur;
 
-	if (__xa_load(xa, index) != NULL)
+	/* taken also when reserved (a NULL entry of xa_alloc), as Linux's */
+	find.id = index;
+	if (SPLAY_FIND(xarray_tree, &xa->xa_tree, &find) != NULL)
 		return -EBUSY;
 	if (WARN_ON_ONCE(entry == NULL))	/* a reservation: not kept here */
 		return -EINVAL;
@@ -1650,8 +1674,12 @@ bit_waitqueue(void *word, int bit)
 wait_queue_head_t *
 __var_waitqueue(void *p)
 {
-	/* XXX hash table of wait queues? */
-	return &bit_waitq;
+	/*
+	 * 9space: var_waitq, the queue wake_up_var wakes (wait_bit.h); with
+	 * bit_waitq a waiter added here (i915's __await_barrier) was never
+	 * woken
+	 */
+	return &var_waitq;
 }
 
 struct workqueue_struct *system_wq;

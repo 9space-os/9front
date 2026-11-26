@@ -36,6 +36,7 @@ struct task_struct {
 	uint64_t	p_rendez[12];		/* a Plan 9 Rendez and its QLock */
 	uint64_t	p_qlock[8];
 	int		p_woken;
+	unsigned int	p_wgen;		/* 9space: the sleep's number (sleep.c: a late wakeup wakes no later sleep) */
 	int		p_timedout;
 	void		*p_taskq;	/* the task queue it works for */
 	struct cpu_info	*p_cpu;		/* its curcpu() */
