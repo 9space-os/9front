@@ -28,6 +28,7 @@ export objtype=$(sed -n 's/^objtype=//p' "$KDIR/mkfile")
 eval "$(python3 "$ROOT/sys/src/build/gen/arch.py")"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
+. "$ROOT/sys/src/build/lib/target.sh"	# CC's toolset: target_tools
 
 # host mkpaqfs
 HOST=$CLI_DIR/host
@@ -49,10 +50,11 @@ esac
 CFLAGS="-std=gnu17 -fno-asm -ffreestanding -nostdinc -fno-builtin -fplan9-extensions
 	-fno-omit-frame-pointer -fno-stack-protector -fno-pie $ARCHFLAGS -fcommon
 	-I$ROOT/$objtype/include -I$ROOT/sys/include -I$ROOT/sys/src/9/boot"
-${TOOLPREFIX}gcc $CFLAGS -c -o "$TMP/boot.o" "$ROOT/sys/src/9/boot/boot.c"
-${TOOLPREFIX}ld $LDEMUL -o "$KDIR/boot" --entry=_main -z noseparate-code -z max-page-size=0x1000 \
-	-T "$ROOT/$objtype/plan9.ld" "$TMP/boot.o" "$ROOT/$objtype/lib.gcc/libc.a" \
-	$( [ -f "$ROOT/$objtype/lib.gcc/libgcc.a" ] && echo "$ROOT/$objtype/lib.gcc/libgcc.a")
+CC=${TOOLPREFIX}gcc LD="${TOOLPREFIX}ld $LDEMUL"
+target_tools
+$CC $CFLAGS -c -o "$TMP/boot.o" "$ROOT/sys/src/9/boot/boot.c"
+$LD -o "$KDIR/boot" --entry=_main -z noseparate-code -z max-page-size=0x1000 \
+	-T "$ROOT/$objtype/plan9.ld" "$TMP/boot.o" "$ROOT/$objtype/lib.gcc/libc.a" $RT
 
 # the kernel's objects ($OBJ): source files and configuration lines
 OBJ=$(python3 - "$KDIR/build.json" $CONF <<'PY'

@@ -9,7 +9,7 @@ Linux host uses. The tree's root holds only 9front's directories.
 | `step/` | the steps the manifests run (`bash /sys/src/build/step/X.sh`: an absolute word is the tree's, the tool puts `$PLAN9` before it) |
 | `step/rc/` | the same steps in rc, for `build.exe` on 9front itself |
 | `gen/` | the manifest generators |
-| `lib/` | `paths.sh`, `paths.py`: where 9space's other parts are (the distribution's `paths.env`) |
+| `lib/` | `paths.sh`, `paths.py`: where 9space's other parts are (the distribution's `paths.env`); `target.sh`: the compiler, linker, objcopy and runtime of CC's toolset (gcc, clang) for the steps that compile code for the machine themselves (`gen-initcode-i.sh`, `gen-rebootcode*-i.sh`, `gen-apbootstrap-i.sh`, `gen-bootfs.sh`) |
 | `host/` | the Linux host's only, left off the CD and the update archives: `guest/`, `hw/`, `check/`, `fix/`, `debug/`, `tests/` (the test suites), `sys/src/build/host/patch-upstream/` (fixes for 9front), `MEMORY.md` (the port's log, German) |
 
 Run the scripts from the tree root; most take `objtype=386|amd64|arm64`
