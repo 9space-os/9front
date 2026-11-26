@@ -9,6 +9,8 @@ mkfile kinds, following /sys/src/cmd/mk{one,many,lib,syslib}:
   mkone      one target TARG from OFILES (+ local LIB archives)
   mkmany     each TARG from TARG.c + OFILES; `$O.t: objects' rules
              (ndb's dns) override the object list
+  (neither)  TARGET=x with a `$O.%:' link rule of its own (audio's flac
+             and ogg programs): as mkmany's one TARG, its archives as LIB
   mklib,     a program-local archive (LIB=libfoo.a$O), built first
   mksyslib
   sys/src/cmd/mkfile itself: every cmd/*.c is a one-file command
@@ -582,9 +584,21 @@ def mkentries(d):
 			'libinstall': '/$ARCH/lib.gcc/ape/', 'append': True, 'src': stubs})]
 	text = readmk(d)
 	k = kind(text)
-	if k is None:
-		return []
 	v = variables(text)
+	if k is None:
+		# no mkone/mkmany, a program of its own rules (audio's flacdec,
+		# flacenc, oggdec, oggenc: TARGET=x, `$O.%: %.$O ../libFLAC/libFLAC.a$O'
+		# and pcc, `install: cp $O.$TARGET $BIN/$TARGET'): as mkmany's one
+		# TARG, the link rule's archives as LIB
+		if not v.get('TARGET') or v.get('TARG'):
+			return []
+		link = [p for targets, prereq, recipe in rules(text)
+			if recipe and '$O.%' in targets for p in prereq.split()]
+		if not link:
+			return []
+		k = 'mkmany'
+		v['TARG'] = v['TARGET'][:1]
+		v['LIB'] = [p.replace('$O', O) for p in link if '.a$O' in p]
 	v.update(evalvars(text, v, d))
 	cf = cflags(v, d)
 	common = {'Cflags': cf + [f for f in recipecflags(text, v, d) if f not in cf],
