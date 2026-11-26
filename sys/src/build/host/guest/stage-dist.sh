@@ -157,8 +157,11 @@ has ui && PROTOS+=("$ROOT/sys/src/build/host/guest/boot/uiproto")
 gccmk_stale(){
 	local stamp=$GCC_OUT/$A/gnu/plan9/lib.rc
 	[ -e "$stamp" ] || return 0
-	[ -n "$(find "$GCC_DIR/plan9" "$ROOT/$A/cflags.json" "$ROOT/$A/gcc.json" "$ROOT/$A/ape.json" \
-		"$ROOT/sys/src/cmd/cmds.json" "$ROOT/sys/src/ape/cmd/cmds.json" "$ROOT"/sys/src/9/*/build.json \
+	# the flags: every manifest of /$A (cflags, gcc, ape, kernel.gcc.json: the
+	# compiler's own files that build.exe and build.sh plan9 include) and
+	# of the kernels (sys/src/9/gcc.json, */build.json, */gcc.json)
+	[ -n "$(find "$GCC_DIR/plan9" "$ROOT/$A"/*.json "$ROOT"/sys/src/9/*.json "$ROOT"/sys/src/9/*/*.json \
+		"$ROOT/sys/src/cmd/cmds.json" "$ROOT/sys/src/ape/cmd/cmds.json" \
 		-newer "$stamp" -print -quit 2>/dev/null)" ]
 }
 if lang gcc && [ -d "$GCC_OUT/$A/gnu" ] && [ "$GCC_OUT" = "$GCC_DIR/out/$A" ] && gccmk_stale; then
