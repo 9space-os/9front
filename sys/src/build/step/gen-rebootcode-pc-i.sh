@@ -14,14 +14,23 @@ trap 'rm -rf "$TMP"' EXIT
 
 REBOOTADDR=0x11000
 
-gcc -c -std=c11 -m32 -fno-pic -fno-pie \
+. "$ROOT/sys/src/build/lib/target.sh"	# CC's toolset: target_tools
+CC="gcc -m32" LD="ld -m elf_i386" OBJCOPY=objcopy
+target_tools
+$CC -c -std=c11 -fno-pic -fno-pie \
     -I "$PC" -I "$PC/../port" -I "$ROOT/sys/include" \
     "$PC/rebootcode.S" -o "$TMP/rebootcode.o"
 
-gcc -m32 -nostdlib -static -Wl,-Ttext=$REBOOTADDR -Wl,--entry=main -Wl,-N \
-    -o "$TMP/rebootcode.elf" "$TMP/rebootcode.o"
+# clang: by the linker itself (clang's Plan 9 driver would add plan9.ld)
+if [ "${TOOLSET:-gcc}" = clang ]; then
+	$LD -static -Ttext=$REBOOTADDR --entry=main -N \
+	    -o "$TMP/rebootcode.elf" "$TMP/rebootcode.o"
+else
+	gcc -m32 -nostdlib -static -Wl,-Ttext=$REBOOTADDR -Wl,--entry=main -Wl,-N \
+	    -o "$TMP/rebootcode.elf" "$TMP/rebootcode.o"
+fi
 
-objcopy -O binary --only-section=.text "$TMP/rebootcode.elf" "$TMP/rebootcode.bin"
+$OBJCOPY -O binary --only-section=.text "$TMP/rebootcode.elf" "$TMP/rebootcode.bin"
 
 python3 - "$TMP/rebootcode.bin" "$PC/rebootcode.i" <<'PYEOF'
 import sys

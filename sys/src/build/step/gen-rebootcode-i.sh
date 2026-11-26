@@ -19,6 +19,7 @@ ROOT=${PLAN9:-$(git rev-parse --show-toplevel)}
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
+. "$ROOT/sys/src/build/lib/target.sh"	# CC's toolset: target_tools
 # arm64 (and bcm64): rebootcode.out: rebootcode.$O cache.v8.$O, linked
 # -T0x40020000 (arm64/mkfile; bcm64: 0x1c00), raw (-H6)
 case ${1:-pc64} in
@@ -26,6 +27,7 @@ pc64)
 	KDIR=$ROOT/sys/src/9/pc64
 	REBOOTADDR=0x11000
 	CC="gcc -m64 -mno-red-zone"
+	LD=ld
 	OBJCOPY=objcopy
 	SRC="$KDIR/rebootcode.S"
 	ENTRY=main
@@ -34,6 +36,7 @@ arm64|bcm64)
 	KDIR=$ROOT/sys/src/9/$1
 	REBOOTADDR=$([ $1 = arm64 ] && echo 0x40020000 || echo 0x1c00)
 	CC=aarch64-linux-musl-gcc
+	LD=aarch64-linux-musl-ld
 	OBJCOPY=aarch64-linux-musl-objcopy
 	SRC="$KDIR/rebootcode.S $ROOT/sys/src/9/arm64/cache.v8.S"
 	ENTRY=_start
@@ -44,6 +47,7 @@ arm64|bcm64)
 	;;
 esac
 
+target_tools
 objs=
 for s in $SRC; do
 	o=$TMP/$(basename $s .S).o
@@ -53,8 +57,13 @@ for s in $SRC; do
 	objs="$objs $o"
 done
 
-$CC -nostdlib -static -Wl,-Ttext=$REBOOTADDR -Wl,--entry=$ENTRY -Wl,-N \
-    -o "$TMP/rebootcode.elf" $objs
+# clang: by the linker itself (clang's Plan 9 driver would add plan9.ld)
+if [ "${TOOLSET:-gcc}" = clang ]; then
+	$LD -static -Ttext=$REBOOTADDR --entry=$ENTRY -N -o "$TMP/rebootcode.elf" $objs
+else
+	$CC -nostdlib -static -Wl,-Ttext=$REBOOTADDR -Wl,--entry=$ENTRY -Wl,-N \
+	    -o "$TMP/rebootcode.elf" $objs
+fi
 
 $OBJCOPY -O binary --only-section=.text "$TMP/rebootcode.elf" "$TMP/rebootcode.bin"
 
