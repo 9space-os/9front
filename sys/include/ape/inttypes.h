@@ -23,7 +23,14 @@
 #define PRIu32 "u"
 #define PRIu64 "llu"
 
+/* 9space: C linkage in C++ (clang makes no system header extern "C") */
+#ifdef __cplusplus
+extern "C" {
+#endif
 extern intmax_t strtoimax(const char *, char **, int);
+#ifdef __cplusplus
+}
+#endif
 
 #if defined(__GNUC__) || defined(_APE_GNU)
 /*

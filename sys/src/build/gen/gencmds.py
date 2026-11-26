@@ -350,25 +350,22 @@ def recipecflags(text, v, d):
 				out.append(w)
 	return out
 
-def recipeshellflags(text, v, d):
+def recipetimeflags(text, v, d):
 	"""-D flags with rc command substitutions (`{...}) in $CC recipes:
-	CflagsShell commands, which the build tool runs when it compiles (as
-	mk the recipe), so the manifest stays what the mkfile says (cwfs:
-	-DDATE=`{date -n}L, the seconds at build time). Returns (static
-	flags, shell commands); no static ones yet."""
-	shell = []
+	only the build's time is known, -DNAME=`{date -n} (cwfs: DATE, the
+	seconds at build time), which the build tool sets when it compiles
+	(CflagsTime), as mk runs the recipe; another command is an error."""
+	names = []
 	for targets, prereq, recipe in rules(text):
 		if not recipe or not ccrecipe(recipe):
 			continue
 		expanded = expand(recipe, v)
 		for name, cmd, suffix in re.findall(r"-D(\w+)(?:'='|=)\s*`\{([^}]+)\}'?(\w*)", expanded):
-			c = cmd.strip()
-			if c == 'date -n':	# rc's date -n: seconds since the epoch
-				c = 'date +%s'
-			sh = 'echo "-D%s=$(%s)%s"' % (name, c, suffix)
-			if sh not in shell:
-				shell.append(sh)
-	return [], shell
+			if cmd.strip() != 'date -n' or suffix:
+				sys.exit('gencmds: %s: -D%s=`{%s}%s: only `{date -n} is known' % (d, name, cmd, suffix))
+			if name not in names:
+				names.append(name)
+	return names
 
 def locallibs(v, d):
 	# LIB may also name plain objects (vac's error.$O ...): those are sources
@@ -553,7 +550,7 @@ def entries(d):
 			print('gencmds: %s: no rule links 6.%s' % (d, ps[0]), file=sys.stderr)
 			continue
 		objs = [o for o in link[1] if o.endswith(('.' + O, '.c'))]
-		e = {k: common[k] for k in ('Cflags', 'CflagsShell', 'Libs', 'Pre', 'ape') if k in common}
+		e = {k: common[k] for k in ('Cflags', 'CflagsTime', 'Libs', 'Pre', 'ape') if k in common}
 		e.update(program=ps[0], Install=os.path.dirname(dest).replace('/' + OBJTYPE, '/$ARCH', 1) + '/',
 			src=objs2src(objs, d, text, v))
 		es.append((d + '/' + ps[0], e))
@@ -587,9 +584,8 @@ def mkentries(d):
 	v = variables(text)
 	v.update(evalvars(text, v, d))
 	cf = cflags(v, d)
-	shellstatic, shellcmds = recipeshellflags(text, v, d)
-	common = {'Cflags': cf + [f for f in recipecflags(text, v, d) if f not in cf] + shellstatic,
-		'CflagsShell': shellcmds,
+	common = {'Cflags': cf + [f for f in recipecflags(text, v, d) if f not in cf],
+		'CflagsTime': recipetimeflags(text, v, d),
 		'Libs': locallibs(v, d) + pragmalibs(cf, d), 'Install': install(v, d),
 		'Pre': yaccpre(text, v, d) + lexpre(text, v, d) + ['bash /sys/src/build/step/%s' % s for s in PRE.get(d, [])],
 		'ape': isape(text)}
@@ -733,8 +729,8 @@ def buildentry(e, name):
 		m['Include'].append('/$ARCH/ape.json')
 	if e.get('Cflags'):
 		m['Cflags'] = e['Cflags']
-	if e.get('CflagsShell'):
-		m['CflagsShell'] = e['CflagsShell']
+	if e.get('CflagsTime'):
+		m['CflagsTime'] = e['CflagsTime']
 	if e.get('Pre'):
 		m['Pre'] = e['Pre']
 	if e.get('ape'):

@@ -87,8 +87,11 @@ def main():
 			{'Name': 'cmds', 'Projects': cmds},
 			{'Name': 'kernelgen', 'Pre': gens, 'Clean': genclean.clean(gens, ROOT)},
 			{'Name': 'kernel', 'Projects': [kern]},
+			# the build tool itself, for the installed system (sys/src/build/step/build-tool.sh)
 			{'Name': 'install', 'Post': ['python3 /sys/src/build/step/elf2aout.py %s %s' % ea
-				for ea in zip(elf, aout)] + ['python3 /sys/src/build/step/check-install.py -r']},
+				for ea in zip(elf, aout)]
+				+ (['bash /sys/src/build/step/build-tool.sh'] if objtype in ('amd64', '386', 'arm64') else [])
+				+ ['python3 /sys/src/build/step/check-install.py -r']},
 		])
 	write('sys/src/build/build.json', [{'Name': 'all', 'Projects': ['/sys/src/build/build.$ARCH.json']}])
 

@@ -142,6 +142,12 @@ python3 "$ROOT/sys/src/build/host/guest/proto.py" -s "$VIEW" -d "$OUT" \
 	"$ROOT/sys/lib/sysconfig/proto/distproto" "$ROOT/sys/lib/sysconfig/proto/9bootproto" \
 	"${PROTOS[@]}" \
 	2> "$OUT.warnings" || { cat "$OUT.warnings"; exit 1; }
+# the expected files of the tree's build (check-install.py -l) for
+# check-install.rc on the installed system, which builds itself (the
+# mkfile parser is python's): its build's step install checks against it
+objtype=$A python3 "$ROOT/sys/src/build/step/check-install.py" -l > "$OUT/sys/src/build/check-install.$A"
+printf 'sys/src/build/check-install.%s\t664\tsys\tsys\n' "$A" >> "$OUT.list"
+LC_ALL=C sort -u -o "$OUT.list" "$OUT.list"
 # the CA roots, with Rust or Go: /sys/lib/tls/ca.pem, where Go's crypto/x509 and our
 # crates (rustls-native-certs, curl-sys) look; cargo and go reach crates.io and the
 # module proxy over https with them. Mozilla's list as curl extracts it (MPL-2.0):

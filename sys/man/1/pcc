@@ -140,6 +140,37 @@ Operating System Interface standard (POSIX, 1003.1-1990, ISO 9945-1).
 In order to access the POSIX routines, source programs should
 define the preprocessor constant
 .BR _POSIX_SOURCE .
+.PP
+File identity (9space, not in 9front):
+.IR stat 's
+.B st_ino
+is the file's whole
+.B qid.path
+(64 bits,
+.BR ino_t )
+and
+.B st_dev
+its device's type and number,
+.BR (type<<16)|dev
+(32 bits,
+.BR dev_t ;
+.BR major
+and
+.B minor
+of
+.B <sys/sysmacros.h>
+take them apart), so that two files of one server never compare equal.
+9front's APE has 16 bits each and cuts
+.B qid.path
+to them.
+Code compiled against the narrow
+.B "struct stat"
+must be compiled again.
+.PP
+For C++ (9space): the headers declare C linkage themselves, also in
+their C99 and POSIX parts;
+.B <ctype.h>
+has its classification macros for C only.
 .SH FILES
 .TF /$objtype/lib/ape/libap.a
 .TP
