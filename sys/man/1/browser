@@ -60,6 +60,23 @@ in a private name space; the
 on
 .B /mnt/web
 of the rest stays as it was.
+.PP
+.I Webfs-rs
+mounts itself on
+.I mtpt
+(default
+.BR /mnt/web )
+and, with
+.BR -s ,
+posts itself as
+.BI /srv/ service
+too;
+.B -s
+alone only posts it.
+.I Browser
+starts it so, in a name space of its own, mounts the post and removes it:
+.I webfs-rs
+ends with its last mount, when the browser ends, however it ends.
 Against a
 .I webfs
 without the extensions,
@@ -99,6 +116,14 @@ the Mozilla Public License 2.0, Servo's and SpiderMonkey's
 .TP
 .B /sys/lib/browser/SOURCES
 where their source code is
+.TP
+.B /sys/lib/browser/resources
+.IR servoshell 's
+own pages
+.RB ( servo:newtab ,
+a new tab's, and the others;
+.B $servoresources
+names another directory)
 .TP
 .B $home/lib/servo
 .IR servoshell 's
