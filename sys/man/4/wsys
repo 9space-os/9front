@@ -100,6 +100,12 @@ says what each resize of the window it is in found.
 says each message to a
 .B wctl
 file, with the window's number.
+.B WSYSDEBUG=ctl
+says each message to a window's
+.B ctl
+that
+.I wsys
+refuses, and why.
 .PP
 Where it can,
 .I wsys

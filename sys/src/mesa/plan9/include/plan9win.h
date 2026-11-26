@@ -34,8 +34,11 @@ extern int plan9win_inwsys(const char *name);	/* plan9win_wsys's answer, no desc
 /* the window's wsys gone: the window in the next one (waits for it), draw(3) anew: 0; -1 not gone; -2 none came */
 extern int plan9win_again(void);
 
-/* a request to wsys' ctl; -1 if refused */
+/* a request to wsys' ctl; -1 if refused (plan9win_err says why) */
 extern int plan9win_wsysctl(int fd, const char *msg);
+/* the error of the last plan9win_wsysctl or plan9win_put that failed (the system's
+ * error string: wsys' reason for a refusal, draw(3)'s for a copy) */
+extern const char *plan9win_err(void);
 extern int plan9win_wsysevents(const char *name);	/* the window's event file in wsys (overlay 0|1, b n) */
 /* the system's descriptors of these two, not APE's */
 extern int plan9win_wsysread(int fd, char *buf, int n);

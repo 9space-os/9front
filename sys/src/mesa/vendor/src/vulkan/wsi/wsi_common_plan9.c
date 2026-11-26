@@ -853,7 +853,7 @@ wsi_plan9_swapchain_queue_present(struct wsi_swapchain *wsi_chain,
        */
       int again = plan9win_again();
       if (chain->stats)
-         fprintf(stderr, "wsi plan9: present refused: plan9win_again %d\n", again);
+         fprintf(stderr, "wsi plan9: present refused (%s): plan9win_again %d\n", plan9win_err(), again);
       if (again != -1) {
          if (chain->stats)
             fprintf(stderr, "wsi plan9: wsys gone, %s\n", again == 0 ?
@@ -894,11 +894,16 @@ wsi_plan9_swapchain_queue_present(struct wsi_swapchain *wsi_chain,
                     chain->extent.width, chain->extent.height,
                     image->base.row_pitches[0]) < 0) {
       plan9_free(chain, image_index);
-      /* the window's wsys gone: the window in the next one, a new swapchain there */
+      /*
+       * the window's wsys gone: the window in the next one, a new swapchain
+       * there; none came: lost. wsys still there (again -1: the window moved
+       * or changed under the copy): a new swapchain too, which offers wsys its
+       * buffers again; never lost, which an app (zink) does not come back from
+       */
       int again = plan9win_again();
       if (chain->stats)
-         fprintf(stderr, "wsi plan9: copy failed: plan9win_again %d\n", again);
-      chain->status = again == 0 ? VK_ERROR_OUT_OF_DATE_KHR : VK_ERROR_SURFACE_LOST_KHR;
+         fprintf(stderr, "wsi plan9: copy failed (%s): plan9win_again %d\n", plan9win_err(), again);
+      chain->status = again == -2 ? VK_ERROR_SURFACE_LOST_KHR : VK_ERROR_OUT_OF_DATE_KHR;
       return chain->status;
    }
    plan9_free(chain, image_index);

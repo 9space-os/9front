@@ -89,6 +89,7 @@
 // (a client's present n x0 y0 x1 y1, Mesa's VK_KHR_incremental_present: only
 // what changed is composed again, in each of the swapchain's images)
 // WSYSDEBUG=wctl: each message to a wctl file, with the window's number
+// WSYSDEBUG=ctl: each message to a window's ctl that wsys refuses, and why
 
 #[cfg(feature = "gpu")]
 mod comp;
@@ -1490,6 +1491,11 @@ impl Wsys {
                         }
                         for line in s.lines() {
                             if let Err(err) = self.ctl(n, line.trim()) {
+                                // WSYSDEBUG=ctl: each refused message and why (a
+                                // client's present after a move, ...)
+                                if wsysdebug("ctl") {
+                                    eprintln!("wsys: ctl {n}: {}: {err}", line.trim());
+                                }
                                 return e(&err);
                             }
                         }

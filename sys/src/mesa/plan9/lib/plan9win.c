@@ -18,6 +18,9 @@
 
 #include "plan9win.h"
 
+/* the last failure's error string (plan9win_err) */
+static char lasterr[ERRMAX];
+
 static Lock lk;
 static Display *disp;
 static Image *buf;
@@ -421,6 +424,7 @@ Done:
 	unlock(&lk);
 	return 0;
 Err:
+	rerrstr(lasterr, sizeof lasterr);
 	if(curwin != nil){
 		free(curwin->last);	/* not known what it shows */
 		curwin->last = nil;
@@ -534,14 +538,22 @@ plan9win_wsysclose(int fd)
 	close(fd);
 }
 
+const char*
+plan9win_err(void)
+{
+	return lasterr;
+}
+
 int
 plan9win_wsysctl(int fd, const char *msg)
 {
 	int n;
 
 	n = strlen(msg);
-	if(write(fd, msg, n) != n)
+	if(write(fd, msg, n) != n){
+		rerrstr(lasterr, sizeof lasterr);
 		return -1;
+	}
 	return 0;
 }
 
