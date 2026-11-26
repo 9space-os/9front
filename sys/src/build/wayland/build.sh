@@ -14,12 +14,12 @@ ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
 . "$ROOT/sys/src/build/mesa/common.sh"
 LOG=${TMPDIR:-/tmp}/wayland-build.$$.log
 for m in sys/src/libffi/build.json sys/src/wayland/build.json; do
-	CC=$CROSS/$TRIPLE-gcc ARCH=amd64 "$ROOT/sys/src/cmd/build/build.exe" -D "$ROOT/$m" > "$LOG" 2>&1 ||
+	CC=$XCC ARCH=amd64 "$ROOT/sys/src/cmd/build/build.exe" -D "$ROOT/$m" > "$LOG" 2>&1 ||
 		{ tail -20 "$LOG"; rm -f "$LOG"; exit 1; }
 done
 rm -f "$LOG"
 mkdir -p "$1"
 W=$ROOT/sys/src/cmd/wlsys
-"$CROSS/$TRIPLE-gcc" -std=gnu11 -O2 -Wall -o "$1/wlsys" \
+"$XCC" -std=gnu11 -O2 -Wall -o "$1/wlsys" \
 	"$W"/*.c \
 	-lwayland-server -lffi

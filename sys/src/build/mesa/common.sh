@@ -54,3 +54,42 @@ if [ -x "$GCC_CROSS/$TRIPLE-gcc" ] &&
 		chmod +x "$CROSS/$TRIPLE-$t"
 	done
 fi
+# The cross tools of the build (ape.sh, wayland/build.sh, cargo.sh): XCC,
+# XCXX, XAR, XNM, XRANLIB, XSTRIP, XLD, XOBJCOPY. CC's family chooses
+# (TOOLSET: build.exe's, or from CC's name): gcc's above, or clang's of
+# toolchain/clang (CLANG_DIR): its cross clang for clang's Plan 9 target
+# (TRIPLE_CLANG), the sysroot a view of this tree with /$objtype/clang,
+# clang's runtimes (libc++ & co., compiler-rt), as on 9front
+TOOLSET=${TOOLSET:-$(case ${CC##*/} in *clang*) echo clang ;; *) echo gcc ;; esac)}
+case $objtype in
+amd64)	TRIPLE_CLANG=x86_64-unknown-plan9 ;;
+386)	TRIPLE_CLANG=i686-unknown-plan9 ;;
+arm64)	TRIPLE_CLANG=aarch64-unknown-plan9 ;;
+esac
+if [ "$TOOLSET" = clang ]; then
+	# a directory of its own (ape.sh's log and programs; gcc's has the meson build)
+	BUILD=$WORK/build-$objtype-clang
+	CLANG_HOST=$CLANG_DIR/build/host/bin
+	CLANG_RT=$CLANG_DIR/out/$objtype/$objtype/clang
+	SYSROOT=$BUILD/sysroot-clang
+	CROSS=$BUILD/cross-clang/bin
+	if [ -x "$CLANG_HOST/clang" ] && [ -d "$CLANG_RT/lib" ] &&
+		{ [ "$(readlink "$SYSROOT/sys/include")" != "$ROOT/sys/include" ] ||
+		  [ "$(readlink "$SYSROOT/$objtype/clang")" != "$CLANG_RT" ] || [ ! -x "$CROSS/$TRIPLE_CLANG-clang++" ]; }; then
+		mkdir -p "$BUILD"
+		PLAN9=$ROOT objtype=$objtype bash "$GCC_DIR/sysroot.sh" "$SYSROOT"
+		ln -s "$CLANG_RT" "$SYSROOT/$objtype/clang"
+		rm -rf "$CROSS"; mkdir -p "$CROSS"
+		for t in clang clang++; do
+			printf '#!/bin/sh\nexec "%s" --target=%s --sysroot="%s" "$@"\n' "$CLANG_HOST/$t" $TRIPLE_CLANG "$SYSROOT" > "$CROSS/$TRIPLE_CLANG-$t"
+			chmod +x "$CROSS/$TRIPLE_CLANG-$t"
+		done
+	fi
+	XCC=$CROSS/$TRIPLE_CLANG-clang XCXX=$CROSS/$TRIPLE_CLANG-clang++
+	XAR=$CLANG_HOST/llvm-ar XNM=$CLANG_HOST/llvm-nm XRANLIB=$CLANG_HOST/llvm-ranlib
+	XSTRIP=$CLANG_HOST/llvm-strip XLD=$CLANG_HOST/ld.lld XOBJCOPY=$CLANG_HOST/llvm-objcopy
+else
+	XCC=$CROSS/$TRIPLE-gcc XCXX=$CROSS/$TRIPLE-g++
+	XAR=$CROSS/$TRIPLE-ar XNM=$CROSS/$TRIPLE-nm XRANLIB=$CROSS/$TRIPLE-ranlib
+	XSTRIP=$CROSS/$TRIPLE-strip XLD=$CROSS/$TRIPLE-ld XOBJCOPY=$CROSS/$TRIPLE-objcopy
+fi

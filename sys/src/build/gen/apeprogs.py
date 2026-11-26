@@ -29,7 +29,8 @@ LIBS = ['sys/src/mesa', 'sys/src/libffi', 'sys/src/wayland', 'sys/src/sdl3', 'sy
 # program: its source directory
 PROGS = {'wlsys': 'sys/src/cmd/wlsys', 'foot': 'sys/src/foot', 'cxxwidgets': 'sys/src/libui/cxx'}
 
-# programs in C++ (GCC_DIR's g++, libstdc++): their sources and link
+# programs in C++ (GCC_DIR's g++ and libstdc++, or toolchain/clang's clang++ and
+# libc++): their sources and link
 # arguments (sys/src/build/step/ape.sh)
 CXX = {
 	'cxxwidgets': ['sys/src/libui/cxx/cxxwidgets.cc', '-l9'],
@@ -44,11 +45,25 @@ LINKS = {
 
 TRIPLES = {'amd64': 'x86_64-pc-plan9', '386': 'i686-pc-plan9'}
 
+def toolset():
+	"""CC's family: gcc, or clang (build.exe's TOOLSET, else CC's name)"""
+	t = os.environ.get('TOOLSET')
+	if t:
+		return t
+	return 'clang' if 'clang' in os.path.basename(os.environ.get('CC', '')) else 'gcc'
+
 def cross(objtype):
-	"""is there the cross compiler of toolchain/gcc (GCC_DIR) for objtype?"""
+	"""is there the cross compiler for objtype: toolchain/gcc's (GCC_DIR), or
+	with CC a clang toolchain/clang's (CLANG_DIR: its cross clang and the
+	runtimes for objtype)?"""
+	if objtype not in TRIPLES:
+		return False
+	if toolset() == 'clang':
+		d = paths.get('CLANG_DIR')
+		return os.access(os.path.join(d, 'build', 'host', 'bin', 'clang'), os.X_OK) and \
+			os.path.isfile(os.path.join(d, 'out', objtype, objtype, 'clang', 'lib', 'libc++.a'))
 	d = paths.get('GCC_DIR')
-	t = TRIPLES.get(objtype)
-	return t is not None and os.access(os.path.join(d, 'build', objtype, 'cross', 'bin', t + '-gcc'), os.X_OK)
+	return os.access(os.path.join(d, 'build', objtype, 'cross', 'bin', TRIPLES[objtype] + '-gcc'), os.X_OK)
 
 if __name__ == '__main__':
 	for p, d in sorted(PROGS.items()):
