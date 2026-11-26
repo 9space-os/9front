@@ -121,10 +121,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -153,6 +151,9 @@
 			"-Werror=missing-prototypes",
 			"-Werror=sizeof-array-div",
 			"-DMESA_VK_LOG=1"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"vk_rmv_common.c",

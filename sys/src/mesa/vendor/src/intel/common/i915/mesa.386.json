@@ -120,10 +120,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -149,6 +147,9 @@
 			"-Werror=int-conversion",
 			"-Werror=missing-prototypes",
 			"-Werror=sizeof-array-div"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"intel_engine.c",

@@ -123,10 +123,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -148,6 +146,9 @@
 			"-DXXH_FORCE_ALIGN_CHECK=0",
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl.c",
@@ -283,10 +284,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -309,6 +308,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-DGFX_VERx10=40"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_emit_cpb.c",
@@ -442,10 +444,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -468,6 +468,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-DGFX_VERx10=50"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_emit_cpb.c",
@@ -600,10 +603,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -626,6 +627,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-DGFX_VERx10=60"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_emit_cpb.c",
@@ -759,10 +763,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -785,6 +787,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-DGFX_VERx10=70"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_emit_cpb.c",
@@ -918,10 +923,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -944,6 +947,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-DGFX_VERx10=75"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_emit_cpb.c",
@@ -1076,10 +1082,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -1102,6 +1106,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-DGFX_VERx10=80"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_emit_cpb.c",
@@ -1235,10 +1242,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -1261,6 +1266,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-DGFX_VERx10=90"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_emit_cpb.c",
@@ -1394,10 +1402,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -1420,6 +1426,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-DGFX_VERx10=110"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_emit_cpb.c",
@@ -1552,10 +1561,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -1578,6 +1585,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-DGFX_VERx10=120"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_emit_cpb.c",
@@ -1711,10 +1721,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -1737,6 +1745,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-DGFX_VERx10=125"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_emit_cpb.c",
@@ -1869,10 +1880,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -1895,6 +1904,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-DGFX_VERx10=200"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_emit_cpb.c",
@@ -2028,10 +2040,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -2054,6 +2064,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-DGFX_VERx10=300"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_emit_cpb.c",
@@ -2186,10 +2199,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -2212,6 +2223,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-DGFX_VERx10=350"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_emit_cpb.c",
@@ -2342,10 +2356,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -2373,6 +2385,9 @@
 			"-Werror=int-conversion",
 			"-Werror=missing-prototypes",
 			"-Werror=sizeof-array-div"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_tiled_memcpy_normal.c"
@@ -2501,10 +2516,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -2527,6 +2540,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Wno-override-init",
 			"-msse4.1"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"isl_tiled_memcpy_sse41.c"

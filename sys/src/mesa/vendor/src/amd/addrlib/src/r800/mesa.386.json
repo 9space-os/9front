@@ -120,13 +120,11 @@
 			"-Werror=return-type",
 			"-Werror=empty-body",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-non-virtual-dtor",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
 			"-fno-math-errno",
 			"-fno-trapping-math",
-			"-flifetime-dse=1",
 			"-Wno-unknown-pragmas",
 			"-Werror=format",
 			"-Wformat-security",
@@ -145,8 +143,10 @@
 			"-Wno-unused-variable",
 			"-Wno-unused-local-typedefs",
 			"-Wno-unused-but-set-variable",
-			"-Wno-maybe-uninitialized",
 			"-Wno-uninitialized"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-maybe-uninitialized_flifetime-dse-1.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"ciaddrlib.cpp",

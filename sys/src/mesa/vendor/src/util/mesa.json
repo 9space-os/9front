@@ -119,10 +119,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -149,6 +147,9 @@
 			"-Werror=int-conversion",
 			"-Werror=missing-prototypes",
 			"-Werror=sizeof-array-div"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"anon_file.c",
@@ -341,13 +342,11 @@
 			"-Werror=return-type",
 			"-Werror=empty-body",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-non-virtual-dtor",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
 			"-fno-math-errno",
 			"-fno-trapping-math",
-			"-flifetime-dse=1",
 			"-Wno-unknown-pragmas",
 			"-Werror=format",
 			"-Wformat-security",
@@ -362,6 +361,9 @@
 			"../../../plan9/include/plan9_wlweak.h",
 			"-fPIC",
 			"-pthread"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_flifetime-dse-1.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"texcompress_astc.cpp",
@@ -488,10 +490,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -510,6 +510,9 @@
 			"../../../plan9/include/plan9_wlweak.h",
 			"-fPIC",
 			"-Wno-override-init"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"cache_ops_x86.c"
@@ -633,10 +636,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -656,6 +657,9 @@
 			"-fPIC",
 			"-Wno-override-init",
 			"-mclflushopt"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"cache_ops_x86_clflushopt.c"
@@ -779,10 +783,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -809,6 +811,9 @@
 			"-Werror=missing-prototypes",
 			"-Werror=sizeof-array-div",
 			"-msse4.1"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"streaming-load-memcpy.c"
@@ -934,10 +939,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -969,6 +972,9 @@
 			"-DWITH_XMLCONFIG=0",
 			"-DSYSCONFDIR=\"/usr/local/etc\"",
 			"-DDATADIR=\"/usr/local/share\""
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"xmlconfig.c"

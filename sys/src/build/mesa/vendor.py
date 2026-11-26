@@ -57,6 +57,18 @@ REPLACED = {'include/drm-uapi/dma-buf.h': 'uapi/dma-buf.h'}
 # generated with the pointer's size (meson's sizeof_pointer): one copy per objtype
 ARCHDEP = ('src/mesa/glapi/glapi/gen/marshal_generated', 'src/mesa/glapi/glapi/gen/unmarshal_table.c')
 ARCHDIR = os.path.join(VENDOR, OBJTYPE)
+# meson's flags that only gcc has (meson asked gcc for them; for clang it
+# would leave them out): not in a block's Cflags but in an Include,
+# sys/src/mesa/cc/<set>.$TOOLSET.json (build.exe's: CC is the cross
+# compiler's path in sys/src/build/step/ape.sh), gcc's with them, clang's without (its
+# names for them where it has one)
+CCONLY = {
+	'-flifetime-dse=1': None,
+	'-Wno-maybe-uninitialized': None,
+	'-Wno-error=maybe-uninitialized': None,
+	'-Wno-nonnull-compare': None,
+}
+CCDIR = os.path.join(ROOT, 'sys/src/mesa/cc')
 # hasvk first, then radv: their objects stand for venus' equal ones (members.py)
 SOS = ['src/intel/vulkan_hasvk/libvulkan_intel_hasvk.so', 'src/amd/vulkan/libvulkan_radeon.so',
 	'src/virtio/vulkan/libvulkan_virtio.so',
@@ -122,6 +134,17 @@ def copy(src, dst):
 		pass
 	os.makedirs(os.path.dirname(dst), exist_ok=True)
 	shutil.copyfile(src, dst)
+
+
+def ccinclude(only):
+	"""the Include of a block whose flags in CCONLY are only: their file
+	for each compiler, named after them"""
+	name = '_'.join(f.lstrip('-').replace('=', '-') for f in sorted(only))
+	for cc in ('gcc', 'clang'):
+		fl = sorted(only) if cc == 'gcc' else [CCONLY[f] for f in sorted(only) if CCONLY[f]]
+		write(os.path.join(CCDIR, '%s.%s.json' % (name, cc)),
+			json.dumps([{'Name': 'buildflags', 'Cflags': fl}], indent='\t') + '\n')
+	return '/sys/src/mesa/cc/%s.$TOOLSET.json' % name
 
 
 def write(path, text):
@@ -243,7 +266,10 @@ def main():
 		if 'tag' in b:
 			m['Objtag'] = b['tag']
 		if lang != 'asm':
-			m['Cflags'] = b['flags']
+			m['Cflags'] = [f for f in b['flags'] if f not in CCONLY]
+			only = [f for f in b['flags'] if f in CCONLY]
+			if only:
+				m['Include'] = [ccinclude(only)]
 		m['SourceFiles'] = sorted(b['files'])
 		manifests.setdefault(d, []).append(m)
 	for d, ms in manifests.items():

@@ -125,10 +125,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -151,6 +149,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-DVK_USE_PLATFORM_WAYLAND_KHR",
 			"-DVK_USE_PLATFORM_PLAN9_9FRONT"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"color-management-v1-protocol.c",
@@ -284,10 +285,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -308,6 +307,9 @@
 			"-pthread",
 			"-DXXH_FORCE_ALIGN_CHECK=0",
 			"-DXXH_FORCE_MEMORY_ACCESS=0"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"loader_wayland_helper.c"
@@ -435,10 +437,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -460,6 +460,9 @@
 			"-DXXH_FORCE_ALIGN_CHECK=0",
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-DUSE_DRICONF"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"loader.c",

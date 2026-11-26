@@ -130,10 +130,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -156,6 +154,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Werror=pointer-arith",
 			"-Werror=vla"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"accum.c",
@@ -406,13 +407,11 @@
 			"-Werror=return-type",
 			"-Werror=empty-body",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-non-virtual-dtor",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
 			"-fno-math-errno",
 			"-fno-trapping-math",
-			"-flifetime-dse=1",
 			"-Wno-unknown-pragmas",
 			"-Werror=format",
 			"-Wformat-security",
@@ -431,6 +430,9 @@
 			"-DXXH_FORCE_MEMORY_ACCESS=0",
 			"-Werror=pointer-arith",
 			"-Werror=vla"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_flifetime-dse-1.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"shader_query.cpp",
@@ -557,10 +559,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -581,6 +581,9 @@
 			"-Werror=pointer-arith",
 			"-Werror=vla",
 			"-msse4.1"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"sse_minmax.c"

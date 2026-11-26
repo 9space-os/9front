@@ -120,13 +120,11 @@
 			"-Werror=return-type",
 			"-Werror=empty-body",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-non-virtual-dtor",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
 			"-fno-math-errno",
 			"-fno-trapping-math",
-			"-flifetime-dse=1",
 			"-Wno-unknown-pragmas",
 			"-Werror=format",
 			"-Wformat-security",
@@ -141,6 +139,9 @@
 			"-pthread",
 			"-DXXH_FORCE_ALIGN_CHECK=0",
 			"-DXXH_FORCE_MEMORY_ACCESS=0"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_flifetime-dse-1.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"blorp_shaders.cpp"
@@ -271,10 +272,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -300,6 +299,9 @@
 			"-Werror=int-conversion",
 			"-Werror=missing-prototypes",
 			"-Werror=sizeof-array-div"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"blorp.c",
@@ -432,10 +434,8 @@
 			"-Werror=int-conversion",
 			"-Wimplicit-fallthrough",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
-			"-Wno-nonnull-compare",
 			"-fno-math-errno",
 			"-fno-trapping-math",
 			"-fno-common",
@@ -461,6 +461,9 @@
 			"-Werror=int-conversion",
 			"-Werror=missing-prototypes",
 			"-Werror=sizeof-array-div"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_Wno-nonnull-compare.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"blorp_elk.c"

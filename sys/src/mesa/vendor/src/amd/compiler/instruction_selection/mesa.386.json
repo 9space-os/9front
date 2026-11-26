@@ -118,13 +118,11 @@
 			"-Werror=return-type",
 			"-Werror=empty-body",
 			"-Wmisleading-indentation",
-			"-Wno-error=maybe-uninitialized",
 			"-Wno-non-virtual-dtor",
 			"-Wno-missing-field-initializers",
 			"-Wno-format-truncation",
 			"-fno-math-errno",
 			"-fno-trapping-math",
-			"-flifetime-dse=1",
 			"-Wno-unknown-pragmas",
 			"-Werror=format",
 			"-Wformat-security",
@@ -145,6 +143,9 @@
 			"-Wshadow",
 			"-Werror=pointer-arith",
 			"-Werror=vla"
+		],
+		"Include": [
+			"/sys/src/mesa/cc/Wno-error-maybe-uninitialized_flifetime-dse-1.$TOOLSET.json"
 		],
 		"SourceFiles": [
 			"aco_isel_cfg.cpp",

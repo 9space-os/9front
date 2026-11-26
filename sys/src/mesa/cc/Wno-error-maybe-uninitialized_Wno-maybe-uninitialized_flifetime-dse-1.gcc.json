@@ -1,0 +1,10 @@
+[
+	{
+		"Name": "buildflags",
+		"Cflags": [
+			"-Wno-error=maybe-uninitialized",
+			"-Wno-maybe-uninitialized",
+			"-flifetime-dse=1"
+		]
+	}
+]
