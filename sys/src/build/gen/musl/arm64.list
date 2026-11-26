@@ -168,6 +168,7 @@ src/math/atanl.c
 src/math/cbrt.c
 src/math/cbrtf.c
 src/math/cbrtl.c
+src/math/ceill.c
 src/math/copysign.c
 src/math/copysignf.c
 src/math/copysignl.c
@@ -189,6 +190,7 @@ src/math/expf.c
 src/math/expl.c
 src/math/expm1.c
 src/math/expm1f.c
+src/math/expm1l.c
 src/math/fabsl.c
 src/math/fdim.c
 src/math/fdimf.c
@@ -289,6 +291,7 @@ src/math/tanl.c
 src/math/tgamma.c
 src/math/tgammaf.c
 src/math/tgammal.c
+src/math/truncl.c
 src/string/wcpcpy.c
 src/string/wcpncpy.c
 src/string/wcscasecmp.c
