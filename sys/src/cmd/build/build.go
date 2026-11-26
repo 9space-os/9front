@@ -654,6 +654,28 @@ func timeflags(b *build) []string {
 	return flags
 }
 
+// iscxx: a C++ source (Mesa's, in a compatibility manifest), compiled by
+// the C driver by its name
+func iscxx(f string) bool {
+	switch path.Ext(f) {
+	case ".cpp", ".cc", ".cxx", ".C":
+		return true
+	}
+	return false
+}
+
+// withoutC11: args without the tool's -std=c11, which is C's (gcc warns
+// for C++, clang refuses it; the manifest gives C++'s -std)
+func withoutC11(args []string) []string {
+	var out []string
+	for _, a := range args {
+		if a != "-std=c11" {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 func isasm(f string) bool {
 	return strings.HasSuffix(f, ".s") || strings.HasSuffix(f, ".S")
 }
@@ -725,10 +747,14 @@ func compile(b *build) {
 // an Objtag into its x.<Objtag>.o (-o), which leaves the x.o of the same
 // source, and gcc names the dependency file after it
 func cc(b *build, command string, args, fs []string) []func() {
-	cargs := append(args[:len(args):len(args)], timeflags(b)...)
 	var jobs []func()
 	for _, f := range fs {
 		f := f
+		args := args
+		if iscxx(f) {
+			args = withoutC11(args)
+		}
+		cargs := append(args[:len(args):len(args)], timeflags(b)...)
 		jobs = append(jobs, func() {
 			if b.Objtag == "" {
 				run(b, *shellhack, exec.Command(command, append(cargs[:len(cargs):len(cargs)], f)...))
