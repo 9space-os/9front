@@ -1405,6 +1405,10 @@ func main() {
 		os.Setenv("BUILDTOOL", exe)
 	}
 	findTools(os.Getenv("TOOLPREFIX"))
+	// TOOLSET: CC's compiler family (gcc, clang), for manifests that
+	// include a file per compiler where CC is a path (sys/src/build/step/ape.sh
+	// gives the cross compiler's: /x/x86_64-pc-plan9-gcc)
+	os.Setenv("TOOLSET", toolset())
 
 	// ensure this is exported, in case we used a default value
 	os.Setenv("PLAN9", plan9)
