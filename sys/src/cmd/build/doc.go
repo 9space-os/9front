@@ -46,8 +46,12 @@ and CPUS (the processors: the source files of a manifest are compiled
 CPUS at a time, each by a compiler run of its own; CPUS=1 one after the
 other). PLAN9 defaults to the git checkout, on Plan 9 without one to /
 (the installed system's tree); on Plan 9 CC defaults to gcc and ARCH to
-$objtype, and the tools (gcc, ar, ld, nm, ...) are the native toolchain's in
-/$cputype/gnu/bin, before $path (9front's own ar and nm take other options), so that there
+$objtype, and the tools (ar, ld, nm, ...) are
+the native toolchain's, before $path: gcc's binutils in /$cputype/gnu/bin
+(9front's own ar and nm take other options), with CC=clang LLVM's
+(llvm-ar, ld.lld, llvm-nm, ...) in /$cputype/clang/bin. With CC=clang the tools
+have LLVM's names on Linux too, and TOOLPREFIX does not apply. AR, LD, NM,
+RANLIB, STRIP and OBJCOPY in the environment win, so that there
 `cd /sys/src; build` builds the installed system. Without an argument the tool builds
 build.json of the current directory, else the tree's
 sys/src/build/build.json, which builds everything for ARCH
@@ -200,8 +204,8 @@ and builds nothing, like mk clean. Installed targets stay.
 
 DEPENDENCIES (-D)
 
-Every compile writes, beside x.o, gcc's dependency file x.d (-MMD: the
-source and the headers it read) with a signature of the compile command.
+Every compile writes, beside x.o, gcc's dependency file x.d (-MD: the
+source and every header it read, the compiler's system headers too) with a signature of the compile command.
 With -D the build tool does only what is out of date, as mk does: it
 compiles a source whose object is missing, of another $ARCH, made by
 another command, or older than the source or one of its headers;
