@@ -29,6 +29,13 @@ copy(){ cmp -s "$1" "$2" || cp "$1" "$2"; }
 # in flex scanner failed": say so first
 [ -n "$CCRT" ] || { echo "prep-objtype.sh: CCRT not set: build.exe is older than the manifests (cd sys/src/cmd/build && GO111MODULE=off go build -o build.exe .)" >&2; exit 1; }
 if [ "${TOOLSET:-gcc}" = clang ]; then
+	# clang's target is its name's (x86_64-unknown-plan9-clang on Linux) or
+	# $objtype's (on 9front): a plain clang on Linux makes Linux code
+	t=$($CC -dumpmachine)
+	case $t in
+	*-plan9) ;;
+	*)	echo "prep-objtype.sh: CC=$CC makes code for $t, not Plan 9: on Linux CC=<target>-clang (x86_64-unknown-plan9-clang, i686-..., aarch64-...; toolchain/clang's build/host/bin)" >&2; exit 1 ;;
+	esac
 	lib=$(ls "$CLANG_DIR"/out/$objtype/$objtype/clang/lib/clang/*/lib/plan9/libclang_rt.builtins-*.a 2>/dev/null | tail -1)
 	[ -n "$lib" ] || { echo "prep-objtype.sh: no compiler-rt for $objtype in $CLANG_DIR/out (toolchain/clang: objtype=$objtype ./build.sh runtimes)" >&2; exit 1; }
 	copy "$lib" $objtype/lib.gcc/libclang_rt.builtins.a
