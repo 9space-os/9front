@@ -66,12 +66,7 @@ void	*kvrealloc(const void *p, size_t size, gfp_t gfp);
 #define kvzalloc_node(s, g, n)		kzalloc(s, g)
 #define krealloc_array(p, n, s, g)	krealloc(p, size_mul(n, s), g)
 #define kmalloc_track_caller(s, g)	kmalloc(s, g)
-struct rcu_head;
-void	kpi_kvfree_call_rcu(struct rcu_head *head, void *ptr);
-#define __kpi_kvfree_rcu_2(p, f)	kpi_kvfree_call_rcu(&(p)->f, (void *)(p))
-#define __kpi_kvfree_rcu_1(p)		kpi_kvfree_call_rcu(NULL, (void *)(p))
-#define __kpi_kvfree_rcu_n(_1, _2, n, ...)	n
-#define kvfree_rcu(...)			__kpi_kvfree_rcu_n(__VA_ARGS__, __kpi_kvfree_rcu_2, __kpi_kvfree_rcu_1)(__VA_ARGS__)
+#include <linux/rcupdate.h>	/* kvfree_rcu, kfree_rcu, kpi_kvfree_call_rcu */
 #define kfree_rcu_mightsleep(p)		kpi_kvfree_call_rcu(NULL, (void *)(p))
 #define kvfree_rcu_mightsleep(p)	kpi_kvfree_call_rcu(NULL, (void *)(p))
 #define KMALLOC_MAX_SIZE		(1UL << 22)

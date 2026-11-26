@@ -72,18 +72,16 @@ free_page(unsigned long addr)
 #include <linux/kernel.h>
 #include <linux/numa.h>
 #define __GFP_DMA		0x01u
-#define __GFP_HIGH		0x20u
 #define __GFP_IO		0x40u
 #define __GFP_FS		0x80u
 #define __GFP_NOFAIL		0x800u
-#define __GFP_DIRECT_RECLAIM	0x10000u
+/* its own bit: 0x10000 was __GFP_DMA32's (masking ~__GFP_RECLAIM cleared DMA32) */
+#define __GFP_DIRECT_RECLAIM	0x400000u
 #define __GFP_RECLAIM		(__GFP_DIRECT_RECLAIM | __GFP_KSWAPD_RECLAIM)
-#define __GFP_ACCOUNT		0x80000u
 #define __GFP_THISNODE		0x100000u
 #define __GFP_HARDWALL		0x200000u
-#define GFP_KERNEL_ACCOUNT	(GFP_KERNEL | __GFP_ACCOUNT)
-#define GFP_NOIO		(__GFP_RECLAIM)
-#define GFP_NOFS		(__GFP_RECLAIM | __GFP_IO)
+/* may sleep, as GFP_KERNEL (__GFP_RECLAIM has M_NOWAIT: __GFP_KSWAPD_RECLAIM) */
+#define GFP_NOIO		(M_WAITOK | M_CANFAIL)
 #define GFP_DMA			__GFP_DMA
 #define GFP_HIGHUSER_MOVABLE	(GFP_HIGHUSER | __GFP_MOVABLE)
 #define GFP_TRANSHUGE		(GFP_TRANSHUGE_LIGHT | __GFP_DIRECT_RECLAIM)

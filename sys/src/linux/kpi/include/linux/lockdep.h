@@ -46,13 +46,10 @@ struct pin_cookie {
 
 /* 9front: what the Linux code uses and OpenBSD's header lacks (OpenBSD changes that code), from our earlier LinuxKPI */
 struct lockdep_map { int unused; };
-#define lockdep_assert_held_write(l)	do { (void)(l); } while (0)
 #define lockdep_assert_held_read(l)	do { (void)(l); } while (0)
 #define lockdep_assert_irqs_disabled()	do { } while (0)
 #define lockdep_assert_irqs_enabled()	do { } while (0)
 #define lockdep_assert_in_irq()		do { } while (0)
-#define lock_map_acquire(m)		do { } while (0)
-#define lock_map_release(m)		do { } while (0)
 #define lock_map_acquire_read(m)	do { } while (0)
 #define might_lock_read(l)		do { } while (0)
 #define lockdep_repin_lock(l, c)	do { } while (0)

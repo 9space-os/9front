@@ -36,11 +36,10 @@
 #define offset_in_page(off)	((vaddr_t)(off) & (PAGE_SIZE - 1))
 #define set_page_dirty(page)	atomic_clearbits_int(&page->pg_flags, PG_CLEAN)
 
-#define PAGE_ALIGN(addr)	(((addr) + PAGE_SIZE - 1) & PAGE_MASK)
+/* 9front: of addr's type, as Linux's (ALIGN: __ALIGN_KERNEL of linux/kernel.h) */
+#define PAGE_ALIGN(addr)	__ALIGN_KERNEL((addr), PAGE_SIZE)
 
-#define PFN_UP(x)		(((x) + PAGE_SIZE-1) >> PAGE_SHIFT)
-#define PFN_DOWN(x)		((x) >> PAGE_SHIFT)
-#define PFN_PHYS(x)		((x) << PAGE_SHIFT)
+/* PFN_UP, PFN_DOWN, PFN_PHYS: asm/page.h (below; PFN_PHYS as a phys_addr_t) */
 
 bool is_vmalloc_addr(const void *);
 

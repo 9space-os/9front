@@ -19,7 +19,6 @@
 
 /* 9front: what the Linux code uses and OpenBSD's header lacks (OpenBSD changes that code), from our earlier LinuxKPI */
 #include <linux/types.h>
-#define FIELD_MAX(m)		((typeof(m))((m) >> __bf_shf(m)))
 #define FIELD_FIT(m, v)		(!((((typeof(m))(v)) << __bf_shf(m)) & ~(m)))
 #define FIELD_PREP_CONST(m, v)	FIELD_PREP(m, v)
 #define __kpi_bits(t, sz) \

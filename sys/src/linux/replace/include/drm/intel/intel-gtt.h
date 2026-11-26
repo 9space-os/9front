@@ -11,8 +11,7 @@ struct pci_dev;
 struct sg_table;
 #define AGP_DCACHE_MEMORY	1
 #define AGP_PHYS_MEMORY		2
-#define AGP_USER_MEMORY		1
-#define AGP_USER_CACHED_MEMORY	2
+#include <linux/agp_backend.h>	/* AGP_USER_MEMORY, AGP_USER_CACHED_MEMORY */
 #define intel_gmch_probe(b, g, br)		0
 #define intel_gmch_gtt_get(gs, ms, mb)		do { *(gs) = 0; *(ms) = 0; *(mb) = 0; } while (0)
 #define intel_gmch_enable_gtt()			0

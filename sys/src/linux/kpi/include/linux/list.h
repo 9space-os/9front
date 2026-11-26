@@ -397,7 +397,6 @@ static inline void list_cut_position(struct list_head *l, struct list_head *h, s
 static inline void list_cut_before(struct list_head *l, struct list_head *h, struct list_head *e)
 { if (h->next == e) { INIT_LIST_HEAD(l); return; } l->next = h->next; l->next->prev = l; l->prev = e->prev; l->prev->next = l; h->next = e; e->prev = h; }
 static inline void list_rotate_left(struct list_head *h) { if (!list_empty(h)) list_move_tail(h->next, h); }
-#define list_last_entry_or_null(p, t, m)	(!list_empty(p) ? list_last_entry(p, t, m) : NULL)
 #define list_next_entry_circular(p, h, m)	(list_is_last(&(p)->m, h) ? list_first_entry(h, typeof(*(p)), m) : list_next_entry(p, m))
 #define list_entry_is_head(p, h, m)	(&(p)->m == (h))
 #define list_for_each_prev_safe(p, n, h)	for (p = (h)->prev, n = p->prev; !list_is_head(p, (h)); p = n, n = p->prev)

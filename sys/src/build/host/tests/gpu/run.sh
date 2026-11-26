@@ -52,8 +52,8 @@ novk(){
 	cat "$l" "$l.new" 2>/dev/null | sort -u | while read -r n; do rm -f "$HERE/root/tests/$n"; done
 	rm -f "$l" "$l.new"
 }
-cross=$(. "$ROOT/sys/src/build/mesa/common.sh"; echo "$CROSS/$TRIPLE-gcc")
-cross_strip=${cross%-gcc}-strip
+# the cross compiler of CC's toolset (mesa/common.sh: gcc's or clang's)
+eval "$(. "$ROOT/sys/src/build/mesa/common.sh"; echo "cross=$XCC cross_strip=$XSTRIP")"
 if [ -x "$cross" ]; then
 	check "build libvulkan.a (build.exe, sys/src/mesa) and the Vulkan tests" bash "$HERE/build-vktest.sh" || novk
 else

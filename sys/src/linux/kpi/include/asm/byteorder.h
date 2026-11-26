@@ -18,16 +18,13 @@
 #define be16_to_cpup(x)	bemtoh16(x)
 #define be32_to_cpup(x)	bemtoh32(x)
 #define be64_to_cpup(x)	bemtoh64(x)
-#define get_unaligned_le32(x)	lemtoh32(x)
+#include <asm/unaligned.h>	/* 9front: get_unaligned_le32 & co. (any alignment) */
 #define cpu_to_le16(x) htole16(x)
 #define cpu_to_le32(x) htole32(x)
 #define cpu_to_le64(x) htole64(x)
 #define cpu_to_be16(x) htobe16(x)
 #define cpu_to_be32(x) htobe32(x)
 #define cpu_to_be64(x) htobe64(x)
-
-#define swab16(x) swap16(x)
-#define swab32(x) swap32(x)
 
 static inline void
 le16_add_cpu(uint16_t *p, uint16_t n)

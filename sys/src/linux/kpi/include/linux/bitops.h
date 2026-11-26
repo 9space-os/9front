@@ -24,14 +24,8 @@
 
 #include <asm/bitsperlong.h>
 #include <linux/atomic.h>
-
-#define BIT(x)		(1UL << (x))
-#define BIT_ULL(x)	(1ULL << (x))
-#define BIT_MASK(x)	(1UL << ((x) % BITS_PER_LONG))
-#define BITS_PER_BYTE	8
-
-#define GENMASK(h, l)		(((~0UL) >> (BITS_PER_LONG - (h) - 1)) & ((~0UL) << (l)))
-#define GENMASK_ULL(h, l)	(((~0ULL) >> (BITS_PER_LONG_LONG - (h) - 1)) & ((~0ULL) << (l)))
+/* 9front: BIT, GENMASK & co. from linux/bits.h, as Linux's bitops.h has them */
+#include <linux/bits.h>
 
 #define BITS_PER_TYPE(x)	(8 * sizeof(x))
 #define BITS_TO_LONGS(x)	howmany((x), 8 * sizeof(long))

@@ -44,10 +44,7 @@ TAILQ_HEAD(pglist, page);
 struct page	*PHYS_TO_VM_PAGE(paddr_t);	/* NULL: not a page of ours */
 struct page	*uvm_atopg(vaddr_t);		/* the page at a virtual address of the file server */
 
-#define PROT_NONE	0x00
-#define PROT_READ	0x01
-#define PROT_WRITE	0x02
-#define PROT_EXEC	0x04
+#include <linux/mman.h>	/* PROT_NONE, PROT_READ, PROT_WRITE, PROT_EXEC */
 #define PROT_MASK	(PROT_READ | PROT_WRITE | PROT_EXEC)
 
 #define PMAP_NOCACHE	0x1

@@ -280,10 +280,10 @@ find_next_zero_bit(volatile void *p, int max, int b)
 }
 
 static inline int
-find_first_bit(volatile void *p, int max)
+find_first_bit(const volatile void *p, int max)
 {
 	int b;
-	volatile u_int *ptr = (volatile u_int *)p;
+	const volatile u_int *ptr = (const volatile u_int *)p;
 
 	for (b = 0; b < max; b += 32) {
 		if (ptr[b >> 5] != 0) {

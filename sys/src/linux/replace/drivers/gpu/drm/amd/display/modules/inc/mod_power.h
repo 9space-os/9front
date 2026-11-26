@@ -6,7 +6,7 @@
  * The power module drives what saves power on built-in (eDP) panels:
  * the backlight (in PWM steps, percent or nits), ABM (adaptive backlight,
  * "varibright"), PSR (panel self refresh) and panel replay.  amdgpu_dm
- * calls it, modules/power/*.c (MIT) implement it.  Only what those use
+ * calls it, the C files of modules/power (MIT) implement it.  Only what those use
  * is here: the init parameters, the PSR context fields the module reads,
  * the events, the calls.
  */

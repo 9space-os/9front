@@ -9,6 +9,7 @@
 			"-g",
 			"-fno-strict-aliasing",
 			"-fno-strict-overflow",
+			"-ftrivial-auto-var-init=zero",
 			"-fno-delete-null-pointer-checks",
 			"-fno-common",
 			"-fno-pie",

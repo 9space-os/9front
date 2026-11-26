@@ -162,7 +162,6 @@ void	*memdup_user_nul(const void __user *src, size_t len);
 void	*vmemdup_user(const void __user *src, size_t len);
 char	**argv_split(gfp_t gfp, const char *str, int *argcp);
 void	argv_free(char **argv);
-#define memset_after(obj, v, member)	memset((u8 *)&(obj)->member + sizeof((obj)->member), v, sizeof(*(obj)) - offsetofend(typeof(*(obj)), member))
 #define memset_startat(obj, v, member)	memset((u8 *)&(obj)->member, v, sizeof(*(obj)) - offsetof(typeof(*(obj)), member))
 #define memcpy_and_pad(d, dl, s, c, p)	do { size_t __c = min_t(size_t, c, dl); memcpy(d, s, __c); memset((u8 *)(d) + __c, p, (dl) - __c); } while (0)
 #define unsafe_memcpy(d, s, n, j)	memcpy(d, s, n)

@@ -7,6 +7,8 @@
 
 #define NUMA_NO_NODE	(-1)
 
+struct device;
+
 static inline int
 dev_to_node(struct device *dev)
 {

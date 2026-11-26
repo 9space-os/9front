@@ -44,7 +44,11 @@ void	kpi_kvfree_call_rcu(struct rcu_head *, void *);
 /* the head's offset in the object for the func: rcu.c frees the object */
 #define kfree_rcu(objp, name)	\
 	kpi_kvfree_call_rcu(&(objp)->name, (void *)(objp))
-#define kvfree_rcu(objp, name)	kfree_rcu(objp, name)
+/* kvfree_rcu(p, head) or kvfree_rcu(p) (Linux 6.x: without a head, after a grace period too) */
+#define __kpi_kvfree_rcu_2(p, f)	kpi_kvfree_call_rcu(&(p)->f, (void *)(p))
+#define __kpi_kvfree_rcu_1(p)		kpi_kvfree_call_rcu(NULL, (void *)(p))
+#define __kpi_kvfree_rcu_n(_1, _2, n, ...)	n
+#define kvfree_rcu(...)			__kpi_kvfree_rcu_n(__VA_ARGS__, __kpi_kvfree_rcu_2, __kpi_kvfree_rcu_1)(__VA_ARGS__)
 #define synchronize_rcu_expedited()	synchronize_rcu()
 #define cond_synchronize_rcu(x)		synchronize_rcu()
 #define get_state_synchronize_rcu()	0

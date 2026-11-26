@@ -105,4 +105,12 @@ typedef u64			sector_t;
 typedef u64			blkcnt_t;
 typedef unsigned long		irq_hw_number_t;
 
+/*
+ * 9front: structs Linux's headers declare on the way to the DRM headers
+ * (fs.h, dcache.h, poll.h), which name them in prototypes
+ */
+struct dentry;
+struct inode;
+struct poll_table_struct;
+
 #endif /* _LINUX_TYPES_H_ */

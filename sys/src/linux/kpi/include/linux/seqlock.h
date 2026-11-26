@@ -11,6 +11,8 @@
 #include <linux/preempt.h>
 #include <linux/compiler.h>
 
+struct lock_class_key;	/* 9front: lockdep.h is on its way here (smp.h, time.h) before it has it */
+
 typedef struct {
 	unsigned int sequence;
 } seqcount_t;

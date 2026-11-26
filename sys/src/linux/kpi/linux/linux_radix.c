@@ -37,8 +37,6 @@
 
 #include <linux/radix-tree.h>
 
-#define M_RADIX M_DRM
-
 static inline unsigned long
 radix_max(struct radix_tree_root *root)
 {

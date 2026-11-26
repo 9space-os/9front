@@ -2,7 +2,7 @@
 /*
  * LinuxKPI for 9front: the part of the OpenBSD kernel's API that
  * OpenBSD's LinuxKPI headers (kpi/include, from sys/src/linux/openbsd)
- * build on, here on 9front (kpi/obsd/*.c, kpi/plan9).  sys/types.h:
+ * build on, here on 9front (the C files of kpi/obsd, kpi/plan9).  sys/types.h:
  * amd64, LP64 as gcc compiles the Linux side.
  */
 #ifndef _OBSD_SYS_TYPES_H

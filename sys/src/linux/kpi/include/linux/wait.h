@@ -334,7 +334,6 @@ wake_up_all_locked(wait_queue_head_t *wqh)
 typedef int (*wait_queue_func_t)(struct wait_queue_entry *, unsigned, int, void *);
 
 #define WQ_FLAG_EXCLUSIVE	0x01
-#define WQ_FLAG_WOKEN		0x02
 
 #define __WAIT_QUEUE_HEAD_INITIALIZER(n) \
 	{ .lock = MUTEX_INITIALIZER(IPL_TTY), .head = LIST_HEAD_INIT((n).head) }

@@ -27,8 +27,12 @@ TREE = os.path.normpath(os.path.join(D, '../../..'))
 
 # as Linux compiles (Makefile: KBUILD_CFLAGS), without what is the kernel's own;
 # __linux__ as Linux's gcc has it built in: the sources test it (rtw89's core.h),
-# and 9space's gcc (and clang for Plan 9) define __plan9__ instead
+# and 9space's gcc (and clang for Plan 9) define __plan9__ instead; locals
+# zeroed, as Linux's default CONFIG_INIT_STACK_ALL_ZERO (gcc 12 and clang have
+# it): code reads what it did not set (i915's selftests compare a view whose
+# union it set in part; clang copies the rest as undefined)
 LINUXFLAGS = ['-D__linux__=1', '-std=gnu11', '-O2', '-g', '-fno-strict-aliasing', '-fno-strict-overflow',
+	'-ftrivial-auto-var-init=zero',
 	'-fno-delete-null-pointer-checks', '-fno-common', '-fno-pie', '-fno-stack-protector',
 	'-fno-omit-frame-pointer', '-mcmodel=small', '-fshort-wchar', '-funsigned-char',
 	'-Wno-unused', '-Wno-pointer-sign', '-Wno-address-of-packed-member', '-Wno-format-truncation']

@@ -118,7 +118,8 @@ vscnprintf(char *buf, size_t size, const char *fmt, va_list ap)
 #define _RET_IP_		__builtin_return_address(0)
 #define _THIS_IP_		0
 
-#define STUB() do { printf("%s: stub\n", __func__); } while(0)
+/* 9front: OpenBSD's STUB(); the name is Linux code's own (i915's intel_gt_requests.c) */
+#define kpi_stub() do { printf("%s: stub\n", __func__); } while(0)
 
 #define PTR_IF(c, p)		((c) ? (p) : NULL)
 

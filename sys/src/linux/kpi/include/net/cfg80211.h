@@ -1817,7 +1817,7 @@ wiphy_apply_custom_regulatory(struct wiphy *wiphy,
 	TODO();
 }
 
-static __inline char *
+static __inline const char *	/* const, as Linux's */
 wiphy_name(struct wiphy *wiphy)
 {
 	if (wiphy != NULL && wiphy->dev != NULL)

@@ -5,6 +5,7 @@
 
 #include <sys/stdint.h>
 #include <linux/types.h>
+#include <linux/const.h>	/* 9front: U64_C */
 
 #define S8_MAX		INT8_MAX
 #define S16_MAX		INT16_MAX
@@ -14,7 +15,6 @@
 #define U8_MAX		UINT8_MAX
 #define U16_MAX		UINT16_MAX
 #define U32_MAX		UINT32_MAX
-#define U64_C(x)	UINT64_C(x)
 #define U64_MAX		UINT64_MAX
 
 /* 9front: what the Linux code uses and OpenBSD's header lacks (OpenBSD changes that code), from our earlier LinuxKPI */

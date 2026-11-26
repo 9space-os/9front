@@ -63,7 +63,6 @@ __hash_empty(struct hlist_head *table, u_int size)
 #include <linux/kernel.h>
 #include <linux/log2.h>
 #define DEFINE_HASHTABLE(n, bits)	struct hlist_head n[1 << (bits)] = { [0 ... ((1 << (bits)) - 1)] = HLIST_HEAD_INIT }
-#define HASH_SIZE(n)			(ARRAY_SIZE(n))
 #define HASH_BITS(n)			ilog2(HASH_SIZE(n))
 #define hash_min(v, bits)		(sizeof(v) <= 4 ? hash_32(v, bits) : hash_long(v, bits))
 #define hash_add_rcu(t, n, k)		hash_add(t, n, k)
