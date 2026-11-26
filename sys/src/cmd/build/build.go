@@ -995,17 +995,48 @@ func install(b *build, dolink, doarchive bool) {
 	case len(b.Program) > 0:
 		move(b.Program, b.Install)
 	case len(b.Library) > 0:
-		libpath := path.Join(b.Install, b.Library)
+		libpath, err := filepath.Abs(path.Join(b.Install, b.Library))
+		fail(err)
+		if !b.Append || pending.lib != libpath {
+			flushArchive()
+		}
 		// start from an empty archive: ar -r only adds/replaces members,
 		// so objects of sources dropped from a manifest would linger
 		// (-D: the Append parts see their members missing, members)
 		if !b.Append {
 			_ = os.Remove(libpath)
 		}
-		args := append([]string{"-rs", libpath}, b.ObjectFiles...)
-		run(b, *shellhack, exec.Command(tools["ar"], args...))
-		run(b, *shellhack, exec.Command(tools["ranlib"], libpath))
+		for _, o := range b.ObjectFiles {
+			a, err := filepath.Abs(o)
+			fail(err)
+			pending.objs = append(pending.objs, a)
+		}
+		if pending.lib == "" {
+			bb := *b
+			pending.lib, pending.b = libpath, &bb
+		}
 	}
+}
+
+// pending: the members of a library not yet archived. A library made of
+// Append parts (the LinuxKPI's libamdgpu.a: 286 manifests, 350 MB) is
+// archived once, when its last part is installed: ar -rs writes the whole
+// archive each time, which on 9space's hjfs took hours. flushArchive runs
+// before anything else is built (project), before a Post step, and at the
+// end of each manifest.
+var pending struct {
+	lib  string
+	objs []string
+	b    *build
+}
+
+func flushArchive() {
+	if pending.lib == "" {
+		return
+	}
+	args := append([]string{"-rs", pending.lib}, pending.objs...)
+	run(pending.b, *shellhack, exec.Command(tools["ar"], args...))
+	pending.lib, pending.objs, pending.b = "", nil, nil
 }
 
 func move(from, to string) {
@@ -1174,8 +1205,13 @@ func project(bf string, which []*regexp.Regexp) {
 	dirPush(dir)
 	builds := process(root, which)
 	debug("Processing %v: %d target", root, len(builds))
+	defer flushArchive()
 	for _, b := range builds {
 		debug("Processing %v: %v", b.Name, b)
+		// the library pending is complete unless this is its next part
+		if a, err := filepath.Abs(path.Join(b.Install, b.Library)); !(b.Library != "" && b.Append && err == nil && a == pending.lib) {
+			flushArchive()
+		}
 		if *cleanMode {
 			projects(&b, regexpAll)
 			clean(&b)
@@ -1198,6 +1234,10 @@ func project(bf string, which []*regexp.Regexp) {
 			link(&b)
 		}
 		install(&b, dolink, doarchive)
+		// a Post step may read the library (libc's libp9.sh)
+		if len(b.Post) > 0 {
+			flushArchive()
+		}
 		runCmds(&b, b.Post)
 	}
 }
