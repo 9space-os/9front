@@ -148,6 +148,12 @@ fi
 if ! lang gcc; then
 	:
 elif [ -d "$GCC_OUT/$A/gnu" ]; then
+	# the native toolchain links APE statically: built before a change of
+	# APE's headers (struct layouts), its programs carry the old ABI against
+	# the new libap (2026-11-26: ld with the old struct stat crashed on the
+	# instance). Its ld is the oldest part (binutils first)
+	stale=$(find "$ROOT/sys/include/ape" "$ROOT/$A/include/ape" -type f -newer "$GCC_OUT/$A/gnu/bin/ld" -print -quit 2>/dev/null)
+	[ -z "$stale" ] || { echo "stage-dist: $GCC_OUT/$A/gnu is older than APE's ${stale#$ROOT/}: build it again (toolchain/gcc: objtype=$A ./build.sh native)" >&2; exit 1; }
 	ln -s "$GCC_OUT/$A/gnu" "$VIEW/$A/gnu"
 	PROTOS+=("$ROOT/sys/src/build/host/guest/boot/gnuproto")
 elif [ -n "${DEV+set}" ]; then
