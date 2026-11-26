@@ -608,8 +608,11 @@ func cmdTarget(b *build, n string) (string, string) {
 }
 
 // compileArgs: the compiler and its arguments for b's C sources and for
-// its assembly (.s/.S), without the files. -MMD: gcc writes x.d beside
-// x.o, the headers it read, for -D.
+// its assembly (.s/.S), without the files. -MD: gcc writes x.d beside
+// x.o, every header it read, for -D: system headers too, as which ones are
+// system headers depends on the compiler (APE's, for the cross gcc of the
+// step ape; -MMD left them out, and Mesa stayed built against an old
+// struct stat after APE's changed).
 func compileArgs(b *build) (command string, cArgs, asmArgs []string) {
 	// N.B. Plan 9 has a very well defined include structure, just three things:
 	// /$ARCH/include, /sys/include, .
@@ -651,7 +654,7 @@ func compileArgs(b *build) (command string, cArgs, asmArgs []string) {
 	cArgs = []string{
 		"-std=c11",
 		"-c",
-		"-MMD",
+		"-MD",
 	}
 	cArgs = append(cArgs, incArgs...)
 
@@ -662,7 +665,7 @@ func compileArgs(b *build) (command string, cArgs, asmArgs []string) {
 	}
 	cArgs = append(cArgs, b.Cflags...)
 
-	asmArgs = []string{"-c", "-MMD"}
+	asmArgs = []string{"-c", "-MD"}
 	// Same include structure as C so #include works in assembly.
 	asmArgs = append(asmArgs, incArgs...)
 	// Pass architecture/model flags that the C compiler would use
@@ -781,7 +784,7 @@ func cc(b *build, command string, args, fs []string) []func() {
 	return jobs
 }
 
-// the dependency file gcc -MMD writes for source f's object
+// the dependency file gcc -MD writes for source f's object
 func depfile(b *build, f string) string {
 	o := objectOf(b, f)
 	return o[:len(o)-len(".o")] + ".d"
