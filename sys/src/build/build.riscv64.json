@@ -153,8 +153,12 @@
 			"/sys/src/cmd/astro/cmds.riscv64.json",
 			"/sys/src/cmd/atazz/cmds.riscv64.json",
 			"/sys/src/cmd/audio/pcmconv/cmds.riscv64.json",
+			"/sys/src/cmd/audio/oggdec/cmds.riscv64.json",
+			"/sys/src/cmd/audio/oggenc/cmds.riscv64.json",
 			"/sys/src/cmd/audio/mp3dec/cmds.riscv64.json",
 			"/sys/src/cmd/audio/mp3enc/cmds.riscv64.json",
+			"/sys/src/cmd/audio/flacdec/cmds.riscv64.json",
+			"/sys/src/cmd/audio/flacenc/cmds.riscv64.json",
 			"/sys/src/cmd/audio/wavdec/cmds.riscv64.json",
 			"/sys/src/cmd/audio/sundec/cmds.riscv64.json",
 			"/sys/src/cmd/audio/mixfs/cmds.riscv64.json",
@@ -370,15 +374,15 @@
 			"bash /sys/src/build/step/gen-bootfs.sh um riscv64"
 		],
 		"Clean": [
-			"sys/src/9/riscv64/rebootcode.i",
-			"sys/src/9/port/initcode.i",
-			"sys/src/9/riscv64/boot",
-			"sys/src/9/riscv64/virt.bootfs.paq",
-			"sys/src/9/riscv64/virt.bootfs.sum",
-			"sys/src/9/riscv64/pf.bootfs.paq",
-			"sys/src/9/riscv64/pf.bootfs.sum",
-			"sys/src/9/riscv64/um.bootfs.paq",
-			"sys/src/9/riscv64/um.bootfs.sum"
+			"../9/riscv64/rebootcode.i",
+			"../9/port/initcode.i",
+			"../9/riscv64/boot",
+			"../9/riscv64/virt.bootfs.paq",
+			"../9/riscv64/virt.bootfs.sum",
+			"../9/riscv64/pf.bootfs.paq",
+			"../9/riscv64/pf.bootfs.sum",
+			"../9/riscv64/um.bootfs.paq",
+			"../9/riscv64/um.bootfs.sum"
 		]
 	},
 	{

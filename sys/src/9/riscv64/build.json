@@ -23,6 +23,7 @@
 			"-fplan9-extensions",
 			"-fcommon",
 			"-fno-builtin",
+			"-ffreestanding",
 			"-fno-asynchronous-unwind-tables",
 			"-fno-stack-protector",
 			"-fno-omit-frame-pointer",
@@ -35,8 +36,11 @@
 			"-Wno-parentheses",
 			"-Wno-unknown-pragmas",
 			"-Wno-switch",
-			"-Werror=sequence-point",
-			"-Werror=discarded-qualifiers"
+			"-Werror=sequence-point"
+		],
+		"Include": [
+			"/$ARCH/kernel.$TOOLSET.json",
+			"/sys/src/9/$TOOLSET.json"
 		],
 		"Oflags": [
 			"-T",
@@ -231,6 +235,7 @@
 			"-fplan9-extensions",
 			"-fcommon",
 			"-fno-builtin",
+			"-ffreestanding",
 			"-fno-asynchronous-unwind-tables",
 			"-fno-stack-protector",
 			"-fno-omit-frame-pointer",
@@ -243,8 +248,11 @@
 			"-Wno-parentheses",
 			"-Wno-unknown-pragmas",
 			"-Wno-switch",
-			"-Werror=sequence-point",
-			"-Werror=discarded-qualifiers"
+			"-Werror=sequence-point"
+		],
+		"Include": [
+			"/$ARCH/kernel.$TOOLSET.json",
+			"/sys/src/9/$TOOLSET.json"
 		],
 		"Oflags": [
 			"-T",
@@ -434,6 +442,7 @@
 			"-fplan9-extensions",
 			"-fcommon",
 			"-fno-builtin",
+			"-ffreestanding",
 			"-fno-asynchronous-unwind-tables",
 			"-fno-stack-protector",
 			"-fno-omit-frame-pointer",
@@ -446,8 +455,11 @@
 			"-Wno-parentheses",
 			"-Wno-unknown-pragmas",
 			"-Wno-switch",
-			"-Werror=sequence-point",
-			"-Werror=discarded-qualifiers"
+			"-Werror=sequence-point"
+		],
+		"Include": [
+			"/$ARCH/kernel.$TOOLSET.json",
+			"/sys/src/9/$TOOLSET.json"
 		],
 		"Oflags": [
 			"-T",
@@ -633,6 +645,7 @@
 			"-fplan9-extensions",
 			"-fcommon",
 			"-fno-builtin",
+			"-ffreestanding",
 			"-fno-asynchronous-unwind-tables",
 			"-fno-stack-protector",
 			"-fno-omit-frame-pointer",
@@ -646,8 +659,11 @@
 			"-Wno-unknown-pragmas",
 			"-Wno-switch",
 			"-Werror=sequence-point",
-			"-Werror=discarded-qualifiers",
 			"-DPHYSDRAM=0x40000000"
+		],
+		"Include": [
+			"/$ARCH/kernel.$TOOLSET.json",
+			"/sys/src/9/$TOOLSET.json"
 		],
 		"Oflags": [
 			"--defsym=KTZERO=0xffffffc040200000",

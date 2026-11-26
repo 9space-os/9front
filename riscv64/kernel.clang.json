@@ -1,0 +1,9 @@
+[
+	{
+		"Name": "buildflags",
+		"Cflags": [],
+		"Oflags": [
+			"--no-rosegment"
+		]
+	}
+]

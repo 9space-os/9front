@@ -12,6 +12,7 @@
             "-fno-pic",
             "-fplan9-extensions",
             "-fno-builtin",
+            "-ffreestanding",
             "-nostdinc",
             "-fno-asynchronous-unwind-tables",
             "-fno-stack-protector",
@@ -57,6 +58,9 @@
             "port/cnfield.c",
             "port/gmfield.c",
             "port/mplogic.c"
+        ],
+        "Include": [
+            "/$ARCH/kernel.$TOOLSET.json"
         ]
     }
 ]

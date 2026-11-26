@@ -101,7 +101,7 @@ ARCHS = {
 		# -fsigned-char: Plan 9's char is signed (the psABI's is not)
 		'Cflags': ['-march=rv64imac_zicsr_zifencei', '-mabi=lp64', '-mcmodel=medany', '-mno-relax',
 			'-fsigned-char', '-fno-pie', '-fno-pic', '-ffixed-s10', '-ffixed-s11',
-			'-fplan9-extensions', '-fcommon', '-fno-builtin', '-fno-asynchronous-unwind-tables',
+			'-fplan9-extensions', '-fcommon', '-fno-builtin', '-ffreestanding', '-fno-asynchronous-unwind-tables',
 			'-fno-stack-protector', '-fno-omit-frame-pointer', '-fno-zero-initialized-in-bss',
 			'-Os', '-gdwarf-2'] + WARN,
 		'Oflags': ['-T', 'kernel.ld', '-z', 'max-page-size=0x1000', '--no-relax'],

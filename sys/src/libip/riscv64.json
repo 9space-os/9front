@@ -11,6 +11,7 @@
             "-ffixed-s11",
             "-fno-pic",
             "-fno-builtin",
+            "-ffreestanding",
             "-nostdinc",
             "-fplan9-extensions",
             "-fno-asynchronous-unwind-tables",
@@ -34,6 +35,9 @@
             "parseip.c",
             "ptclbsum.c",
             "readipifc.c"
+        ],
+        "Include": [
+            "/$ARCH/kernel.$TOOLSET.json"
         ]
     }
 ]
