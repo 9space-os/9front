@@ -1358,7 +1358,7 @@ func main() {
 	setup()
 
 	// on Plan 9 the installed system builds itself: its native gcc
-	// (/$cputype/gnu/bin, findTools) and its own architecture
+	// (/$cputype/gnu/bin, findTools' toolsets) and its own architecture
 	if runtime.GOOS == "plan9" {
 		if _, ok := os.LookupEnv("CC"); !ok {
 			os.Setenv("CC", "gcc")
@@ -1441,17 +1441,48 @@ func main() {
 	project(bf, re)
 }
 
+// toolsets: a compiler's tools by their names in its toolchain, and the
+// directory (in /$cputype) where 9space installs them, looked in before
+// $path on Plan 9: gcc's binutils in /$cputype/gnu/bin (toolchain/gcc; in
+// /bin 9front's own ar, nm, strip take other options), clang's LLVM tools in
+// /$cputype/clang/bin (toolchain/clang). CC chooses: a clang (clang,
+// clang-19, /x/bin/clang) takes clang's; AR, LD, ... in the environment win.
+// TOOLPREFIX (arm64's aarch64-linux-musl-) is gcc's: LLVM's tools serve
+// every target.
+var toolsets = map[string]struct {
+	dir   string
+	names map[string]string
+}{
+	"gcc": {"gnu", map[string]string{"ar": "ar", "ld": "ld", "ranlib": "ranlib",
+		"strip": "strip", "nm": "nm", "objcopy": "objcopy"}},
+	"clang": {"clang", map[string]string{"ar": "llvm-ar", "ld": "ld.lld", "ranlib": "llvm-ranlib",
+		"strip": "llvm-strip", "nm": "llvm-nm", "objcopy": "llvm-objcopy"}},
+}
+
+// toolset: the name of CC's toolset
+func toolset() string {
+	if strings.Contains(path.Base(os.Getenv("CC")), "clang") {
+		return "clang"
+	}
+	return "gcc"
+}
+
 func findTools(toolprefix string) {
 	var err error
+	ts := toolset()
+	set := toolsets[ts]
+	if ts == "clang" {
+		toolprefix = ""
+	}
 	for k, v := range tools {
+		if n, ok := set.names[k]; ok {
+			v = n
+		}
 		if x := os.Getenv(strings.ToUpper(k)); x != "" {
 			v = x
 		}
-		// on Plan 9 the native toolchain's (toolchain/gcc: /$cputype/gnu/bin)
-		// before $path: 9front's own ar, nm, strip come first in /bin and
-		// take other options
 		if n := toolprefix + v; runtime.GOOS == "plan9" && !strings.Contains(n, "/") {
-			g := "/" + os.Getenv("cputype") + "/gnu/bin/" + n
+			g := "/" + os.Getenv("cputype") + "/" + set.dir + "/bin/" + n
 			if _, e := os.Stat(g); e == nil {
 				tools[k] = g
 				continue
