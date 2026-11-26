@@ -47,7 +47,7 @@ $CC -c -std=c11 $CFLAGS -fno-pic -fno-pie \
 
 # clang: by the linker itself (clang's Plan 9 driver would add plan9.ld)
 if [ "${TOOLSET:-gcc}" = clang ]; then
-	$LD -static -Ttext=$APBOOTSTRAP --entry=apbootstrap -N \
+	$LD -static --image-base=0 -Ttext=$APBOOTSTRAP --entry=apbootstrap -N \
 	    -o "$TMP/apbootstrap.elf" "$TMP/apbootstrap.o"
 else
 	gcc $LDFLAGS -nostdlib -static -Wl,-Ttext=$APBOOTSTRAP -Wl,--entry=apbootstrap -Wl,-N \
