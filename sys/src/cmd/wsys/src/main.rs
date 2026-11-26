@@ -88,6 +88,7 @@
 // WSYSDEBUG=damage: every 120 frames of -g, the windows' pixels copied a frame
 // (a client's present n x0 y0 x1 y1, Mesa's VK_KHR_incremental_present: only
 // what changed is composed again, in each of the swapchain's images)
+// WSYSDEBUG=wctl: each message to a wctl file, with the window's number
 
 #[cfg(feature = "gpu")]
 mod comp;
@@ -2201,6 +2202,10 @@ impl Wsys {
 
     /// wctl (rio(4)): of window n, or of wsys (only new)
     fn wctl(&mut self, n: Option<u32>, line: &str) -> Result<(), String> {
+        // WSYSDEBUG=wctl: each message, with the window it came from
+        if wsysdebug("wctl") {
+            eprintln!("wsys: wctl {}: {}", n.map_or("-".to_string(), |n| n.to_string()), line.trim_end());
+        }
         let words: Vec<&str> = line.split_whitespace().collect();
         let Some(&cmd) = words.first() else { return Ok(()) };
         if cmd == "new" {
@@ -2220,14 +2225,15 @@ impl Wsys {
                 let (b, t) = (self.wins[&n].border, self.wins[&n].title);
                 let mut f = place(self.wins[&n].frame(), &o, cmd == "move");
                 // only a new size (-dx, -dy): the window kept on its monitor's
-                // work area, moved as little as it takes (its top left there
-                // when it is bigger)
+                // work area, moved as little as it takes, and no bigger than it
+                // (a program asking for more than the screen at a scale above
+                // 1: servoshell's 1024x740 at 2 is 2048x1480), as a window
+                // manager on X11 or Wayland keeps it
                 let sizeonly = cmd == "resize" && o.r.is_none() && o.minx.is_none() && o.miny.is_none()
                     && o.maxx.is_none() && o.maxy.is_none() && (o.dx.is_some() || o.dy.is_some());
                 if sizeonly && !self.wins[&n].bar {
                     let wa = self.workarea(self.outoffr(self.wins[&n].frame()));
-                    let fit = |lo: i32, hi: i32, wlo: i32, whi: i32| if hi > whi { (whi - hi).max(wlo - lo) } else { 0 };
-                    f = f.add(fit(f.x0, f.x1, wa.x0, wa.x1), fit(f.y0, f.y1, wa.y0, wa.y1));
+                    f = fitin(f, wa);
                 }
                 self.wins.get_mut(&n).unwrap().unmax = None;
                 self.wins.get_mut(&n).unwrap().home = None;

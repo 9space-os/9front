@@ -96,6 +96,10 @@ a window's flat colours and repeated rows come to some sixteenth.
 says at the end how many bytes of pixels went in how many of messages.
 .B WSYSDEBUG=resize
 says what each resize of the window it is in found.
+.B WSYSDEBUG=wctl
+says each message to a
+.B wctl
+file, with the window's number.
 .PP
 Where it can,
 .I wsys

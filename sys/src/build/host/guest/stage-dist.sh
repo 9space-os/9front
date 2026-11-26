@@ -343,6 +343,10 @@ if [ "${BROWSER:-0}" = 1 ]; then
 	bash "$BROWSER_DIR/scripts/cd-files.sh" "$OUT" "$A" > "$OUT.browser" || exit 1
 	{
 		echo "sys/lib/browser	20000000775	sys	sys"
+		# its directories below (resources/...)
+		sed -n 's#^/\(sys/lib/browser/.*\)/[^/]*$#\1#p' "$OUT.browser" | sort -u | while read -r d; do
+			while [ "$d" != sys/lib/browser ]; do printf '%s\t20000000775\tsys\tsys\n' "$d"; d=${d%/*}; done
+		done
 		sed 's#^/##' "$OUT.browser" | while read -r p; do
 			case $p in */bin/*) m=775 ;; *) m=664 ;; esac
 			printf '%s\t%s\tsys\tsys\n' "$p" "$m"
