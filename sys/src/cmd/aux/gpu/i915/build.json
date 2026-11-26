@@ -75,7 +75,7 @@
 			"/$ARCH/lib.gcc/libthread.a",
 			"/$ARCH/lib.gcc/libauth.a",
 			"/$ARCH/lib.gcc/libc.a",
-			"/$ARCH/lib.gcc/libgcc.a",
+			"/$ARCH/lib.gcc/$CCRT",
 			"--end-group"
 		],
 		"Program": "i915",

@@ -150,7 +150,7 @@ def i915():
 		'Install': '/$ARCH/bin/aux/',
 		'Oflags': ['--entry=_main'],
 		'Libs': ['--start-group'] + ['/$ARCH/lib.gcc/' + l for l in
-			['libi915.a', 'libkpitest.a', 'liblinux.a', 'libkpi.a', 'libkpi9.a'] + P9LIBS + ['libgcc.a']] + ['--end-group'],
+			['libi915.a', 'libkpitest.a', 'liblinux.a', 'libkpi.a', 'libkpi9.a'] + P9LIBS + ['$CCRT']] + ['--end-group'],
 		'Program': 'i915',
 		'SourceFiles': sorted(os.path.basename(f) for f in glob.glob(os.path.join(base, '*.c'))),
 	}, {
@@ -180,7 +180,7 @@ def amdgpu():
 		'Install': '/$ARCH/bin/aux/',
 		'Oflags': ['--entry=_main'],
 		'Libs': ['--start-group'] + ['/$ARCH/lib.gcc/' + l for l in
-			['libamdgpuaux.a', 'libamdgpu.a', 'liblinux.a', 'libkpi.a', 'libkpi9.a'] + P9LIBS + ['libgcc.a']] + ['--end-group'],
+			['libamdgpuaux.a', 'libamdgpu.a', 'liblinux.a', 'libkpi.a', 'libkpi9.a'] + P9LIBS + ['$CCRT']] + ['--end-group'],
 		'Program': 'amdgpu',
 		'SourceFiles': sorted(os.path.basename(f) for f in glob.glob(os.path.join(base, '*.c'))),
 	}]
@@ -217,7 +217,7 @@ def rtw89():
 		'Install': '/$ARCH/bin/aux/',
 		'Oflags': ['--entry=_main'],
 		'Libs': ['--start-group'] + ['/$ARCH/lib.gcc/' + l for l in
-			['librtw89.a', 'libkpi.a', 'libkpi9.a'] + P9LIBS + ['libgcc.a']] + ['--end-group'],
+			['librtw89.a', 'libkpi.a', 'libkpi9.a'] + P9LIBS + ['$CCRT']] + ['--end-group'],
 		'Program': 'rtw89',
 		'SourceFiles': sorted(os.path.basename(f) for f in glob.glob(os.path.join(base, '*.c'))),
 	}]
