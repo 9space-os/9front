@@ -67,7 +67,7 @@ ARCHS = {
 			'-fno-stack-protector', '-fno-omit-frame-pointer', '-fno-zero-initialized-in-bss',
 			'-Os', '-gdwarf-2'] + WARN,
 		'Oflags': ['-m', 'elf_i386', '-T', 'kernel.ld', '-z', 'max-page-size=0x1000'],
-		'Libs': ['libgcc.a'],
+		'Libs': ['$CCRT'],	# the compiler's runtime (build.exe's CCRT: libgcc.a, clang's builtins)
 	},
 	'amd64': {
 		'Cflags': ['-m64', '-fno-pie', '-fno-pic', '-mcmodel=kernel', '-mno-red-zone',
@@ -90,7 +90,7 @@ ARCHS = {
 			'-fno-asynchronous-unwind-tables', '-fno-stack-protector', '-fno-omit-frame-pointer',
 			'-fno-zero-initialized-in-bss', '-Os', '-gdwarf-2'] + WARN,
 		'Oflags': ['-T', 'kernel.ld', '-z', 'max-page-size=0x1000'],
-		'Libs': ['libgcc.a'],
+		'Libs': ['$CCRT'],	# the compiler's runtime (build.exe's CCRT: libgcc.a, clang's builtins)
 	},
 }
 
