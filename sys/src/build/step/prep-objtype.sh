@@ -29,6 +29,10 @@ mkdir -p $objtype/bin/aux $objtype/lib.gcc
 # copied only when it differs: every program links it, a new time would
 # make them all out of date for build.exe -D
 copy(){ cmp -s "$1" "$2" || cp "$1" "$2"; }
+# a build.exe older than CCRT (2026-11-26) leaves the manifests'
+# /$objtype/lib.gcc/$CCRT empty, and the links fail late with ld's "read
+# in flex scanner failed": say so first
+[ -n "$CCRT" ] || { echo "prep-objtype.sh: CCRT not set: build.exe is older than the manifests (cd sys/src/cmd/build && GO111MODULE=off go build -o build.exe .)" >&2; exit 1; }
 if [ "${TOOLSET:-gcc}" = clang ]; then
 	lib=$(ls "$CLANG_DIR"/out/$objtype/$objtype/clang/lib/clang/*/lib/plan9/libclang_rt.builtins-*.a 2>/dev/null | tail -1)
 	[ -n "$lib" ] || { echo "prep-objtype.sh: no compiler-rt for $objtype in $CLANG_DIR/out (toolchain/clang: objtype=$objtype ./build.sh runtimes)" >&2; exit 1; }
