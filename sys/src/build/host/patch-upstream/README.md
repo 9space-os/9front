@@ -40,7 +40,8 @@ on them there (2026-11-17), 0046 and 0047 on them there (2026-11-18);
 all 59 at `cb9e5e7e9` (2026-11-19), 0060 on them there (2026-11-19), 0061 to
 0063 on them there (2026-11-20), 0064 and 0065 on them there (2026-11-21),
 0066 on them there (2026-11-23); the 58 not archived on `2f3a62877`
-(2026-11-25), as files, unchanged (`git am --3way`).
+(2026-11-25), as files, unchanged (`git am --3way`); 0067 on `upstream`
+there (2026-11-26).
 Each applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
@@ -175,6 +176,7 @@ change is then front's.
 | 0064 | shr(3): a walk held the share's lock across the RPC to the mounted server: deadlock with a server removing its ORCLOSE entry at exit | bug fix |
 | 0065 | chan.c: createdir held the mount head's lock across cclone (a walk RPC): the same deadlock | bug fix |
 | 0066 | kernel: locals set after waserror() and read in its handler are volatile (mntwalk leaked a chan per failed walk) | bug fix |
+| 0067 | ape: _dirfstat's second try with room for the stat's count (fstat failed for long names) | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -970,6 +972,19 @@ gcc kernel on an installed 9space (gone, and a whole gccmk build kept the
 kernel heap at 5.7-7.1 MB); the six files with `6c -FTVw` in a guest
 (devmnt, devshr, devtls, sysfile from `upstream`; devi82365 and wifi in
 `main`'s form, whose headers the guest has).
+
+### 0067 ape: _dirfstat's second try with room for the stat's count
+
+A stat reply too short for the buffer gives the size needed in its first
+16 bits, without those two bytes. `_dirstat` asks again with
+`BIT16SZ+nd`, `_dirfstat` asked with `nd` alone, two bytes short, and
+failed a second time: fstat failed for every file whose stat outgrows the
+first buffer (`STATFIXLEN+64`), a name of more than about 45 bytes for
+glenda's files. gcc's cc1 opens a file and fstats it, and called such a
+file missing (Mesa's `intel_nir_lower_non_uniform_barycentric_at_sample.c`,
+found building 9space on itself on a ThinkPad X1; ratrace showed Fstat
+returning 2). Tested: file names of 40 to 64 bytes with the native gcc on
+the installed system, before (from 46 bytes on: no such file) and after.
 
 ## Not included
 
