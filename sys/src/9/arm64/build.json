@@ -55,7 +55,7 @@
 			"/arm64/lib.gcc/klibsec.a",
 			"/arm64/lib.gcc/klibmp.a",
 			"/arm64/lib.gcc/klibc.a",
-			"/arm64/lib.gcc/libgcc.a"
+			"/arm64/lib.gcc/$CCRT"
 		],
 		"Kernel": {
 			"Systab": "/sys/src/libc/9syscall/sys.h",

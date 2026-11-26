@@ -1409,6 +1409,8 @@ func main() {
 	// include a file per compiler where CC is a path (sys/src/build/step/ape.sh
 	// gives the cross compiler's: /x/x86_64-pc-plan9-gcc)
 	os.Setenv("TOOLSET", toolset())
+	// CCRT: its runtime library's name (64-bit division on 386, ...)
+	os.Setenv("CCRT", toolsets[toolset()].rt)
 
 	// ensure this is exported, in case we used a default value
 	os.Setenv("PLAN9", plan9)
@@ -1468,14 +1470,17 @@ func main() {
 // clang-19, /x/bin/clang) takes clang's; AR, LD, ... in the environment win.
 // TOOLPREFIX (arm64's aarch64-linux-musl-) is gcc's: LLVM's tools serve
 // every target.
+// rt: the compiler's runtime library in /$ARCH/lib.gcc (sys/src/build/step/prep-objtype.sh
+// puts it there), what the manifests link as /$ARCH/lib.gcc/$CCRT
 var toolsets = map[string]struct {
 	dir   string
 	names map[string]string
+	rt    string
 }{
 	"gcc": {"gnu", map[string]string{"ar": "ar", "ld": "ld", "ranlib": "ranlib",
-		"strip": "strip", "nm": "nm", "objcopy": "objcopy"}},
+		"strip": "strip", "nm": "nm", "objcopy": "objcopy"}, "libgcc.a"},
 	"clang": {"clang", map[string]string{"ar": "llvm-ar", "ld": "ld.lld", "ranlib": "llvm-ranlib",
-		"strip": "llvm-strip", "nm": "llvm-nm", "objcopy": "llvm-objcopy"}},
+		"strip": "llvm-strip", "nm": "llvm-nm", "objcopy": "llvm-objcopy"}, "libclang_rt.builtins.a"},
 }
 
 // toolset: the name of CC's toolset
