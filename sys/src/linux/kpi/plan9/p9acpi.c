@@ -151,7 +151,7 @@ pathreq(char *req)
 void*
 p9_acpi_walk(void *node, const char *path)
 {
-	if(path == nil || strpbrk(path, " \t\n") != nil)
+	if(path == nil || strpbrk((char*)path, " \t\n") != nil)	/* Plan 9's strpbrk takes char* */
 		return nil;
 	return pathreq(smprint("walk %s %s", node != nil ? (char*)node : "-", path));
 }

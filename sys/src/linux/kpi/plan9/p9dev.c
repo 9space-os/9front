@@ -739,7 +739,8 @@ p9_segalias(const char *name, int n, const char **src, unsigned long long *off, 
 	for(i = 0; i < n; i = j){
 		e = buf + 4096;
 		b = seprint(buf, e, "page %d %s", i, src[i]);
-		for(j = i; j < n && strcmp(src[j], src[i]) == 0 && b < e - 32; j++)
+		/* Plan 9's strcmp takes char*; it changes neither */
+		for(j = i; j < n && strcmp((char*)src[j], (char*)src[i]) == 0 && b < e - 32; j++)
 			b = seprint(b, e, " %#llux", off[j]);
 		if(write(fd, buf, b - buf) != b - buf){
 			fprint(2, "%s: alias segment %s: %.*s: %r\n", argv0 ? argv0 : "kpi", name, (int)(b - buf), buf);
