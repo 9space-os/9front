@@ -1,8 +1,11 @@
 #!/bin/bash
 # The first step of the build for $objtype (build.$objtype.json, run by
 # sys/src/cmd/build/build.exe): the install directories the manifests
-# expect, and gcc's runtime library (64-bit division on 386, ...: 8c
-# had vlrt.c), linked after the libraries (/$objtype/cflags.json).
+# expect, and the compiler's runtime library (64-bit division on 386, ...:
+# 8c had vlrt.c), linked after the libraries (/$objtype/cflags.json) as
+# /$objtype/lib.gcc/$CCRT (build.exe's: libgcc.a for gcc; for clang,
+# TOOLSET=clang, libclang_rt.builtins.a: toolchain/clang's compiler-rt for
+# $objtype, CLANG_DIR/out, the rest below is gcc's).
 #
 # 386: the runtime library of ../9front-gcc's i686-pc-plan9 (GCC_OUT, as
 # sys/src/build/host/guest/stage-dist.sh), built for the tree's -march=pentium. gcc
@@ -21,6 +24,11 @@ mkdir -p $objtype/bin/aux $objtype/lib.gcc
 # copied only when it differs: every program links it, a new time would
 # make them all out of date for build.exe -D
 copy(){ cmp -s "$1" "$2" || cp "$1" "$2"; }
+if [ "${TOOLSET:-gcc}" = clang ]; then
+	lib=$(ls "$CLANG_DIR"/out/$objtype/$objtype/clang/lib/clang/*/lib/plan9/libclang_rt.builtins-*.a 2>/dev/null | tail -1)
+	[ -n "$lib" ] || { echo "prep-objtype.sh: no compiler-rt for $objtype in $CLANG_DIR/out (toolchain/clang: objtype=$objtype ./build.sh runtimes)" >&2; exit 1; }
+	copy "$lib" $objtype/lib.gcc/libclang_rt.builtins.a
+else
 case $objtype in
 386)
 	GCC_OUT=${GCC_OUT:-$GCC_DIR/out/386}
@@ -36,6 +44,7 @@ case $objtype in
 arm64)	copy "$(${TOOLPREFIX-aarch64-linux-musl-}gcc -print-libgcc-file-name)" arm64/lib.gcc/libgcc.a ;;
 riscv64)	copy "$(${TOOLPREFIX-riscv64-linux-gnu-}gcc -march=rv64gc -mabi=lp64d -print-libgcc-file-name)" riscv64/lib.gcc/libgcc.a ;;
 esac
+fi
 # POSIX's names of libraries whose functions are all in libap (gcc's APE,
 # as musl): empty archives, for builds that name them (-lm -lpthread -lrt
 # -ldl: LLVM, autoconf)
