@@ -119,9 +119,9 @@ type build struct {
 	SourceDeps  []string
 	// cmd's
 	SourceFilesCmd []string
-	// CflagsShell: shell commands whose stdout (one flag per line) is
-	// appended to Cflags at build time (rc `{...}` substitutions).
-	CflagsShell []string
+	// CflagsTime: macros defined as the build's time, in seconds since
+	// the epoch (mk's -DDATE=`{date -n}: cwfs), at build time.
+	CflagsTime []string
 	// Targets.
 	Program string
 	Library string
@@ -636,22 +636,17 @@ func compileArgs(b *build) (command string, cArgs, asmArgs []string) {
 	return command, cArgs, asmArgs
 }
 
-// shellflags: the flags b.CflagsShell's commands print (one per line),
-// evaluated when compiling, as mk runs a recipe's `{...}. They are not
-// part of the command's signature (signdeps): a date, say, changes on
-// every run, and -D compiles again only what is out of date, as mk.
-func shellflags(b *build) []string {
+// buildtime: the time the tool started, the one value of every CflagsTime
+var buildtime = time.Now().Unix()
+
+// timeflags: -DNAME=seconds for b.CflagsTime, as mk runs a recipe's
+// `{date -n}. They are not part of the command's signature (signdeps): the
+// time changes on every run, and -D compiles again only what is out of
+// date, as mk.
+func timeflags(b *build) []string {
 	var flags []string
-	for _, sh := range b.CflagsShell {
-		out, err := exec.Command("sh", "-c", sh).Output()
-		if err != nil {
-			log.Panicf("CflagsShell %q: %v", sh, err)
-		}
-		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			if line != "" {
-				flags = append(flags, line)
-			}
-		}
+	for _, n := range b.CflagsTime {
+		flags = append(flags, "-D"+n+"="+strconv.FormatInt(buildtime, 10))
 	}
 	return flags
 }
@@ -697,7 +692,7 @@ func compile(b *build) {
 			}
 			f := sourceFile
 			jobs = append(jobs, func() {
-				cmd := exec.Command(command, append(append(args[:len(args):len(args)], shellflags(b)...), f)...)
+				cmd := exec.Command(command, append(append(args[:len(args):len(args)], timeflags(b)...), f)...)
 				run(b, *shellhack, cmd)
 				signdeps(b, f, command, args)
 			})
@@ -727,7 +722,7 @@ func compile(b *build) {
 // an Objtag into its x.<Objtag>.o (-o), which leaves the x.o of the same
 // source, and gcc names the dependency file after it
 func cc(b *build, command string, args, fs []string) []func() {
-	cargs := append(args[:len(args):len(args)], shellflags(b)...)
+	cargs := append(args[:len(args):len(args)], timeflags(b)...)
 	var jobs []func()
 	for _, f := range fs {
 		f := f
@@ -1000,18 +995,73 @@ func install(b *build, dolink, doarchive bool) {
 	case len(b.Program) > 0:
 		move(b.Program, b.Install)
 	case len(b.Library) > 0:
-		libpath := path.Join(b.Install, b.Library)
+		libpath, err := filepath.Abs(path.Join(b.Install, b.Library))
+		fail(err)
+		if !b.Append || pending.lib != libpath {
+			flushArchive()
+		}
 		// start from an empty archive: ar -r only adds/replaces members,
 		// so objects of sources dropped from a manifest would linger
 		// (-D: the Append parts see their members missing, members)
 		if !b.Append {
 			_ = os.Remove(libpath)
 		}
-		args := append([]string{"-rs", libpath}, b.ObjectFiles...)
-		run(b, *shellhack, exec.Command(tools["ar"], args...))
-		run(b, *shellhack, exec.Command(tools["ranlib"], libpath))
+		for _, o := range b.ObjectFiles {
+			a, err := filepath.Abs(o)
+			fail(err)
+			pending.objs = append(pending.objs, a)
+		}
+		if pending.lib == "" {
+			bb := *b
+			pending.lib, pending.b = libpath, &bb
+		}
 	}
 }
+
+// pending: the members of a library not yet archived. A library made of
+// Append parts (the LinuxKPI's libamdgpu.a: 286 manifests, 350 MB) is
+// archived once, when its last part is installed: ar -rs writes the whole
+// archive each time, which on 9space's hjfs took hours. flushArchive runs
+// before anything else is built (project), before a Post step, and at the
+// end of each manifest.
+var pending struct {
+	lib  string
+	objs []string
+	b    *build
+}
+
+func flushArchive() {
+	if pending.lib == "" {
+		return
+	}
+	// at most arBatch members per ar: GNU ar opens them all at once, and a
+	// process on 9space has only so many file descriptors (950 objects
+	// left an empty archive)
+	for objs := pending.objs; len(objs) > 0; {
+		n := min(len(objs), arBatch)
+		args := append([]string{"-rs", pending.lib}, objs[:n]...)
+		run(pending.b, *shellhack, exec.Command(tools["ar"], args...))
+		objs = objs[n:]
+	}
+	// ar can leave an archive short without saying so (on 9space: out of
+	// file descriptors): every member must be there
+	out, err := exec.Command(tools["ar"], "t", pending.lib).Output()
+	if err != nil {
+		log.Fatalf("ar t %s: %v", pending.lib, err)
+	}
+	have := map[string]bool{}
+	for _, m := range strings.Fields(string(out)) {
+		have[m] = true
+	}
+	for _, o := range pending.objs {
+		if !have[path.Base(o)] {
+			log.Fatalf("%s: member %s missing after ar", pending.lib, path.Base(o))
+		}
+	}
+	pending.lib, pending.objs, pending.b = "", nil, nil
+}
+
+const arBatch = 200
 
 func move(from, to string) {
 	final := path.Join(to, from)
@@ -1179,8 +1229,13 @@ func project(bf string, which []*regexp.Regexp) {
 	dirPush(dir)
 	builds := process(root, which)
 	debug("Processing %v: %d target", root, len(builds))
+	defer flushArchive()
 	for _, b := range builds {
 		debug("Processing %v: %v", b.Name, b)
+		// the library pending is complete unless this is its next part
+		if a, err := filepath.Abs(path.Join(b.Install, b.Library)); !(b.Library != "" && b.Append && err == nil && a == pending.lib) {
+			flushArchive()
+		}
 		if *cleanMode {
 			projects(&b, regexpAll)
 			clean(&b)
@@ -1203,6 +1258,10 @@ func project(bf string, which []*regexp.Regexp) {
 			link(&b)
 		}
 		install(&b, dolink, doarchive)
+		// a Post step may read the library (libc's libp9.sh)
+		if len(b.Post) > 0 {
+			flushArchive()
+		}
 		runCmds(&b, b.Post)
 	}
 }
@@ -1220,6 +1279,16 @@ func main() {
 	flag.Parse()
 	setup()
 
+	// on Plan 9 the installed system builds itself: its native gcc
+	// (/$cputype/gnu/bin, findTools) and its own architecture
+	if runtime.GOOS == "plan9" {
+		if _, ok := os.LookupEnv("CC"); !ok {
+			os.Setenv("CC", "gcc")
+		}
+		if os.Getenv("ARCH") == "" {
+			os.Setenv("ARCH", os.Getenv("objtype"))
+		}
+	}
 	if os.Getenv("CC") == "" {
 		log.Fatalf("You need to set the CC environment variable (e.g. gcc, clang, clang-3.6, ...)")
 	}
@@ -1299,6 +1368,16 @@ func findTools(toolprefix string) {
 	for k, v := range tools {
 		if x := os.Getenv(strings.ToUpper(k)); x != "" {
 			v = x
+		}
+		// on Plan 9 the native toolchain's (toolchain/gcc: /$cputype/gnu/bin)
+		// before $path: 9front's own ar, nm, strip come first in /bin and
+		// take other options
+		if n := toolprefix + v; runtime.GOOS == "plan9" && !strings.Contains(n, "/") {
+			g := "/" + os.Getenv("cputype") + "/gnu/bin/" + n
+			if _, e := os.Stat(g); e == nil {
+				tools[k] = g
+				continue
+			}
 		}
 		v, err = exec.LookPath(toolprefix + v)
 		fail(err)

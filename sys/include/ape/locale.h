@@ -30,6 +30,13 @@ struct lconv {
 	char n_sep_by_space;
 	char p_sign_posn;
 	char n_sign_posn;
+	/* 9space: C99's (7.11), for international formatting; libc++ reads them */
+	char int_p_cs_precedes;
+	char int_n_cs_precedes;
+	char int_p_sep_by_space;
+	char int_n_sep_by_space;
+	char int_p_sign_posn;
+	char int_n_sign_posn;
 };
 
 #ifdef __cplusplus

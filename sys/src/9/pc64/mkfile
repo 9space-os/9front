@@ -166,6 +166,13 @@ virtio10pc.$O:	../port/virtio10.h
 # pmc(3): performance counters
 devpmc.$O pmcio.$O:	../port/pmc.h io.h
 
+# GCC port: gccmk (APEGNU set) assembles init9.S, the GAS port of
+# ../pc/init9.c: gcc's code for it does not find argv0 on the stack
+# as 6c's does (the kernel panics in the first syscall)
+init9.$O:		../pc/init9.c init9.S
+	if(~ $#APEGNU 0) $CC $CFLAGS -I. -. ../pc/init9.c
+	if not $AS -o $target init9.s
+
 initcode.out:		init9.$O initcode.$O /$objtype/lib/libc.a
 	$LD -l -R1 -s -o $target $prereq
 

@@ -11,7 +11,8 @@ _dirtostat(struct stat *s, Dir *d, Fdinfo *fi)
 	int num;
 	char *nam;
 
-	s->st_dev = (d->type<<8)|(d->dev&0xFF);
+	/* 9space: the device whole (dev_t is 32 bits, ino_t 64: qid.path) */
+	s->st_dev = (d->type<<16)|(d->dev&0xFFFF);
 	s->st_ino = d->qid.path;
 	s->st_mode = d->mode&0777;
 	if(fi && (fi->flags&FD_ISTTY))

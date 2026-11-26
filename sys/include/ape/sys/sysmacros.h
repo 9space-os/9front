@@ -5,7 +5,8 @@
  */
 #ifndef __APE_SYS_SYSMACROS_H
 #define __APE_SYS_SYSMACROS_H
-#define major(d)	((unsigned)(d) >> 8 & 0xFFF)
-#define minor(d)	((unsigned)(d) & 0xFF)
-#define makedev(x, y)	((dev_t)(((x) & 0xFFF) << 8 | ((y) & 0xFF)))
+/* 9space: as dirtostat.c makes st_dev: (type<<16)|dev */
+#define major(d)	((unsigned)(d) >> 16 & 0xFFFF)
+#define minor(d)	((unsigned)(d) & 0xFFFF)
+#define makedev(x, y)	((dev_t)(((x) & 0xFFFF) << 16 | ((y) & 0xFFFF)))
 #endif

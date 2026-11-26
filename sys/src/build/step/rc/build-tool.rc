@@ -1,0 +1,26 @@
+#!/bin/rc
+# build-tool.sh on 9space: sys/src/cmd/build with 9space's Go (/$cputype/go)
+# as /$objtype/bin/build; without Go (a profile without it) the installed
+# tool stays. The running tool is that file: a new one replaces it by a
+# rename (mv), only when it differs, after the whole tree is built.
+. $PLAN9/sys/src/build/step/rc/lib.rc
+switch($objtype){
+case amd64 386 arm64
+	;
+case *
+	echo $prog: Go has no plan9/$objtype: no /$objtype/bin/build >[1=2]
+	exit ''
+}
+GO=/$cputype/go/bin/go
+if(! test -x $GO){
+	echo $prog: no Go '('/$cputype/go')': /$objtype/bin/build stays >[1=2]
+	exit ''
+}
+out=$PLAN9/$objtype/bin/build
+@{cd $PLAN9/sys/src/cmd/build && GOOS=plan9 GOARCH=$objtype GO111MODULE=off CGO_ENABLED=0 \
+	$GO build -trimpath -o $TMP/build .} || die go build
+if(! cmp -s $TMP/build $out){
+	cp $TMP/build $out.new || die cp
+	mv $out.new $out || die mv
+}
+exit ''

@@ -1,7 +1,8 @@
 #!/bin/rc
 # check-install.py: everything mk install installs is in the tree. The
 # list of expected files is check-install.py -l's, written beside the
-# tree ($PLAN9/sys/src/build/check-install.$objtype, sys/src/build/host/guest/build-self.sh)
+# tree ($PLAN9/sys/src/build/check-install.$objtype: the CD's and update archives'
+# from sys/src/build/host/guest/stage-dist.sh, build-self.sh's in its copy)
 # where it was made on the build host (the mkfile parser is python's).
 #	check-install.rc [-r]
 . $PLAN9/sys/src/build/step/rc/lib.rc
