@@ -59,7 +59,7 @@ done
 
 # clang: by the linker itself (clang's Plan 9 driver would add plan9.ld)
 if [ "${TOOLSET:-gcc}" = clang ]; then
-	$LD -static --image-base=0 -Ttext=$REBOOTADDR --entry=$ENTRY -N -o "$TMP/rebootcode.elf" $objs
+	$LD -static -Ttext=$REBOOTADDR --entry=$ENTRY -N -o "$TMP/rebootcode.elf" $objs
 else
 	$CC -nostdlib -static -Wl,-Ttext=$REBOOTADDR -Wl,--entry=$ENTRY -Wl,-N \
 	    -o "$TMP/rebootcode.elf" $objs
