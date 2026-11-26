@@ -1045,7 +1045,11 @@ func install(b *build, dolink, doarchive bool) {
 	case len(b.Program) > 0:
 		move(b.Program, b.Install)
 	case len(b.Library) > 0:
-		libpath := path.Join(b.Install, b.Library)
+		libpath, err := filepath.Abs(path.Join(b.Install, b.Library))
+		fail(err)
+		if !b.Append || pending.lib != libpath {
+			flushArchive()
+		}
 		// start from an empty archive: ar -r only adds/replaces members,
 		// so objects of sources dropped from a manifest would linger
 		// (-D: the Append parts see their members missing, members)
@@ -1063,9 +1067,15 @@ func install(b *build, dolink, doarchive bool) {
 			fail(writefile(r+".objs", []byte(strings.Join(objs, "\n")+"\n")))
 			objs = []string{r}
 		}
-		args := append([]string{"-rs", libpath}, objs...)
-		run(b, *shellhack, exec.Command(tools["ar"], args...))
-		run(b, *shellhack, exec.Command(tools["ranlib"], libpath))
+		for _, o := range objs {
+			a, err := filepath.Abs(o)
+			fail(err)
+			pending.objs = append(pending.objs, a)
+		}
+		if pending.lib == "" {
+			bb := *b
+			pending.lib, pending.b = libpath, &bb
+		}
 	}
 }
 
@@ -1085,6 +1095,51 @@ func sameList(f string, objs []string) bool {
 func wholeObject(b *build) string {
 	return strings.TrimSuffix(path.Base(b.Library), ".a") + ".o"
 }
+
+// pending: the members of a library not yet archived. A library made of
+// Append parts (the LinuxKPI's libamdgpu.a: 286 manifests, 350 MB) is
+// archived once, when its last part is installed: ar -rs writes the whole
+// archive each time, which on 9space's hjfs took hours. flushArchive runs
+// before anything else is built (project), before a Post step, and at the
+// end of each manifest.
+var pending struct {
+	lib  string
+	objs []string
+	b    *build
+}
+
+func flushArchive() {
+	if pending.lib == "" {
+		return
+	}
+	// at most arBatch members per ar: GNU ar opens them all at once, and a
+	// process on 9space has only so many file descriptors (950 objects
+	// left an empty archive)
+	for objs := pending.objs; len(objs) > 0; {
+		n := min(len(objs), arBatch)
+		args := append([]string{"-rs", pending.lib}, objs[:n]...)
+		run(pending.b, *shellhack, exec.Command(tools["ar"], args...))
+		objs = objs[n:]
+	}
+	// ar can leave an archive short without saying so (on 9space: out of
+	// file descriptors): every member must be there
+	out, err := exec.Command(tools["ar"], "t", pending.lib).Output()
+	if err != nil {
+		log.Fatalf("ar t %s: %v", pending.lib, err)
+	}
+	have := map[string]bool{}
+	for _, m := range strings.Fields(string(out)) {
+		have[m] = true
+	}
+	for _, o := range pending.objs {
+		if !have[path.Base(o)] {
+			log.Fatalf("%s: member %s missing after ar", pending.lib, path.Base(o))
+		}
+	}
+	pending.lib, pending.objs, pending.b = "", nil, nil
+}
+
+const arBatch = 200
 
 func move(from, to string) {
 	final := path.Join(to, from)
@@ -1252,8 +1307,13 @@ func project(bf string, which []*regexp.Regexp) {
 	dirPush(dir)
 	builds := process(root, which)
 	debug("Processing %v: %d target", root, len(builds))
+	defer flushArchive()
 	for _, b := range builds {
 		debug("Processing %v: %v", b.Name, b)
+		// the library pending is complete unless this is its next part
+		if a, err := filepath.Abs(path.Join(b.Install, b.Library)); !(b.Library != "" && b.Append && err == nil && a == pending.lib) {
+			flushArchive()
+		}
 		if *cleanMode {
 			projects(&b, regexpAll)
 			clean(&b)
@@ -1276,6 +1336,10 @@ func project(bf string, which []*regexp.Regexp) {
 			link(&b)
 		}
 		install(&b, dolink, doarchive)
+		// a Post step may read the library (libc's libp9.sh)
+		if len(b.Post) > 0 {
+			flushArchive()
+		}
 		runCmds(&b, b.Post)
 	}
 }
