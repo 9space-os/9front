@@ -44,8 +44,8 @@
 			"-Werror=sequence-point"
 		],
 		"Include": [
-			"/$ARCH/kernel.$CC.json",
-			"/sys/src/9/$CC.json"
+			"/$ARCH/kernel.$TOOLSET.json",
+			"/sys/src/9/$TOOLSET.json"
 		],
 		"Oflags": [
 			"-m",

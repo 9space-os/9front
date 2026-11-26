@@ -510,9 +510,9 @@
             "sdodin.c"
         ],
         "Include": [
-            "/$ARCH/kernel.$CC.json",
-            "/sys/src/9/$CC.json",
-            "/sys/src/9/pc64/$CC.json"
+            "/$ARCH/kernel.$TOOLSET.json",
+            "/sys/src/9/$TOOLSET.json",
+            "/sys/src/9/pc64/$TOOLSET.json"
         ]
     }
 ]

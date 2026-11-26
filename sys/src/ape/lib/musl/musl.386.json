@@ -13,8 +13,8 @@
 			"include"
 		],
 		"Include": [
-			"/$ARCH/$CC.json",
-			"/sys/src/ape/lib/musl/$CC.json"
+			"/$ARCH/$TOOLSET.json",
+			"/sys/src/ape/lib/musl/$TOOLSET.json"
 		],
 		"Name": "ape-lib-musl-libap.a",
 		"Pre": [
@@ -386,8 +386,8 @@
 			"include"
 		],
 		"Include": [
-			"/$ARCH/$CC.json",
-			"/sys/src/ape/lib/musl/$CC.json"
+			"/$ARCH/$TOOLSET.json",
+			"/sys/src/ape/lib/musl/$TOOLSET.json"
 		],
 		"Name": "ape-lib-musl-engine-libap.a",
 		"Cflags": [
