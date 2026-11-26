@@ -33,7 +33,7 @@ TREEFLAGS = ['-fno-pie', '-static', '-fno-stack-protector', '-D__plan9__', '-Uli
 	'-U__linux', '-U__linux__', '-U__gnu_linux__', '-g']
 ARCHFLAGS = {
 	'amd64': ['-mcmodel=small'],
-	'386': ['-m32', '-march=pentium', '-mfpmath=387', '-mno-sse'],	# the stack's: /386/$CC.json
+	'386': ['-m32', '-march=pentium', '-mfpmath=387', '-mno-sse'],	# the stack's: /386/$TOOLSET.json
 	'arm64': ['-fsigned-char', '-mno-outline-atomics'],
 	'riscv64': ['-march=rv64gc', '-mabi=lp64d', '-mcmodel=medany', '-mno-relax', '-fsigned-char'],
 }
@@ -52,8 +52,8 @@ CFLAGS = [
 ]
 
 # musl's flags its configure takes only from a compiler that has them (tryflag):
-# gcc's, and clang's names for the same checks; DIR/$CC.json, with the
-# machine's /$ARCH/$CC.json (386's stack alignment)
+# gcc's, and clang's names for the same checks; DIR/$TOOLSET.json, with the
+# machine's /$ARCH/$TOOLSET.json (386's stack alignment)
 CCFLAGS = {
 	'gcc': ['-fno-align-jumps', '-fno-align-functions', '-fno-align-loops', '-fno-align-labels',
 		'-fira-region=one', '-fira-hoist-pressure', '-freorder-blocks-algorithm=simple',
@@ -61,7 +61,7 @@ CCFLAGS = {
 		'-Werror=discarded-array-qualifiers'],
 	'clang': ['-fno-align-functions', '-Werror=incompatible-pointer-types-discards-qualifiers'],
 }
-INCLUDE = ['/$ARCH/$CC.json', '/' + DIR + '/$CC.json']
+INCLUDE = ['/$ARCH/$TOOLSET.json', '/' + DIR + '/$TOOLSET.json']
 
 # the engine: its entry points as APE's ap/gnu/stdio.c and wstdio.c call them; what
 # libap or the wide functions of ap/gnu have under the same names, out of the way

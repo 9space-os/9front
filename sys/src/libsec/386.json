@@ -101,7 +101,7 @@
             "port/sha1block.c"
         ],
         "Include": [
-            "/$ARCH/kernel.$CC.json"
+            "/$ARCH/kernel.$TOOLSET.json"
         ]
     }
 ]

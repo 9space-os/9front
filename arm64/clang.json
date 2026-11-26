@@ -2,7 +2,6 @@
 	{
 		"Name": "buildflags",
 		"Cflags": [
-			"--target=aarch64-unknown-plan9",
 			"-fno-pie"
 		]
 	}

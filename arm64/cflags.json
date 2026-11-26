@@ -39,7 +39,7 @@
 			"/$ARCH/lib.gcc/$CCRT"
 		],
 		"Include": [
-			"/$ARCH/$CC.json"
+			"/$ARCH/$TOOLSET.json"
 		]
 	}
 ]
