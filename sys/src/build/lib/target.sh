@@ -8,14 +8,15 @@
 # call target_tools after: with TOOLSET=clang (build.exe's: CC is a clang)
 # CC becomes that clang with the step's flags (its target by its name on
 # Linux, x86_64-unknown-plan9-clang, by $objtype on 9front), LD ld.lld with
-# the step's arguments, OBJCOPY llvm-objcopy; with gcc they stay as the step
-# set them. RT: the compiler's runtime library for the link,
+# the step's arguments (and --image-base=0), OBJCOPY llvm-objcopy; with gcc
+# they stay as the step set them. RT: the compiler's runtime library for the link,
 # /$objtype/lib.gcc/$CCRT (libgcc.a, libclang_rt.builtins.a), or empty.
 TARGET_CC=${CC:-}
 target_tools(){
 	if [ "${TOOLSET:-gcc}" = clang ]; then
 		CC="$TARGET_CC${CC#*gcc}"
-		LD="ld.lld${LD#*ld}"
+		# its default image base 0x400000 is above the steps' -Ttext
+		LD="ld.lld --image-base=0${LD#*ld}"
 		OBJCOPY=llvm-objcopy
 	fi
 	RT=$ROOT/$objtype/lib.gcc/${CCRT:-libgcc.a}
