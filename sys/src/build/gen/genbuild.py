@@ -52,7 +52,7 @@ KERNEL = {
 	# riscv64: a kernel per machine (sys/src/9/riscv64/mkfile's CONFLIST)
 	'riscv64': (['bash /sys/src/build/step/gen-rebootcode-i.sh riscv64', 'bash /sys/src/build/step/gen-initcode-i.sh',
 		'bash /sys/src/build/step/gen-bootfs.sh virt riscv64', 'bash /sys/src/build/step/gen-bootfs.sh pf riscv64',
-		'bash /sys/src/build/step/gen-bootfs.sh um riscv64'],
+		'bash /sys/src/build/step/gen-bootfs.sh um riscv64', 'bash /sys/src/build/step/gen-bootfs.sh vf riscv64'],
 		'/sys/src/9/riscv64/build.json', ['/riscv64/bin/9virt', '/riscv64/bin/9pf', '/riscv64/bin/9um', '/riscv64/bin/9vf'],
 		['/riscv64/9virt', '/riscv64/9pf', '/riscv64/9um', '/riscv64/9vf']),
 }

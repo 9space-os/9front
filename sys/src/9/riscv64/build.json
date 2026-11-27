@@ -836,6 +836,9 @@
 			"../port/tod.c",
 			"../port/xalloc.c",
 			"../port/userinit.c"
+		],
+		"Asflags": [
+			"-DPHYSDRAM=0x40000000"
 		]
 	}
 ]

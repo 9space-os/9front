@@ -40,6 +40,7 @@ extern void sbisendipi(int);
 extern int sbihartstart(int, uintptr, uintptr);
 extern void sbireset(int);
 extern void sbihartstop(void);
+extern void sbiputs(char*, int);
 
 /* mmu */
 #define	getpgcolor(a)	0

@@ -111,6 +111,9 @@ type build struct {
 	Post        []string
 	Cflags      []string
 	Oflags      []string
+	// Asflags: flags for the assembly (.s/.S) only, a mkfile's AFLAGS
+	// (riscv64's -DPHYSDRAM of the CONF's #physdram)
+	Asflags []string
 	Include     []string
 	SourceFiles []string
 	ObjectFiles []string
@@ -199,6 +202,7 @@ func (bf *buildfile) UnmarshalJSON(s []byte) error {
 		b.SourceDeps = adjust(b.SourceDeps)
 		b.Cflags = adjust(b.Cflags)
 		b.Oflags = adjust(b.Oflags)
+		b.Asflags = adjust(b.Asflags)
 		b.SourceFiles = globby(adjust(b.SourceFiles))
 		b.SourceFilesCmd = globby(adjust(b.SourceFilesCmd))
 		b.ObjectFiles = adjust(b.ObjectFiles)
@@ -345,6 +349,7 @@ func include(f string, targ string, b *build) {
 		log.Printf("Merging %s", build.Name)
 		b.Cflags = append(b.Cflags, build.Cflags...)
 		b.Oflags = append(b.Oflags, build.Oflags...)
+		b.Asflags = append(b.Asflags, build.Asflags...)
 		b.Pre = append(b.Pre, build.Pre...)
 		b.Post = append(b.Post, build.Post...)
 		b.Libs = append(b.Libs, build.Libs...)
@@ -687,6 +692,8 @@ func compileArgs(b *build) (command string, cArgs, asmArgs []string) {
 			asmArgs = append(asmArgs, flag)
 		}
 	}
+	// the mkfile's AFLAGS: what its assembly alone is given
+	asmArgs = append(asmArgs, b.Asflags...)
 	return command, cArgs, asmArgs
 }
 

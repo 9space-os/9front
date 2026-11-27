@@ -144,6 +144,12 @@ since the epoch: -DNAME=seconds, where a mkfile's recipe has
 -DNAME=`{date -n} (cwfs' DATE). No shell runs; the flag is no part of a
 compile's signature (-D does not compile again for it).
 
+"Asflags" is an array of flags for the assembly files (.s/.S) only, after
+the -m flags they take from Cflags: a mkfile's AFLAGS (riscv64's kernels:
+-DPHYSDRAM of the CONF's #physdram, which l.S's boot page table needs as
+much as the C code; Cflags' -D flags do not reach the assembly, see
+"Compat").
+
 "SourceFilesCmd" is an array of C files where each one should result in an
 executable. If this key is provided, "SourceFiles" and "Program" are ignored.
 

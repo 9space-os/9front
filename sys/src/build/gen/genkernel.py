@@ -309,6 +309,8 @@ def entry(d, conf, text, v, objtype):
 	board = dict(re.findall(r'^#(physdram|loadaddr)\s+(\S+)', open(os.path.join(K, d, conf)).read(), re.M))
 	if 'physdram' in board:
 		e['Cflags'] = e['Cflags'] + ['-DPHYSDRAM=' + board['physdram']]
+		# and its AFLAGS: l.S builds the boot page table from it
+		e['Asflags'] = ['-DPHYSDRAM=' + board['physdram']]
 	if 'loadaddr' in board:
 		# before -T: kernel.ld's DEFINED(KTZERO) sees only what came first
 		e['Oflags'] = ['--defsym=KTZERO=' + board['loadaddr']] + e['Oflags']

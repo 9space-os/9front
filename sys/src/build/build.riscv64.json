@@ -379,7 +379,8 @@
 			"bash /sys/src/build/step/gen-initcode-i.sh",
 			"bash /sys/src/build/step/gen-bootfs.sh virt riscv64",
 			"bash /sys/src/build/step/gen-bootfs.sh pf riscv64",
-			"bash /sys/src/build/step/gen-bootfs.sh um riscv64"
+			"bash /sys/src/build/step/gen-bootfs.sh um riscv64",
+			"bash /sys/src/build/step/gen-bootfs.sh vf riscv64"
 		],
 		"Clean": [
 			"../9/riscv64/rebootcode.i",
@@ -390,7 +391,9 @@
 			"../9/riscv64/pf.bootfs.paq",
 			"../9/riscv64/pf.bootfs.sum",
 			"../9/riscv64/um.bootfs.paq",
-			"../9/riscv64/um.bootfs.sum"
+			"../9/riscv64/um.bootfs.sum",
+			"../9/riscv64/vf.bootfs.paq",
+			"../9/riscv64/vf.bootfs.sum"
 		]
 	},
 	{

@@ -15,8 +15,14 @@ static char timebase[32];
 
 /*
  * the harts the kernel can run on: /cpus/cpu@N nodes not "disabled"
- * (PolarFire's E51 monitor core is); reg and status come in any order,
- * a node is done when the next one starts
+ * (PolarFire's E51 monitor core is), with an mmu ("mmu-type": the
+ * kernel pages) and the D extension (riscv,isa's letters before the
+ * first '_', or riscv,isa-extensions: every process has the fpu, fpu.c).
+ * The monitor cores are rv64imac: the VisionFive 2's S7, hart 0, which
+ * u-boot's own device tree leaves "okay" and even gives an mmu-type
+ * (started, it traps in OpenSBI). A node without either isa property
+ * counts. reg, status, mmu-type and the isa come in any order, a node is
+ * done when the next one starts.
  */
 static int harts[MAXMACH];
 static int nharts;
@@ -24,16 +30,47 @@ static struct {
 	char	path[64];
 	int	hart;
 	int	off;
-} cpunode = { "", -1, 0 };
+	int	mmu;
+	int	nofpu;	/* an isa property without d */
+} cpunode = { "", -1, 0, 0, 0 };
 
 static void
 cpunodeend(void)
 {
-	if(cpunode.hart >= 0 && !cpunode.off && nharts < nelem(harts))
+	if(cpunode.hart >= 0 && !cpunode.off && cpunode.mmu && !cpunode.nofpu
+	&& nharts < nelem(harts))
 		harts[nharts++] = cpunode.hart;
 	cpunode.path[0] = 0;
 	cpunode.hart = -1;
 	cpunode.off = 0;
+	cpunode.mmu = 0;
+	cpunode.nofpu = 0;
+}
+
+/* riscv,isa ("rv64imafdc_zicsr..."): d among the single letters */
+static int
+isahasd(char *s, int len)
+{
+	int i;
+
+	if(len < 4 || strncmp(s, "rv", 2) != 0)
+		return 1;	/* not understood: as before */
+	for(i = 4; i < len && s[i] != '_' && s[i] != 0; i++)
+		if(s[i] == 'd')
+			return 1;
+	return 0;
+}
+
+/* a device tree string list (NUL-separated) holds the string x */
+static int
+strlisthas(char *s, int len, char *x)
+{
+	char *e;
+
+	for(e = s+len; s < e; s += strlen(s)+1)
+		if(strcmp(s, x) == 0)
+			return 1;
+	return 0;
 }
 
 /* the i'th hart of the device tree, -1 after the last */
@@ -182,6 +219,12 @@ devtreeprop(char *path, char *key, void *val, int len)
 			cpunode.hart = beget4(p);
 		else if(strcmp(key, "status") == 0)
 			cpunode.off = strcmp(val, "disabled") == 0;
+		else if(strcmp(key, "mmu-type") == 0)
+			cpunode.mmu = 1;
+		else if(strcmp(key, "riscv,isa") == 0)
+			cpunode.nofpu = !isahasd(val, len);
+		else if(strcmp(key, "riscv,isa-extensions") == 0)
+			cpunode.nofpu = !strlisthas(val, len, "d");
 		return;
 	}
 	if(strncmp(path, "/chosen", 7) == 0 && strcmp(key, "bootargs") == 0){

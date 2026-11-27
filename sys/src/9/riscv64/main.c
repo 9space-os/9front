@@ -199,8 +199,11 @@ main(void)
 		m->ticks = MACHP(0)->ticks;
 		schedinit();
 	}
+	/* until the uart is ours, print through the firmware's console (sbi.c) */
+	screenputs = sbiputs;
 	machinit();
 	uartconsinit();
+	screenputs = nil;
 	quotefmtinstall();
 	bootargsinit();
 	meminit();

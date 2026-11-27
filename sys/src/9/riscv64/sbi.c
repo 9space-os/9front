@@ -42,3 +42,18 @@ sbireset(int type)
 {
 	sbicall(SBISRST, 0, type, 0, 0, nil);
 }
+
+/*
+ * the firmware's console (the legacy putchar), on the uart the firmware
+ * set up: main's console until uartconsinit, so that what goes wrong
+ * before it (bootargsinit, meminit, a panic) is seen (as linux's earlycon=sbi)
+ */
+void
+sbiputs(char *s, int n)
+{
+	for(; n > 0; n--, s++){
+		if(*s == '\n')
+			sbicall(SBILEGACYPUTC, 0, '\r', 0, 0, nil);
+		sbicall(SBILEGACYPUTC, 0, *s, 0, 0, nil);
+	}
+}
