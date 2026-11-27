@@ -9,10 +9,17 @@ enum
 {
 	MAGIC		= 0xbada110c,
 	ALIGNED		= 0xa11a1190,	/* header of an aligned block, see alignedalloc */
-	MAX2SIZE	= 32,
+	/*
+	 * GCC port: the bucket sizes are size_t, BSIZE: 1<<pow was an int,
+	 * negative at 31 and so 0xffffffff80000000 against a 64-bit size_t:
+	 * every request over 1 GiB got bucket 31 and a size that wrapped
+	 * sbrk (nil, or the heap shrunk under live data). 64-bit: up to 2^39.
+	 */
+	MAX2SIZE	= sizeof(void*) == 8 ? 40 : 32,
 	CUTOFF		= 12,
 };
 
+#define BSIZE(pow)	((size_t)1<<(pow))
 #define NPAD(t, align) \
 	((sizeof(t) + align - 1) & ~(align - 1))
 typedef struct Bucket Bucket;
@@ -70,7 +77,7 @@ malloc(size_t size)
 	Bucket *bp, *nbp;
 
 	for(pow = 1; pow < MAX2SIZE; pow++) {
-		if(size <= (1<<pow))
+		if(size <= BSIZE(pow))
 			goto good;
 	}
 
@@ -90,7 +97,7 @@ good:
 		return bp->data;
 	}
 
-	size = sizeof(Bucket)+(1<<pow);
+	size = sizeof(Bucket)+BSIZE(pow);
 	size += 15;	/* GCC port: was 7, 8-byte stride (sbrk16) */
 	size &= ~15;
 
@@ -177,7 +184,7 @@ realloc(void *ptr, size_t n)
 		obp = (Bucket*)((uintptr_t)bp->next - datoff);
 		if(obp->magic != MAGIC)
 			abort();
-		osize = (1<<obp->size) - ((uintptr_t)ptr - (uintptr_t)bp->next);
+		osize = BSIZE(obp->size) - ((uintptr_t)ptr - (uintptr_t)bp->next);
 		new = malloc(n);
 		if(new == nil)
 			return nil;
@@ -190,7 +197,7 @@ realloc(void *ptr, size_t n)
 		abort();
 
 	/* enough space in this bucket */
-	osize = 1<<bp->size;
+	osize = BSIZE(bp->size);
 	if(osize >= n)
 		return ptr;
 
