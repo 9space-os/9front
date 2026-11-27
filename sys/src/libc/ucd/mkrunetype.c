@@ -614,8 +614,9 @@ findlongchain(void)
 	for(x = i, n = 0; r1 = (uint)mydecomp[x]>>16; x = r1){
 		if(++n > maxdchain)
 			maxdchain = n;
+		/* a decomposition in mydespecial: on with its first code point */
 		if(r1 >= DSTART && r1 <0xF8FF)
-			r1 -= DSTART;
+			r1 = mydespecial[(r1-DSTART)*3+1];
 	}
 	maxdchain *= 2;
 }
