@@ -1394,8 +1394,10 @@ namec(char *aname, int amode, int omode, ulong perm)
 		/*
 		 * Prepare nice error, showing first e.nerror elements of name.
 		 */
-		if(e.nerror == 0)
+		if(e.nerror == 0){
+			free(e.off);
 			nexterror();
+		}
 		if(e.off[e.nerror]==0)
 			print("nerror=%d but off=%d\n",
 				e.nerror, e.off[e.nerror]);
