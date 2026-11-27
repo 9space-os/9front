@@ -95,9 +95,16 @@ PRE = {
 # directories whose mkfile rules gen-src.sh replicates
 for d in ('cmd/ip/snoopy', 'cmd/syscall', 'cmd/tcs', 'cmd/nusb/disk', 'games/blabs', 'cmd/gs'):
 	PRE[d] = ['gen-src.sh ' + d]
-# the compilers' and loaders' enam.c (cc/mkfile.port, ?l/mkfile)
+# the compilers' and loaders' enam.c (cc/mkfile.port, ?l/mkfile). A compiler
+# names its target in the mkfile (T=, what mkenam reads); cc, the compilers'
+# library, and rc have none and no enam.c
+def compiler(d):
+	try:
+		return re.search(r'^T=', open(os.path.join(SRC, 'cmd', d, 'mkfile')).read(), re.M) is not None
+	except OSError:
+		return False
 for d in sorted(os.listdir(os.path.join(SRC, 'cmd'))):
-	if re.match(r'^[0-9a-z][cl]$', d) and d != 'rc':
+	if re.match(r'^[0-9a-z]l$', d) or re.match(r'^[0-9a-z]c$', d) and compiler(d):
 		PRE['cmd/' + d] = ['gen-src.sh cmd/' + d]
 # not target programs: compilers and assemblers, test data, the build tool
 SKIP = re.compile(r'^(cmd/build|.*/test|ape/lib/(mp|sec)/%s)(/|$)' % OBJTYPE)	# the build tool, test data, unported asm
