@@ -120,7 +120,7 @@ newfd(Chan *c, int mode)
 }
 
 static int
-newfd2(int fd[2], Chan *c[2])
+newfd2(int fd[2], Chan *volatile c[2])	/* GCC port: syspipe's c */
 {
 	Fgrp *f;
 
@@ -220,7 +220,7 @@ syspipe(uchar *list)
 {
 	static char *datastr[] = {"data", "data1"};
 	int fd[2], *ufd;
-	Chan *c[2];
+	Chan *volatile c[2];	/* GCC port: cclone, walk and open change them after waserror, its handler closes them (C11 7.13.2.1) */
 
 	ufd = ARG(list, int*);
 	validaddr((uintptr)ufd, sizeof(fd), 1);

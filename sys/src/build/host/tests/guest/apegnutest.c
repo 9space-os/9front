@@ -10,7 +10,8 @@
  * name in /proc, timercmp, byte swaps, regex (musl's TRE); a pty of ptyfs
  * with an APE program and rc in it (line editing, echo, raw modes, size,
  * interrupt, hangup, end of file); SIGCHLD; MSG_NOSIGNAL (EPIPE, no SIGPIPE);
- * fds past 96 and streams past FOPEN_MAX (9front-ng: OPEN_MAX is the kernel's).
+ * fds past 96 and streams past FOPEN_MAX (9front-ng: OPEN_MAX is the kernel's);
+ * the *at functions relative to a directory's descriptor (gnu/at.c).
  *
  * Output: one "ok name" or "FAIL name: detail" line per check, then
  * "apegnutest: N ok, M failed".
@@ -51,6 +52,8 @@
 #include <sys/ioctl.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
+#include <sys/stat.h>
+#include <dirent.h>
 
 static int nok, nfail;
 
@@ -1520,6 +1523,45 @@ testmanyfds(char *argv0)
 	check("8 threads fopen and fclose at once, each its own stream", bad == 0, "%d wrong", bad);
 }
 
+/* openat, fstatat, unlinkat, dirfd relative to a directory's descriptor (gnu/at.c) */
+static void
+testat(void)
+{
+	char dir[64];
+	struct stat st;
+	DIR *d;
+	int fd, df;
+
+	snprintf(dir, sizeof dir, "/tmp/apeat.%d", (int)getpid());
+	if(mkdir(dir, 0755) < 0){
+		check("at: mkdir", 0, "%s: %s", dir, strerror(errno));
+		return;
+	}
+	d = opendir(dir);
+	df = d != NULL ? dirfd(d) : -1;
+	check("at: dirfd", df >= 0, "opendir/dirfd %s: %s", dir, strerror(errno));
+	if(df < 0)
+		return;
+	fd = openat(df, "f", O_WRONLY|O_CREAT|O_TRUNC, 0644);
+	check("at: openat relative", fd >= 0 && write(fd, "hello", 5) == 5, "%s", strerror(errno));
+	if(fd >= 0)
+		close(fd);
+	check("at: fstatat relative", fstatat(df, "f", &st, AT_SYMLINK_NOFOLLOW) == 0 && st.st_size == 5,
+		"%s, size %lld", strerror(errno), (long long)st.st_size);
+	check("at: fstatat AT_FDCWD", fstatat(AT_FDCWD, dir, &st, 0) == 0 && S_ISDIR(st.st_mode), "%s", strerror(errno));
+	fd = open(dir, O_RDONLY);
+	errno = 0;
+	check("at: not a directory's fd", fd >= 0 && fstatat(open("/dev/null", O_RDONLY), "f", &st, 0) < 0 && errno == ENOTDIR,
+		"errno %d", errno);
+	if(fd >= 0)
+		close(fd);
+	check("at: unlinkat", unlinkat(df, "f", 0) == 0 && fstatat(df, "f", &st, 0) < 0 && errno == ENOENT,
+		"%s", strerror(errno));
+	closedir(d);
+	check("at: unlinkat AT_REMOVEDIR", unlinkat(AT_FDCWD, dir, AT_REMOVEDIR) == 0 && stat(dir, &st) < 0,
+		"%s", strerror(errno));
+}
+
 int
 main(int argc, char **argv)
 {
@@ -1550,6 +1592,7 @@ main(int argc, char **argv)
 	testbuf();
 	testdupfile();
 	testmanyfds(argv[0]);
+	testat();
 	/* exit goes with a thread and a copy proc still there (run.rc: ps) */
 	pthread_create(&s, NULL, sleeper, NULL);
 	printf("apegnutest: %d ok, %d failed\n", nok, nfail);

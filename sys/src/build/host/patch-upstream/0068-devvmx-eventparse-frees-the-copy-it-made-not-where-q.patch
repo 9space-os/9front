@@ -1,0 +1,53 @@
+From 0b21990fca449cf45f3b42b4d6de43501ce92643 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 27 Nov 2026 08:39:13 +0100
+Subject: [PATCH] devvmx: eventparse frees the copy it made, not where q moved
+ to
+
+eventparse duplicates the event string into q and then moves q on: past
+a leading '#' (q++) and over the vector number (strtoul(q, &q, 10)).
+Both its error handler and its normal end freed q, by then a pointer
+into the middle of the allocation (or one past it). Keep the copy in its
+own variable and free that.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/pc/devvmx.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/sys/src/9/pc/devvmx.c b/sys/src/9/pc/devvmx.c
+index 6117929bf..9470ab622 100644
+--- a/sys/src/9/pc/devvmx.c
++++ b/sys/src/9/pc/devvmx.c
+@@ -1588,14 +1588,15 @@ cmdwait(VmCmd *cp, va_list va)
+ static void
+ eventparse(char *p, VmIntr *vi)
+ {
+-	char *q, *r;
++	char *s, *q, *r;
+ 	int i;
+ 	
+ 	memset(vi, 0, sizeof(VmIntr));
+-	q = nil;
+-	kstrdup(&q, p);
++	s = nil;
++	kstrdup(&s, p);
++	q = s;	/* q moves on (q++, strtoul): free the copy, not where q ends up */
+ 	if(waserror()){
+-		free(q);
++		free(s);
+ 		memset(vi, 0, sizeof(VmIntr));
+ 		nexterror();
+ 	}
+@@ -1631,7 +1632,7 @@ eventparse(char *p, VmIntr *vi)
+ 		error(Ebadctl);
+ out:
+ 	poperror();
+-	free(q);
++	free(s);
+ }
+ 
+ static int
+-- 
+2.56.1
+

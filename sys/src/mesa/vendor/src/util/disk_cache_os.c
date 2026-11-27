@@ -37,6 +37,7 @@
 #include "util/u_debug.h"
 #include "util/disk_cache.h"
 #include "util/disk_cache_os.h"
+#include "util/detect_os.h"
 
 #if DETECT_OS_WINDOWS
 
@@ -80,6 +81,13 @@ disk_cache_get_function_identifier(void *ptr, blake3_hasher *ctx)
 #endif
 
 #ifdef ENABLE_SHADER_CACHE
+
+/* a file's size on disk: 9front's stat has no st_blocks, its length is what it takes */
+#if DETECT_OS_PLAN9
+#define ST_BYTES(sb) ((uint64_t)(sb).st_size)
+#else
+#define ST_BYTES(sb) ((uint64_t)(sb).st_blocks * 512)
+#endif
 
 #if DETECT_OS_WINDOWS
 /* TODO: implement disk cache support on windows */
@@ -328,7 +336,7 @@ choose_lru_file_matching(const char *dir_path,
                entry->lru_name = tmp;
                memcpy(entry->lru_name, dir_ent->d_name, len + 1);
                entry->lru_atime = sb.st_atime;
-               entry->lru_file_size = sb.st_blocks * 512;
+               entry->lru_file_size = ST_BYTES(sb);
             }
          }
       }
@@ -600,7 +608,7 @@ disk_cache_recompute_size(struct disk_cache *cache)
             continue;
          }
 
-         total += (uint64_t)sb.st_blocks * 512;
+         total += ST_BYTES(sb);
       }
       closedir(dir);
    }
@@ -620,8 +628,8 @@ disk_cache_evict_item(struct disk_cache *cache, char *filename)
    int ret = unlink(filename);
    free(filename);
 
-   if (ret == 0 && sb.st_blocks)
-      p_atomic_add(&cache->size->value, - (uint64_t)sb.st_blocks * 512);
+   if (ret == 0 && ST_BYTES(sb))
+      p_atomic_add(&cache->size->value, - ST_BYTES(sb));
 }
 
 static void *
@@ -938,7 +946,7 @@ disk_cache_write_item_to_disk(struct disk_cache_put_job *dc_job,
       goto done;
    }
 
-   p_atomic_add(&dc_job->cache->size->value, sb.st_blocks * 512);
+   p_atomic_add(&dc_job->cache->size->value, ST_BYTES(sb));
 
  done:
    if (fd_final != -1)
@@ -1002,6 +1010,25 @@ disk_cache_generate_cache_dir(void *mem_ctx, const char *gpu_name,
       if (!path)
          return NULL;
    }
+
+#if DETECT_OS_PLAN9
+   /* 9front: $home/lib/mesa (a program's data in the user's lib, as
+    * $home/lib/servo; APE has no $HOME): none where it cannot be made (a
+    * live CD's home), then no cache */
+   if (path == NULL) {
+      const char *home = os_get_option("home");
+
+      if (home) {
+         path = concatenate_and_mkdir(mem_ctx, home, "lib", mkdir);
+         if (path)
+            path = concatenate_and_mkdir(mem_ctx, path, "mesa", mkdir);
+         if (path)
+            path = concatenate_and_mkdir(mem_ctx, path, cache_dir_name, mkdir);
+         if (!path)
+            return NULL;
+      }
+   }
+#endif
 
    if (path == NULL) {
       const char *xdg_cache_home = os_get_option_secure("XDG_CACHE_HOME");

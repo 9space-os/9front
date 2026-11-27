@@ -1,0 +1,38 @@
+From 1dca50edf28521880961df561737af292d69e1cf Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 27 Nov 2026 09:40:39 +0100
+Subject: [PATCH] namec: the error handler frees e.off before nexterror too
+
+namec's handler frees e.name and e.elems, and for an error after
+e.nerror elements builds the message from e.off and frees it; with
+e.nerror 0 it goes on to nexterror() first, and e.off (parsename's
+smalloc) leaked, for every error with e.nerror 0: a create of /, an
+open of /, . or a bare #x that the device refuses, a walk whose start
+is not a directory.  e.off is nil or a live allocation there, and
+nothing after the nexterror reads or frees it.  Found reviewing the
+namec volatile patch (2026-11-27); compiled, not run.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/port/chan.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/sys/src/9/port/chan.c b/sys/src/9/port/chan.c
+index de49d31f8..333823127 100644
+--- a/sys/src/9/port/chan.c
++++ b/sys/src/9/port/chan.c
+@@ -1394,8 +1394,10 @@ namec(char *aname, int amode, int omode, ulong perm)
+ 		/*
+ 		 * Prepare nice error, showing first e.nerror elements of name.
+ 		 */
+-		if(e.nerror == 0)
++		if(e.nerror == 0){
++			free(e.off);
+ 			nexterror();
++		}
+ 		if(e.off[e.nerror]==0)
+ 			print("nerror=%d but off=%d\n",
+ 				e.nerror, e.off[e.nerror]);
+-- 
+2.56.1
+

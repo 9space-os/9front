@@ -1,0 +1,57 @@
+From 8d3a97867d1baad9edab4ededd58b44d1089ed09 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 27 Nov 2026 09:37:58 +0100
+Subject: [PATCH] devfs: mconfig's cb and mp are volatile (set after waserror,
+ used by its handler)
+
+A local that changed after its waserror() is indeterminate in the
+handler unless it is volatile (C11 7.13.2.1, as 0066 and the namec
+patch); a compiler that keeps it in a register hands back its value at
+waserror time.  In mconfig:
+
+- cb: set to nil, then waserror(), then parseconfig(a, n, &cb, &ct),
+  which sets *cbp first and then raises its usage errors (and
+  lookupcmd's); "bad hexkey", the name checks and mdelctl's error
+  follow.  The handler's free(cb) may then free nil and leak the
+  Cmdbuf.  parseconfig takes a Cmdbuf *volatile*.
+- mp: nil, then the write lock's waserror(), then devalloc; an error
+  after it (Enomem for an Inner, setdsize's "starts after device end")
+  goes to Fail, whose mdeldev(mp) may then see nil and leave the
+  half-made device in its tree.
+
+Found by reading (a scan for locals changed after waserror(),
+2026-11-27); compiled with gcc and clang, not run.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/port/devfs.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/sys/src/9/port/devfs.c b/sys/src/9/port/devfs.c
+index 0126869b9..508698827 100644
+--- a/sys/src/9/port/devfs.c
++++ b/sys/src/9/port/devfs.c
+@@ -498,7 +498,7 @@ validdevname(Tree *t, char *dname)
+ }
+ 
+ static void
+-parseconfig(char *a, long n, Cmdbuf **cbp, Cmdtab **ctp)
++parseconfig(char *a, long n, Cmdbuf *volatile *cbp, Cmdtab **ctp)
+ {
+ 	Cmdbuf	*cb;
+ 	Cmdtab	*ct;
+@@ -571,9 +571,9 @@ mconfig(char* a, long n)
+ 	uchar	key[2*256/8];
+ 	int	keylen;
+ 	Chan	**idev;
+-	Cmdbuf	*cb;
++	Cmdbuf	*volatile cb;	/* parseconfig sets it after waserror, the handler frees it */
+ 	Cmdtab	*ct;
+-	Fsdev	*mp;
++	Fsdev	*volatile mp;	/* devalloc sets it after waserror, Fail deletes it */
+ 	Inner	*inprv;
+ 	Tree	*t;
+ 
+-- 
+2.56.1
+

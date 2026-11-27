@@ -1,0 +1,103 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: port <port@localhost>
+Date: Fri, 27 Nov 2026 08:52:17 +0100
+Subject: [PATCH] util/disk_cache: 9front: the database cache by default (the
+ multi-file index wants mmap), a file's size from st_size (no st_blocks), no
+ ftw.h
+
+---
+ src/util/disk_cache.c    |  6 +++++-
+ src/util/disk_cache_os.c | 18 +++++++++++++-----
+ 2 files changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/src/util/disk_cache.c b/src/util/disk_cache.c
+index 3aaa4a8..f913598 100644
+--- a/src/util/disk_cache.c
++++ b/src/util/disk_cache.c
+@@ -24,7 +24,9 @@
+ #ifdef ENABLE_SHADER_CACHE
+ 
+ #include <ctype.h>
++#ifndef __plan9__	/* 9front has none; nothing here uses it */
+ #include <ftw.h>
++#endif
+ #include <string.h>
+ #include <stdlib.h>
+ #include <stdio.h>
+@@ -225,9 +227,11 @@ disk_cache_create(const char *gpu_name, const char *driver_id,
+    uint64_t max_size = 0;
+    const char *max_size_str;
+ 
++   /* 9front: the database (two files, read and written whole) by default;
++    * the multi-file cache's index wants mmap, which 9front has not */
+    if (debug_get_bool_option("MESA_DISK_CACHE_SINGLE_FILE", false)) {
+       cache_type = DISK_CACHE_SINGLE_FILE;
+-   } else if (debug_get_bool_option("MESA_DISK_CACHE_DATABASE", false)) {
++   } else if (debug_get_bool_option("MESA_DISK_CACHE_DATABASE", DETECT_OS_PLAN9)) {
+       cache_type = DISK_CACHE_DATABASE;
+       /* Since switching the default cache to <mesa_shader_cache_db>, remove the
+        * old cache folder if it hasn't been modified for more than 7 days.
+diff --git a/src/util/disk_cache_os.c b/src/util/disk_cache_os.c
+index 9d0a6f3..4fb15d4 100644
+--- a/src/util/disk_cache_os.c
++++ b/src/util/disk_cache_os.c
+@@ -37,6 +37,7 @@
+ #include "util/u_debug.h"
+ #include "util/disk_cache.h"
+ #include "util/disk_cache_os.h"
++#include "util/detect_os.h"
+ 
+ #if DETECT_OS_WINDOWS
+ 
+@@ -81,6 +82,13 @@ disk_cache_get_function_identifier(void *ptr, blake3_hasher *ctx)
+ 
+ #ifdef ENABLE_SHADER_CACHE
+ 
++/* a file's size on disk: 9front's stat has no st_blocks, its length is what it takes */
++#if DETECT_OS_PLAN9
++#define ST_BYTES(sb) ((uint64_t)(sb).st_size)
++#else
++#define ST_BYTES(sb) ((uint64_t)(sb).st_blocks * 512)
++#endif
++
+ #if DETECT_OS_WINDOWS
+ /* TODO: implement disk cache support on windows */
+ 
+@@ -328,7 +336,7 @@ choose_lru_file_matching(const char *dir_path,
+                entry->lru_name = tmp;
+                memcpy(entry->lru_name, dir_ent->d_name, len + 1);
+                entry->lru_atime = sb.st_atime;
+-               entry->lru_file_size = sb.st_blocks * 512;
++               entry->lru_file_size = ST_BYTES(sb);
+             }
+          }
+       }
+@@ -600,7 +608,7 @@ disk_cache_recompute_size(struct disk_cache *cache)
+             continue;
+          }
+ 
+-         total += (uint64_t)sb.st_blocks * 512;
++         total += ST_BYTES(sb);
+       }
+       closedir(dir);
+    }
+@@ -620,8 +628,8 @@ disk_cache_evict_item(struct disk_cache *cache, char *filename)
+    int ret = unlink(filename);
+    free(filename);
+ 
+-   if (ret == 0 && sb.st_blocks)
+-      p_atomic_add(&cache->size->value, - (uint64_t)sb.st_blocks * 512);
++   if (ret == 0 && ST_BYTES(sb))
++      p_atomic_add(&cache->size->value, - ST_BYTES(sb));
+ }
+ 
+ static void *
+@@ -938,7 +946,7 @@ disk_cache_write_item_to_disk(struct disk_cache_put_job *dc_job,
+       goto done;
+    }
+ 
+-   p_atomic_add(&dc_job->cache->size->value, sb.st_blocks * 512);
++   p_atomic_add(&dc_job->cache->size->value, ST_BYTES(sb));
+ 
+  done:
+    if (fd_final != -1)
