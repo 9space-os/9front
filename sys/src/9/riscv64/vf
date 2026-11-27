@@ -19,6 +19,8 @@ dev
 	ip	arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno
 	uart
 	sd
+#	9space: segment(3), #g (as pc64's)
+	segment
 
 link
 	etherdwmac	ethermii

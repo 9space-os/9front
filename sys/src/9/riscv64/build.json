@@ -84,7 +84,8 @@
 					"ip arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno",
 					"uart",
 					"pci pci",
-					"sd"
+					"sd",
+					"segment"
 				],
 				"Link": [
 					"ethervirtio10 pci virtio10mem",
@@ -144,6 +145,7 @@
 			"../port/devproc.c",
 			"../port/devroot.c",
 			"../port/devsd.c",
+			"../port/devsegment.c",
 			"../port/devshr.c",
 			"../port/devsrv.c",
 			"../port/devswap.c",
@@ -295,7 +297,8 @@
 					"bridge log",
 					"ip arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno",
 					"uart",
-					"sd"
+					"sd",
+					"segment"
 				],
 				"Link": [
 					"ethergem",
@@ -354,6 +357,7 @@
 			"../port/devproc.c",
 			"../port/devroot.c",
 			"../port/devsd.c",
+			"../port/devsegment.c",
 			"../port/devshr.c",
 			"../port/devsrv.c",
 			"../port/devswap.c",
@@ -502,7 +506,8 @@
 					"bridge log",
 					"ip arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno",
 					"uart",
-					"sd"
+					"sd",
+					"segment"
 				],
 				"Link": [
 					"ethergem",
@@ -559,6 +564,7 @@
 			"../port/devproc.c",
 			"../port/devroot.c",
 			"../port/devsd.c",
+			"../port/devsegment.c",
 			"../port/devshr.c",
 			"../port/devsrv.c",
 			"../port/devswap.c",
@@ -707,7 +713,8 @@
 					"bridge log",
 					"ip arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno",
 					"uart",
-					"sd"
+					"sd",
+					"segment"
 				],
 				"Link": [
 					"etherdwmac ethermii",
@@ -765,6 +772,7 @@
 			"../port/devproc.c",
 			"../port/devroot.c",
 			"../port/devsd.c",
+			"../port/devsegment.c",
 			"../port/devshr.c",
 			"../port/devsrv.c",
 			"../port/devswap.c",

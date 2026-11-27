@@ -18,6 +18,8 @@ dev
 	uart
 	pci	pci
 	sd
+#	9space: segment(3), #g (as pc64's)
+	segment
 
 link
 	ethervirtio10	pci virtio10mem
