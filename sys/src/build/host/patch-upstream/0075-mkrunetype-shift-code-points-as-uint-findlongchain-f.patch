@@ -1,0 +1,85 @@
+From f76b657646c3456113c0dd58d42d40ac4125fa29 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 27 Nov 2026 15:12:31 +0100
+Subject: [PATCH] mkrunetype: shift code points as uint; findlongchain follows
+ an exception to its first code point
+
+mydecomp holds a code point << 16; for DSTART+k (an entry of
+mydespecial) and for code points from 0x8000 on (the CJK compatibility
+ideographs' decompositions) that is above INT_MAX, an int overflow
+(undefined; in practice a negative value).  findlongchain's
+mydecomp[x]>>16 then gave a negative r1, used as the next index:
+mydecomp read below its start.  What lies there depends on how the
+compiler lays out the static arrays: with gcc zeros and the loop ends,
+with clang mytotitle's -1 at its end, a fixed point, and mkrunetype
+never ends.  The shifts are now uint, findlongchain shifts the value as
+uint.
+
+That made findlongchain's step for an exception (r1 in DSTART..F8FF)
+run for the first time; it went on at mydecomp[k], k the exception's
+index, not at the exception's first code point.  It now goes on at
+mydespecial[k*3+1].  Maxdecomp stays 6 (the longest chain is 3 either
+way), and the four tables come out byte for byte as before: built for
+Linux with plan9port's lib9 by gcc and by clang, compared with the
+committed ones; UBSan (undefined, bounds) finds nothing.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/libc/ucd/mkrunetype.c | 15 ++++++++-------
+ 1 file changed, 8 insertions(+), 7 deletions(-)
+
+diff --git a/sys/src/libc/ucd/mkrunetype.c b/sys/src/libc/ucd/mkrunetype.c
+index b6ccc4691..186066283 100644
+--- a/sys/src/libc/ucd/mkrunetype.c
++++ b/sys/src/libc/ucd/mkrunetype.c
+@@ -611,11 +611,12 @@ findlongchain(void)
+ 	int i, n, x, r1;
+ 
+ 	for(i = 0; i < NRUNES; i++)
+-	for(x = i, n = 0; r1 = mydecomp[x]>>16; x = r1){
++	for(x = i, n = 0; r1 = (uint)mydecomp[x]>>16; x = r1){
+ 		if(++n > maxdchain)
+ 			maxdchain = n;
++		/* a decomposition in mydespecial: on with its first code point */
+ 		if(r1 >= DSTART && r1 <0xF8FF)
+-			r1 -= DSTART;
++			r1 = mydespecial[(r1-DSTART)*3+1];
+ 	}
+ 	maxdchain *= 2;
+ }
+@@ -688,10 +689,10 @@ main(int, char)
+ 					ip[0] = code;
+ 					ip[1] = decomp[0];
+ 					ip[2] = 0;
+-					mydecomp[code] = (DSTART+nspecial)<<16;
++					mydecomp[code] = (uint)(DSTART+nspecial)<<16;
+ 					nspecial++;
+ 				} else
+-					mydecomp[code] = decomp[0]<<16;
++					mydecomp[code] = (uint)decomp[0]<<16;
+ 			} else {
+ 				d++;
+ 				decomp[1] = estrtoul(d, 16);
+@@ -700,7 +701,7 @@ main(int, char)
+ 					ip[0] = code;
+ 					ip[1] = decomp[0];
+ 					ip[2] = decomp[1];
+-					mydecomp[code] = (DSTART+nspecial)<<16;
++					mydecomp[code] = (uint)(DSTART+nspecial)<<16;
+ 					nspecial++;
+ 					ip = recompext + nrecompext*3;
+ 					ip[0] = code;
+@@ -708,8 +709,8 @@ main(int, char)
+ 					ip[2] = decomp[1];
+ 					nrecompext++;
+ 				} else {
+-					mydecomp[code] = decomp[0]<<16 | decomp[1];
+-					myrecomp[nrecomp++] = (KV){decomp[0]<<16 | decomp[1], code, 0};
++					mydecomp[code] = (uint)decomp[0]<<16 | decomp[1];
++					myrecomp[nrecomp++] = (KV){(uint)decomp[0]<<16 | decomp[1], code, 0};
+ 				}
+ 			}
+ 		}
+-- 
+2.56.1
+

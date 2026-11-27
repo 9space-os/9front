@@ -1,0 +1,91 @@
+From 59e317819c30bb9638738135e3c665f877dcbdf0 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 27 Nov 2026 15:12:31 +0100
+Subject: [PATCH] kernel: more locals changed after waserror and read after the
+ jump back are volatile
+
+A local changed between setlabel (waserror) and gotolabel (error's jump
+back) is indeterminate after the jump unless it is volatile (C11
+7.13.2.1, as for setjmp and longjmp).  kencc keeps such locals in
+memory, so 9front built with it is not affected and this changes
+nothing there; a compiler that keeps them in registers (and a setlabel
+that restores callee-saved registers) gives the code after the jump
+their value at waserror time.  Four more places:
+
+- sdmmc's retryproc: i counts the tries across while(waserror()), and
+  cardinit errors on a command's timeout; card->retry stays 1, so with
+  a stale 0 retryproc retries cardinit for ever while it fails.
+- dosyscall: startns is set after the waserror (syscall tracing) and
+  given to sysretfmt after an error too: the traced time is wrong.
+- ether82598's and etherx550's rproc: rdh moves on after
+  while(waserror()).  Only sleep can raise an error in that loop (on a
+  note), and these kprocs get none today, so this one is a safeguard:
+  after such a jump back the ring index would start where it was at the
+  waserror, at a slot already handed on (c->rb[rdh] nil).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/pc/ether82598.c | 3 ++-
+ sys/src/9/pc/etherx550.c  | 3 ++-
+ sys/src/9/port/sdmmc.c    | 2 +-
+ sys/src/9/port/sysproc.c  | 3 ++-
+ 4 files changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/sys/src/9/pc/ether82598.c b/sys/src/9/pc/ether82598.c
+index b5bbec53b..294c793e0 100644
+--- a/sys/src/9/pc/ether82598.c
++++ b/sys/src/9/pc/ether82598.c
+@@ -552,7 +552,8 @@ static uchar zeroea[Eaddrlen];
+ void
+ rproc(void *v)
+ {
+-	uint m, rdh;
++	uint m;
++	volatile uint rdh;	/* moves on after waserror, read again after the jump back */
+ 	Block *b;
+ 	Ctlr *c;
+ 	Ether *e;
+diff --git a/sys/src/9/pc/etherx550.c b/sys/src/9/pc/etherx550.c
+index a8abda527..a27e5979b 100644
+--- a/sys/src/9/pc/etherx550.c
++++ b/sys/src/9/pc/etherx550.c
+@@ -521,7 +521,8 @@ static uchar zeroea[Eaddrlen];
+ static void
+ rproc(void *v)
+ {
+-	uint m, rdh;
++	uint m;
++	volatile uint rdh;	/* moves on after waserror, read again after the jump back */
+ 	Block *b;
+ 	Ctlr *c;
+ 	Ether *e;
+diff --git a/sys/src/9/port/sdmmc.c b/sys/src/9/port/sdmmc.c
+index 02a977128..d74c997bd 100644
+--- a/sys/src/9/port/sdmmc.c
++++ b/sys/src/9/port/sdmmc.c
+@@ -521,7 +521,7 @@ static void
+ retryproc(void *arg)
+ {
+ 	Card *card = arg;
+-	int i = 0;
++	volatile int i = 0;	/* counts the tries across the jumps back */
+ 
+ 	qlock(card);
+ 	while(waserror())
+diff --git a/sys/src/9/port/sysproc.c b/sys/src/9/port/sysproc.c
+index 2288dc8e7..9b78dc0e2 100644
+--- a/sys/src/9/port/sysproc.c
++++ b/sys/src/9/port/sysproc.c
+@@ -1410,7 +1410,8 @@ sys_nsec(va_list list)
+ int
+ dosyscall(ulong scallnr, Sargs *args, uintptr *retp)
+ {
+-	vlong startns, stopns;
++	volatile vlong startns;	/* set after waserror, read after an error too */
++	vlong stopns;
+ 	uintptr ret;
+ 	int s;
+ 	
+-- 
+2.56.1
+

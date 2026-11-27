@@ -41,7 +41,7 @@ all 59 at `cb9e5e7e9` (2026-11-19), 0060 on them there (2026-11-19), 0061 to
 0063 on them there (2026-11-20), 0064 and 0065 on them there (2026-11-21),
 0066 on them there (2026-11-23); the 58 not archived on `2f3a62877`
 (2026-11-25), as files, unchanged (`git am --3way`); 0067 on `upstream`
-there (2026-11-26); 0068 to 0073 on them there (2026-11-27, the series with
+there (2026-11-26); 0068 to 0075 on them there (2026-11-27, the series with
 `git am --3way`).
 Each applies alone too, except:
 
@@ -186,6 +186,8 @@ change is then front's.
 | 0071 | namec: the error handler frees e.off before nexterror too | bug fix |
 | 0072 | mountfix: buf and nbuf are volatile (a freed buffer used again and freed twice) | bug fix |
 | 0073 | syspipe: c is volatile (the clone leaked or a walked chan closed twice) | bug fix |
+| 0074 | kernel: more locals changed after waserror and read after the jump back are volatile (sdmmc retried for ever, dosyscall's traced time) | bug fix |
+| 0075 | mkrunetype: shift code points as uint (it read below mydecomp and never ended with clang); findlongchain follows an exception to its first code point | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -1006,8 +1008,10 @@ after it (gcc relinked with the fixed libap) all compile.
 
 - TCP half close (ctl `shutdown`, the gcc branch's `tcpshutdown`): a new
   interface added for the Rust port (`shutdown(Write)`), not a fix.
-- Everything about gcc (types, `#pragma pack`, `volatile`, GAS ports,
-  member paths, the build tool).
+- Everything about gcc (types, `#pragma pack`, `volatile` for device
+  registers and loops, GAS ports, member paths, the build tool). The
+  `volatile` locals around `waserror()` are no gcc matter (C11 7.13.2.1):
+  0066, 0069, 0070, 0072 to 0074.
 
 ### 0068 devvmx: eventparse frees the copy it made, not where q moved to
 
@@ -1081,3 +1085,28 @@ the clone, a stale `c[0]` is a chan the walk already closed. Lower risk
 (the array's address goes to `walk` and `newfd2`), the same rule.
 `newfd2` takes a `Chan *volatile c[2]`. Found by the first review of
 0069; reviewed, compiled with gcc and clang, not run.
+
+### 0074 kernel: more locals changed after waserror and read after the jump back are volatile
+
+The rule of 0066 in four more places: `sdmmc`'s `retryproc` (a stale
+try count retries `cardinit` for ever while it fails), `dosyscall`'s
+`startns` (syscall tracing's time after an error) and `rproc` of
+ether82598 and etherx550 (`rdh`; only `sleep` can raise there, on a note,
+which these kprocs do not get today: a safeguard). kencc keeps such
+locals in memory, 9front is not affected. The same lines have been on
+`gcc` since 2026-11-15 and run in its kernels (gcc and clang). Reviewed
+twice; compiled with gcc and clang (sdmmc, the drivers).
+
+### 0075 mkrunetype: shift code points as uint; findlongchain follows an exception to its first code point
+
+`mydecomp` holds a code point << 16, an int overflow from 0x8000 on and
+for every exception (`DSTART+k`); `findlongchain` then indexed
+`mydecomp` below its start. With gcc zeros lie there, with clang
+`mytotitle`'s -1, a fixed point: `mkrunetype` never ended (9space's
+self-build with clang hung in libc's `ucd` step). The shifts are `uint`;
+that made `findlongchain`'s step for an exception run for the first
+time, which went on at `mydecomp[k]` instead of the exception's first
+code point (`mydespecial[k*3+1]`, as `runenorm.c` walks it): fixed too.
+Maxdecomp stays 6, the four tables are byte for byte the same (built for
+Linux with plan9port by gcc and clang; UBSan finds nothing). Found by the
+self-build and its review; reviewed twice.
