@@ -102,10 +102,15 @@ public:
 	Ui(const Ui&) = delete;
 	Ui &operator=(const Ui&) = delete;
 
-	// one transaction: its lines all or none (an error names the line)
+	// one transaction: its lines all or none (an error names the line);
+	// framed by the lines begin and end (ui(4)), so that it stays one when
+	// the mount cuts the write into several messages
 	void ctl(const std::string &s)
 	{
-		if(write(ctlfd, s.data(), s.size()) != (ssize_t)s.size())
+		if(s.empty())
+			return;
+		std::string f = "begin\n" + s + (s.back() == '\n' ? "" : "\n") + "end\n";
+		if(write(ctlfd, f.data(), f.size()) != (ssize_t)f.size())
 			throw std::runtime_error("ctl: " + std::string(strerror(errno)));
 	}
 

@@ -99,14 +99,32 @@ func NewUi(rw io.ReadWriteCloser) (*Ui, error) {
 }
 
 // Ctl writes one transaction: its lines all or none (an error names the line).
+// Framed by the lines begin and end (ui(4)): one transaction however many
+// messages carry it, so it goes in pieces of at most ctlpiece bytes.
 func (u *Ui) Ctl(format string, a ...any) error {
 	s := format
 	if len(a) > 0 {
 		s = fmt.Sprintf(format, a...)
 	}
-	_, err := u.ctl.Write([]byte(s))
-	return err
+	if s == "" {
+		return nil
+	}
+	if !strings.HasSuffix(s, "\n") {
+		s += "\n"
+	}
+	b := []byte("begin\n" + s + "end\n")
+	for len(b) > 0 {
+		n := min(len(b), ctlpiece)
+		if _, err := u.ctl.Write(b[:n]); err != nil {
+			return err
+		}
+		b = b[n:]
+	}
+	return nil
 }
+
+// what one write of ctl carries at most: within a message of the 9P client's msize
+const ctlpiece = 8192
 
 // Set sets a property, its value quoted as rc does where it needs it.
 func (u *Ui) Set(id, key, value string) error {

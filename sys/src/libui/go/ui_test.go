@@ -107,7 +107,7 @@ func TestNinep(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	if w := <-wrote; w != "set l text ' count 1 '\n" {
+	if w := <-wrote; w != "begin\nset l text ' count 1 '\nend\n" { // framed (ui(4))
 		t.Errorf("ctl got %q", w)
 	}
 	e, err := u.Event()

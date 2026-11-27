@@ -196,13 +196,16 @@ impl Ui {
         }
     }
 
-    /// a transaction: its lines all or none
+    /// a transaction: its lines all or none; framed by the lines begin and
+    /// end (ui(4)), so that it stays one when the mount cuts the write
     pub fn ctl(&mut self, t: &str) -> io::Result<()> {
         if t.is_empty() {
             return Ok(());
         }
-        let n = self.ctl.write(t.as_bytes())?;
-        if n != t.len() {
+        let nl = if t.ends_with('\n') { "" } else { "\n" };
+        let f = format!("begin\n{t}{nl}end\n");
+        let n = self.ctl.write(f.as_bytes())?;
+        if n != f.len() {
             return Err(io::Error::other("short write of ctl"));
         }
         Ok(())

@@ -49,6 +49,9 @@ struct Fid {
     // bytes (one of a full iounit not ending a line goes on), applied
     // whole with its last one: ui(4)'s write, all or none
     partial: Vec<u8>,
+    // ctl: a write begun with a line "begin", until its line "end" (any
+    // number of Twrites): one transaction for sure, libui's frame
+    txn: bool,
 }
 
 pub struct Fs {
@@ -289,7 +292,7 @@ impl Fs {
             T::Auth => r("ui: no authentication"),
             T::Attach { fid, .. } => {
                 let q = self.qid(&Path::Root);
-                self.fids.insert(fid, Fid { path: Path::Root, open: false, data: None, events: VecDeque::new(), picture: None, partial: Vec::new() });
+                self.fids.insert(fid, Fid { path: Path::Root, open: false, data: None, events: VecDeque::new(), picture: None, partial: Vec::new(), txn: false });
                 vec![R::new(105, tag).qid(q).done()]
             }
             T::Flush { oldtag } => {
@@ -317,7 +320,7 @@ impl Fs {
                     return r("file does not exist");
                 }
                 if qids.len() == names.len() {
-                    self.fids.insert(newfid, Fid { path: p, open: false, data: None, events: VecDeque::new(), picture: None, partial: Vec::new() });
+                    self.fids.insert(newfid, Fid { path: p, open: false, data: None, events: VecDeque::new(), picture: None, partial: Vec::new(), txn: false });
                 }
                 let mut rr = R::new(111, tag).u16(qids.len() as u16);
                 for q in qids {
@@ -402,6 +405,30 @@ impl Fs {
                     }
                     pic[o..o + data.len()].copy_from_slice(&data);
                     return vec![R::new(119, tag).u32(data.len() as u32).done()];
+                }
+                if matches!(f.path, Path::Ctl) && (f.txn || data.starts_with(b"begin\n")) {
+                    // a framed transaction: gathered to its "end", applied whole
+                    f.txn = true;
+                    f.partial.extend_from_slice(&data);
+                    if f.partial.len() > 64 << 20 {
+                        f.partial.clear();
+                        f.txn = false;
+                        return r("write too long");
+                    }
+                    if !f.partial.ends_with(b"\nend\n") {
+                        return vec![R::new(119, tag).u32(data.len() as u32).done()];
+                    }
+                    f.txn = false;
+                    let all = std::mem::take(&mut f.partial);
+                    let body = &all["begin\n".len()..all.len() - "end\n".len()];
+                    let text = String::from_utf8_lossy(body).into_owned();
+                    return match self.scene.apply(&text) {
+                        Ok(ch) => {
+                            self.changes.push(ch);
+                            vec![R::new(119, tag).u32(data.len() as u32).done()]
+                        }
+                        Err(e) => r(&e),
+                    };
                 }
                 if matches!(f.path, Path::Ctl | Path::NodeFile(_, "props")) {
                     let iounit = (self.msize - ninep::IOHDRSZ) as usize;

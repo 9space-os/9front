@@ -915,8 +915,8 @@ if not echo skip gocount: no Go '(toolchain/go)'
 
 # a client's hostile input (stage 3 review): ui and wsys stay up. ui: a
 # slider's min over its max, NaN and inf (Masonry's clamp and AnimatedF32
-# panicked), a ctl write devmnt splits (40 KB: whole, and none of it with
-# a bad last line); wsys: a write to mouse of no byte or a first rune of
+# panicked), a ctl write devmnt splits (40 KB framed by begin and end, as
+# libui writes: whole, and none of it with a bad last line); wsys: a write to mouse of no byte or a first rune of
 # two, lines after a window's delete (wsys indexed the gone window)
 if(test -e /mnt/ui/ctl){
 	echo 'new hs slider
@@ -929,10 +929,10 @@ new hv varlabel
 set hv weight nan
 set hv animate inf' >/mnt/ui/ctl >[2]/dev/null
 	check 'ui after a slider min > max, nan, inf' yes `{test -e /mnt/ui/nodes/hs && echo yes}
-	awk 'BEGIN{for(i = 0; i < 2000; i++) printf "new big%d label\n", i}' >/tmp/big
+	awk 'BEGIN{print "begin"; for(i = 0; i < 2000; i++) printf "new big%d label\n", i; print "end"}' >/tmp/big
 	dd -if /tmp/big -of /mnt/ui/ctl -bs 65536 -count 1 >[2]/dev/null
 	check 'a ctl write of 2000 nodes (40 KB, split by devmnt): whole' 2000 `{ls -p /mnt/ui/nodes | grep -c '^big'}
-	{ awk 'BEGIN{for(i = 0; i < 2000; i++) printf "new bad%d label\n", i}'; echo bogus } >/tmp/bad
+	awk 'BEGIN{print "begin"; for(i = 0; i < 2000; i++) printf "new bad%d label\n", i; print "bogus"; print "end"}' >/tmp/bad
 	dd -if /tmp/bad -of /mnt/ui/ctl -bs 65536 -count 1 >[2]/dev/null
 	check 'a split ctl write with a bad last line: none of it' 0 `{ls -p /mnt/ui/nodes | grep -c '^bad'}
 }

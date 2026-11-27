@@ -79,7 +79,13 @@ writes a transaction: the text
 .I fmt
 makes
 .RI ( print (2)),
-its lines applied all or none.
+its lines applied all or none, framed by the lines
+.B begin
+and
+.B end
+(see
+.IR ui (4)),
+so that a long one stays one transaction.
 It returns 0, or \-1 with the error
 .I ui
 gave (which names the line).

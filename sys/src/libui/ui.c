@@ -140,12 +140,16 @@ uinew(char *title, char *mtpt)
 	return u;
 }
 
-/* one transaction: the formatted text's lines, all or none */
+/*
+ * one transaction: the formatted text's lines, all or none; framed by
+ * the lines begin and end (ui(4)), so that it stays one when the mount
+ * cuts the write into several messages
+ */
 int
 uictl(Ui *u, char *fmt, ...)
 {
 	va_list arg;
-	char *s;
+	char *s, *f;
 	int n, r;
 
 	va_start(arg, fmt);
@@ -154,8 +158,13 @@ uictl(Ui *u, char *fmt, ...)
 	if(s == nil)
 		return -1;
 	n = strlen(s);
-	r = write(u->ctl, s, n) == n ? 0 : -1;
+	f = smprint("begin\n%s%send\n", s, n > 0 && s[n-1] != '\n' ? "\n" : "");
 	free(s);
+	if(f == nil)
+		return -1;
+	n = strlen(f);
+	r = write(u->ctl, f, n) == n ? 0 : -1;
+	free(f);
 	return r;
 }
 
