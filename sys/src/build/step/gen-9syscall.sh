@@ -54,7 +54,9 @@ else
 	SYS=$(sed '/^#define._X[123]/d; s/#define.\([A-Z0-9_]*\).*/\1/' $SYSH)
 fi
 # riscv64: the sizes of a call's arguments, 4 (int, long, ulong) or
-# 8 (pointers, vlong), from its prototype in libc.h (APE: the same calls)
+# 8 (pointers, vlong, usize), from its prototype in libc.h (APE: the same
+# calls); 9space's segattach, segfree and segflush take a usize length,
+# which the kernel reads as 8 bytes (port/sysproc.c)
 sizes(){
 	case ${1#_} in
 	SYSR1|NSEC)	;;
@@ -76,8 +78,9 @@ sizes(){
 	CREATE)		echo 8 4 4 ;;
 	FD2PATH)	echo 4 8 4 ;;
 	FWSTAT)		[ $1 = _FWSTAT ] && echo 4 8 || echo 4 8 4 ;;
-	SEGATTACH)	echo 4 8 8 4 ;;
-	SEGFREE|SEGFLUSH|SEMACQUIRE|SEMRELEASE|TSEMACQUIRE)	echo 8 4 ;;
+	SEGATTACH)	echo 4 8 8 8 ;;
+	SEGFREE|SEGFLUSH)	echo 8 8 ;;
+	SEMACQUIRE|SEMRELEASE|TSEMACQUIRE)	echo 8 4 ;;
 	SEEK)		echo 8 4 8 4 ;;
 	FVERSION)	echo 4 4 8 4 ;;
 	PREAD|PWRITE)	echo 4 8 4 8 ;;
