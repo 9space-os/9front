@@ -11,12 +11,13 @@ manifests(){
 	local files="$(ls sys/src/libc/libc*.json sys/src/libc/*/build.json)
 		$(ls sys/src/lib*/lib*.json) $(find sys/src/cmd sys/src/games sys/src/ape -name 'cmds*.json')
 		$(ls sys/src/build/build*.json) sys/src/9/pc/build.json sys/src/9/arm64/build.json
-		sys/src/9/riscv64/build.json"
+		sys/src/9/riscv64/build.json $(ls sys/src/ape/lib/musl/musl*.json)"
 	for f in $files; do cp "$f" "$TMPD/$(echo $f | tr / _)"; done
 	local a
 	for a in amd64 386 arm64 riscv64; do
 		objtype=$a python3 sys/src/build/gen/genlibc.py >/dev/null && objtype=$a python3 sys/src/build/gen/genlibs.py >/dev/null &&
-			objtype=$a python3 sys/src/build/gen/gencmds.py >/dev/null && objtype=$a python3 sys/src/build/gen/genbuild.py >/dev/null || return 1
+			objtype=$a python3 sys/src/build/gen/gencmds.py >/dev/null && objtype=$a python3 sys/src/build/gen/genbuild.py >/dev/null &&
+			objtype=$a python3 sys/src/build/gen/genmusl.py >/dev/null || return 1
 	done
 	objtype=386 python3 sys/src/build/gen/genkernel.py pc >/dev/null &&
 		objtype=arm64 python3 sys/src/build/gen/genkernel.py arm64 >/dev/null &&
@@ -32,7 +33,7 @@ manifests(){
 	[ -z "$(git status --porcelain -- '*.json' ':!.opencode' | grep '^??')" ] || { git status --porcelain -- '*.json' ':!.opencode' | grep '^??'; bad=1; }
 	return $bad
 }
-check "manifests match sys/src/build/gen/gen{libc,libs,cmds,build,kernel}.py (amd64, 386, arm64, riscv64)" manifests
+check "manifests match sys/src/build/gen/gen{libc,libs,cmds,build,kernel,musl}.py (amd64, 386, arm64, riscv64)" manifests
 
 # 1b. the LinuxKPI's manifests are what sys/src/build/linux/genbuild.py writes
 #     (it reads Linux's GPL Makefiles from the Linux tree, LINUX of paths.env:
