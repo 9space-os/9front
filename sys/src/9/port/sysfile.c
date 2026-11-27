@@ -557,14 +557,20 @@ static long
 mountfix(Chan *c, uchar *op, long n, long maxn)
 {
 	char *name;
-	int nbuf, nname;
+	int nname;
 	Chan *nc;
 	Mhead *mh;
 	Mount *m;
 	uchar *p;
 	int dirlen, rest;
 	long l;
-	uchar *buf, *e;
+	uchar *e;
+	/*
+	 * set and replaced after the waserror below, and its handler's
+	 * Norewrite goes on with the loop and frees buf at the end
+	 */
+	uchar *volatile buf;
+	volatile int nbuf;
 	Dir d;
 
 	p = op;
