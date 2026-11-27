@@ -6,8 +6,7 @@
 		],
 		"Install": "/sys/src/cmd/cc/",
 		"Pre": [
-			"bash /sys/src/build/step/yacc.sh -d cc.y",
-			"bash /sys/src/build/step/gen-src.sh cmd/cc"
+			"bash /sys/src/build/step/yacc.sh -d cc.y"
 		],
 		"Library": "cc.aj",
 		"SourceFiles": [
@@ -31,8 +30,7 @@
 			"y.tab.c",
 			"y.tab.h",
 			"y.debug",
-			"y.output",
-			"enam.c"
+			"y.output"
 		]
 	}
 ]
