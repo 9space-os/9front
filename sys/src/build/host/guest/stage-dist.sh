@@ -166,7 +166,7 @@ apefresh(){
 	[ "$1" != -a ] || { lib=; shift; }
 	local m=${3:-$A}
 	stale=$( { apeheaders "$m"; [ -n "$lib" ] && echo "$ROOT/$m/lib.gcc/ape/libap.a"; } |
-		while read -r f; do [ -f "$f" ] && [ "$f" -nt "$1" ] && { echo "$f"; break; }; done)
+		while read -r f; do [ -f "$f" ] && [ "$f" -nt "$1" ] && { echo "$f"; break; }; done; true)	# set -e: no match is no error
 	[ -z "$stale" ] || { echo "stage-dist: $1 is older than APE's ${stale#$ROOT/}: build it again ($2)" >&2; exit 1; }
 }
 # gccproto: /$objtype/lib.gcc, gcc's archives (with gcc); uiproto: the desktop's files
