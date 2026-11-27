@@ -212,10 +212,12 @@ Every compile writes, beside x.o, gcc's dependency file x.d (-MD: the
 source and every header it read, the compiler's system headers too) with a signature of the compile command.
 With -D the build tool does only what is out of date, as mk does: it
 compiles a source whose object is missing, of another $ARCH, made by
-another command, or older than the source or one of its headers;
+another command, or older than the source, one of its headers or the
+compiler (CC's binary, for gcc also the cc1 and as it runs: a rebuilt
+compiler of the same name compiles everything again);
 archives a library again (from all its objects) when one of them is
 newer than the archive; links a program again when one of its objects
-or libraries is newer; and each command of "SourceFilesCmd" by its
+or libraries, or the linker (LD), is newer; and each command of "SourceFilesCmd" by its
 object and installed program; an archive also when its members are
 not its objects (an "Append" part: when its own are missing, after the
 base part made the archive anew). "Pre" and "Post" commands always run;

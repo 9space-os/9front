@@ -470,7 +470,7 @@ func stale(n string, d []string) bool {
 // outofdate (-D) cuts b down to what is out of date, as mk decides from
 // the files' times: a source is compiled when its object is missing,
 // for another $ARCH, made by another command (flags), or older than the
-// source or a header it read (gcc's x.d); a library is archived again,
+// source, a header it read (gcc's x.d) or the compiler (compilerfiles); a library is archived again,
 // from all its objects, when one of them is newer than it; a program is
 // linked again when one of its objects or libraries is; each command of
 // SourceFilesCmd by its object and its installed program. Pre and Post
@@ -479,6 +479,7 @@ func stale(n string, d []string) bool {
 func outofdate(b *build) (link, archive bool) {
 	command, cArgs, asmArgs := compileArgs(b)
 	csig, asig := signature(command, cArgs), signature(tools["cc"], asmArgs)
+	cc := compilerfiles()
 	objstale := func(f string) bool {
 		o := objectOf(b, f)
 		want := csig
@@ -486,7 +487,7 @@ func outofdate(b *build) (link, archive bool) {
 			want = asig
 		}
 		deps, sig, ok := readdeps(b, f)
-		return !ok || sig != want || !thisarch(o) || stale(o, append(deps, f))
+		return !ok || sig != want || !thisarch(o) || stale(o, append(append(deps, f), cc...))
 	}
 	var libs []string
 	for _, l := range b.Libs {
@@ -506,7 +507,7 @@ func outofdate(b *build) (link, archive bool) {
 		archive = len(srcs) > 0 || stale(lib, b.ObjectFiles) || !members(lib, b.ObjectFiles, !b.Append && !b.Shared)
 	}
 	if b.Program != "" {
-		link = len(srcs) > 0 || stale(target(b), append(append([]string{}, b.ObjectFiles...), libs...))
+		link = len(srcs) > 0 || stale(target(b), append(append(append([]string{}, b.ObjectFiles...), libs...), linkerfiles()...))
 	}
 	var cmds []string
 	b.cmdstale = map[string]bool{}
@@ -515,7 +516,7 @@ func outofdate(b *build) (link, archive bool) {
 		if objstale(f) {
 			b.cmdstale[f] = true
 			cmds = append(cmds, f)
-		} else if stale(path.Join(dir, path.Base(exe)), append([]string{objectOf(b, f)}, libs...)) {
+		} else if stale(path.Join(dir, path.Base(exe)), append(append([]string{objectOf(b, f)}, libs...), linkerfiles()...)) {
 			cmds = append(cmds, f)
 		}
 	}
@@ -771,6 +772,42 @@ func cc(b *build, command string, args, fs []string) []func() {
 func depfile(b *build, f string) string {
 	o := objectOf(b, f)
 	return o[:len(o)-len(".o")] + ".d"
+}
+
+// compilerfiles: the files of the compiler, for -D a dependency of every
+// object as its sources are: a new compiler with the same name and flags
+// (a rebuilt clang with a fixed LLVM, an updated gcc) makes other code,
+// and objects older than it are compiled again (2026-11-27: arm64's
+// stayed those of the broken clang). The driver as CC names it, symlinks
+// followed by stat, and what gcc runs under it (cc1, as); clang is one
+// binary (-print-prog-name gives no path for cc1, as is integrated).
+var compilerfiles = sync.OnceValue(func() []string {
+	return toolfiles(tools["cc"], "cc1", "as")
+})
+
+// linkerfiles: the linker's files, a dependency of every program it links
+// (a fixed ld.lld puts initcode elsewhere: the links are stale)
+var linkerfiles = sync.OnceValue(func() []string {
+	return toolfiles(tools["ld"])
+})
+
+// toolfiles: tool t and the absolute programs it reports for progs
+// (-print-prog-name, gcc's); a name it does not resolve is left out
+func toolfiles(t string, progs ...string) []string {
+	fs := []string{t}
+	for _, p := range progs {
+		out, err := exec.Command(t, "-print-prog-name="+p).Output()
+		if err != nil {
+			continue
+		}
+		n := strings.TrimSpace(string(out))
+		if filepath.IsAbs(n) {
+			if _, err := os.Stat(n); err == nil {
+				fs = append(fs, n)
+			}
+		}
+	}
+	return fs
 }
 
 // signature of a compile command (without its files)
