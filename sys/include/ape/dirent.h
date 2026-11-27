@@ -38,6 +38,10 @@ DIR		*opendir(const char *);
 struct dirent	*readdir(DIR *);
 void		rewinddir(DIR *);
 int		closedir(DIR *);
+#if defined(__GNUC__) || defined(_APE_GNU)
+/* GCC port: POSIX.1-2008's dirfd, the DIR's descriptor (ap/gnu/at.c) */
+int		dirfd(DIR *);
+#endif
 
 #ifdef __cplusplus
 }
