@@ -2056,12 +2056,12 @@ Plan in ../9front-ui PLAN §12 (Entscheidung: eigener Server `wlsys` in C auf AP
 
 ## 2026-11-27: APEs *at-Funktionen relativ zu einem Verzeichnis (Mesas Shader-Cache)
 - Mesas Shader-Cache (util/disk_cache_os.c) braucht `dirfd`, `fstatat` und `unlinkat`. APE hatte nur `openat` und `mkfifoat` für `AT_FDCWD` und absolute Pfade, sonst ENOSYS.
-- Jetzt: `ap/gnu/at.c` löst einen Pfad relativ zum Deskriptor eines Verzeichnisses über fd2path(2) auf (ein Helfer, `atpath`) für openat, fstatat, unlinkat, mkfifoat. Ein Deskriptor, der kein Verzeichnis ist, gibt ENOTDIR.
+- Jetzt: `ap/gnu/at.c` löst einen Pfad relativ zum Deskriptor eines Verzeichnisses über fd2path(2) auf (ein Helfer, `atpath`) für openat, fstatat, unlinkat, mkfifoat, fchmodat, fchownat (die beiden letzten nachgereicht: libc++ ruft fchmodat, sobald AT_SYMLINK_NOFOLLOW definiert ist). Ein Deskriptor, der kein Verzeichnis ist, gibt ENOTDIR.
 - `AT_SYMLINK_NOFOLLOW` (0x100) ist ohne Wirkung, weil 9front keine symbolischen Links hat. `AT_REMOVEDIR` (0x200) ruft APEs rmdir auf, das auch eine Datei entfernt.
 - `dirfd` gibt `dd_fd` des DIR zurück.
 - Header: fcntl.h, sys/stat.h, unistd.h, dirent.h, jeweils im GCC-Teil.
 - Unterschied zu 9front: Dort gibt es diese Funktionen in APE nicht.
-- Test: guest apegnutest „at:“, 7 Prüfungen, auf der Instanz 43 ok / 0 failed.
+- Test: guest apegnutest „at:“, 9 Prüfungen, auf der Instanz 45 ok / 0 failed.
 - Neue Header-Zeiten bedeuten, dass gcc und clang nativ neu gelinkt werden müssen, bevor eine CD oder ein Update rausgeht (stage-dist apefresh).
 - **waserror-Muster, Nachtrag aus dem upstream-Review (0069–0071)**: devfs mconfig mp volatile (devalloc setzt es, Fail löscht es); namec gibt e.off auch bei e.nerror == 0 frei (9front-Leck, jeder Compiler); domount nimmt Path *volatile*, findmount im create direkt mit &cnew (die temporären np/nc fallen weg); syspipe c[2] volatile, newfd2 nimmt Chan *volatile c[2].
   Getestet auf main 79063be67 (gcc, amd64): Bau 857 ok, static 19/19, boot 19/19, guest 338/338, gpu 204/204.

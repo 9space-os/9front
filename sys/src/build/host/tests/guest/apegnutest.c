@@ -1555,6 +1555,9 @@ testat(void)
 		"errno %d", errno);
 	if(fd >= 0)
 		close(fd);
+	check("at: fchmodat relative", fchmodat(df, "f", 0600, 0) == 0 && stat(dir, &st) == 0 &&
+		fstatat(df, "f", &st, 0) == 0 && (st.st_mode & 0777) == 0600, "%s, mode %o", strerror(errno), (unsigned)st.st_mode & 0777);
+	check("at: fchownat relative", fchownat(df, "f", getuid(), getgid(), AT_SYMLINK_NOFOLLOW) == 0, "%s", strerror(errno));
 	check("at: unlinkat", unlinkat(df, "f", 0) == 0 && fstatat(df, "f", &st, 0) < 0 && errno == ENOENT,
 		"%s", strerror(errno));
 	closedir(d);
