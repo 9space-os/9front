@@ -411,8 +411,8 @@ __ifmt(Fmt *f)
 		if(isv && (vlong)vu < 0){
 			vu = -(vlong)vu;
 			neg = 1;
-		}else if(!isv && (long)u < 0){
-			u = -(long)u;
+		}else if(!isv && (int)u < 0){	/* GCC port: u is a 32-bit ulong (fmtdef.h), gcc's long 64: (long)u was never < 0, %d of -1 printed 4294967295 */
+			u = -(int)u;
 			neg = 1;
 		}
 	}else{

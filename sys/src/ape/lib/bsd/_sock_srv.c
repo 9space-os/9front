@@ -31,7 +31,7 @@ _sock_srvname(char *npath, char *path)
 }
 
 int
-_sock_srv(char *path, int fd)
+_sock_srv(char *path, int fd, int *sfdp)
 {
 	int sfd;
 	char msg[8+256+1];
@@ -62,5 +62,12 @@ _sock_srv(char *path, int fd)
 		return -1;
 	}
 	close(fd);
+	/*
+	 * a listener keeps it (the entry goes with the process); connect's
+	 * one-time entry the caller closes once the server opened it (one
+	 * descriptor leaked at each connect, APE's close cannot see it)
+	 */
+	if(sfdp != NULL)
+		*sfdp = sfd;
 	return 0;
 }

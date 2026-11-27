@@ -6,15 +6,13 @@ switch($objtype){
 case amd64
 	TEXT=0x200028	# UTZERO 0x200000 + 6l's 0x28 byte header
 	HDR=40
-	CC=($GNU/gcc '-mcmodel=small')
-	LD=$GNU/ld
+	CC=($CC '-mcmodel=small')
 	INIT9=pc64/init9.S
 case 386
 	# 8l: pc/init9.c as it is, header of 32 bytes (touser: UTZERO+32)
 	TEXT=0x1020	# UTZERO 0x1000 + 0x20
 	HDR=32
-	CC=($GNU/gcc -m32 '-march=pentium' -mno-sse)
-	LD=$GNU/ld
+	CC=($CC -m32 '-march=pentium' -mno-sse)
 	INIT9=pc/init9.c
 case *
 	die 'objtype='$objtype not done
@@ -24,11 +22,19 @@ CFLAGS=('-std=gnu17' -fno-asm -ffreestanding -nostdinc -fno-builtin -fplan9-exte
 	-I$PLAN9/$objtype/include -I$PLAN9/sys/include)
 $CC $CFLAGS -c -o $TMP/init9.o $PLAN9/sys/src/9/$INIT9 || die init9
 $CC $CFLAGS -c -o $TMP/initcode.o $PLAN9/sys/src/9/port/initcode.c || die initcode
-libgcc=()
-test -f $PLAN9/$objtype/lib.gcc/libgcc.a && libgcc=$PLAN9/$objtype/lib.gcc/libgcc.a
-$LD -N -static -Ttext'='$TEXT --entry'='_main -o $TMP/initcode.elf \
-	$TMP/init9.o $TMP/initcode.o $PLAN9/$objtype/lib.gcc/libc.a $libgcc || die ld
-$GNU/objcopy -O binary -R .bss -R .comment -R .note.gnu.property $TMP/initcode.elf $TMP/initcode.bin || die objcopy
+# init9's code at UTZERO+HDR exactly, in a section of its own: -Ttext would
+# do for GNU ld, but ld.lld rounds a section's address up to its alignment
+# (libc's functions: 16), which moves the image off where proc0() starts it
+# (gen-initcode-i.sh). -N: text and data contiguous, like 8l -R1.
+{
+	echo 'SECTIONS {'
+	echo '	.init9 '^$TEXT^' : { *init9.o(.text) }'
+	echo '	.text : { *(.text .text.*) }'
+	echo '}'
+} >$TMP/initcode.ld
+$LD $LDBASE -N -static -T $TMP/initcode.ld --entry'='_main -o $TMP/initcode.elf \
+	$TMP/init9.o $TMP/initcode.o $PLAN9/$objtype/lib.gcc/libc.a $RT || die ld
+$OBJCOPY -O binary -R .bss -R .comment -R .note.gnu.property $TMP/initcode.elf $TMP/initcode.bin || die objcopy
 n=`{ls -l $TMP/initcode.bin | awk '{print $6}'}
 n=`{echo $n + $HDR | hoc}
 if(test $n -gt 4096)

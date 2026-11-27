@@ -366,7 +366,6 @@
             "ec.c",
             "devgpio.c",
             "i2cdw.c",
-            "../port/devi2c.c",
             "../port/edf.c",
             "ether2114x.c",
             "ether79c970.c",

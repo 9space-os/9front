@@ -29,9 +29,9 @@ fork(void)
 		_winchfork();	/* 9space: its own SIGWINCH registration (signal.c) */
 	}
 	if(n > 0){	/* GCC port: SIGCHLD (gnu/sigchld.c) */
-		extern void __sigchld_forked(void);
+		extern void __sigchld_forked(int);
 
-		__sigchld_forked();
+		__sigchld_forked(n);
 	}
 	return n;
 }

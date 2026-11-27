@@ -1,10 +1,13 @@
 #!/bin/rc
 # sys/src/build/step/libp9.sh on 9front: libp9.a, the native libc with every
-# symbol it defines renamed __p9_<name> (binutils of toolchain/gcc, /$cputype/gnu)
+# symbol it defines renamed __p9_<name> (the toolset's binutils, lib.rc)
 . $PLAN9/sys/src/build/step/rc/lib.rc
 L=$PLAN9/$objtype/lib.gcc
-$GNU/nm -g --defined-only $L/libc.a | awk 'NF == 3 {print $3, "__p9_" $3}' | sort -u > $TMP/syms
-$GNU/objcopy '--redefine-syms='^$TMP/syms $L/libc.a $TMP/libp9.a || die objcopy
-$GNU/ranlib $TMP/libp9.a || die ranlib
+$NM -g --defined-only $L/libc.a | awk 'NF == 3 {print $3, "__p9_" $3}' | sort -u > $TMP/syms
+$OBJCOPY '--redefine-syms='^$TMP/syms $L/libc.a $TMP/libp9.a || die objcopy
+$RANLIB $TMP/libp9.a || die ranlib
 if(! cmp -s $TMP/libp9.a $L/libp9.a)
-	cp $TMP/libp9.a $L/libp9.a
+	cp $TMP/libp9.a $L/libp9.a || die cp libp9.a
+# (else the if's false condition is the step's status: an unchanged
+# libp9.a stopped the build)
+exit ''

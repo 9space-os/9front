@@ -66,10 +66,11 @@ extern int creat(const char *, mode_t);
 #endif
 
 #if defined(__GNUC__) || defined(_APE_GNU)
-/* GCC port: POSIX.1-2008's *at functions (ap/gnu/at.c: openat; fstatat in
- * <sys/stat.h>, unlinkat in <unistd.h>), posix_fallocate (ap/gnu/posix.c);
- * O_CLOEXEC: open marks the descriptor FD_CLOEXEC (plan9/open.c).
- * AT_SYMLINK_NOFOLLOW changes nothing (no symbolic links) */
+/* GCC port: POSIX.1-2008's *at functions (ap/gnu/at.c: openat; fstatat and
+ * fchmodat in <sys/stat.h>, unlinkat and fchownat in <unistd.h>),
+ * posix_fallocate (ap/gnu/posix.c); O_CLOEXEC: open marks the descriptor
+ * FD_CLOEXEC (plan9/open.c). AT_SYMLINK_NOFOLLOW changes nothing (no symbolic
+ * links) */
 #define AT_FDCWD	(-100)
 #define AT_SYMLINK_NOFOLLOW	0x100
 #define AT_REMOVEDIR	0x200

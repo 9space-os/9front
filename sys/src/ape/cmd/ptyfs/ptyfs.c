@@ -767,7 +767,13 @@ newpty(char *uid)
 static void
 gone(Pty *p)
 {
-	if(p->nmaster > 0 || p->nslave > 0)
+	/*
+	 * once only: every clunk of an open fid comes here, also of the
+	 * consctl and ptyctl files after master and slave are closed; a
+	 * second removefile of the freed files was a use after free and,
+	 * when lib9p closes the fid's file, a double free
+	 */
+	if(p->dead || p->nmaster > 0 || p->nslave > 0)
 		return;
 	flushinput(p);
 	free(p->out);

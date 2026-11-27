@@ -85,6 +85,29 @@ fstatat(int fd, const char *path, struct stat *st, int flags)
 	return stat(path, st);
 }
 
+int
+fchmodat(int fd, const char *path, mode_t mode, int flags)
+{
+	char buf[PATH_MAX];
+
+	(void)flags;	/* AT_SYMLINK_NOFOLLOW: no symbolic links */
+	if((path = atpath(fd, path, buf, sizeof buf)) == NULL)
+		return -1;
+	return chmod(path, mode);
+}
+
+/* as APE's chown */
+int
+fchownat(int fd, const char *path, uid_t uid, gid_t gid, int flags)
+{
+	char buf[PATH_MAX];
+
+	(void)flags;	/* AT_SYMLINK_NOFOLLOW: no symbolic links */
+	if((path = atpath(fd, path, buf, sizeof buf)) == NULL)
+		return -1;
+	return chown(path, uid, gid);
+}
+
 /* AT_REMOVEDIR: rmdir, which removes a file as well, as APE's does */
 int
 unlinkat(int fd, const char *path, int flags)

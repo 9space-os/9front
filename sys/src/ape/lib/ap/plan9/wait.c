@@ -121,12 +121,18 @@ wait4(pid_t wpid, int *status, int options, struct rusage *res)
 	/* GCC port: SIGCHLD's watcher reads the wait messages (gnu/sigchld.c) */
 	{
 		extern int __sigchld_watching(void);
-		extern Waitmsg *__sigchld_take(int, int);
+		extern Waitmsg *__sigchld_take(int, int, int*);
+		int gone;
 
 		if(__sigchld_watching()){
-			w = __sigchld_take(wpid, options & WNOHANG);
-			if(w == nil)
-				return (options & WNOHANG) ? 0 : -1;
+			w = __sigchld_take(wpid, options & WNOHANG, &gone);
+			if(w == nil){
+				if(gone){
+					errno = ECHILD;	/* no such child left: the reap loop ends */
+					return -1;
+				}
+				return 0;	/* WNOHANG: none has ended yet */
+			}
 			goto Got;
 		}
 	}

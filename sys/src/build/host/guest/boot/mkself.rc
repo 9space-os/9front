@@ -1,8 +1,10 @@
 #!/bin/rc
 # The system builds itself: run inside the guest by sys/src/build/host/guest/
 # build-self.sh, the build tool (built for Plan 9) with the native gcc
-# and binutils (/$objtype/gnu, from toolchain/gcc: GCC_DIR) on a copy of the tree,
-# served as /n/src9 -- what CC=gcc ARCH=$objtype build.exe does on Linux.
+# and binutils (/$objtype/gnu, from toolchain/gcc: GCC_DIR), or with CC=clang
+# clang, lld and LLVM's binutils (/$objtype/clang, toolchain/clang: CLANG_DIR),
+# on a copy of the tree, served as /n/src9 -- what CC=gcc (CC=<target>-clang)
+# ARCH=$objtype build.exe does on Linux.
 # The build steps are sys/src/build/step/rc/*.rc there (build.exe: plan9step).
 rfork en
 fn fail{
@@ -20,19 +22,28 @@ if(! test -d /n/src9/sys){
 		srv tcp!10.0.2.101!5641 src9 && mount -c /srv/src9 /n/src9 || fail mount src9
 }
 objtype=$cputype
-G=/$objtype/gnu/bin
-test -x $G/gcc || fail no $G/gcc
+# the toolset: CC as build-self.sh gives it (gcc, clang), its tools' directory
+~ $#CC 0 && CC=gcc
+switch($CC){
+case *clang*
+	G=/$objtype/clang/bin
+case *
+	G=/$objtype/gnu/bin
+}
+test -x $G/$CC || fail no $G/$CC
+cc=$CC
 cd /n/src9
-# the tree's headers where a 9front system has them, as the cross gcc
-# sees its sysroot: the native gcc's own include path names /sys/include/ape
+# the tree's headers where a 9front system has them, as the cross compiler
+# sees its sysroot: the native compiler's own include path names /sys/include/ape
 # and /$objtype/include/ape (manifests with Compat, Mesa)
 bind /n/src9/sys/include /sys/include
 bind /n/src9/$objtype/include /$objtype/include
 echo mkself: build
 # a fresh environment: the build tool hands its own on to its commands
-# as Go sees it, and rc cannot read functions back from that. CC=gcc
-# names the flags too (/$ARCH/$CC.json); the GNU tools first in $path
-# (ar, ld, nm, ...), 9front's own programs call theirs by full path.
+# as Go sees it, and rc cannot read functions back from that. CC names
+# the toolset (/$ARCH/$TOOLSET.json); its tools first in $path (ar, ld,
+# nm, ... or llvm-ar, ld.lld, ...), 9front's own programs call theirs by
+# full path.
 @{
 	rfork E
 	path=($G /bin .)
@@ -40,7 +51,7 @@ echo mkself: build
 	ARCH=$objtype
 	objtype=$objtype
 	cputype=$cputype
-	CC=gcc
+	CC=$cc
 	NPROC=`{wc -l </dev/sysstat}
 	CPUS=$NPROC
 	user=$user

@@ -156,7 +156,7 @@ listen(int fd, int backlog)
 			return -1;
 		}
 		lunix = (struct sockaddr_un*)&r->addr;
-		if(_sock_srv(lunix->sun_path, r->other) < 0){
+		if(_sock_srv(lunix->sun_path, r->other, NULL) < 0){
 			r->other = -1;
 			return -1;
 		}

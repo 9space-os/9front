@@ -16,6 +16,47 @@ if(~ $#objtype 0)
 	objtype=$cputype
 # the native gcc and binutils (toolchain/gcc's native build), not Plan 9's ar, nm, ...
 GNU=/$cputype/gnu/bin
+# the compiler and tools of the toolset the build tool chose by CC (build.go:
+# TOOLSET, CCRT), the rc twin of sys/src/build/lib/target.sh: gcc and
+# binutils of toolchain/gcc (/$cputype/gnu) or clang, lld and LLVM's
+# binutils of toolchain/clang (/$cputype/clang). TOOLS: their directory;
+# clang makes code for $objtype (its driver reads it), gcc for $cputype
+# (with -m32 for 386). RT: the runtime library a link of $objtype's
+# code takes, /$objtype/lib.gcc/$CCRT (libgcc.a, libclang_rt.builtins.a),
+# or empty when the tree has none. They are one word each: rc's variables
+# are the environment of what a step runs, and the build tool takes AR, LD,
+# NM, ... from it (ape.rc's). LDBASE: the linker's arguments for code at a
+# fixed address (-Ttext, a linker script's)
+switch($TOOLSET){
+case clang
+	TOOLS=/$cputype/clang/bin
+	CC=$TOOLS/clang
+	CXX=$TOOLS/clang++
+	LD=$TOOLS/ld.lld
+	# its default image base 0x400000 is above the steps' -Ttext
+	LDBASE='--image-base=0'
+	AR=$TOOLS/llvm-ar
+	NM=$TOOLS/llvm-nm
+	OBJCOPY=$TOOLS/llvm-objcopy
+	RANLIB=$TOOLS/llvm-ranlib
+	STRIP=$TOOLS/llvm-strip
+	~ $#CCRT 0 && CCRT=libclang_rt.builtins.a
+case *
+	TOOLSET=gcc
+	TOOLS=$GNU
+	CC=$GNU/gcc
+	CXX=$GNU/g++
+	LD=$GNU/ld
+	LDBASE=()
+	AR=$GNU/ar
+	NM=$GNU/nm
+	OBJCOPY=$GNU/objcopy
+	RANLIB=$GNU/ranlib
+	STRIP=$GNU/strip
+	~ $#CCRT 0 && CCRT=libgcc.a
+}
+RT=$PLAN9/$objtype/lib.gcc/$CCRT
+test -f $RT || RT=()
 TMP=/tmp/build.$prog.$pid
 fn sigexit{
 	rm -rf $TMP
@@ -28,11 +69,11 @@ fn mkvar{
 }
 
 # hostcc out [cc flags] file.c ...: a helper program for this machine,
-# as the mkfiles' $O.tool rules build them, with the native gcc, this
+# as the mkfiles' $O.tool rules build them, with the native compiler, this
 # tree's headers and linker script and the installed libraries (the
 # tree's are not built yet when libc's own Pre step needs mkrunetype);
 # the libraries are those the headers name in #pragma lib, which gcc
-# ignores and kencc's loader follows. rc has no local variables: the
+# and clang ignore and kencc's loader follows. rc has no local variables: the
 # function's variables start with hc, not to change the caller's
 fn hostcc{
 	hcout=$1
@@ -44,19 +85,19 @@ fn hostcc{
 		switch($hca){
 		case *.c
 			hco=$TMP/`{basename $hca .c}^.o
-			hccc=($GNU/gcc '-std=gnu17' -ffreestanding -nostdinc -fno-builtin -fplan9-extensions \
+			hccc=($CC '-std=gnu17' -ffreestanding -nostdinc -fno-builtin -fplan9-extensions \
 				-fcommon -fno-pie -fno-stack-protector -O1 -w \
 				-I$PLAN9/$cputype/include -I$PLAN9/sys/include $hcflags)
-			$hccc -c -o $hco $hca || die cc $hca
-			hclibs=($hclibs `{$hccc -E $hca | sed -n 's/^#pragma[ 	]+lib[ 	]+"lib([^"]*)\.a".*/-l\1/p'})
+			objtype=$cputype $hccc -c -o $hco $hca || die cc $hca
+			hclibs=($hclibs `{objtype=$cputype $hccc -E $hca | sed -n 's/^#pragma[ 	]+lib[ 	]+"lib([^"]*)\.a".*/-l\1/p'})
 			hcobjs=($hcobjs $hco)
 		case *
 			hcflags=($hcflags $hca)
 		}
 	}
-	$GNU/ld -static -z noseparate-code -z 'max-page-size=0x1000' -T $PLAN9/$cputype/plan9.ld -e _main \
+	$LD -static -z noseparate-code -z 'max-page-size=0x1000' -T $PLAN9/$cputype/plan9.ld -e _main \
 		-o $hcout $hcobjs -L/$cputype/lib.gcc --start-group $hclibs -lc --end-group \
-		`{$GNU/gcc -print-libgcc-file-name} || die ld $hcout
+		`{objtype=$cputype $CC -print-libgcc-file-name} || die ld $hcout
 }
 
 # update file: the standard input into file, only when it changes (its
