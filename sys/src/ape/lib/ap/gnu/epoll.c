@@ -33,6 +33,7 @@
 extern void __eventfdmark(int);	/* plan9/write.c */
 extern void __timerfdmark(int);	/* plan9/read.c */
 extern int __readblock(int, void*, int);
+extern unsigned long __fdgen(int);	/* plan9/close.c */
 #include <signal.h>
 #include <lock.h>
 #include <sys/epoll.h>
@@ -56,6 +57,7 @@ struct Ep {
 	Item	*item;
 	int	n;
 	int	max;
+	unsigned long	gen;	/* fd's __fdgen: another one, fd was closed */
 	Ep	*next;
 };
 
@@ -65,6 +67,7 @@ struct Timer {
 	long long	deadline;	/* ns on CLOCK_MONOTONIC; 0: disarmed */
 	long long	interval;
 	uint64_t	pending;	/* a timerfd's expirations not read; > 0: a record in the pipe */
+	unsigned long	gen;	/* fd's __fdgen: another one, fd was closed */
 	Timer	*next;
 };
 
@@ -117,7 +120,28 @@ mkpipe(int *w, int flags)
 	return p[0];
 }
 
-/* the set of descriptor fd (a stale one of an fd closed and reused goes); with lk */
+static void
+freeep(Ep *e)
+{
+	if(e == NULL)
+		return;
+	close(e->w);
+	free(e->item);
+	free(e);
+}
+
+static void
+freetimer(Timer *t)
+{
+	close(t->w);
+	free(t);
+}
+
+/*
+ * the set of descriptor fd; with lk. One of an fd that was closed (its
+ * generation changed) goes: its pipe's other end with it, else a timer
+ * still armed made the socket that got the number readable
+ */
 static Ep *
 findep(int fd, int unlink)
 {
@@ -125,6 +149,11 @@ findep(int fd, int unlink)
 
 	for(l = &eps; (e = *l) != NULL; l = &e->next)
 		if(e->fd == fd){
+			if(e->gen != __fdgen(fd)){
+				*l = e->next;
+				freeep(e);
+				return NULL;
+			}
 			if(unlink)
 				*l = e->next;
 			return e;
@@ -139,21 +168,16 @@ findtimer(int fd, int unlink)
 
 	for(l = &timers; (t = *l) != NULL; l = &t->next)
 		if(t->fd == fd){
+			if(t->gen != __fdgen(fd)){
+				*l = t->next;
+				freetimer(t);
+				return NULL;
+			}
 			if(unlink)
 				*l = t->next;
 			return t;
 		}
 	return NULL;
-}
-
-static void
-freeep(Ep *e)
-{
-	if(e == NULL)
-		return;
-	close(e->w);
-	free(e->item);
-	free(e);
 }
 
 int
@@ -423,11 +447,10 @@ timerfd_create(int clock, int flags)
 	}
 	t->fd = fd;
 	t->w = w;
+	t->gen = __fdgen(fd);
 	lock(&lk);
-	if((old = findtimer(fd, 1)) != NULL){	/* a closed one's */
-		close(old->w);
-		free(old);
-	}
+	if((old = findtimer(fd, 1)) != NULL)	/* a closed one's */
+		freetimer(old);
 	t->next = timers;
 	timers = t;
 	unlock(&lk);
@@ -514,11 +537,10 @@ eventfd(unsigned int initval, int flags)
 	}
 	t->fd = fd;
 	t->w = w;
+	t->gen = __fdgen(fd);
 	lock(&lk);
-	if((old = findtimer(fd, 1)) != NULL){
-		close(old->w);
-		free(old);
-	}
+	if((old = findtimer(fd, 1)) != NULL)
+		freetimer(old);
 	t->next = timers;
 	timers = t;
 	unlock(&lk);

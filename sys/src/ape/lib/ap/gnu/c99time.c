@@ -17,22 +17,35 @@
 #include <time.h>
 #include <unistd.h>
 
-static int bintimefd = -1;
+extern unsigned long __fdgen(int);	/* plan9/close.c: one more at each close of the descriptor */
+
+/*
+ * the descriptor and its generation: one the program closed (daemons
+ * close all) and got again for another file of 32 bytes or more gave
+ * that file's bytes as the time; now it is opened anew then
+ */
+static uint64_t bintime = ~(uint64_t)0;
+
+#define BTFD(v)	((int)(uint32_t)(v))
+#define BTGEN(v)	((uint32_t)((v) >> 32))
 
 static int
-openbintime(void)
+openbintime(uint64_t old)
 {
-	int fd, old;
+	int fd;
+	uint64_t v;
 
 	fd = open("/dev/bintime", O_RDONLY);
 	if(fd < 0)
 		return -1;
 	fcntl(fd, F_SETFD, FD_CLOEXEC);
-	old = -1;
-	if(!__atomic_compare_exchange_n(&bintimefd, &old, fd, 0,
+	v = (uint64_t)(uint32_t)__fdgen(fd) << 32 | (uint32_t)fd;
+	if(!__atomic_compare_exchange_n(&bintime, &old, v, 0,
 	    __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)){
 		close(fd);	/* another proc was first */
-		return old;
+		if(BTGEN(old) == (uint32_t)__fdgen(BTFD(old)))
+			return BTFD(old);
+		return -1;
 	}
 	return fd;
 }
@@ -44,9 +57,14 @@ readbintime(uint64_t v[4])
 	unsigned char b[32];
 	int fd, i, j, try;
 
+	uint64_t bt;
+
 	for(try = 0; try < 2; try++){
-		fd = __atomic_load_n(&bintimefd, __ATOMIC_SEQ_CST);
-		if(fd < 0 && (fd = openbintime()) < 0)
+		bt = __atomic_load_n(&bintime, __ATOMIC_SEQ_CST);
+		fd = BTFD(bt);
+		if(bt == ~(uint64_t)0 || BTGEN(bt) != (uint32_t)__fdgen(fd))
+			fd = openbintime(bt);
+		if(fd < 0)
 			return -1;
 		if(pread(fd, b, sizeof b, 0) == sizeof b){
 			for(i = 0; i < 4; i++){
@@ -56,8 +74,8 @@ readbintime(uint64_t v[4])
 			}
 			return 0;
 		}
-		/* the program closed it (daemons close all): once more */
-		__atomic_compare_exchange_n(&bintimefd, &fd, -1, 0,
+		/* not readable as it was: once more, opened anew */
+		__atomic_compare_exchange_n(&bintime, &bt, ~(uint64_t)0, 0,
 			__ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
 	}
 	return -1;

@@ -14,12 +14,14 @@
 #include <sys/un.h>
 
 #include "priv.h"
+#include "lib.h"
+#include "sys9.h"	/* _CLOSE: _sock_srv's descriptor is no APE one */
 
 int
 connect(int fd, void *a, int alen)
 {
 	Rock *r;
-	int n, cfd, nfd;
+	int n, cfd, nfd, sfd;
 	char msg[8+256+1], file[8+256+1];
 	struct sockaddr *sa;
 	struct sockaddr_un *runix;
@@ -76,7 +78,8 @@ connect(int fd, void *a, int alen)
 
 		/* put far end of our pipe in /srv */
 		snprintf(msg, sizeof msg, "UD.%d.%d", getpid(), vers++);
-		if(_sock_srv(msg, r->other) < 0){
+		sfd = -1;
+		if(_sock_srv(msg, r->other, &sfd) < 0){
 			r->other = -1;
 			return -1;
 		}
@@ -87,20 +90,19 @@ connect(int fd, void *a, int alen)
 		_sock_srvname(file, runix->sun_path);
 		nfd = open(file, O_RDWR);
 		if(nfd < 0){
-			unlink(msg);
+			_CLOSE(sfd);	/* ORCLOSE: the entry goes */
 			return -1;
 		}
 		if(write(nfd, msg, strlen(msg)) < 0){
 			close(nfd);
-			unlink(msg);
+			_CLOSE(sfd);
 			return -1;
 		}
 		close(nfd);
 
-		/* wait for server to open it and then remove it */
+		/* wait for server to open it and then remove it (ORCLOSE) */
 		read(fd, file, sizeof(file));
-		_sock_srvname(file, msg);
-		unlink(file);
+		_CLOSE(sfd);
 		return 0;
 	default:
 		errno = EAFNOSUPPORT;

@@ -250,17 +250,33 @@ recvmsg(int fd, struct msghdr *msg, int flags)
 		}
 		cloexec = (flags & MSG_CMSG_CLOEXEC) != 0;
 		for(i = 0; i < nfd; i++){
+			char *nm;
+
 			names[i*Name + Name-1] = 0;
-			snprintf(path, sizeof path, "/srv/%s", (char *)names + i*Name);
+			nm = (char *)names + i*Name;
+			/*
+			 * 9space: only sendmsg's own names (APEfd.pid.n): the peer's
+			 * "../x" was opened and unlinked; a write-only descriptor too
+			 * (devsrv gives it in its mode only); one that does not come
+			 * is MSG_CTRUNC, not left out silently
+			 */
+			if(strncmp(nm, "APEfd.", 6) != 0 || strchr(nm, '/') != NULL){
+				msg->msg_flags |= MSG_CTRUNC;
+				continue;
+			}
+			snprintf(path, sizeof path, "/srv/%s", nm);
 			fds[nf] = open(path, O_RDWR);
 			if(fds[nf] < 0)
 				fds[nf] = open(path, O_RDONLY);
+			if(fds[nf] < 0)
+				fds[nf] = open(path, O_WRONLY);
 			unlink(path);
 			if(fds[nf] >= 0){
 				if(cloexec)
 					fcntl(fds[nf], F_SETFD, FD_CLOEXEC);
 				nf++;
-			}
+			}else
+				msg->msg_flags |= MSG_CTRUNC;
 		}
 		if(r != NULL)
 			r->rest = len;
