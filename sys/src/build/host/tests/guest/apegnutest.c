@@ -415,7 +415,22 @@ testat(void)
 		close(fd);
 	check("at: fchmodat relative", fchmodat(df, "f", 0600, 0) == 0 && stat(dir, &st) == 0 &&
 		fstatat(df, "f", &st, 0) == 0 && (st.st_mode & 0777) == 0600, "%s, mode %o", strerror(errno), (unsigned)st.st_mode & 0777);
-	check("at: fchownat relative", fchownat(df, "f", getuid(), getgid(), AT_SYMLINK_NOFOLLOW) == 0, "%s", strerror(errno));
+	/* as chown on the same file: APE's needs the ids in /adm/users (EINVAL
+	 * where the file server's users are others, a guest's ufs) */
+	{
+		char abs[96];
+		int a, ea, b, eb;
+
+		snprintf(abs, sizeof abs, "%s/f", dir);
+		errno = 0;
+		a = chown(abs, getuid(), getgid());
+		ea = errno;
+		errno = 0;
+		b = fchownat(df, "f", getuid(), getgid(), AT_SYMLINK_NOFOLLOW);
+		eb = errno;
+		check("at: fchownat relative, as chown", a == b && (a == 0 || ea == eb),
+			"chown %d (%s), fchownat %d (%s)", a, strerror(ea), b, strerror(eb));
+	}
 	check("at: unlinkat", unlinkat(df, "f", 0) == 0 && fstatat(df, "f", &st, 0) < 0 && errno == ENOENT,
 		"%s", strerror(errno));
 	closedir(d);
