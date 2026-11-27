@@ -54,8 +54,18 @@ CFLAGS="-std=gnu17 -fno-asm -ffreestanding -nostdinc -fno-builtin -fplan9-extens
 	-I$ROOT/$objtype/include -I$ROOT/sys/include"
 $CC $CFLAGS -c -o "$TMP/init9.o" "$ROOT/sys/src/9/$INIT9"
 $CC $CFLAGS -c -o "$TMP/initcode.o" "$ROOT/sys/src/9/port/initcode.c"
-# -N: text and data contiguous, like 8l -R1
-$LD -N -static -Ttext=$(printf "%#x" $((UTZERO + HDR))) --entry=$ENTRY -o "$TMP/initcode.elf" \
+# init9's code at UTZERO+HDR exactly, in a section of its own: -Ttext would
+# do for GNU ld, but ld.lld rounds a section's address up to its alignment
+# (libc's functions: 16), which moves the image off where proc0() starts it
+# (amd64: 0x200028 became 0x200030, every string 8 bytes off). The rest as
+# the linker's default places it; -N: text and data contiguous, like 8l -R1.
+cat > "$TMP/initcode.ld" <<EOF
+SECTIONS {
+	.init9 $(printf "%#x" $((UTZERO + HDR))) : { *init9.o(.text) }
+	.text : { *(.text .text.*) }
+}
+EOF
+$LD -N -static -T "$TMP/initcode.ld" --entry=$ENTRY -o "$TMP/initcode.elf" \
 	"$TMP/init9.o" "$TMP/initcode.o" "$ROOT/$objtype/lib.gcc/libc.a" $RT
 $OBJCOPY -O binary -R .bss -R .comment -R .note.gnu.property "$TMP/initcode.elf" "$TMP/initcode.bin"
 python3 - "$TMP/initcode.bin" "$ROOT/sys/src/9/port/initcode.i" $HDR $INIT9 <<'PY'
