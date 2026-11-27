@@ -1289,6 +1289,7 @@ testsigchldearly(void)
 	errno = 0;
 	r = waitpid(-1, &st, WNOHANG);
 	check("then none left: -1, ECHILD", r == -1 && errno == ECHILD, "%d %d", r, errno);
+	signal(SIGCHLD, SIG_DFL);	/* as testsigchld leaves it: the "child" notes interrupt the tests after (buf's select) */
 }
 
 /* SIGCHLD (gnu/sigchld.c): the handler on a child's exit, its status by waitpid */

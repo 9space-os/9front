@@ -80,14 +80,31 @@ haskids(int parent)
 	return 0;
 }
 
+/*
+ * a child whose message came before fork's __sigchld_forked kept it (it
+ * exited at once, and fork returns to the parent after rfork): kept
+ * here so that addkid does not keep it then (it stayed for ever, and
+ * wait never said ECHILD again)
+ */
+enum { Nearly = 64 };
+static Kid early[Nearly];
+static int nearly;
+
 /* with lk */
 static void
 dropkid(int parent, int pid)
 {
 	int i;
 
-	if((i = kidat(parent, pid)) >= 0)
+	if((i = kidat(parent, pid)) >= 0){
 		kids[i] = kids[--nkids];
+		return;
+	}
+	if(nearly == Nearly)
+		memmove(early, early+1, (Nearly-1) * sizeof early[0]), nearly--;
+	early[nearly].parent = parent;
+	early[nearly].pid = pid;
+	nearly++;
 }
 
 /*
@@ -165,7 +182,13 @@ static void
 addkid(int parent, int pid)
 {
 	Kid *k;
+	int i;
 
+	for(i = 0; i < nearly; i++)
+		if(early[i].parent == parent && early[i].pid == pid){
+			early[i] = early[--nearly];
+			return;	/* ended already, its message is kept or taken */
+		}
 	if(nkids == akids){
 		k = realloc(kids, (akids+16) * sizeof *kids);
 		if(k == NULL)
