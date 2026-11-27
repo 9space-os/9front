@@ -330,11 +330,32 @@ again:
 	for (c = chunks; c; c = c->next)
 		if (c->maxpa <= limit && c->nfree >= n && (i = findrun(c, n)) >= 0)
 			break;
+	if (!c && n > 1) {
+		struct chunk *s;
+
+		/*
+		 * 9space: a scattered chunk wholly unused is the last try's
+		 * for a run like this: no new one (each failed higher order
+		 * made another 8 MB chunk, kept for ever: memory ran out
+		 * under fragmentation); the caller tries a lower order, and
+		 * that one's single pages are what it has for them
+		 */
+		for (s = chunks; s; s = s->next)
+			if (!s->contig && s->maxpa <= limit && s->nfree == CHUNKPAGES) {
+				p9_qunlock(plock);
+				return NULL;
+			}
+	}
 	if (!c) {
 		/* a new chunk; a higher order may still fail there, then the caller tries lower */
 		c = newchunk(limit);
-		if (!c && !(gfp & __GFP_NORETRY) && !shrunk) {
-			/* no more memory: what the shrinkers give back, then again */
+		if (!c && !(gfp & __GFP_NORETRY) && !shrunk && gfpflags_allow_blocking(gfp)) {
+			/*
+			 * no more memory: what the shrinkers give back, then again;
+			 * 9space: not for GFP_ATOMIC, GFP_NOWAIT (a caller under a
+			 * spinlock: the shrinkers sleep and take locks, as Linux's
+			 * reclaim does only where it may block)
+			 */
 			p9_qunlock(plock);
 			shrunk = 1;
 			kpi_shrink(gfp, 2 * n);

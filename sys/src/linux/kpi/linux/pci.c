@@ -23,7 +23,7 @@ static DEFINE_SPINLOCK(pcilock);
 struct kpi_pci {
 	struct list_head	node;
 	struct pci_dev	*dev;
-	u8	saved[64];
+	u8	saved[256];	/* 9space: the whole configuration space: the capabilities' registers too */
 	bool	have_saved;
 };
 
@@ -588,12 +588,48 @@ pci_set_power_state(struct pci_dev *d, pci_power_t s)
 	return 0;
 }
 
+/*
+ * 9space: the capabilities' control registers again, as Linux's
+ * pci_restore_state (a reset clears them): MSI's address and data, then
+ * its control (enable last), MSI-X's control, PCI Express' device and
+ * link controls. Only the 64-byte header was saved: after amdgpu's reset
+ * the device sent no more MSI (the kernel had set them up)
+ */
+static void
+restorecaps(struct pci_dev *d)
+{
+	u8 *sv = kp(d)->saved;
+	int pos, i, n;
+	u16 ctl;
+
+	pos = pci_find_capability(d, 0x05);	/* MSI */
+	if (pos > 0 && pos + 24 <= 256) {
+		ctl = *(u16 *)&sv[pos + 2];
+		n = (ctl & 0x80) ? 4 : 3;	/* 64-bit address: one more dword */
+		if (ctl & 0x100)
+			n += 2;			/* per-vector masking: mask, pending */
+		for (i = 1; i <= n; i++)
+			pci_write_config_dword(d, pos + 4 * i, *(u32 *)&sv[pos + 4 * i]);
+		pci_write_config_word(d, pos + 2, ctl);
+	}
+	pos = pci_find_capability(d, PCI_CAP_ID_MSIX);
+	if (pos > 0 && pos + 4 <= 256)
+		pci_write_config_word(d, pos + PCI_MSIX_FLAGS, *(u16 *)&sv[pos + PCI_MSIX_FLAGS]);
+	pos = pci_find_capability(d, PCI_CAP_ID_EXP);
+	if (pos > 0 && pos + 0x32 <= 256) {
+		pci_write_config_word(d, pos + PCI_EXP_DEVCTL, *(u16 *)&sv[pos + PCI_EXP_DEVCTL]);
+		pci_write_config_word(d, pos + PCI_EXP_LNKCTL, *(u16 *)&sv[pos + PCI_EXP_LNKCTL]);
+		pci_write_config_word(d, pos + PCI_EXP_DEVCTL2, *(u16 *)&sv[pos + PCI_EXP_DEVCTL2]);
+		pci_write_config_word(d, pos + 0x30, *(u16 *)&sv[pos + 0x30]);	/* LNKCTL2 */
+	}
+}
+
 int
 pci_save_state(struct pci_dev *d)
 {
 	int i;
 
-	for (i = 0; i < 64; i += 4)
+	for (i = 0; i < 256; i += 4)
 		pci_read_config_dword(d, i, (u32 *)&kp(d)->saved[i]);
 	kp(d)->have_saved = true;
 	return 0;
@@ -610,6 +646,7 @@ pci_restore_state(struct pci_dev *d)
 	for (i = 60; i >= 8; i -= 4)
 		pci_write_config_dword(d, i, *(u32 *)&kp(d)->saved[i]);
 	pci_write_config_word(d, PCI_COMMAND, *(u16 *)&kp(d)->saved[PCI_COMMAND]);
+	restorecaps(d);
 }
 
 void __iomem *

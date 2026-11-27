@@ -133,6 +133,7 @@ struct Gpu
 
 	Lock	irqlock;
 	Rendez	irqr;
+	QLock	irqrq;	/* 9space: one reader of irq at a time sleeps on irqr (a second one's sleep was a double sleep) */
 	int	intrenabled;
 	int	msi;		/* intrenable gave the device MSI */
 	int	irqpending;
@@ -143,6 +144,7 @@ struct Gpu
 
 	Lock	curlock;	/* ilock: the mouse's interrupt moves it */
 	Rendez	curr;
+	QLock	currq;	/* 9space: one reader of cursor at a time on curr */
 	int	curchanged;
 	int	curgen;		/* one more each image */
 	int	cursize;	/* drawn this many pixels big (0: 16; vgactl cursorsize) */
@@ -439,7 +441,8 @@ exitadd(Gpu *g, Chan *c, Cmdbuf *cb)
 	o->bar = bar;
 	o->off = strtoul(cb->f[3], 0, 0);
 	o->width = strcmp(cb->f[1], "w8") == 0 || strcmp(cb->f[1], "wait8") == 0 ? 1 : 4;
-	if(o->off & (o->width-1) || o->off + o->width > p->mem[bar].size)
+	/* 9space: off itself first, off+width wrapped past a 32-bit ulong (a write 4 GB past the bar) */
+	if(o->off & (o->width-1) || o->off >= p->mem[bar].size || o->width > p->mem[bar].size - o->off)
 		error("onexit: offset outside the bar");
 	if((strcmp(cb->f[1], "w32") == 0 || strcmp(cb->f[1], "w8") == 0) && cb->nf == 5){
 		o->op = o->width == 1 ? Ew8 : Ew32;
@@ -632,7 +635,14 @@ gpuread(Chan *c, void *a, long n, vlong off)
 	case Qctl:
 		return ctlread(g, a, n, off);
 	case Qirq:
+		eqlock(&g->irqrq);
+		if(waserror()){
+			qunlock(&g->irqrq);
+			nexterror();
+		}
 		sleep(&g->irqr, irqpending, g);
+		poperror();
+		qunlock(&g->irqrq);
 		ilock(&g->irqlock);
 		g->irqpending = 0;
 		cnt = g->nirq;
@@ -662,7 +672,14 @@ gpuread(Chan *c, void *a, long n, vlong off)
 			uchar clr[32], set[32];
 			int x, y, ox, oy, on, gen, i, size;
 
+			eqlock(&g->currq);
+			if(waserror()){
+				qunlock(&g->currq);
+				nexterror();
+			}
 			sleep(&g->curr, curchanged, g);
+			poperror();
+			qunlock(&g->currq);
 			ilock(&g->curlock);
 			x = g->curx;
 			y = g->cury;
@@ -699,10 +716,10 @@ fbreap(Gpu *g)
 
 	lock(&fblock);
 	for(l = &g->fbs; (f = *l) != nil;){
-		if(f->old && f->users.ref == 0 && f != g->scrfb){
+		/* 9space: no user and its name gone in one step (an attach got one in between) */
+		if(f->old && f != g->scrfb && delphyssegunused(f->seg, &f->users)){
 			*l = f->next;
 			unlock(&fblock);
-			delphysseg(f->seg);
 			xfree(f->raw);
 			free(f);
 			lock(&fblock);
@@ -735,9 +752,14 @@ fballoc(Gpu *g, ulong size)
 	Fb *f;
 	Physseg seg;
 
-	size = PGROUND(size);
-	if(size == 0)
+	/*
+	 * 9space: at most 512 MB (an 8K screen at 32 bits is 256): size +
+	 * BY2PG below wrapped to 0 for a size near 4 GB, then xalloc(0) and
+	 * a memset of size
+	 */
+	if(size == 0 || size > 512*MB)
 		error(Ebadarg);
+	size = PGROUND(size);
 	if(g->fb != nil && g->fb->size == size)
 		return;
 	f = malloc(sizeof *f);

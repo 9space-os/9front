@@ -59,6 +59,7 @@ struct Pagerq
 	Ref;
 	Lock;
 	Rendez	r;	/* the driver's read waits here */
+	QLock	rq;	/* 9space: one reader at a time sleeps on r (more data files open: a double sleep) */
 	Pagerreq	*head, *tail;
 	int	readers;	/* open data files */
 	int	dead;		/* removed, or its last reader gone */
@@ -373,7 +374,14 @@ pagerqread(Pagerq *q, char *a, long n)
 	char *buf;
 	long m, l;
 
+	eqlock(&q->rq);
+	if(waserror()){
+		qunlock(&q->rq);
+		nexterror();
+	}
 	sleep(&q->r, havereq, q);
+	poperror();
+	qunlock(&q->rq);
 	buf = smalloc(n);
 	m = 0;
 	lock(q);
@@ -1193,8 +1201,13 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 				/* 9front-ng: a pager segment (above), no pages yet */
 				if(!iseve())
 					error(Eperm);
-				if((ps = findphysseg(cb->f[4])) == nil)
+				/* 9space: with a reference (getphysseg): no fbreap in between */
+				if((ps = getphysseg(cb->f[4])) == nil)
 					error("no such physical segment");
+				if(waserror()){
+					putphysseg(ps);
+					nexterror();
+				}
 				q = findpagerq(cb->f[6]);
 				pg = malloc(sizeof(Pager));
 				if(pg != nil)
@@ -1218,13 +1231,12 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 				s = newseg(ps->attr, va, len/BY2PG);
 				poperror();
 				pp = (Physseg*)(s+1);
-				*pp = *ps;
-				if(pp->users != nil)
-					incref(pp->users);	/* 9space: a segment of it too */
+				*pp = *ps;	/* 9space: getphysseg's reference now the segment's */
 				pp->size = len;
 				pp->pager = pg;
 				pg->s = s;
 				s->pseg = pp;
+				poperror();
 				g->Segio.s = s;
 				g->alias = 1;
 			} else if(cb->nf >= 6 && strcmp(cb->f[3], "phys") == 0){
@@ -1239,19 +1251,22 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 				 */
 				if(!iseve())
 					error(Eperm);
-				if((ps = findphysseg(cb->f[4])) == nil)
+				if((ps = getphysseg(cb->f[4])) == nil)	/* 9space: with a reference */
 					error("no such physical segment");
+				if(waserror()){
+					putphysseg(ps);
+					nexterror();
+				}
 				off = strtoull(cb->f[5], 0, 0);
 				if((off & (BY2PG-1)) != 0 || off > ps->size || len > ps->size - off)
 					error(Ebadarg);
 				s = newseg(ps->attr, va, len/BY2PG);
 				pp = (Physseg*)(s+1);
 				*pp = *ps;
-				if(pp->users != nil)
-					incref(pp->users);	/* 9space: a segment of it too */
-				pp->pa = ps->pa + off;
+				pp->pa = ps->pa + off;	/* 9space: getphysseg's reference now the segment's */
 				pp->size = len;
 				s->pseg = pp;
+				poperror();
 				g->Segio.s = s;
 				g->alias = 1;
 			} else if(cb->nf >= 4 && strcmp(cb->f[3], "alias") == 0){

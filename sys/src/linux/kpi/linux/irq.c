@@ -26,7 +26,10 @@ struct irqaction {
 	void	*dev;
 	const char	*name;
 	int	wake;		/* thread_fn to run */
+	int	stop;		/* 9space: free_irq: the thread ends */
+	int	gone;		/* 9space: it has, a may go */
 	u64	q[4], r[4];	/* thread's QLock, Rendez */
+	u64	rdone[4];	/* 9space: free_irq's Rendez, on q */
 };
 
 struct irq_desc {
@@ -44,6 +47,8 @@ static struct irq_desc descs[NIRQ];
 static irqreturn_t kpi_irq_default_primary(int irq, void *dev);
 static u64 iq[4], ir[4];		/* QLock, Rendez: irq state changes */
 static int irqproc_started;
+static int devirq = -1;		/* 9space: the irq of #G's interrupt (irqproc's) */
+static int ackdue;		/* 9space: its ack held while it was disabled, with iq */
 
 static void
 irq_thread(void *arg)
@@ -52,13 +57,20 @@ irq_thread(void *arg)
 
 	p9_qlock(a->q);
 	for (;;) {
-		while (!a->wake)
+		while (!a->wake && !a->stop)
 			p9_rsleep(a->r);
+		if (a->stop)
+			break;
 		a->wake = 0;
 		p9_qunlock(a->q);
 		a->thread_fn(0, a->dev);
 		p9_qlock(a->q);
 	}
+	/* 9space: free_irq waits for this: no thread_fn after it returns */
+	a->gone = 1;
+	p9_rwakeup(a->rdone);
+	p9_qunlock(a->q);
+	p9_exits(NULL);
 }
 
 /* the irqs the device delivered, and those a handler took (kpi_irq_counts) */
@@ -117,7 +129,18 @@ irqproc(void *arg)
 			break;
 		}
 		p9_qlock(iq);
+		devirq = irq;
 		run_handlers(irq);
+		/*
+		 * 9space: disabled (disable_irq): no ack, #G keeps it masked
+		 * until enable_irq has run the handlers (an ack while disabled
+		 * unmasked a level interrupt nobody cleared: a storm)
+		 */
+		if (descs[irq].pending) {
+			ackdue = 1;
+			p9_qunlock(iq);
+			continue;
+		}
 		p9_qunlock(iq);
 		p9_irqack();
 	}
@@ -142,6 +165,7 @@ request_threaded_irq(unsigned int irq, irq_handler_t h, irq_handler_t t,
 	a->dev = dev;
 	a->name = name;
 	p9_rendez_init(a->r, a->q);
+	p9_rendez_init(a->rdone, a->q);
 	if (t && p9_proccreate(irq_thread, a, 64 * 1024) < 0) {
 		kfree(a);
 		return -ENOMEM;
@@ -194,7 +218,22 @@ free_irq(unsigned int irq, void *dev)
 	while (descs[irq].inhandler)
 		p9_rsleep(ir);
 	p9_qunlock(iq);
-	/* a thread proc may still use a: it stays */
+	if (a == NULL)
+		return;
+	/*
+	 * 9space: as Linux's, the threaded handler is done and ends before
+	 * free_irq returns (its thread_fn ran on after it, on the driver's
+	 * freed data, and the proc stayed for ever)
+	 */
+	if (a->thread_fn) {
+		p9_qlock(a->q);
+		a->stop = 1;
+		p9_rwakeup(a->r);
+		while (!a->gone)
+			p9_rsleep(a->rdone);
+		p9_qunlock(a->q);
+	}
+	kfree(a);
 }
 
 void
@@ -233,12 +272,20 @@ enable_irq(unsigned int irq)
 	if (irq >= NIRQ)
 		return;
 	d = &descs[irq];
+	int ack = 0;
+
 	p9_qlock(iq);
 	if (d->depth > 0 && --d->depth == 0 && d->pending) {
 		d->pending = 0;
 		run_handlers(irq);
+		if ((int)irq == devirq && ackdue) {
+			ackdue = 0;
+			ack = 1;
+		}
 	}
 	p9_qunlock(iq);
+	if (ack)
+		p9_irqack();	/* the one irqproc held while it was disabled */
 }
 
 /* generic irqs: numbers a driver hands out and runs itself */

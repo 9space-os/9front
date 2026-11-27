@@ -1165,7 +1165,15 @@ acpisleepwrite(Chan*, void *a, long n, vlong)
 	procwired(up, 0);
 	sched();
 	sleepevents(cb);
+	/* 9space: an error in the suspend: the events back, the lock free (they stayed so, and every later sleep hung) */
+	if(waserror()){
+		wakeevents();
+		up->wired = 0;
+		qunlock(&sleeplock);
+		nexterror();
+	}
 	e = archsuspend(acpisleepenter, nil);
+	poperror();
 	wakeevents();
 	up->wired = 0;
 	qunlock(&sleeplock);

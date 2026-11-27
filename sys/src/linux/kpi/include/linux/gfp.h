@@ -55,17 +55,26 @@ __free_page(struct page *page)
 	__free_pages(page, 0);
 }
 
+/*
+ * 9space: the page pool's, as __get_free_pages and free_pages (page.c):
+ * these were the heap's (km_alloc), the others the pool's, and Linux's
+ * code mixes them (get_zeroed_page freed with free_page, __get_free_page
+ * with free_pages): a pool page given to km_free, a heap page to
+ * virt_to_page; and gfp_mask was ignored
+ */
+unsigned long	__get_free_pages(unsigned int, unsigned int);
+void	free_pages(unsigned long, unsigned int);
+
 static inline unsigned long
 __get_free_page(unsigned int gfp_mask)
 {
-	void *addr = km_alloc(PAGE_SIZE, &kv_page, &kp_dirty, &kd_nowait);
-	return (unsigned long)addr;
+	return __get_free_pages(gfp_mask, 0);
 }
 
 static inline void
 free_page(unsigned long addr)
 {
-	km_free((void *)addr, PAGE_SIZE, &kv_page, &kp_dirty);
+	free_pages(addr, 0);
 }
 
 /* 9front: what the Linux code uses and OpenBSD's header lacks (OpenBSD changes that code), from our earlier LinuxKPI */

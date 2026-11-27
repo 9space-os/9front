@@ -650,8 +650,14 @@ sscanf(const char *buf, const char *fmt, ...)
 			break;
 		if (*fmt == 's') {
 			char *d = va_arg(ap, char *);
+			/*
+			 * 9space: at most width: (!width || width-- > 0) went on
+			 * without limit once width had counted down to 0 (amdgpu's
+			 * "disable %32s" wrote past its buffer)
+			 */
+			int lim = width ? width : INT_MAX;
 
-			while (*s && !isspace(*s) && (!width || width-- > 0))
+			while (*s && !isspace(*s) && lim-- > 0)
 				*d++ = *s++;
 			*d = 0;
 			n++;

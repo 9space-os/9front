@@ -1038,6 +1038,16 @@ pagerram(const char *seg, struct amdgpu_bo *abo, u64 size)
 	return r < 0 ? -EIO : 0;
 }
 
+/*
+ * 9space: a pager map's segment name, never one given before in this
+ * driver's life (a number of its own, not the context's and handle's):
+ * pagerfault finds the map by name, drops pmaplock and hands the pages
+ * in by name; with context numbers and GEM handles coming back, a map
+ * gone and another made under its name in between got the old object's
+ * VRAM, never reclaimed
+ */
+static atomic_t npmapname;
+
 /* a fault on seg's pager segment: the object made visible to the processor, its pages given */
 static void
 pagerfault(const char *seg)
@@ -1238,7 +1248,7 @@ amdgpu_map(void *v, u32 handle, char *seg, int nseg, u64 *va, u64 *size)
 			r = -ENOSPC;
 			goto out;
 		}
-		snprintf(m->seg, sizeof(m->seg), "amdgpu.%d.%d.m%u", p9_getpid(), c->id, handle);
+		snprintf(m->seg, sizeof(m->seg), "amdgpu.%d.m%u", p9_getpid(), atomic_inc_return(&npmapname));
 		*va = (unsigned long)p9_segpager(m->seg, bar, *size, pagerq);
 		if (!*va) {
 			drm_gem_object_put(gobj);
@@ -1290,7 +1300,7 @@ amdgpu_map(void *v, u32 handle, char *seg, int nseg, u64 *va, u64 *size)
 		r = -EIO;
 		goto unpin;
 	}
-	snprintf(m->seg, sizeof(m->seg), "amdgpu.%d.%d.m%u", p9_getpid(), c->id, handle);
+	snprintf(m->seg, sizeof(m->seg), "amdgpu.%d.m%u", p9_getpid(), atomic_inc_return(&npmapname));
 	*va = (unsigned long)kpi_alias_pages(m->seg, tt->pages, *size >> PAGE_SHIFT, false);
 	if (!*va) {
 		r = -ENOMEM;

@@ -97,6 +97,36 @@ static char *outname[Nout];
 static int nout;
 static QLock ctxlock;
 static Gctx *ctxs[Nctx];
+/*
+ * 9space: a context's place while its driver frees it (ctxfreeproc): the
+ * number stays taken, and lookups see it gone
+ */
+static Gctx freeing;
+
+typedef struct Gfree Gfree;
+struct Gfree {
+	void	*lc;
+	int	id;
+};
+
+/*
+ * the driver's ctxfree on a proc of its own: it waits for the context's
+ * fences (i915, amdgpu: up to seconds each), and on the server's proc,
+ * under ctxlock, every client of the GPU waited with it; its number free
+ * again when it is done (a new context could otherwise get one the
+ * driver still has)
+ */
+static void
+ctxfreeproc(void *a)
+{
+	Gfree *g = a;
+
+	drv.ctxfree(g->lc);
+	qlock(&ctxlock);
+	ctxs[g->id] = nil;
+	qunlock(&ctxlock);
+	free(g);
+}
 static File *ctxdir;
 static Srv fs;
 
@@ -208,8 +238,13 @@ newctx(char *uid)
 static void
 freectx(Gctx *c)
 {
-	ctxs[c->id] = nil;
-	drv.ctxfree(c->lc);
+	Gfree *g;
+
+	ctxs[c->id] = &freeing;
+	g = emalloc9p(sizeof *g);
+	g->lc = c->lc;
+	g->id = c->id;
+	proccreate(ctxfreeproc, g, 1024*1024);
 	removefile(c->fence);
 	removefile(c->submit);
 	removefile(c->ctl);
@@ -248,7 +283,7 @@ fsopen(Req *r)
 	case Xctxsubmit:
 	case Xctxfence:
 		qlock(&ctxlock);
-		if((c = ctxs[CTXN(r->fid->file)]) == nil){
+		if((c = ctxs[CTXN(r->fid->file)]) == nil || c == &freeing){
 			qunlock(&ctxlock);
 			respond(r, "context gone");
 			return;

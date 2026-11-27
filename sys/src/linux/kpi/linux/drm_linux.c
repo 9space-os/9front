@@ -227,16 +227,25 @@ flush_delayed_work(struct delayed_work *dwork)
 {
 	bool ret = false;
 
-	if (cold)
+	if (cold || dwork->tq == NULL)
 		return false;
 
-	while (timeout_pending(&dwork->to)) {
-		tsleep(dwork, PWAIT, "fldwto", 1);
+	/*
+	 * 9space: as Linux's, a pending timer is taken back and the work
+	 * queued now; a timer firing meanwhile has queued it once its
+	 * barrier is past. Then the queue's barrier: the work ran. (It
+	 * waited for the timer not to be pending, then the barrier: a
+	 * timer firing in between had not queued the work yet, and
+	 * flush_delayed_work returned before it ran.)
+	 */
+	if (timeout_del(&dwork->to)) {
+		task_add(dwork->tq, &dwork->work.task);
 		ret = true;
 	}
-
-	if (dwork->tq)
-		taskq_barrier(dwork->tq);
+	timeout_barrier(&dwork->to);
+	if (task_pending(&dwork->work.task))
+		ret = true;
+	taskq_barrier(dwork->tq);
 	return ret;
 }
 

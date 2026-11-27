@@ -1269,6 +1269,62 @@ findphysseg(char *name)
 }
 
 /*
+ * 9space: physical segment name and a reference to its users (if it
+ * counts them), under physseglock: findphysseg then incref let #G's
+ * fbreap free the framebuffer in between (an attach of a freed one)
+ */
+Physseg*
+getphysseg(char *name)
+{
+	Physseg *ps;
+
+	lock(&physseglock);
+	for(ps = physseg; ps->name; ps++)
+		if(strcmp(ps->name, name) == 0){
+			if(ps->users != nil)
+				incref(ps->users);
+			unlock(&physseglock);
+			return ps;
+		}
+	unlock(&physseglock);
+	return nil;
+}
+
+/* 9space: getphysseg's reference given back (an attach that failed) */
+void
+putphysseg(Physseg *ps)
+{
+	if(ps->users != nil && decref(ps->users) == 0 && ps->unused != nil)
+		(*ps->unused)(ps);
+}
+
+/*
+ * 9space: physical segment name taken away if users has no reference
+ * (getphysseg counts under physseglock): 1 if it was; the check and the
+ * removal in one step
+ */
+int
+delphyssegunused(char *name, Ref *users)
+{
+	Physseg *ps;
+	int r;
+
+	r = 0;
+	lock(&physseglock);
+	if(users->ref == 0)
+		for(ps = physseg; ps->name; ps++)
+			if(strcmp(ps->name, name) == 0){
+				ps->name = "";
+				ps->users = nil;
+				ps->unused = nil;
+				r = 1;
+				break;
+			}
+	unlock(&physseglock);
+	return r;
+}
+
+/*
  * 9space: physical segment name no longer attachable (#G's framebuffer
  * replaced): its entry stays (segments point at it) under an empty name,
  * which addphysseg gives again; the caller knows none is attached
@@ -1440,9 +1496,13 @@ segattach(int attr, char *name, uintptr va, uintptr len)
 	if(groupoverlap(g, va, len) != nil)
 		error(Esoverlap);
 
-	ps = findphysseg(name);
+	ps = getphysseg(name);	/* 9space: a reference already: no fbreap in between */
 	if(ps == nil)
 		error(Ebadarg);
+	if(waserror()){
+		putphysseg(ps);
+		nexterror();
+	}
 
 	/*
 	 * 9front-ng: a device whose memory and registers reach all of the
@@ -1464,9 +1524,8 @@ segattach(int attr, char *name, uintptr va, uintptr len)
 	attr |= ps->attr;
 
 	s = newseg(attr, va, len/BY2PG);
-	s->pseg = ps;
-	if(ps->users != nil)
-		incref(ps->users);	/* 9space: putseg puts it */
+	s->pseg = ps;	/* 9space: getphysseg's reference now the segment's: putseg puts it */
+	poperror();
 done:
 	if(g != nil){
 		if(waserror()){

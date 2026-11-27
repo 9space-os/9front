@@ -176,6 +176,9 @@ int		islo(void);
 Segment*	isoverlap(uintptr, uintptr);
 Segment*	findseg(Proc*, uintptr);
 Physseg*	findphysseg(char*);
+Physseg*	getphysseg(char*);	/* 9space: with a reference to its users */
+void		putphysseg(Physseg*);
+int		delphyssegunused(char*, Ref*);
 void	delphysseg(char*);
 int		kenter(Ureg*);
 void		kexit(Ureg*);

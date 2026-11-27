@@ -344,9 +344,18 @@ appark(void *arg)
 	savecpu(c);
 	if(setlabel(&c->label) == 0){
 		wbinvd();
-		c->parked = 1;
-		coherence();
-		cpuhalt();		/* interrupts off: only INIT ends it */
+		/*
+		 * 9space: parked only if parkaps has not given up on it
+		 * (0 to -1 at its timeout): one that came late parked after
+		 * restartaps and stayed halted for ever (a processor lost)
+		 */
+		if(cas(&c->parked, 0, 1)){
+			coherence();
+			cpuhalt();		/* interrupts off: only INIT ends it */
+		}
+		splx(s);
+		up->wired = 0;
+		pexit("", 1);
 	}
 
 	/* restarted: the TSC from processor 0, the local APIC, its timer */
@@ -359,6 +368,20 @@ appark(void *arg)
 	splx(s);
 	up->wired = 0;
 	pexit("", 1);
+}
+
+/*
+ * 9space: the APs not parked yet given up (parked 0 to -1): they will not
+ * park now; restartaps restarts the parked ones (1)
+ */
+static void
+parkabort(void)
+{
+	int i;
+
+	for(i = 1; i < conf.nmach; i++)
+		cas(&cpusv[i].parked, 0, -1);
+	coherence();
 }
 
 static int
@@ -385,6 +408,7 @@ parkaps(void)
 			return 0;
 		tsleep(&up->sleep, return0, 0, 10);
 	}
+	parkabort();
 	return -1;
 }
 
@@ -399,7 +423,7 @@ restartaps(void)
 	s = splhi();
 	for(i = 1; i < conf.nmach; i++){
 		c = &cpusv[i];
-		if(!c->parked)
+		if(c->parked != 1)	/* 9space: -1, given up: it did not halt */
 			continue;
 		c->parked = 0;
 		setwake(c);
@@ -445,12 +469,25 @@ cpususpend(char* (*enter)(void*), void *arg)
 	ioapicsave();
 	poperror();
 
+	/*
+	 * 9space: an error on the way down (a note interrupted parkaps'
+	 * or a device's sleep) undoes it: the processors back, the devices
+	 * on (they stayed halted and off)
+	 */
+	if(waserror()){
+		parkabort();
+		restartaps();
+		powerall(1);
+		nexterror();
+	}
 	powerall(0);
 	if(parkaps() < 0){
+		poperror();
 		restartaps();
 		powerall(1);
 		return "suspend: a processor did not stop";
 	}
+	poperror();
 	fpuprocsave(up);
 	s = splhi();
 
