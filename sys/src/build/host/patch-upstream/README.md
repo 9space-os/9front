@@ -41,7 +41,8 @@ all 59 at `cb9e5e7e9` (2026-11-19), 0060 on them there (2026-11-19), 0061 to
 0063 on them there (2026-11-20), 0064 and 0065 on them there (2026-11-21),
 0066 on them there (2026-11-23); the 58 not archived on `2f3a62877`
 (2026-11-25), as files, unchanged (`git am --3way`); 0067 on `upstream`
-there (2026-11-26).
+there (2026-11-26); 0068 to 0071 on them there (2026-11-27, the series with
+`git am --3way`).
 Each applies alone too, except:
 
 - 0009 needs 0007 (context: `vbump` in `rwstat`),
@@ -178,6 +179,9 @@ change is then front's.
 | 0066 | kernel: locals set after waserror() and read in its handler are volatile (mntwalk leaked a chan per failed walk) | bug fix |
 | 0067 | ape: _dirfstat's second try with room for the stat's count (fstat failed for long names) | bug fix |
 | 0068 | devvmx: eventparse frees the copy it made, not where q moved to | bug fix |
+| 0069 | namec: c, e and m are volatile (changed after waserror, used by its handler: a chan closed twice and freed while in use) | bug fix |
+| 0070 | devfs: mconfig's cb and mp are volatile (a leaked Cmdbuf, a half-made device left in its tree) | bug fix |
+| 0071 | namec: the error handler frees e.off before nexterror too | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -1011,3 +1015,44 @@ with a number in it. The copy now has a variable of its own, which is
 freed. Found by reading (a scan for locals changed after `waserror()`,
 2026-11-27); compiled with gcc, not run (no test drives vmx(3) yet).
 
+
+### 0069 namec: c, e and m are volatile (changed after waserror, used by its handler)
+
+After `error()`'s jump back to `waserror()` a local that changed in
+between is indeterminate unless it is volatile (C11 7.13.2.1, as for
+setjmp; 0066 has the other places). In `namec`, `walk` and `domount`
+replace `c` and the handler closes it; `parsename` and `walk` fill `e`,
+whose allocations the handler frees; `findmount` and `domount` set `m`,
+which the failed create puts. A compiler that keeps `c` in a register
+(passing `&c` does not stop that once it sees `walk` and `domount` keep
+no copy of the address) hands the handler `c` as it was at `waserror`:
+`up->dot` or `up->slash`, closed again and freed while in use. Found with
+9space's clang (riscv64 kernel: `walk` with `c->path` nil under memory
+pressure, the guest's reservetest); narrowed down by mixing gcc's and
+clang's kernel objects and per-function `optnone`. `walk`, `domount`
+and `findmount` take pointers to volatile (`domount`'s `Path` too, since
+`namec`'s `path` was volatile already), `growparse` and `parsename` an
+`Elemlist volatile*`. kencc keeps these locals in memory, so 9front
+does not show it. Reviewed by a second agent (every local changed after
+the `waserror` and read in the handler, the callers in every kernel,
+the qualifier conversions); compiled with gcc and clang with
+`-Werror=discarded-qualifiers` and `-Wcast-qual`. On `gcc`, `c` volatile
+runs in the clang-built riscv64 kernel (boot 12/12, guest tests 326/326,
+reservetest no longer panics); `e` and `m` are compiled there, not yet
+run.
+
+### 0070 devfs: mconfig's cb and mp are volatile (set after waserror, used by its handler)
+
+The same class in fs(3)'s `mconfig`: `parseconfig` sets `cb` and then
+raises its usage errors, which reach a handler that frees `cb`; and
+`devalloc` sets `mp` after the write lock's `waserror`, whose `Fail`
+path deletes it. Without volatile the handler saw nil: the `Cmdbuf`
+leaked, a half-made device stayed in its tree. Found by reading;
+compiled, not run.
+
+### 0071 namec: the error handler frees e.off before nexterror too
+
+`namec`'s handler freed `e.off` only on the way that builds the error
+message: with `e.nerror` 0 it called `nexterror()` first and `e.off`
+leaked, for every error before the walk had any element right. Found
+reviewing 0069; compiled, not run.
