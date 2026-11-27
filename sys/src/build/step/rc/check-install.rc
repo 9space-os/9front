@@ -14,7 +14,7 @@ for(p in `{cat $list}){
 	n=`{echo $n + 1 | hoc}
 	if(~ $p '?'*){
 		# a Rust crate's or APE's program: built where there is Rust
-		# (cargo.rc) or the native gcc (ape.rc); reported as norust either way
+		# (cargo.rc) or the native compiler (ape.rc); reported as norust either way
 		p=`{echo $p | sed 's/^.//'}
 		if(! test -e $PLAN9$p)
 			echo norust $p

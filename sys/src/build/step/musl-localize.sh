@@ -10,12 +10,14 @@
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 objtype=${objtype:?objtype not set}
-case $objtype in arm64) P=${TOOLPREFIX-aarch64-linux-musl-} ;; *) P= ;; esac
+# the toolset's binutils (lib/target.sh)
+. "$ROOT/sys/src/build/lib/target.sh"
+target_binutils
 A=$ROOT/$objtype/lib.gcc/ape/libap.a
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 # member: symbol, for the defined globals
-${P}${NM:-nm} -A -g --defined-only "$A" 2>/dev/null |
+$NM -A -g --defined-only "$A" 2>/dev/null |
 	awk '$(NF-1) ~ /^[TDBRCVW]$/ {n = split($1, f, ":"); print f[n-1], $NF}' > "$T/defs"
 awk '$1 !~ /\.musl\.o$/ {print $2}' "$T/defs" | sort -u > "$T/ape"
 cd "$T"
@@ -23,10 +25,10 @@ changed=
 for m in $(awk '$1 ~ /\.musl\.o$/ {print $1}' defs | sort -u); do
 	syms=$(awk -v m="$m" '$1 == m {print $2}' defs | sort -u | comm -12 - ape)
 	[ -n "$syms" ] || continue
-	${P}${AR:-ar} x "$A" "$m"
-	${P}objcopy $(for s in $syms; do printf -- '--localize-symbol=%s ' "$s"; done) "$m"
-	${P}${AR:-ar} r "$A" "$m"
+	$AR x "$A" "$m"
+	$OBJCOPY $(for s in $syms; do printf -- '--localize-symbol=%s ' "$s"; done) "$m"
+	$AR r "$A" "$m"
 	echo "musl-localize: $m: $syms"
 	changed=1
 done
-[ -z "$changed" ] || ${P}${RANLIB:-ranlib} "$A"
+[ -z "$changed" ] || $RANLIB "$A"

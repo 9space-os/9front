@@ -11,6 +11,13 @@
 # the step's arguments (and --image-base=0), OBJCOPY llvm-objcopy; with gcc
 # they stay as the step set them. RT: the compiler's runtime library for the link,
 # /$objtype/lib.gcc/$CCRT (libgcc.a, libclang_rt.builtins.a), or empty.
+#
+# target_binutils (the steps that work on archives and programs: libp9.sh,
+# musl-localize.sh, gen-bootfs.sh): AR, NM, RANLIB, STRIP, OBJCOPY of the
+# toolset, as build.exe picks its own: with clang LLVM's (llvm-ar, ...);
+# with gcc the GNU tools with TOOLPREFIX in front (arm64's default
+# aarch64-linux-musl-), AR, NM, RANLIB as the environment names them
+# (dist/lib/tree-build.sh: gcc-ar, gcc-nm, gcc-ranlib on arm64).
 TARGET_CC=${CC:-}
 target_tools(){
 	if [ "${TOOLSET:-gcc}" = clang ]; then
@@ -21,4 +28,13 @@ target_tools(){
 	fi
 	RT=$ROOT/$objtype/lib.gcc/${CCRT:-libgcc.a}
 	[ -f "$RT" ] || RT=
+}
+target_binutils(){
+	if [ "${TOOLSET:-gcc}" = clang ]; then
+		AR=llvm-ar NM=llvm-nm RANLIB=llvm-ranlib STRIP=llvm-strip OBJCOPY=llvm-objcopy
+	else
+		local p
+		case $objtype in arm64) p=${TOOLPREFIX-aarch64-linux-musl-} ;; *) p=${TOOLPREFIX-} ;; esac
+		AR=$p${AR:-ar} NM=$p${NM:-nm} RANLIB=$p${RANLIB:-ranlib} STRIP=${p}strip OBJCOPY=${p}objcopy
+	fi
 }

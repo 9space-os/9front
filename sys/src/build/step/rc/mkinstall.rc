@@ -21,8 +21,9 @@ bind -bc $PLAN9/rc/bin /rc/bin || die bind
 bind -bc $PLAN9/sys/lib /sys/lib || die bind
 for(t){
 	# the build tool roots absolute paths in $PLAN9; mk names them as
-	# the mkfile does
-	t=`{echo $t | sed 's|^'$PLAN9'||'}
+	# the mkfile does (PLAN9=/, the installed system: they are already)
+	if(! ~ $PLAN9 /)
+		t=`{echo $t | sed 's|^'$PLAN9'||'}
 	echo $d: $t
 	# the directory in the tree, else a new file goes to the system's
 	# below the union (/rc/bin/postscript only there); /isspam: none

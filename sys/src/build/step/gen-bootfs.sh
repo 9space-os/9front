@@ -52,6 +52,7 @@ CFLAGS="-std=gnu17 -fno-asm -ffreestanding -nostdinc -fno-builtin -fplan9-extens
 	-I$ROOT/$objtype/include -I$ROOT/sys/include -I$ROOT/sys/src/9/boot"
 CC=${TOOLPREFIX}gcc LD="${TOOLPREFIX}ld $LDEMUL"
 target_tools
+target_binutils
 $CC $CFLAGS -c -o "$TMP/boot.o" "$ROOT/sys/src/9/boot/boot.c"
 $LD -o "$KDIR/boot" --entry=_main -z noseparate-code -z max-page-size=0x1000 \
 	-T "$ROOT/$objtype/plan9.ld" "$TMP/boot.o" "$ROOT/$objtype/lib.gcc/libc.a" $RT
@@ -82,7 +83,7 @@ done
 echo "protos: $PROTOS"
 
 python3 "$ROOT/sys/src/build/host/guest/proto.py" -s "$ROOT" -d "$TMP/$CONF.bootfs" -e tmp -e lib/firmware $PROTOS
-find "$TMP/$CONF.bootfs" -type f -exec sh -c 'file -b "$1" | grep -q ^ELF && '"${TOOLPREFIX}"'strip "$1"' _ {} \;
+find "$TMP/$CONF.bootfs" -type f -exec sh -c 'file -b "$1" | grep -q ^ELF && '"$STRIP"' "$1"' _ {} \;
 # a new image only when what goes into it changes (names, modes, contents):
 # mkpaqfs records the time and the files' times, so every image differs, and
 # the kernel embedding it would always be out of date (build.exe -D)

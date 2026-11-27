@@ -46,7 +46,7 @@ case cmd/[0-9a-z]c cmd/[0-9a-z]l
 		cd $d
 		T=`{sed -n 's/^T=//p' mkfile}
 		rc ../cc/mkenam || die enam.c
-	}
+	} || die enam.c	# (die in @{} ends only the subshell)
 	if(grep -s '^cnam.c:' mkfile)
 		rc ./mkcname || die cnam.c
 	for(f in $d/enam.c cnam.c){
@@ -61,11 +61,11 @@ case games/blabs
 	for(f in `{mkvar FACES})
 		rc ./mkface `{basename $f .bits} || die $f
 case cmd/gs
-	# $objtype.h: genarch measures the compiler's types; the native gcc
+	# $objtype.h: genarch measures the compiler's types; the native compiler
 	# compiles it as a POSIX program (APE), with this tree's headers
 	switch($objtype){
 	case $cputype
-		$GNU/gcc -I$PLAN9/$cputype/include/ape -I$PLAN9/sys/include/ape \
+		$CC -I$PLAN9/$cputype/include/ape -I$PLAN9/sys/include/ape \
 			-DHAVE_LONG_LONG -o $TMP/genarch src/genarch.c || die genarch
 		$TMP/genarch $objtype.h || die $objtype.h
 	case *

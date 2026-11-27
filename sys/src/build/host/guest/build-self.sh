@@ -1,6 +1,8 @@
 #!/bin/bash
 # The system builds itself: boots the gcc-built system with the native
-# gcc and binutils of toolchain/gcc (GCC_DIR in paths.env; /$objtype/gnu) and runs the build
+# gcc and binutils of toolchain/gcc (GCC_DIR in paths.env; /$objtype/gnu),
+# or with CC a clang the native clang, lld and LLVM binutils of
+# toolchain/clang (CLANG_DIR; /$objtype/clang), and runs the build
 # tool there (sys/src/build/host/guest/boot/mkself.rc) on a copy of the tree's
 # sources ($CLI_DIR/self.$objtype: git ls-files) -- the build of
 # CC=gcc ARCH=$objtype sys/src/cmd/build/build.exe, on 9front (amd64:
@@ -14,12 +16,15 @@
 # its objects are compared with this tree's (the Linux build's, if built
 # for $objtype).
 #
-# usage: [objtype=386] sys/src/build/host/guest/build-self.sh [buildfile...]   (needs
-#        the build for objtype, the native toolchain: GCC_DIR's
-#        out/$objtype, GCC_OUT)
+# usage: [objtype=386] [CC=clang] sys/src/build/host/guest/build-self.sh [buildfile...]
+#        (needs the build for objtype with that toolset, the native
+#        toolchain: GCC_DIR's out/$objtype, GCC_OUT; with CC=...clang
+#        CLANG_DIR's out/$objtype, CLANG_OUT)
 #        buildfile: only these manifests (relative to the tree, e.g.
 #        sys/src/ape/cmd/cmds.json), else the whole build.json
-#   env: WAITMAX  seconds at most for the build in the guest (28800)
+#   env: CC       the toolset, as build.exe reads it: gcc (default) or one
+#                 with clang in its name (x86_64-unknown-plan9-clang, clang)
+#        WAITMAX  seconds at most for the build in the guest (28800)
 #        SMP      CPUs of the guest (4)
 #        MEM      its memory in MB (amd64 4096, 386 3072)
 #        ROOM     MB of the image beyond the copy, for what the build writes
@@ -29,17 +34,33 @@
 #                 build tool and the manifests renewed), e.g. after a fix
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
-. "$ROOT/sys/src/build/lib/paths.sh"	# GCC_DIR, CLI_DIR (the distribution's paths.env)
+. "$ROOT/sys/src/build/lib/paths.sh"	# GCC_DIR, CLANG_DIR, CLI_DIR (the distribution's paths.env)
 A=${objtype:-amd64}
 case $A in
 amd64)	mem=4096 ;;
 386)	mem=3072 ;;	# 9pc: below the PCI hole
-*)	echo "build-self: objtype=$A: no native gcc" >&2; exit 1 ;;
+*)	echo "build-self: objtype=$A: no native toolchain" >&2; exit 1 ;;
 esac
-GCC_OUT=${GCC_OUT:-$GCC_DIR/out/$A}
 die(){ echo "build-self: $*" >&2; exit 1; }
-[ -x "$GCC_OUT/$A/gnu/bin/gcc" ] || die "no $GCC_OUT/$A/gnu/bin/gcc (GCC_DIR: toolchain/gcc, build.sh native)"
-[ -s "$ROOT/$A/lib.gcc/libc.a" ] || die "no $A/lib.gcc/libc.a, run CC=gcc ARCH=$A sys/src/cmd/build/build.exe"
+# the toolset by CC's name, as build.exe's (build.go: toolset): the native
+# toolchain the guest gets ($TC: /$objtype/$TC) and the CC mkself gives the
+# build tool there
+case $(basename "${CC:-gcc}") in
+*clang*)
+	TC=clang SELFCC=clang
+	TC_OUT=${CLANG_OUT:-$CLANG_DIR/out/$A}
+	[ -x "$TC_OUT/$A/clang/bin/clang" ] && [ -x "$TC_OUT/$A/clang/bin/llvm-ar" ] ||
+		die "no $TC_OUT/$A/clang/bin/clang and llvm-ar (CLANG_DIR: toolchain/clang, objtype=$A build.sh native)"
+	[ -s "$ROOT/$A/lib.gcc/libclang_rt.builtins.a" ] ||
+		die "no $A/lib.gcc/libclang_rt.builtins.a: the tree is not built with clang, run CC=<target>-clang ARCH=$A sys/src/cmd/build/build.exe"
+	;;
+*)
+	TC=gnu SELFCC=gcc
+	TC_OUT=${GCC_OUT:-$GCC_DIR/out/$A}
+	[ -x "$TC_OUT/$A/gnu/bin/gcc" ] || die "no $TC_OUT/$A/gnu/bin/gcc (GCC_DIR: toolchain/gcc, build.sh native)"
+	;;
+esac
+[ -s "$ROOT/$A/lib.gcc/libc.a" ] || die "no $A/lib.gcc/libc.a, run CC=${CC:-gcc} ARCH=$A sys/src/cmd/build/build.exe"
 
 S=$CLI_DIR/self.$A
 # the copy is the checkout's HEAD (git archive), not its working tree: the
@@ -60,7 +81,7 @@ trap 'rm -rf "$T"' EXIT
 # what the guest's root lacks: the native toolchain, the installed
 # libraries and the mkfile of /$objtype (helper programs, mk)
 mkdir -p "$T/extra/rc/bin" "$T/extra/$A"
-cp -r "$GCC_OUT/$A/gnu" "$T/extra/$A/"
+cp -r "$TC_OUT/$A/$TC" "$T/extra/$A/"
 cp -r "$ROOT/$A/lib.gcc" "$ROOT/$A/mkfile" "$ROOT/$A/plan9.ld" "$T/extra/$A/"
 cp "$ROOT/sys/src/build/host/guest/boot/mkself.rc" "$T/extra/rc/bin/mkself"
 
@@ -77,7 +98,7 @@ LOG=$CLI_DIR/mkself.$A.log
 objtype=$A MEM=${MEM:-$mem} UFS_EXTRA=$T/extra \
 	QEMU_EXTRA="-smp ${SMP:-4} -drive file=$IMG,format=raw,if=virtio,cache=unsafe $QEMU_EXTRA" \
 	WAITFOR='mkself: (done|failed:)' WAITMAX=${WAITMAX:-28800} CMDWAIT=5 \
-	bash "$ROOT/sys/src/build/host/guest/boot-cli.sh" "mkself $*" > "$LOG" 2>&1 || true
+	bash "$ROOT/sys/src/build/host/guest/boot-cli.sh" "CC=$SELFCC mkself $*" > "$LOG" 2>&1 || true
 tr -d '\r' < "$LOG" > "$LOG.txt"
 
 # the tree as the guest left it back to $S (chown fails, not root)
