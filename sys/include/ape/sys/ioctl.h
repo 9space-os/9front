@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-/* FIONREAD: return number of bytes readable in *(long*)arg */
+/* FIONREAD: return number of bytes readable in *(int*)arg (GCC port: was long, 8 bytes under gcc) */
 #define FIONREAD 1
 
 int ioctl(int, unsigned long, void*);
