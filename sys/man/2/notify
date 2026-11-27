@@ -83,17 +83,20 @@ The handler is the process's own: a process that shares the memory
 and calls
 .I notify
 changes only its own.
-On amd64 and arm64 the kernel enters the handler as its compilers expect a
+On amd64, arm64 and riscv64 the kernel enters the handler as its compilers expect a
 function: the arguments where 9front's compilers pass them (in
-.B BP
+.BR BP ,
+.B R0
 or
-.BR R0 ,
-and on the stack) and also in the registers of the System V and AAPCS
-calling conventions (\c
+.BR R8 ,
+and on the stack) and also in the registers of the System V, AAPCS and
+RISC-V calling conventions (\c
 .BR DI ,
 .BR SI ;
 .BR R0 ,
-.BR R1 ),
+.BR R1 ;
+.BR A0 ,
+.BR A1 ),
 on a stack aligned to 16 bytes; 9front's kernels do only the first.
 The
 .B Ureg

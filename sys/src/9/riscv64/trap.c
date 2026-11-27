@@ -153,7 +153,13 @@ syscall(Ureg *ureg)
 
 /*
  * the note handler is called as notify(ureg, msg) with jc's
- * conventions: ureg in R8 and at 8(sp), msg at 16(sp)
+ * conventions: ureg in R8 and at 8(sp), msg at 16(sp); 9space: and as
+ * a psABI function too, ureg in a0, msg in a1, the stack 16-byte
+ * aligned (STACKALIGN, the 160 bytes below the Ureg keep it so).
+ * libc's notify(2) then registers the handler itself, per process, as
+ * 9front's; the gcc port's trampoline called the handler of one
+ * variable shared by a program's processes (RFMEM: one's notify(nil),
+ * the others' next note went to pc 0).
  */
 Ureg*
 notify(Ureg *ureg, char *msg)
@@ -179,6 +185,8 @@ notify(Ureg *ureg, char *msg)
 	*(uintptr*)(sp+2*BY2WD) = sp+3*BY2WD;
 	*(uintptr*)(sp+1*BY2WD) = (uintptr)nureg;
 	ureg->ret = (uintptr)nureg;
+	ureg->r10 = (uintptr)nureg;	/* 9space: the psABI's a0, a1 */
+	ureg->r11 = sp+3*BY2WD;
 	ureg->sp = sp;
 	ureg->pc = (uintptr)up->notify;
 	ureg->link = 0;
