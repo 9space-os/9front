@@ -479,12 +479,15 @@ func stale(n string, d []string) bool {
 func outofdate(b *build) (link, archive bool) {
 	command, cArgs, asmArgs := compileArgs(b)
 	csig, asig := signature(command, cArgs), signature(tools["cc"], asmArgs)
+	xsig := signature(command, withoutC11(cArgs))	/* compile signs C++ so (cxxjobs) */
 	cc := compilerfiles()
 	objstale := func(f string) bool {
 		o := objectOf(b, f)
 		want := csig
 		if isasm(f) && len(b.SourceFilesCmd) == 0 {
 			want = asig
+		} else if iscxx(f) {
+			want = xsig
 		}
 		deps, sig, ok := readdeps(b, f)
 		return !ok || sig != want || !thisarch(o) || stale(o, append(append(deps, f), cc...))
@@ -507,7 +510,8 @@ func outofdate(b *build) (link, archive bool) {
 		archive = len(srcs) > 0 || stale(lib, b.ObjectFiles) || !members(lib, b.ObjectFiles, !b.Append && !b.Shared)
 	}
 	if b.Program != "" {
-		link = len(srcs) > 0 || stale(target(b), append(append(append([]string{}, b.ObjectFiles...), libs...), linkerfiles()...))
+		link = len(srcs) > 0 || stale(target(b), append(append(append(append([]string{}, b.ObjectFiles...), libs...), linkerfiles()...), linkscripts(b)...)) ||
+			readlinksig(b.Program) != linksig(b, b.ObjectFiles)
 	}
 	var cmds []string
 	b.cmdstale = map[string]bool{}
@@ -516,7 +520,8 @@ func outofdate(b *build) (link, archive bool) {
 		if objstale(f) {
 			b.cmdstale[f] = true
 			cmds = append(cmds, f)
-		} else if stale(path.Join(dir, path.Base(exe)), append(append([]string{objectOf(b, f)}, libs...), linkerfiles()...)) {
+		} else if n := strings.TrimSuffix(f, filepath.Ext(f)); stale(path.Join(dir, path.Base(exe)), append(append(append([]string{objectOf(b, f)}, libs...), linkerfiles()...), linkscripts(b)...)) ||
+			readlinksig(n) != linksig(b, []string{path.Base(n) + ".o"}) {
 			cmds = append(cmds, f)
 		}
 	}
@@ -907,10 +912,10 @@ func clean(b *build) {
 	}
 	for _, n := range b.SourceFilesCmd {
 		n = n[:len(n)-len(filepath.Ext(n))]
-		files = append(files, path.Base(n)+".o", path.Base(n)+".d", n+".out", n+".r.o", n+".weak")
+		files = append(files, path.Base(n)+".o", path.Base(n)+".d", n+".out", n+".r.o", n+".weak", n+".lsig")
 	}
 	if b.Program != "" {
-		files = append(files, b.Program, b.Program+".r.o", b.Program+".weak")
+		files = append(files, b.Program, b.Program+".r.o", b.Program+".weak", b.Program+".lsig")
 	}
 	if b.Library != "" && !strings.HasPrefix(b.Install, fromRoot("/$ARCH")+"/") && !strings.HasPrefix(b.Install, fromRoot("/sys/src/build/host/tests")+"/") {
 		files = append(files, path.Join(b.Install, b.Library))
@@ -1027,6 +1032,7 @@ func link(b *build) {
 			args = append(args, b.Libs...)
 			args = append(args, b.Oflags...)
 			run(b, *shellhack, exec.Command(tools["ld"], args...))
+			writelinksig(n, linksig(b, []string{o}))
 		}
 		return
 	}
@@ -1040,6 +1046,62 @@ func link(b *build) {
 	args = append(args, b.Libs...)
 	args = append(args, b.Oflags...)
 	run(b, *shellhack, exec.Command(tools["ld"], args...))
+	writelinksig(b.Program, linksig(b, b.ObjectFiles))
+}
+
+// uniqueobjects: two sources of a manifest that make one object (a file
+// listed twice: pc64's ../port/devi2c.c) were compiled at once into the
+// same x.o and x.d by two parallel jobs; refused
+func uniqueobjects(b *build) {
+	seen := map[string]string{}
+	for _, f := range append(append([]string{}, b.SourceFiles...), b.SourceFilesCmd...) {
+		o := objectOf(b, f)
+		if g, ok := seen[o]; ok {
+			log.Fatalf("%s: %s and %s both make %s", b.Name, g, f, o)
+		}
+		seen[o] = f
+	}
+}
+
+// linksig: the signature of a link of objs (the linker, the objects in
+// their order, Libs and Oflags: presolve's temporary file is not in it):
+// -D links again when it changes, as a compile when its command does --
+// an object dropped from the manifest, other Oflags, other libraries
+func linksig(b *build, objs []string) string {
+	return signature(tools["ld"], append(append(append([]string{}, objs...), b.Libs...), b.Oflags...))
+}
+
+// linkscripts: the linker scripts in Oflags (-T file, -Tfile), for -D
+// dependencies of every link as the objects are
+func linkscripts(b *build) []string {
+	var fs []string
+	for i, a := range b.Oflags {
+		f := ""
+		if a == "-T" && i+1 < len(b.Oflags) {
+			f = b.Oflags[i+1]
+		} else if strings.HasPrefix(a, "-T") && len(a) > 2 {
+			f = a[2:]
+		}
+		if f != "" {
+			if _, err := os.Stat(f); err == nil {
+				fs = append(fs, f)
+			}
+		}
+	}
+	return fs
+}
+
+// the link signature of output n, beside it (n.lsig in the manifest's directory)
+func readlinksig(n string) string {
+	d, err := os.ReadFile(n + ".lsig")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(d))
+}
+
+func writelinksig(n, sig string) {
+	fail(os.WriteFile(n+".lsig", []byte(sig+"\n"), 0666))
 }
 
 // install puts the targets in place: with -D only a program linked anew
@@ -1061,8 +1123,7 @@ func install(b *build, dolink, doarchive bool) {
 			exe, dir := cmdTarget(b, n)
 			final := path.Join(dir, path.Base(exe))
 			log.Printf("move %s %s\n", exe+".out", final)
-			_ = os.Remove(final)
-			fail(mv(exe+".out", final))
+			fail(mv(exe+".out", final))	// replaces final (mv)
 		}
 	case len(b.Program) > 0:
 		move(b.Program, b.Install)
@@ -1138,15 +1199,20 @@ const arBatch = 200
 func move(from, to string) {
 	final := path.Join(to, from)
 	log.Printf("move %s %s\n", from, final)
-	_ = os.Remove(final)
 	fail(mv(from, final))
 }
 
 // mv renames from to final, or copies it there (with its mode) and
 // removes it: Plan 9 has no hard links and renames only within a
-// directory
+// directory. The copy goes to a temporary file beside final first, which
+// is renamed when complete: a copy that failed midway left a truncated
+// program with a fresh time, which the next -D took for up to date.
 func mv(from, final string) error {
-	if runtime.GOOS != "plan9" || path.Dir(from) == path.Dir(final) {
+	if runtime.GOOS != "plan9" {
+		return os.Rename(from, final)	// replaces final
+	}
+	if path.Dir(from) == path.Dir(final) {
+		_ = os.Remove(final)	// Plan 9's rename refuses an existing name
 		return os.Rename(from, final)
 	}
 	fi, err := os.Stat(from)
@@ -1158,15 +1224,23 @@ func mv(from, final string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(final, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fi.Mode().Perm())
+	tmp := path.Join(path.Dir(final), "."+path.Base(final)+".new")
+	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fi.Mode().Perm())
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
+		os.Remove(tmp)
 		return err
 	}
 	if err := out.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	_ = os.Remove(final)
+	if err := os.Rename(tmp, final); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	return os.Remove(from)
@@ -1319,6 +1393,7 @@ func project(bf string, which []*regexp.Regexp) {
 		runCmds(&b, b.Pre)
 		keeptimes(snap)
 		buildkernel(&b)
+		uniqueobjects(&b)
 		dolink, doarchive := true, true
 		if *depends {
 			dolink, doarchive = outofdate(&b)
