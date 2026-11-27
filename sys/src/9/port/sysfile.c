@@ -110,7 +110,7 @@ newfd(Chan *c, int mode)
 }
 
 static int
-newfd2(int fd[2], Chan *c[2])
+newfd2(int fd[2], Chan *volatile c[2])
 {
 	Fgrp *f;
 
@@ -210,7 +210,7 @@ syspipe(va_list list)
 {
 	static char *datastr[] = {"data", "data1"};
 	int fd[2], *ufd;
-	Chan *c[2];
+	Chan *volatile c[2];	/* cclone, walk and open change them after waserror, its handler closes them */
 
 	ufd = va_arg(list, int*);
 	validaddr((uintptr)ufd, sizeof(fd), 1);
