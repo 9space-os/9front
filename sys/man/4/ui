@@ -110,7 +110,13 @@ from ui's directory (all of the text: Masonry tells no word or selection in it).
 .TP
 .B ctl
 Written: a transaction, the lines of one write applied all or none (an error
-names the line); read: where the window's contents are on the screen,
+names the line). A write longer than a message (the mount's iounit, at
+most 32 KiB) reaches ui as several, which it puts together again: a piece
+of the whole iounit that ends inside a line goes on; one that ends at a
+line's end is taken for the write's end, so a write whose cut falls just
+after a newline is applied as two. A client that needs one transaction
+beyond that writes at most an iounit, or keeps its lines from ending at
+the cut. Read: where the window's contents are on the screen,
 .IR "x y width height" .
 .TP
 .B event
