@@ -84,7 +84,7 @@ what it writes under `/usr/glenda` and `/sys/log` is in
 lines, the host's `/usr/lib/firmware/pattern` unpacked into the root.
 Without a stick, `gpustart` logs the GPU driver to `/sys/log/<driver>boot`.
 
-Machines: `thinkbook16g7` (Lenovo ThinkBook 16 G7 ARP, Radeon 680M).
+Machines: `thinkbook16g7` (Lenovo ThinkBook 16 G7 ARP, Radeon 680M), `b550host` (the build host: ASUS PRIME B550-PLUS, RX 7600; NVMe and AHCI off).
 The stick's `hwtest` run is not done this way yet (its `disk` step must
 never run there).
 

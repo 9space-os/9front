@@ -1,0 +1,17 @@
+# The build host: ASUS PRIME B550-PLUS, Ryzen 5 5600XT (Zen 3), 32 GB,
+# UEFI, Radeon RX 7600 XT (Navi 33, 1002:7480), RTL8111H (10ec:8168 rev 15).
+# Its NVMe (Crucial P310) and SATA disk (Samsung 870 QVO) hold the host's
+# Linux, where the agents run: the kernel touches neither, not even to read.
+*nonvme=1
+*noahci=1
+# the RX 7600 for aux/amdgpu: GC 11.0.2 and its IP blocks (the patterns
+# sys/src/build/host/guest/vfio-test.sh loads it with by VFIO)
+firmware amdgpu/gc_11_0_*
+firmware amdgpu/psp_13_0_*
+firmware amdgpu/smu_13_0_*
+firmware amdgpu/dcn_3_2*
+firmware amdgpu/sdma_6_0_*
+firmware amdgpu/vcn_4_0_*
+# keyboard and mouse are USB (nusb/kb); no PS/2 devices
+# the screen stays the firmware's (VESA/GOP) until aux/amdgpu has been
+# tried natively by hand: gpustart, then wsys -g
