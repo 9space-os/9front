@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: port <port@localhost>
+Date: Fri, 27 Nov 2026 08:48:16 +0100
+Subject: [PATCH] util/disk_cache: 9front: the shader cache in $home/lib/mesa
+
+---
+ src/util/disk_cache_os.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/src/util/disk_cache_os.c b/src/util/disk_cache_os.c
+index 15b6a81..9d0a6f3 100644
+--- a/src/util/disk_cache_os.c
++++ b/src/util/disk_cache_os.c
+@@ -1003,6 +1003,25 @@ disk_cache_generate_cache_dir(void *mem_ctx, const char *gpu_name,
+          return NULL;
+    }
+ 
++#if DETECT_OS_PLAN9
++   /* 9front: $home/lib/mesa (a program's data in the user's lib, as
++    * $home/lib/servo; APE has no $HOME): none where it cannot be made (a
++    * live CD's home), then no cache */
++   if (path == NULL) {
++      const char *home = os_get_option("home");
++
++      if (home) {
++         path = concatenate_and_mkdir(mem_ctx, home, "lib", mkdir);
++         if (path)
++            path = concatenate_and_mkdir(mem_ctx, path, "mesa", mkdir);
++         if (path)
++            path = concatenate_and_mkdir(mem_ctx, path, cache_dir_name, mkdir);
++         if (!path)
++            return NULL;
++      }
++   }
++#endif
++
+    if (path == NULL) {
+       const char *xdg_cache_home = os_get_option_secure("XDG_CACHE_HOME");
+ 

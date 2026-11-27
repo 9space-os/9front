@@ -168,7 +168,7 @@ if [ ! -f "$BUILD/mesa/build.ninja" ]; then
 		-Dglx=disabled -Dgbm=disabled -Dgles1=disabled \
 		-Dllvm=disabled -Dmesa-clc=system -Dzstd=disabled -Dexpat=disabled -Dxmlconfig=disabled \
 		-Dvalgrind=disabled -Dlibunwind=disabled -Dbuild-tests=false -Dtools= \
-		-Dvulkan-layers= -Ddefault_library=static -Dshader-cache=disabled \
+		-Dvulkan-layers= -Ddefault_library=static -Dshader-cache=enabled \
 		-Db_ndebug=$NDEBUG
 	cp "$BUILD/cross.ini" "$BUILD/mesa/cross.ini.setup"
 elif [ "$(python3 -c 'import json, sys; print(",".join(*[o["value"] for o in json.load(open(sys.argv[1])) if o["name"] == "vulkan-drivers"]))' "$BUILD/mesa/meson-info/intro-buildoptions.json")" != $DRIVERS ]; then
@@ -186,6 +186,12 @@ fi
 if [ "$(python3 -c 'import json, sys; print(",".join(*[o["value"] for o in json.load(open(sys.argv[1])) if o["name"] == "platforms"]))' "$BUILD/mesa/meson-info/intro-buildoptions.json")" != $PLATFORMS ]; then
 	# a build made before EGL's plan9 platform, or Wayland's (2026-11)
 	meson configure "$BUILD/mesa" -Dplatforms=$PLATFORMS
+fi
+# the shader cache (2026-11-27): compiled shaders kept in $home/lib/mesa (Mesa's
+# util/disk_cache, the plan9 patch), not compiled anew at each start (vello's
+# pipelines in ui(4): seconds); a build set up with it disabled is changed
+if [ "$(python3 -c 'import json, sys; print(*[o["value"] for o in json.load(open(sys.argv[1])) if o["name"] == "shader-cache"])' "$BUILD/mesa/meson-info/intro-buildoptions.json")" != enabled ]; then
+	meson configure "$BUILD/mesa" -Dshader-cache=enabled
 fi
 if [ "$(python3 -c 'import json, sys; print(*[o["value"] for o in json.load(open(sys.argv[1])) if o["name"] == "mesa-clc"])' "$BUILD/mesa/meson-info/intro-buildoptions.json")" != system ]; then
 	# a build set up before mesa_clc came from the build machine (386's)

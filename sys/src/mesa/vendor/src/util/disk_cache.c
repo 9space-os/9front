@@ -24,7 +24,9 @@
 #ifdef ENABLE_SHADER_CACHE
 
 #include <ctype.h>
+#ifndef __plan9__	/* 9front has none; nothing here uses it */
 #include <ftw.h>
+#endif
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -225,9 +227,11 @@ disk_cache_create(const char *gpu_name, const char *driver_id,
    uint64_t max_size = 0;
    const char *max_size_str;
 
+   /* 9front: the database (two files, read and written whole) by default;
+    * the multi-file cache's index wants mmap, which 9front has not */
    if (debug_get_bool_option("MESA_DISK_CACHE_SINGLE_FILE", false)) {
       cache_type = DISK_CACHE_SINGLE_FILE;
-   } else if (debug_get_bool_option("MESA_DISK_CACHE_DATABASE", false)) {
+   } else if (debug_get_bool_option("MESA_DISK_CACHE_DATABASE", DETECT_OS_PLAN9)) {
       cache_type = DISK_CACHE_DATABASE;
       /* Since switching the default cache to <mesa_shader_cache_db>, remove the
        * old cache folder if it hasn't been modified for more than 7 days.
