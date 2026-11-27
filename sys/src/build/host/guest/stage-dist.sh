@@ -146,11 +146,27 @@ GCC_OUT=${GCC_OUT:-$GCC_DIR/out/$A}
 # apefresh -a FILE HOW [MACHINE]: an archive compiled over APE's headers
 # (libc++.a): only the headers count, the program it goes into links
 # the current libap. MACHINE: whose APE (default $A)
+# APE's headers are its own, as branch gcc has them (9front's and the
+# port's): not what other parts install beside them on main (Mesa's
+# vulkan, EGL, GL; SDL3, GLFW, freetype2, Wayland's, libffi's, libui's
+# ui.hh), which gcc, binutils, clang and lld never include (a change to
+# libui stopped every update until a relink). APE's own on main alone
+# (epoll, timerfd: gnu/) come with a new libap.a, which counts for a
+# program. Without the branch: all of them.
+apeheaders(){
+	local m=$1
+	if git -C "$ROOT" rev-parse -q --verify gcc >/dev/null 2>&1; then
+		git -C "$ROOT" ls-tree -r --name-only gcc -- sys/include/ape "$m/include/ape" | sed "s|^|$ROOT/|"
+	else
+		find "$ROOT/sys/include/ape" "$ROOT/$m/include/ape" -type f
+	fi
+}
 apefresh(){
 	local stale lib=1
 	[ "$1" != -a ] || { lib=; shift; }
 	local m=${3:-$A}
-	stale=$(find "$ROOT/sys/include/ape" "$ROOT/$m/include/ape" ${lib:+"$ROOT/$m/lib.gcc/ape/libap.a"} -type f -newer "$1" -print -quit 2>/dev/null)
+	stale=$( { apeheaders "$m"; [ -n "$lib" ] && echo "$ROOT/$m/lib.gcc/ape/libap.a"; } |
+		while read -r f; do [ -f "$f" ] && [ "$f" -nt "$1" ] && { echo "$f"; break; }; done)
 	[ -z "$stale" ] || { echo "stage-dist: $1 is older than APE's ${stale#$ROOT/}: build it again ($2)" >&2; exit 1; }
 }
 # gccproto: /$objtype/lib.gcc, gcc's archives (with gcc); uiproto: the desktop's files
