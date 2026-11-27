@@ -1,0 +1,51 @@
+From 2d409cf9aa119d3e8b0770d7b5b581ad6650cb1a Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 27 Nov 2026 09:40:39 +0100
+Subject: [PATCH] mountfix: buf and nbuf are volatile (allocated after
+ waserror, freed after its handler)
+
+mountfix allocates buf after its waserror() and may free and allocate
+it again (when the stat and the new name need more than nbuf); an error there (Eshortstat,
+the device's stat) goes to Norewrite, the loop goes on with the next
+entry, and buf is freed at the end.  Without volatile, buf and nbuf are
+indeterminate after the jump back (C11 7.13.2.1, as 0066): a compiler
+that keeps them in registers may hand back the buf freed before the
+second smalloc (used by the next entry's stat, then freed again) or nil
+(the allocation leaks).  Found by a review of the namec volatile patch
+(2026-11-27); compiled with gcc and clang, not run.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/port/sysfile.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/sys/src/9/port/sysfile.c b/sys/src/9/port/sysfile.c
+index 76b2e071f..72faac684 100644
+--- a/sys/src/9/port/sysfile.c
++++ b/sys/src/9/port/sysfile.c
+@@ -557,14 +557,20 @@ static long
+ mountfix(Chan *c, uchar *op, long n, long maxn)
+ {
+ 	char *name;
+-	int nbuf, nname;
++	int nname;
+ 	Chan *nc;
+ 	Mhead *mh;
+ 	Mount *m;
+ 	uchar *p;
+ 	int dirlen, rest;
+ 	long l;
+-	uchar *buf, *e;
++	uchar *e;
++	/*
++	 * set and replaced after the waserror below, and its handler's
++	 * Norewrite goes on with the loop and frees buf at the end
++	 */
++	uchar *volatile buf;
++	volatile int nbuf;
+ 	Dir d;
+ 
+ 	p = op;
+-- 
+2.56.1
+

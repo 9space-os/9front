@@ -1,0 +1,46 @@
+From b7135f06bb1988bdd37354f63ed918133e101342 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 27 Nov 2026 09:40:39 +0100
+Subject: [PATCH] syspipe: c is volatile (cclone, walk and open change it after
+ waserror, its handler closes it)
+
+syspipe sets c[1] = cclone(c[0]) after its waserror(), walks both and
+replaces both with what the device's open returns; an error on the way
+(Egreg, the open, Enofd) reaches the handler that closes c[0] and c[1].
+Without volatile they are indeterminate there (C11 7.13.2.1, as 0066):
+a compiler that does not keep the array in memory may close c[1] as nil
+(the clone leaks) or a chan the walk replaced.  Lower risk than the
+others (the array's address goes to walk and newfd2), but the same
+rule.  newfd2 takes a Chan *volatile c[2].  Found by a review of the
+namec volatile patch (2026-11-27); compiled with gcc and clang, not run.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/port/sysfile.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/sys/src/9/port/sysfile.c b/sys/src/9/port/sysfile.c
+index 72faac684..cbbaeb723 100644
+--- a/sys/src/9/port/sysfile.c
++++ b/sys/src/9/port/sysfile.c
+@@ -110,7 +110,7 @@ newfd(Chan *c, int mode)
+ }
+ 
+ static int
+-newfd2(int fd[2], Chan *c[2])
++newfd2(int fd[2], Chan *volatile c[2])
+ {
+ 	Fgrp *f;
+ 
+@@ -210,7 +210,7 @@ syspipe(va_list list)
+ {
+ 	static char *datastr[] = {"data", "data1"};
+ 	int fd[2], *ufd;
+-	Chan *c[2];
++	Chan *volatile c[2];	/* cclone, walk and open change them after waserror, its handler closes them */
+ 
+ 	ufd = va_arg(list, int*);
+ 	validaddr((uintptr)ufd, sizeof(fd), 1);
+-- 
+2.56.1
+

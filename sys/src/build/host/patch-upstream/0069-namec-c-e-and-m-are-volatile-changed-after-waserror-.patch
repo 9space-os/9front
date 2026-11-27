@@ -1,6 +1,6 @@
-From 8f56b3a266a262b88a0472bf3494476ab23311ef Mon Sep 17 00:00:00 2001
+From 8636b607076cb7ccc07b606bed64aabfb0b0c3e6 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
-Date: Fri, 27 Nov 2026 08:55:42 +0100
+Date: Fri, 27 Nov 2026 09:37:57 +0100
 Subject: [PATCH] namec: c, e and m are volatile (changed after waserror, used
  by its handler)
 
@@ -8,33 +8,36 @@ After error()'s longjmp (gotolabel) a local that changed after its
 waserror() (setlabel) is indeterminate unless it is volatile (C11
 7.13.2.1, as for setjmp; 0066 for other places).  In namec:
 
-- c: walk and domount replace it after the waserror, the handler closes
-  it.  A compiler that keeps c in a register (passing &c does not stop
-  it when it sees that walk and domount do not keep the address) hands
-  the handler c as it was at waserror, up->dot or up->slash: closed once
-  more and freed while still in use.  Found with clang (riscv64 kernel,
-  a walk with c->path nil under memory pressure).
+- c: walk, domount and cunique replace it after the waserror, the
+  handler closes it.  A compiler that keeps c in a register (passing &c
+  does not stop it when it sees that walk and domount do not keep the
+  address) hands the handler c as it was at waserror, up->dot or
+  up->slash: closed once more and freed while still in use, and the
+  real one leaked.  Found with clang (a riscv64 kernel: walk with
+  c->path nil under memory pressure).
 - e: parsename and walk fill it (e.name, e.elems, e.off, e.nerror), the
   handler frees them and reads e.nerror for the error message.
-- m: findmount and domount set it, the failed create puts it.
+- m: findmount sets it in the create, whose failure puts it.
 
 walk, domount and findmount take a Chan *volatile* and Mhead *volatile*
-(domount a Path *volatile* too: namec's path is volatile already),
-growparse and parsename an Elemlist volatile*, walk's nerror a volatile
-int*: the other callers' plain pointers convert to them.  parsename
-copies the name through its own local (kstrdup takes a char**).
+(domount a Path *volatile* too), growparse and parsename an Elemlist
+volatile*, walk's nerror a volatile int*: the other callers' plain
+pointers convert to them.  This also ends two places where namec's
+volatile locals already lost their qualifier: &path to domount's
+Path** and &cnew to findmount's Chan**.  parsename copies the name
+through its own local (kstrdup takes a char**).
 
-kencc keeps these locals in memory, so 9front built with it does not
-show this; the code no longer depends on that.
+9front built with its own compilers has not shown it; the code no
+longer depends on what a compiler does with these locals.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- sys/src/9/port/chan.c    | 29 +++++++++++++++++++----------
+ sys/src/9/port/chan.c    | 30 ++++++++++++++++++++----------
  sys/src/9/port/portfns.h |  4 ++--
- 2 files changed, 21 insertions(+), 12 deletions(-)
+ 2 files changed, 22 insertions(+), 12 deletions(-)
 
 diff --git a/sys/src/9/port/chan.c b/sys/src/9/port/chan.c
-index 1ced1c96e..e4fe94d9e 100644
+index 1ced1c96e..de49d31f8 100644
 --- a/sys/src/9/port/chan.c
 +++ b/sys/src/9/port/chan.c
 @@ -875,7 +875,7 @@ cclone(Chan *c)
@@ -90,18 +93,19 @@ index 1ced1c96e..e4fe94d9e 100644
  	e->nelems = 0;
  	e->elems = nil;
  	e->off = smalloc(sizeof(int));
-@@ -1308,12 +1309,20 @@ Chan*
+@@ -1308,12 +1309,21 @@ Chan*
  namec(char *aname, int amode, int omode, ulong perm)
  {
  	int len, n, t, nomount;
 -	Chan *c;
 +	/*
 +	 * c, e and m change after the waserror below (walk, domount,
-+	 * parsename, findmount) and its handler or the failed create
-+	 * use them: volatile, else they are indeterminate there (as after
-+	 * longjmp, C11 7.13.2.1); a compiler that keeps one in a register
-+	 * hands back its value at waserror time.  Hence the pointers to
-+	 * volatile walk, domount, findmount and parsename take.
++	 * cunique, parsename, growparse, findmount) and its handler or
++	 * the failed create use them: volatile, else they are
++	 * indeterminate there (as after longjmp, C11 7.13.2.1); a
++	 * compiler that keeps one in a register hands back its value at
++	 * waserror time.  Hence the pointers to volatile walk, domount,
++	 * findmount, parsename and growparse take.
 +	 */
 +	Chan *volatile c;
  	Chan *volatile cnew;
