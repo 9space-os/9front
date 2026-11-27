@@ -875,7 +875,7 @@ cclone(Chan *c)
 
 /* also used by sysfile.c:/^mountfix */
 int
-findmount(Chan **cp, Mhead **mp, int type, int dev, Qid qid)
+findmount(Chan *volatile *cp, Mhead *volatile *mp, int type, int dev, Qid qid)
 {
 	Chan *to;
 	Pgrp *pg;
@@ -910,7 +910,7 @@ findmount(Chan **cp, Mhead **mp, int type, int dev, Qid qid)
  * Calls findmount but also updates path.
  */
 static int
-domount(Chan **cp, Mhead **mp, Path **path)
+domount(Chan *volatile *cp, Mhead *volatile *mp, Path *volatile *path)
 {
 	Chan **lc, *from;
 	Path *p;
@@ -978,7 +978,7 @@ ewalk(Chan *c, Chan *nc, char **name, int nname)
  * *nerror is the number of names to display in an error message.
  */
 int
-walk(Chan **cp, char **names, int nnames, int nomount, int *nerror)
+walk(Chan *volatile *cp, char **names, int nnames, int nomount, volatile int *nerror)
 {
 	int dev, didmount, dotdot, i, n, nhave, ntry, type;
 	Chan *c, *nc, *mtpt;
@@ -1182,7 +1182,7 @@ saveregisters(void)
 }
 
 static void
-growparse(Elemlist *e)
+growparse(Elemlist volatile *e)
 {
 	char **new;
 	int *inew;
@@ -1210,12 +1210,13 @@ growparse(Elemlist *e)
  * rather than a directory.
  */
 static void
-parsename(char *aname, Elemlist *e)
+parsename(char *aname, Elemlist volatile *e)
 {
 	char *name, *slash;
 
-	kstrdup(&e->name, aname);
-	name = e->name;
+	name = nil;
+	kstrdup(&name, aname);
+	e->name = name;
 	e->nelems = 0;
 	e->elems = nil;
 	e->off = smalloc(sizeof(int));
@@ -1308,12 +1309,21 @@ Chan*
 namec(char *aname, int amode, int omode, ulong perm)
 {
 	int len, n, t, nomount;
-	Chan *c;
+	/*
+	 * c, e and m change after the waserror below (walk, domount,
+	 * cunique, parsename, growparse, findmount) and its handler or
+	 * the failed create use them: volatile, else they are
+	 * indeterminate there (as after longjmp, C11 7.13.2.1); a
+	 * compiler that keeps one in a register hands back its value at
+	 * waserror time.  Hence the pointers to volatile walk, domount,
+	 * findmount, parsename and growparse take.
+	 */
+	Chan *volatile c;
 	Chan *volatile cnew;
 	Path *volatile path;
-	Elemlist e;
+	Elemlist volatile e;
 	Rune r;
-	Mhead *m;
+	Mhead *volatile m;
 	char *err;
 	char *name;
 
