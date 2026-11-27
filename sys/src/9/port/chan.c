@@ -913,7 +913,7 @@ cclone(Chan *c)
 
 /* also used by sysfile.c:/^mountfix */
 int
-findmount(Chan **cp, Mhead **mp, int type, int dev, Qid qid)
+findmount(Chan *volatile *cp, Mhead **mp, int type, int dev, Qid qid)
 {
 	Chan *to;
 	Pgrp *pg;
@@ -948,7 +948,7 @@ findmount(Chan **cp, Mhead **mp, int type, int dev, Qid qid)
  * Calls findmount but also updates path.
  */
 static int
-domount(Chan **cp, Mhead **mp, Path **path)
+domount(Chan *volatile *cp, Mhead **mp, Path **path)
 {
 	Chan **lc, *from;
 	Path *p;
@@ -1016,7 +1016,7 @@ ewalk(Chan *c, Chan *nc, char **name, int nname)
  * *nerror is the number of names to display in an error message.
  */
 int
-walk(Chan **cp, char **names, int nnames, int nomount, int *nerror)
+walk(Chan *volatile *cp, char **names, int nnames, int nomount, int *nerror)
 {
 	int dev, didmount, dotdot, i, n, nhave, ntry, type;
 	Chan *c, *nc, *mtpt;
@@ -1347,7 +1347,16 @@ Chan*
 namec(char *aname, int amode, int omode, ulong perm)
 {
 	int len, n, t, nomount;
-	Chan *c;
+	/*
+	 * GCC port: c volatile too: walk and domount change it after
+	 * waserror() and the handler closes it.  Passing &c does not keep
+	 * it in memory: clang sees from their bodies that they do not
+	 * capture the address and kept c in a register, which gotolabel
+	 * gave back as it was at waserror (up->dot or up->slash, closed
+	 * once more and freed while in use: walk's c->path nil).  Hence
+	 * walk, domount and findmount take a Chan *volatile*.
+	 */
+	Chan *volatile c;
 	Chan *volatile cnew;
 	Path *volatile path;
 	Elemlist e;
