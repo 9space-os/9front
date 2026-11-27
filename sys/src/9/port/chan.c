@@ -1253,8 +1253,9 @@ parsename(char *aname, Elemlist volatile *e)
 {
 	char *name, *slash;
 
-	kstrdup(&e->name, aname);
-	name = e->name;
+	name = nil;	/* GCC port: e is namec's volatile Elemlist, kstrdup takes a plain char** */
+	kstrdup(&name, aname);
+	e->name = name;
 	e->nelems = 0;
 	e->elems = nil;
 	e->off = smalloc(sizeof(int));
