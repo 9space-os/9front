@@ -1264,6 +1264,34 @@ static volatile int nchld;
 
 static void onchld(int s) { (void)s; nchld++; }
 
+/*
+ * a child forked while SIGCHLD was not handled, the handler set after: the
+ * watcher's wait knows it (it said ECHILD at once, the status was lost)
+ */
+static void
+testsigchldearly(void)
+{
+	struct sigaction sa;
+	int pid, st, r;
+
+	memset(&sa, 0, sizeof sa);
+	sa.sa_handler = SIG_DFL;
+	sigaction(SIGCHLD, &sa, NULL);
+	if((pid = fork()) == 0){
+		usleep(200000);
+		_exit(9);
+	}
+	sa.sa_handler = onchld;
+	sigaction(SIGCHLD, &sa, NULL);
+	st = 0;
+	r = waitpid(pid, &st, 0);
+	check("waitpid of a child forked before the handler: its status 9", r == pid && WIFEXITED(st) && WEXITSTATUS(st) == 9, "%d %x %d", r, st, errno);
+	errno = 0;
+	r = waitpid(-1, &st, WNOHANG);
+	check("then none left: -1, ECHILD", r == -1 && errno == ECHILD, "%d %d", r, errno);
+	signal(SIGCHLD, SIG_DFL);	/* as testsigchld leaves it: the "child" notes interrupt the tests after (buf's select) */
+}
+
 /* SIGCHLD (gnu/sigchld.c): the handler on a child's exit, its status by waitpid */
 static void
 testsigchld(void)
@@ -1574,7 +1602,22 @@ testat(void)
 		close(fd);
 	check("at: fchmodat relative", fchmodat(df, "f", 0600, 0) == 0 && stat(dir, &st) == 0 &&
 		fstatat(df, "f", &st, 0) == 0 && (st.st_mode & 0777) == 0600, "%s, mode %o", strerror(errno), (unsigned)st.st_mode & 0777);
-	check("at: fchownat relative", fchownat(df, "f", getuid(), getgid(), AT_SYMLINK_NOFOLLOW) == 0, "%s", strerror(errno));
+	/* as chown on the same file: APE's needs the ids in /adm/users (EINVAL
+	 * where the file server's users are others, a guest's ufs) */
+	{
+		char abs[96];
+		int a, ea, b, eb;
+
+		snprintf(abs, sizeof abs, "%s/f", dir);
+		errno = 0;
+		a = chown(abs, getuid(), getgid());
+		ea = errno;
+		errno = 0;
+		b = fchownat(df, "f", getuid(), getgid(), AT_SYMLINK_NOFOLLOW);
+		eb = errno;
+		check("at: fchownat relative, as chown", a == b && (a == 0 || ea == eb),
+			"chown %d (%s), fchownat %d (%s)", a, strerror(ea), b, strerror(eb));
+	}
 	check("at: unlinkat", unlinkat(df, "f", 0) == 0 && fstatat(df, "f", &st, 0) < 0 && errno == ENOENT,
 		"%s", strerror(errno));
 	closedir(d);
@@ -1603,6 +1646,7 @@ main(int argc, char **argv)
 	testregex();
 	testpty();
 	testsigchld();
+	testsigchldearly();
 	testnosignal();
 	testscm();
 	testposix();

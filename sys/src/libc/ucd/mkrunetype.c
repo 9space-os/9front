@@ -250,7 +250,7 @@ static int mytotitle[NRUNES];
 static int mybreak[NRUNES];
 
 enum{ DSTART = 0xEEEE };
-static int mydecomp[NRUNES];
+static int mydecomp[NRUNES];	/* GCC port: a code point << 16 (from 0x8000 on above INT_MAX: shifted as uint, read back by (uint)x>>16, else findlongchain indexed mydecomp below 0 and clang's layout made it loop) */
 static int mydespecial[256*3];
 static int nspecial;
 static int maxdchain;
@@ -611,7 +611,7 @@ findlongchain(void)
 	int i, n, x, r1;
 
 	for(i = 0; i < NRUNES; i++)
-	for(x = i, n = 0; r1 = mydecomp[x]>>16; x = r1){
+	for(x = i, n = 0; r1 = (uint)mydecomp[x]>>16; x = r1){
 		if(++n > maxdchain)
 			maxdchain = n;
 		if(r1 >= DSTART && r1 <0xF8FF)
@@ -688,10 +688,10 @@ main(int, char)
 					ip[0] = code;
 					ip[1] = decomp[0];
 					ip[2] = 0;
-					mydecomp[code] = (DSTART+nspecial)<<16;
+					mydecomp[code] = (uint)(DSTART+nspecial)<<16;
 					nspecial++;
 				} else
-					mydecomp[code] = decomp[0]<<16;
+					mydecomp[code] = (uint)decomp[0]<<16;
 			} else {
 				d++;
 				decomp[1] = estrtoul(d, 16);
@@ -700,7 +700,7 @@ main(int, char)
 					ip[0] = code;
 					ip[1] = decomp[0];
 					ip[2] = decomp[1];
-					mydecomp[code] = (DSTART+nspecial)<<16;
+					mydecomp[code] = (uint)(DSTART+nspecial)<<16;
 					nspecial++;
 					ip = recompext + nrecompext*3;
 					ip[0] = code;
@@ -708,8 +708,8 @@ main(int, char)
 					ip[2] = decomp[1];
 					nrecompext++;
 				} else {
-					mydecomp[code] = decomp[0]<<16 | decomp[1];
-					myrecomp[nrecomp++] = (KV){decomp[0]<<16 | decomp[1], code, 0};
+					mydecomp[code] = (uint)decomp[0]<<16 | decomp[1];
+					myrecomp[nrecomp++] = (KV){(uint)decomp[0]<<16 | decomp[1], code, 0};
 				}
 			}
 		}

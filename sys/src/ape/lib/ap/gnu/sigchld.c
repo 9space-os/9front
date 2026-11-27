@@ -40,24 +40,71 @@ static pthread_cond_t more = PTHREAD_COND_INITIALIZER;	/* a message came */
 static int pending;	/* a SIGCHLD while it was blocked: sent when unblocked */
 
 /*
- * the watched proc's children forked since the watcher began, whose
- * wait message has not come: with none of them (or not pid among them)
- * and no message kept, wait is ECHILD, as the kernel's await says "no
- * living children" (/proc/n/wait just blocks then). A child forked
- * before the handler was set is not known here.
+ * the children each proc forked, whose wait message has not come (the
+ * watcher's, or wait's own read of it: __sigchld_reaped): with none of
+ * the watched proc's (or not pid among them) and no message kept, wait
+ * is ECHILD, as the kernel's await says "no living children"
+ * (/proc/n/wait just blocks then). Kept from the first fork on, so the
+ * children forked before the handler was set are known too; a forked
+ * child's copy holds its parent's, which its own pid leaves out.
  */
-static int *kids, nkids, akids;
+typedef struct Kid Kid;
+struct Kid {
+	int	parent;
+	int	pid;
+};
+static Kid *kids;
+static int nkids, akids;
 
-/* with lk */
+/* with lk: pid's entry among parent's children, or -1 */
 static int
-kidat(int pid)
+kidat(int parent, int pid)
 {
 	int i;
 
 	for(i = 0; i < nkids; i++)
-		if(kids[i] == pid)
+		if(kids[i].parent == parent && kids[i].pid == pid)
 			return i;
 	return -1;
+}
+
+/* with lk: parent has a child that has not ended */
+static int
+haskids(int parent)
+{
+	int i;
+
+	for(i = 0; i < nkids; i++)
+		if(kids[i].parent == parent)
+			return 1;
+	return 0;
+}
+
+/*
+ * a child whose message came before fork's __sigchld_forked kept it (it
+ * exited at once, and fork returns to the parent after rfork): kept
+ * here so that addkid does not keep it then (it stayed for ever, and
+ * wait never said ECHILD again)
+ */
+enum { Nearly = 64 };
+static Kid early[Nearly];
+static int nearly;
+
+/* with lk */
+static void
+dropkid(int parent, int pid)
+{
+	int i;
+
+	if((i = kidat(parent, pid)) >= 0){
+		kids[i] = kids[--nkids];
+		return;
+	}
+	if(nearly == Nearly)
+		memmove(early, early+1, (Nearly-1) * sizeof early[0]), nearly--;
+	early[nearly].parent = parent;
+	early[nearly].pid = pid;
+	nearly++;
 }
 
 /*
@@ -130,12 +177,18 @@ __sigchld_mask(long mask)
 		post(pid);	/* delivered as this write returns */
 }
 
-/* with lk: pid is a child of the watched proc (no room: not counted, its wait then as before) */
+/* with lk: pid is parent's child (no room: not counted, its wait may say ECHILD early) */
 static void
-addkid(int pid)
+addkid(int parent, int pid)
 {
-	int *k;
+	Kid *k;
+	int i;
 
+	for(i = 0; i < nearly; i++)
+		if(early[i].parent == parent && early[i].pid == pid){
+			early[i] = early[--nearly];
+			return;	/* ended already, its message is kept or taken */
+		}
 	if(nkids == akids){
 		k = realloc(kids, (akids+16) * sizeof *kids);
 		if(k == NULL)
@@ -143,7 +196,18 @@ addkid(int pid)
 		kids = k;
 		akids += 16;
 	}
-	kids[nkids++] = pid;
+	kids[nkids].parent = parent;
+	kids[nkids].pid = pid;
+	nkids++;
+}
+
+/* wait read pid's message itself (no watcher then): no longer a child */
+void
+__sigchld_reaped(int pid)
+{
+	pthread_mutex_lock(&lk);
+	dropkid(getpid(), pid);
+	pthread_mutex_unlock(&lk);
 }
 
 static void *
@@ -175,8 +239,7 @@ watch(void *a)
 		m->w = w;
 		m->next = NULL;
 		pthread_mutex_lock(&lk);
-		if((n = kidat(w->pid)) >= 0)
-			kids[n] = kids[--nkids];
+		dropkid(pid, w->pid);
 		*lastmsg = m;
 		lastmsg = &m->next;
 		pthread_cond_broadcast(&more);
@@ -207,18 +270,14 @@ __sigchld_forked(int pid)
 	pthread_attr_t a;
 	void (*h)(int, char*, Ureg*);
 
-	h = _sighdlr[SIGCHLD];
-	if(h == SIG_DFL || h == SIG_IGN || h == SIG_ERR)
-		return;
 	pthread_mutex_lock(&lk);
-	if(watched != 0){
-		if(watched == getpid())
-			addkid(pid);
+	addkid(getpid(), pid);
+	h = _sighdlr[SIGCHLD];
+	if(h == SIG_DFL || h == SIG_IGN || h == SIG_ERR || watched != 0){
 		pthread_mutex_unlock(&lk);
 		return;
 	}
 	watched = getpid();
-	addkid(pid);
 	pthread_attr_init(&a);
 	pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
 	pthread_attr_setstacksize(&a, 64*1024);
@@ -254,7 +313,7 @@ __sigchld_take(int pid, int nohang, int *gone)
 				break;
 		if(m != NULL)
 			break;
-		if(pid <= 0 ? nkids == 0 : kidat(pid) < 0){
+		if(pid <= 0 ? !haskids(watched) : kidat(watched, pid) < 0){
 			*gone = 1;
 			pthread_mutex_unlock(&lk);
 			return NULL;

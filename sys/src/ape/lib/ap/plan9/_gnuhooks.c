@@ -58,6 +58,12 @@ __sigchld_forked(int pid)
 	(void)pid;
 }
 
+void
+__sigchld_reaped(int pid)
+{
+	(void)pid;
+}
+
 int
 __sigchld_watching(void)
 {
