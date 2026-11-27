@@ -1104,3 +1104,4 @@ Vorher war eine Bibliothek **ein** gcc-Aufruf mit allen Dateien (gcc übersetzt 
 - Unterschied zu 9front: Dort gibt es diese Funktionen in APE nicht.
 - Test: guest apegnutest „at:“, 7 Prüfungen, auf der Instanz 43 ok / 0 failed.
 - Neue Header-Zeiten bedeuten, dass gcc und clang nativ neu gelinkt werden müssen, bevor eine CD oder ein Update rausgeht (stage-dist apefresh).
+- **waserror-Muster, Nachtrag aus dem upstream-Review (0069–0071)**: devfs mconfig mp volatile (devalloc setzt es, Fail löscht es); namec gibt e.off auch bei e.nerror == 0 frei (9front-Leck, jeder Compiler); domount nimmt Path *volatile*, findmount im create direkt mit &cnew (die temporären np/nc fallen weg); syspipe c[2] volatile, newfd2 nimmt Chan *volatile c[2].

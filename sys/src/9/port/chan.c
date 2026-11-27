@@ -910,7 +910,7 @@ findmount(Chan *volatile *cp, Mhead *volatile *mp, int type, int dev, Qid qid)
  * Calls findmount but also updates path.
  */
 static int
-domount(Chan *volatile *cp, Mhead *volatile *mp, Path **path)
+domount(Chan *volatile *cp, Mhead *volatile *mp, Path *volatile *path)
 {
 	Chan **lc, *from;
 	Path *p;
@@ -1401,8 +1401,10 @@ namec(char *aname, int amode, int omode, ulong perm)
 		/*
 		 * Prepare nice error, showing first e.nerror elements of name.
 		 */
-		if(e.nerror == 0)
+		if(e.nerror == 0){
+			free(e.off);	/* also upstream: was left */
 			nexterror();
+		}
 		if(e.off[e.nerror]==0)
 			print("nerror=%d but off=%d\n",
 				e.nerror, e.off[e.nerror]);
@@ -1484,14 +1486,8 @@ namec(char *aname, int amode, int omode, ulong perm)
 			nexterror();
 		}
 		m = nil;
-		if(!nomount){
-			/* GCC port: path is volatile for waserror (setjmp): domount sets a plain copy (it raises no error after setting it) */
-			Path *np;
-
-			np = path;
-			domount(&c, &m, &np);
-			path = np;
-		}
+		if(!nomount)
+			domount(&c, &m, &path);	/* GCC port: domount takes a Path *volatile* (namec's path) */
 		if(waserror()){
 			putmhead(m);
 			nexterror();
@@ -1614,11 +1610,7 @@ namec(char *aname, int amode, int omode, ulong perm)
 		m = nil;
 		cnew = nil;	/* is this assignment necessary? */
 		if(!waserror()){	/* try create */
-			Chan *nc;	/* GCC port: cnew is volatile for waserror (setjmp): findmount sets a plain copy */
-
-			nc = nil;
-			if(!nomount && findmount(&nc, &m, c->type, c->dev, c->qid)){
-				cnew = nc;
+			if(!nomount && findmount(&cnew, &m, c->type, c->dev, c->qid)){	/* GCC port: cnew and m volatile, findmount takes pointers to volatile */
 				cnew = createdir(cnew, m);
 			}else{
 				cnew = c;

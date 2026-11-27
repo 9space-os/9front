@@ -573,7 +573,7 @@ mconfig(char* a, long n)
 	Chan	**idev;
 	Cmdbuf	*volatile cb;	/* GCC port: parseconfig sets it after waserror, the handler frees it: volatile, else clang frees the nil it was at waserror (C11 7.13.2.1) */
 	Cmdtab	*ct;
-	Fsdev	*mp;
+	Fsdev	*volatile mp;	/* GCC port: devalloc sets it after waserror, Fail deletes it: volatile (C11 7.13.2.1) */
 	Inner	*inprv;
 	Tree	*t;
 
