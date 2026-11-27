@@ -521,7 +521,7 @@ static void
 retryproc(void *arg)
 {
 	Card *card = arg;
-	int i = 0;
+	volatile int i = 0;	/* counts the tries across the jumps back */
 
 	qlock(card);
 	while(waserror())

@@ -1410,7 +1410,8 @@ sys_nsec(va_list list)
 int
 dosyscall(ulong scallnr, Sargs *args, uintptr *retp)
 {
-	vlong startns, stopns;
+	volatile vlong startns;	/* set after waserror, read after an error too */
+	vlong stopns;
 	uintptr ret;
 	int s;
 	

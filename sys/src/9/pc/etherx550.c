@@ -521,7 +521,8 @@ static uchar zeroea[Eaddrlen];
 static void
 rproc(void *v)
 {
-	uint m, rdh;
+	uint m;
+	volatile uint rdh;	/* moves on after waserror, read again after the jump back */
 	Block *b;
 	Ctlr *c;
 	Ether *e;
