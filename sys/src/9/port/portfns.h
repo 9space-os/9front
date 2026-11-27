@@ -125,7 +125,7 @@ int		fault(uintptr, uintptr, int);
 void		faultnote(char*, char*, uintptr);
 void		fdclose(int, int);
 Chan*		fdtochan(int, int, int, int);
-int		findmount(Chan**, Mhead**, int, int, Qid);
+int		findmount(Chan *volatile*, Mhead**, int, int, Qid);	/* GCC port: namec's c (chan.c) */
 void		flushmmu(void);
 void		forceclosefgrp(void);
 void		forkchild(Proc*, Ureg*);
@@ -431,7 +431,7 @@ char*		validnamedup(char*, int);
 void		validstat(uchar*, int);
 void*		vmemchr(void*, int, ulong);
 Proc*		wakeup(Rendez*);
-int		walk(Chan**, char**, int, int, int*);
+int		walk(Chan *volatile*, char**, int, int, int*);	/* GCC port: namec's c (chan.c) */
 void		wlock(RWLock*);
 void		wunlock(RWLock*);
 void*		xalloc(ulong);
