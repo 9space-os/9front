@@ -1,5 +1,6 @@
 #!/bin/bash
-# guest: libc/libthread unit tests built with the port toolchain, run
+# guest: libc/libthread unit tests built with the port toolchain (CC, as
+# the system was: gcc, or a clang such as x86_64-unknown-plan9-clang), run
 # inside 9front under QEMU via sys/src/build/host/guest/boot-cli.sh. The same tests can
 # be started by hand in a running system: /tests/run [test...]
 . "$(dirname "$0")/../lib.sh"
@@ -7,7 +8,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 [ -x "$BUILDEXE" ] || { skip "guest tests" "no build tool $BUILDEXE"; done_tests; exit; }
 
 buildtests(){
-	(cd "$HERE" && env PLAN9="$ROOT" ARCH=$objtype CC=gcc "$BUILDEXE" build.json) &&
+	(cd "$HERE" && env PLAN9="$ROOT" ARCH=$objtype CC="${CC:-gcc}" "$BUILDEXE" build.json) &&
 	install -m 755 "$HERE/run.rc" "$HERE/root/tests/run"
 }
 check "build sys/src/build/host/tests/guest with the port toolchain" buildtests || { done_tests; exit; }
