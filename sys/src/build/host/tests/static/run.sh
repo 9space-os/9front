@@ -163,6 +163,16 @@ rustcrates(){
 }
 check "sys/src/rust is toolchain/rust's crates and p9win (RUST_DIR; sys/src/build/rust/crates.sh)" rustcrates
 
+# 8b. licences: no GPL or LGPL code 9space brought in (files front has are
+#    9front's; dual-licensed ones, Bison's parsers and the user's
+#    exceptions in sys/src/build/host/check/gpl-allowed.txt pass)
+gpl(){
+	python3 sys/src/build/host/check/find-gpl.py >"$TMPD/gpl.out" 2>&1 && return 0
+	sed 's/^/       /' "$TMPD/gpl.out" | head -20
+	return 1
+}
+check "no GPL/LGPL code added to the tree (sys/src/build/host/check/find-gpl.py)" gpl
+
 # 9. device registers: the kernels keep vmap's volatile wherever a
 #    register's pointer goes (also through a cast, which the build's
 #    -Werror=discarded-qualifiers does not see), and gcc narrows no
