@@ -246,6 +246,7 @@ static Gpudrv drv = {
 	tree,
 	fsdrvread,
 	fsdrvwrite,
+	bgthread,
 };
 
 static Kmsdrv kdrv = {

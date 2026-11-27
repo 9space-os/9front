@@ -2039,6 +2039,7 @@ static Gpudrv drv = {
 	tree,
 	fsdrvread,
 	nil,
+	bgfork,
 };
 
 static void

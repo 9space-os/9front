@@ -78,6 +78,13 @@ kmsdo(Kreq *k)
 	return k->r;
 }
 
+/* 9space: gpufs' bg for these drivers (libthread's): f(a) on a proc of its own (1 MB: the Linux side's stack) */
+static void
+bgthread(void (*f)(void*), void *a)
+{
+	proccreate(f, a, 1024*1024);
+}
+
 /* gpufs' ctxfree: the context goes on a display proc */
 static void
 kmsctxfree(void *lc)

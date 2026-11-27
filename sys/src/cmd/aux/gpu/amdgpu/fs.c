@@ -420,6 +420,7 @@ static Gpudrv drv = {
 	nil,
 	nil,
 	fsdrvwrite,
+	bgthread,
 };
 
 static Kmsdrv kdrv = {

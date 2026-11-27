@@ -90,6 +90,13 @@ struct Gpudrv {
 	void	(*tree)(File *dir, char *user);	/* its own files in /shr/gpu/N */
 	int	(*read)(Req*);		/* 1: done (responded) */
 	int	(*write)(Req*);		/* 1: done (responded): its own files, a request it takes as it is */
+	/*
+	 * 9space: f(a) on a proc of the driver's kind, left to run (a
+	 * context's ctxfree: ctxfreeproc): bgthread (gpukms.c) for a driver
+	 * of libthread's, bgfork for one of plain procs; nil: f here, on the
+	 * server's proc
+	 */
+	void	(*bg)(void (*f)(void*), void *a);
 };
 
 static Gpudrv drv;	/* the driver's, defined after this file */
@@ -235,16 +242,35 @@ newctx(char *uid)
 	return c;
 }
 
+/* a proc of its own for f(a): rfork's, for a driver without libthread (virtio) */
+static void
+bgfork(void (*f)(void*), void *a)
+{
+	switch(rfork(RFPROC|RFMEM|RFNOWAIT)){
+	case -1:
+		f(a);	/* no proc: here then */
+		break;
+	case 0:
+		f(a);
+		_exits(nil);
+	}
+}
+
 static void
 freectx(Gctx *c)
 {
 	Gfree *g;
 
-	ctxs[c->id] = &freeing;
-	g = emalloc9p(sizeof *g);
-	g->lc = c->lc;
-	g->id = c->id;
-	proccreate(ctxfreeproc, g, 1024*1024);
+	if(drv.bg == nil){
+		ctxs[c->id] = nil;
+		drv.ctxfree(c->lc);
+	}else{
+		ctxs[c->id] = &freeing;
+		g = emalloc9p(sizeof *g);
+		g->lc = c->lc;
+		g->id = c->id;
+		drv.bg(ctxfreeproc, g);
+	}
 	removefile(c->fence);
 	removefile(c->submit);
 	removefile(c->ctl);
