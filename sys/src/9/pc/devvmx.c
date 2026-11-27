@@ -1588,14 +1588,15 @@ cmdwait(VmCmd *cp, va_list va)
 static void
 eventparse(char *p, VmIntr *vi)
 {
-	char *q, *r;
+	char *s, *q, *r;
 	int i;
 	
 	memset(vi, 0, sizeof(VmIntr));
-	q = nil;
-	kstrdup(&q, p);
+	s = nil;
+	kstrdup(&s, p);
+	q = s;	/* q moves on (q++, strtoul): free the copy, not where q ends up */
 	if(waserror()){
-		free(q);
+		free(s);
 		memset(vi, 0, sizeof(VmIntr));
 		nexterror();
 	}
@@ -1631,7 +1632,7 @@ eventparse(char *p, VmIntr *vi)
 		error(Ebadctl);
 out:
 	poperror();
-	free(q);
+	free(s);
 }
 
 static int

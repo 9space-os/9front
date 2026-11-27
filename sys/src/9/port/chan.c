@@ -913,7 +913,7 @@ cclone(Chan *c)
 
 /* also used by sysfile.c:/^mountfix */
 int
-findmount(Chan *volatile *cp, Mhead **mp, int type, int dev, Qid qid)
+findmount(Chan *volatile *cp, Mhead *volatile *mp, int type, int dev, Qid qid)
 {
 	Chan *to;
 	Pgrp *pg;
@@ -948,7 +948,7 @@ findmount(Chan *volatile *cp, Mhead **mp, int type, int dev, Qid qid)
  * Calls findmount but also updates path.
  */
 static int
-domount(Chan *volatile *cp, Mhead **mp, Path **path)
+domount(Chan *volatile *cp, Mhead *volatile *mp, Path **path)
 {
 	Chan **lc, *from;
 	Path *p;
@@ -1016,7 +1016,7 @@ ewalk(Chan *c, Chan *nc, char **name, int nname)
  * *nerror is the number of names to display in an error message.
  */
 int
-walk(Chan *volatile *cp, char **names, int nnames, int nomount, int *nerror)
+walk(Chan *volatile *cp, char **names, int nnames, int nomount, volatile int *nerror)
 {
 	int dev, didmount, dotdot, i, n, nhave, ntry, type;
 	Chan *c, *nc, *mtpt;
@@ -1221,7 +1221,7 @@ saveregisters(void)
 }
 
 static void
-growparse(Elemlist *e)
+growparse(Elemlist volatile *e)
 {
 	char **new;
 	int *inew;
@@ -1249,7 +1249,7 @@ growparse(Elemlist *e)
  * rather than a directory.
  */
 static void
-parsename(char *aname, Elemlist *e)
+parsename(char *aname, Elemlist volatile *e)
 {
 	char *name, *slash;
 
@@ -1355,13 +1355,19 @@ namec(char *aname, int amode, int omode, ulong perm)
 	 * gave back as it was at waserror (up->dot or up->slash, closed
 	 * once more and freed while in use: walk's c->path nil).  Hence
 	 * walk, domount and findmount take a Chan *volatile*.
+	 * e and m likewise: parsename and walk fill e (&e, &e.nerror) and
+	 * the handler frees e.name, e.elems and e.off and reads e.nerror;
+	 * findmount and domount set m, and the create's error path puts
+	 * it.  Not volatile, clang gave both back as they were at
+	 * waserror (C11 7.13.2.1): every failed namec leaked e's
+	 * allocations, a failed create an Mhead.
 	 */
 	Chan *volatile c;
 	Chan *volatile cnew;
 	Path *volatile path;
-	Elemlist e;
+	Elemlist volatile e;
 	Rune r;
-	Mhead *m;
+	Mhead *volatile m;
 	char *err;
 	char *name;
 
