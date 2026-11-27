@@ -225,7 +225,14 @@ _notehandler(void *u, char *msg)	/* GCC port: types as in the prototype, kencc i
 			return 0;
 		}
 	}
-	_doatexits();
+	/*
+	 * the atexit functions, then the note's default; not for SIGKILL's
+	 * notes (kill, die, exit), as POSIX: they end the process at once
+	 * (a program killed after its GPU driver died ran Mesa's atexit
+	 * functions, which waited for the driver for ever)
+	 */
+	if(i == NSIGTAB || sigtab[i].num != SIGKILL)
+		_doatexits();
 	_NOTED(1); /* NDFLT */
 	return 0;
 }
