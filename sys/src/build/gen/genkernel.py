@@ -99,8 +99,9 @@ ARCHS = {
 		# pc-relative addresses are physical in l.S before paging is
 		# on. No linker relaxation (gp is not set up).
 		# -fsigned-char: Plan 9's char is signed (the psABI's is not)
+		# -ffixed-x26/x27: s10, s11 by the names gcc and clang both take
 		'Cflags': ['-march=rv64imac_zicsr_zifencei', '-mabi=lp64', '-mcmodel=medany', '-mno-relax',
-			'-fsigned-char', '-fno-pie', '-fno-pic', '-ffixed-s10', '-ffixed-s11',
+			'-fsigned-char', '-fno-pie', '-fno-pic', '-ffixed-x26', '-ffixed-x27',
 			'-fplan9-extensions', '-fcommon', '-fno-builtin', '-ffreestanding', '-fno-asynchronous-unwind-tables',
 			'-fno-stack-protector', '-fno-omit-frame-pointer', '-fno-zero-initialized-in-bss',
 			'-Os', '-gdwarf-2'] + WARN,

@@ -221,7 +221,7 @@ extern Mach* machp[MAXMACH];
 #define MACHP(n)	(machp[n])
 
 #ifdef __GNUC__
-/* GCC port: global register variables, the kernel and its libraries are compiled -ffixed-s10 -ffixed-s11 */
+/* global register variables: the kernel and its libraries are compiled -ffixed-x26 -ffixed-x27 (s10, s11) */
 register Mach *m __asm__("s11");	/* x27 */
 register Proc *up __asm__("s10");	/* x26 */
 #else
