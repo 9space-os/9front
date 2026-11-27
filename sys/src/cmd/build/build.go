@@ -470,7 +470,7 @@ func stale(n string, d []string) bool {
 // outofdate (-D) cuts b down to what is out of date, as mk decides from
 // the files' times: a source is compiled when its object is missing,
 // for another $ARCH, made by another command (flags), or older than the
-// source or a header it read (gcc's x.d); a library is archived again,
+// source, a header it read (gcc's x.d) or the compiler (compilerfiles); a library is archived again,
 // from all its objects, when one of them is newer than it; a program is
 // linked again when one of its objects or libraries is; each command of
 // SourceFilesCmd by its object and its installed program. Pre and Post
@@ -479,14 +479,18 @@ func stale(n string, d []string) bool {
 func outofdate(b *build) (link, archive bool) {
 	command, cArgs, asmArgs := compileArgs(b)
 	csig, asig := signature(command, cArgs), signature(tools["cc"], asmArgs)
+	xsig := signature(command, withoutC11(cArgs))	/* compile signs C++ so (cxxjobs) */
+	cc := compilerfiles()
 	objstale := func(f string) bool {
 		o := objectOf(b, f)
 		want := csig
 		if isasm(f) && len(b.SourceFilesCmd) == 0 {
 			want = asig
+		} else if iscxx(f) {
+			want = xsig
 		}
 		deps, sig, ok := readdeps(b, f)
-		return !ok || sig != want || !thisarch(o) || stale(o, append(deps, f))
+		return !ok || sig != want || !thisarch(o) || stale(o, append(append(deps, f), cc...))
 	}
 	var libs []string
 	for _, l := range b.Libs {
@@ -506,7 +510,8 @@ func outofdate(b *build) (link, archive bool) {
 		archive = len(srcs) > 0 || stale(lib, b.ObjectFiles) || !members(lib, b.ObjectFiles, !b.Append && !b.Shared)
 	}
 	if b.Program != "" {
-		link = len(srcs) > 0 || stale(target(b), append(append([]string{}, b.ObjectFiles...), libs...))
+		link = len(srcs) > 0 || stale(target(b), append(append(append(append([]string{}, b.ObjectFiles...), libs...), linkerfiles()...), linkscripts(b)...)) ||
+			readlinksig(b.Program) != linksig(b, b.ObjectFiles)
 	}
 	var cmds []string
 	b.cmdstale = map[string]bool{}
@@ -515,7 +520,8 @@ func outofdate(b *build) (link, archive bool) {
 		if objstale(f) {
 			b.cmdstale[f] = true
 			cmds = append(cmds, f)
-		} else if stale(path.Join(dir, path.Base(exe)), append([]string{objectOf(b, f)}, libs...)) {
+		} else if n := strings.TrimSuffix(f, filepath.Ext(f)); stale(path.Join(dir, path.Base(exe)), append(append(append([]string{objectOf(b, f)}, libs...), linkerfiles()...), linkscripts(b)...)) ||
+			readlinksig(n) != linksig(b, []string{path.Base(n) + ".o"}) {
 			cmds = append(cmds, f)
 		}
 	}
@@ -773,6 +779,42 @@ func depfile(b *build, f string) string {
 	return o[:len(o)-len(".o")] + ".d"
 }
 
+// compilerfiles: the files of the compiler, for -D a dependency of every
+// object as its sources are: a new compiler with the same name and flags
+// (a rebuilt clang with a fixed LLVM, an updated gcc) makes other code,
+// and objects older than it are compiled again (2026-11-27: arm64's
+// stayed those of the broken clang). The driver as CC names it, symlinks
+// followed by stat, and what gcc runs under it (cc1, as); clang is one
+// binary (-print-prog-name gives no path for cc1, as is integrated).
+var compilerfiles = sync.OnceValue(func() []string {
+	return toolfiles(tools["cc"], "cc1", "as")
+})
+
+// linkerfiles: the linker's files, a dependency of every program it links
+// (a fixed ld.lld puts initcode elsewhere: the links are stale)
+var linkerfiles = sync.OnceValue(func() []string {
+	return toolfiles(tools["ld"])
+})
+
+// toolfiles: tool t and the absolute programs it reports for progs
+// (-print-prog-name, gcc's); a name it does not resolve is left out
+func toolfiles(t string, progs ...string) []string {
+	fs := []string{t}
+	for _, p := range progs {
+		out, err := exec.Command(t, "-print-prog-name="+p).Output()
+		if err != nil {
+			continue
+		}
+		n := strings.TrimSpace(string(out))
+		if filepath.IsAbs(n) {
+			if _, err := os.Stat(n); err == nil {
+				fs = append(fs, n)
+			}
+		}
+	}
+	return fs
+}
+
 // signature of a compile command (without its files)
 func signature(command string, args []string) string {
 	return fmt.Sprintf("%x", sha1.Sum([]byte(strings.Join(append([]string{command}, args...), "\x00"))))
@@ -870,10 +912,10 @@ func clean(b *build) {
 	}
 	for _, n := range b.SourceFilesCmd {
 		n = n[:len(n)-len(filepath.Ext(n))]
-		files = append(files, path.Base(n)+".o", path.Base(n)+".d", n+".out", n+".r.o", n+".weak")
+		files = append(files, path.Base(n)+".o", path.Base(n)+".d", n+".out", n+".r.o", n+".weak", n+".lsig")
 	}
 	if b.Program != "" {
-		files = append(files, b.Program, b.Program+".r.o", b.Program+".weak")
+		files = append(files, b.Program, b.Program+".r.o", b.Program+".weak", b.Program+".lsig")
 	}
 	if b.Library != "" && !strings.HasPrefix(b.Install, fromRoot("/$ARCH")+"/") && !strings.HasPrefix(b.Install, fromRoot("/sys/src/build/host/tests")+"/") {
 		files = append(files, path.Join(b.Install, b.Library))
@@ -990,6 +1032,7 @@ func link(b *build) {
 			args = append(args, b.Libs...)
 			args = append(args, b.Oflags...)
 			run(b, *shellhack, exec.Command(tools["ld"], args...))
+			writelinksig(n, linksig(b, []string{o}))
 		}
 		return
 	}
@@ -1003,6 +1046,62 @@ func link(b *build) {
 	args = append(args, b.Libs...)
 	args = append(args, b.Oflags...)
 	run(b, *shellhack, exec.Command(tools["ld"], args...))
+	writelinksig(b.Program, linksig(b, b.ObjectFiles))
+}
+
+// uniqueobjects: two sources of a manifest that make one object (a file
+// listed twice: pc64's ../port/devi2c.c) were compiled at once into the
+// same x.o and x.d by two parallel jobs; refused
+func uniqueobjects(b *build) {
+	seen := map[string]string{}
+	for _, f := range append(append([]string{}, b.SourceFiles...), b.SourceFilesCmd...) {
+		o := objectOf(b, f)
+		if g, ok := seen[o]; ok {
+			log.Fatalf("%s: %s and %s both make %s", b.Name, g, f, o)
+		}
+		seen[o] = f
+	}
+}
+
+// linksig: the signature of a link of objs (the linker, the objects in
+// their order, Libs and Oflags: presolve's temporary file is not in it):
+// -D links again when it changes, as a compile when its command does --
+// an object dropped from the manifest, other Oflags, other libraries
+func linksig(b *build, objs []string) string {
+	return signature(tools["ld"], append(append(append([]string{}, objs...), b.Libs...), b.Oflags...))
+}
+
+// linkscripts: the linker scripts in Oflags (-T file, -Tfile), for -D
+// dependencies of every link as the objects are
+func linkscripts(b *build) []string {
+	var fs []string
+	for i, a := range b.Oflags {
+		f := ""
+		if a == "-T" && i+1 < len(b.Oflags) {
+			f = b.Oflags[i+1]
+		} else if strings.HasPrefix(a, "-T") && len(a) > 2 {
+			f = a[2:]
+		}
+		if f != "" {
+			if _, err := os.Stat(f); err == nil {
+				fs = append(fs, f)
+			}
+		}
+	}
+	return fs
+}
+
+// the link signature of output n, beside it (n.lsig in the manifest's directory)
+func readlinksig(n string) string {
+	d, err := os.ReadFile(n + ".lsig")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(d))
+}
+
+func writelinksig(n, sig string) {
+	fail(os.WriteFile(n+".lsig", []byte(sig+"\n"), 0666))
 }
 
 // install puts the targets in place: with -D only a program linked anew
@@ -1024,8 +1123,7 @@ func install(b *build, dolink, doarchive bool) {
 			exe, dir := cmdTarget(b, n)
 			final := path.Join(dir, path.Base(exe))
 			log.Printf("move %s %s\n", exe+".out", final)
-			_ = os.Remove(final)
-			fail(mv(exe+".out", final))
+			fail(mv(exe+".out", final))	// replaces final (mv)
 		}
 	case len(b.Program) > 0:
 		move(b.Program, b.Install)
@@ -1101,15 +1199,20 @@ const arBatch = 200
 func move(from, to string) {
 	final := path.Join(to, from)
 	log.Printf("move %s %s\n", from, final)
-	_ = os.Remove(final)
 	fail(mv(from, final))
 }
 
 // mv renames from to final, or copies it there (with its mode) and
 // removes it: Plan 9 has no hard links and renames only within a
-// directory
+// directory. The copy goes to a temporary file beside final first, which
+// is renamed when complete: a copy that failed midway left a truncated
+// program with a fresh time, which the next -D took for up to date.
 func mv(from, final string) error {
-	if runtime.GOOS != "plan9" || path.Dir(from) == path.Dir(final) {
+	if runtime.GOOS != "plan9" {
+		return os.Rename(from, final)	// replaces final
+	}
+	if path.Dir(from) == path.Dir(final) {
+		_ = os.Remove(final)	// Plan 9's rename refuses an existing name
 		return os.Rename(from, final)
 	}
 	fi, err := os.Stat(from)
@@ -1121,15 +1224,23 @@ func mv(from, final string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(final, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fi.Mode().Perm())
+	tmp := path.Join(path.Dir(final), "."+path.Base(final)+".new")
+	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fi.Mode().Perm())
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
+		os.Remove(tmp)
 		return err
 	}
 	if err := out.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	_ = os.Remove(final)
+	if err := os.Rename(tmp, final); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	return os.Remove(from)
@@ -1282,6 +1393,7 @@ func project(bf string, which []*regexp.Regexp) {
 		runCmds(&b, b.Pre)
 		keeptimes(snap)
 		buildkernel(&b)
+		uniqueobjects(&b)
 		dolink, doarchive := true, true
 		if *depends {
 			dolink, doarchive = outofdate(&b)

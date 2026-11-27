@@ -1119,7 +1119,12 @@ pthread_condattr_getclock(const pthread_condattr_t *a, clockid_t *clock)
 	return 0;
 }
 
-/* read-write locks, writers first */
+/*
+ * read-write locks, readers first, as glibc's default: a reader waits only
+ * for a writer that holds the lock. With writers first, a thread taking a
+ * second read lock (POSIX allows it, ported code does it) waited behind a
+ * writer that waited for its first: a deadlock.
+ */
 
 int
 pthread_rwlock_init(pthread_rwlock_t *rw, const pthread_rwlockattr_t *a)
@@ -1143,7 +1148,7 @@ rdlock(pthread_rwlock_t *rw, int try, const struct timespec *abstime)
 
 	r = 0;
 	pthread_mutex_lock(&rw->__m);
-	while(rw->__writer || rw->__wwait > 0){
+	while(rw->__writer){
 		if(try){
 			r = EBUSY;
 			break;
@@ -1237,8 +1242,7 @@ pthread_rwlock_unlock(pthread_rwlock_t *rw)
 	if(rw->__nreaders == 0){
 		if(rw->__wwait > 0)
 			pthread_cond_signal(&rw->__writers);
-		else
-			pthread_cond_broadcast(&rw->__readers);
+		pthread_cond_broadcast(&rw->__readers);	/* readers first: they need no free turn */
 	}
 	pthread_mutex_unlock(&rw->__m);
 	return 0;

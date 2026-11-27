@@ -228,6 +228,8 @@ extern int	truncate(const char *, off_t);
 extern ssize_t	pread(int, void *, size_t, off_t);
 extern ssize_t	pwrite(int, const void *, size_t, off_t);
 extern int	usleep(useconds_t);
+extern int	unlinkat(int, const char *, int);	/* ap/gnu/at.c; AT_REMOVEDIR: <fcntl.h> */
+extern int	fchownat(int, const char *, uid_t, gid_t, int);	/* ap/gnu/at.c */
 /* ap/gnu/posix.c: a write is done when the file server answers it (fsync:
  * APE's fails);
  * note groups, not sessions (getsid, getpgid: the pid); Plan 9 gives files away

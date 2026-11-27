@@ -1,0 +1,23 @@
+# exceptions find-gpl.py accepts: a path glob (relative to the tree), then why.
+# Only what the user accepted, or a file with a permissive choice the
+# check's pattern does not see. 9front's own files need no entry.
+
+# FreeType: dual-licensed, the FreeType License (FTL) or GPLv2; 9space takes the FTL
+sys/src/freetype/vendor/LICENSE.TXT	dual FTL/GPLv2, the FTL chosen
+sys/src/freetype/vendor/docs/GPLv2.TXT	the GPLv2 text of FreeType's dual licence, kept as FreeType asks
+sys/src/freetype/VENDOR.json	names the file above
+
+# self_cell (a crates.io crate): Apache-2.0 OR GPL-2.0-only; Apache-2.0 chosen
+sys/src/rust/vendor/self_cell-*/LICENSE-GPLv2	the GPL text of the crate's dual licence
+sys/src/rust/vendor/self_cell-*/.cargo-checksum.json	the checksum of that file
+
+# SDL3's hidapi: GPLv3, a BSD-style licence or the original HIDAPI licence, at the user's choice; BSD chosen
+sys/src/sdl3/vendor/src/hidapi/hidapi/hidapi.h	tri-licensed, a BSD-style choice
+
+# the LinuxKPI's record of the Linux files it did not take (GPL-only), not code
+sys/src/linux/REJECTED	a list of rejected GPL files
+
+# text about licences, not code: the port's log and this check
+sys/src/build/host/MEMORY.md	the port's log names licences
+sys/src/build/host/check/find-gpl.py	the check's patterns
+sys/src/build/host/check/gpl-allowed.txt	this list

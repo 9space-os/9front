@@ -24,7 +24,8 @@ ioctl(int fd, unsigned long request, void* arg)
 			return -1;
 		}
 		/* this works if the file is buffered somehow */
-		*(long*)arg = d.st_size;
+		/* GCC port: an int, as POSIX's and the ported programs' (a long wrote 8 bytes into their int) */
+		*(int*)arg = d.st_size > 0x7fffffff ? 0x7fffffff : d.st_size;
 		return 0;
 	} else {
 		errno = EINVAL;

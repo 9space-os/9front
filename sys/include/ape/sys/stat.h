@@ -84,12 +84,14 @@ extern int	lstat(const char *, struct stat *);	/* POSIX; libbsd */
 /* GCC port: <sys/stat.h> as POSIX has it: fchmod (libap), the
  * S_IF* file types APE has only with _BSD_EXTENSION (the same values), S_ISLNK
  * (only _RESEARCH_SOURCE; 9front has no symbolic links), S_ISSOCK (no sockets in
- * the file system), mkfifoat (ap/gnu/at.c) */
+ * the file system), mkfifoat, fstatat and fchmodat (ap/gnu/at.c) */
 #ifdef __cplusplus
 extern "C" {
 #endif
 extern int	fchmod(int, mode_t);
 extern int	mkfifoat(int, const char *, mode_t);
+extern int	fstatat(int, const char *, struct stat *, int);
+extern int	fchmodat(int, const char *, mode_t, int);
 #ifdef __cplusplus
 }
 #endif
