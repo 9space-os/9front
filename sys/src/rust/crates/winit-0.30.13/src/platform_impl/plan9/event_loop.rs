@@ -311,7 +311,9 @@ fn key_event<T>(
     let (logical_key, key_without_modifiers, text) = match named {
         Some(n) => (Key::Named(n), Key::Named(n), None),
         None => {
-            let c = typed.unwrap_or(base);
+            // a control character typed (Ctrl+A is kbdfs' ^A): the key's own,
+            // as other platforms give it ("a", and CONTROL in the modifiers)
+            let c = typed.filter(|&c| text(c)).unwrap_or(base);
             let s: SmolStr = c.encode_utf8(&mut [0u8; 4]).into();
             let base: SmolStr = SmolStr::from_iter(base.to_lowercase());
             let text = if pressed { typed.filter(|&c| text(c)).map(|_| s.clone()) } else { None };
@@ -515,6 +517,13 @@ impl<T: 'static> EventLoop<T> {
                 }
             },
             Input::Char(c) => {
+                if !types(c) && st.keys.contains(&c) {
+                    // the c kbdfs sends after a key's k when it is down (Enter,
+                    // Backspace, the arrows, ...): pressed at its k already (it
+                    // went to the /dev/kbdin branch below and acted twice, or to
+                    // a letter still held as its repeat)
+                    return;
+                }
                 if let Some((key, _)) = st.pending.take() {
                     key_event(h, win.id, key, true, Some(c), false);
                 } else if let Some(key) = st.held {
