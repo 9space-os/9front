@@ -93,6 +93,9 @@ mb=$(( $(du -sm "$S" | cut -f1) + ${ROOM:-16384} ))
 rm -f "$IMG"
 mkfs.ext4 -q -F -L src9 -O ^has_journal,^orphan_file,^metadata_csum,^metadata_csum_seed \
 	-E root_owner=$(id -u):$(id -g) -d "$S" "$IMG" ${mb}M || die "mkfs.ext4 $IMG"
+# on the disk before QEMU opens it: else the host's writeback of the copy
+# (GBs) holds QEMU in its open past boot-cli's wait for the serial line
+sync "$IMG" || die "sync $IMG"
 
 LOG=$CLI_DIR/mkself.$A.log
 objtype=$A MEM=${MEM:-$mem} UFS_EXTRA=$T/extra \
