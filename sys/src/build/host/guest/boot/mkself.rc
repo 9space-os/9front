@@ -38,6 +38,10 @@ cd /n/src9
 # and /$objtype/include/ape (manifests with Compat, Mesa)
 bind /n/src9/sys/include /sys/include
 bind /n/src9/$objtype/include /$objtype/include
+# and its sources: APE's zlib.h and bzlib.h include theirs by a path
+# relative to /sys/include (../../src/cmd/gs/zlib/zlib.h), as on an
+# installed system, where /sys/src is the tree
+bind /n/src9/sys/src /sys/src
 echo mkself: build
 # a fresh environment: the build tool hands its own on to its commands
 # as Go sees it, and rc cannot read functions back from that. CC names
