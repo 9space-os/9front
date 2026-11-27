@@ -22,7 +22,7 @@ T=x86_64-unknown-plan9
 for d in rust icedtest eframetest eframetestsw; do cargostd "$BUILD/cargo/$d" $T; done
 # the workspace in sys/src/rust (its vendor/): winittest's package (sys/src/rust/winittest)
 (cd "$ROOT/sys/src/rust" && env RUSTC="$RUSTC" CARGO_TARGET_DIR="$BUILD/cargo/rust" \
-	CARGO_TARGET_X86_64_UNKNOWN_PLAN9_LINKER="$CROSS/$TRIPLE-gcc" \
+	CARGO_TARGET_X86_64_UNKNOWN_PLAN9_LINKER="$XCXX" \
 	cargo build --offline --release --target $T --quiet -p winittest)
 mkdir -p "$HERE/root/tests"
 for p in winittest eguitest multiwin; do cp "$BUILD/cargo/rust/$T/release/$p" "$HERE/root/tests/"; done
@@ -32,7 +32,7 @@ I=$RUST_DIR/tests/crates/icedtest
 rm -f "$HERE/root/tests/icedtest"
 if [ -d "$I" ]; then
 	(cd "$I" && env RUSTC="$RUSTC" CARGO_TARGET_DIR="$BUILD/cargo/icedtest" \
-		CARGO_TARGET_X86_64_UNKNOWN_PLAN9_LINKER="$CROSS/$TRIPLE-gcc" \
+		CARGO_TARGET_X86_64_UNKNOWN_PLAN9_LINKER="$XCXX" \
 		cargo --config "$RUST_DIR/cargo-plan9.toml" build --release --target $T --quiet 2>/dev/null) &&
 	cp "$BUILD/cargo/icedtest/$T/release/icedtest" "$HERE/root/tests/"
 fi
@@ -45,7 +45,7 @@ if [ -d "$E" ]; then
 		n=${v%%:*} f=${v#*:}; f=${f%:}
 		l="-l draw -l 9 -l fmt -l utf"; [ -z "$f" ] && l="$l -l stdc++"
 		(cd "$E" && env RUSTC="$RUSTC" CARGO_TARGET_DIR="$BUILD/cargo/$n" \
-			CARGO_TARGET_X86_64_UNKNOWN_PLAN9_LINKER="$CROSS/$TRIPLE-gcc" \
+			CARGO_TARGET_X86_64_UNKNOWN_PLAN9_LINKER="$XCXX" \
 			RUSTFLAGS="$l -C link-arg=-Wl,--gc-sections" \
 			cargo --config "$RUST_DIR/cargo-plan9.toml" build --release --target $T --quiet $f 2>/dev/null) &&
 		"$CROSS/$TRIPLE-strip" -o "$HERE/root/tests/$n" "$BUILD/cargo/$n/$T/release/eframetest"

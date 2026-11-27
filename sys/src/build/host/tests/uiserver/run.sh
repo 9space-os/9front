@@ -23,7 +23,7 @@ T=x86_64-unknown-plan9
 . "$ROOT/sys/src/build/step/cargostd.sh"
 cargostd "$BUILD/cargo/rust" $T
 (cd "$ROOT/sys/src/rust" && env RUSTC="$RUSTC" CARGO_TARGET_DIR="$BUILD/cargo/rust" \
-	CARGO_TARGET_X86_64_UNKNOWN_PLAN9_LINKER="$CROSS/$TRIPLE-gcc" \
+	CARGO_TARGET_X86_64_UNKNOWN_PLAN9_LINKER="$XCXX" \
 	cargo build --offline --release --target $T --quiet -p ui -p uidemo)
 mkdir -p "$HERE/root/tests" "$HERE/root/lib/font/ttf"
 (cd "$ROOT/sys/src/build/host/tests/ui" && env PLAN9="$ROOT" ARCH=amd64 CC=gcc "$ROOT/sys/src/cmd/build/build.exe" build.json >/dev/null)
