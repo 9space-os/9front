@@ -238,8 +238,26 @@ dupfgrp(Fgrp *f)
 	return new;
 }
 
+static void closefgrp0(Fgrp*, int);
+
 void
 closefgrp(Fgrp *f)
+{
+	closefgrp0(f, 0);
+}
+
+/*
+ * 9space: pexit's: the chans whose last reference goes here say so
+ * to their devices (CGOING, cclosegoing)
+ */
+void
+closefgrpgoing(Fgrp *f)
+{
+	closefgrp0(f, 1);
+}
+
+static void
+closefgrp0(Fgrp *f, int going)
 {
 	int i;
 	Chan *c;
@@ -255,7 +273,10 @@ closefgrp(Fgrp *f)
 	for(i = 0; i <= f->maxfd; i++)
 		if((c = f->fd[i]) != nil){
 			f->fd[i] = nil;
-			cclose(c);
+			if(going)
+				cclosegoing(c);
+			else
+				cclose(c);
 		}
 	up->closingfgrp = nil;
 
@@ -290,7 +311,7 @@ forceclosefgrp(void)
 	for(i = 0; i <= f->maxfd; i++)
 		if((c = f->fd[i]) != nil){
 			f->fd[i] = nil;
-			ccloseq(c);
+			ccloseqgoing(c);	/* 9space: only an exiting process gets here */
 		}
 }
 

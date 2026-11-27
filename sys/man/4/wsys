@@ -1,0 +1,1283 @@
+.TH WSYS 4
+.SH NAME
+wsys \- window system, prototype (processor backend), rio(4)'s files
+.SH SYNOPSIS
+.B wsys
+[
+.B -dgkpOxz
+] [
+.B -f
+.I font
+]
+[
+.B -t
+.I theme
+]
+[
+.B -S
+.I scale
+]
+[
+.B -s
+.I srvname
+]
+[
+.B -i
+.I cmd
+]
+[
+.B -x
+]
+.PP
+.B mount $wsys /mnt/wsys
+.SH DESCRIPTION
+.I Wsys
+is the window system of the
+.B ui
+branch, a successor of
+.IR rio (1)
+in the making.
+It draws on the screen
+.IR draw (3)
+gives it (or in the window of
+.BR /dev/winname ),
+posts a 9P connection as
+.BI /srv/ srvname
+(default
+.BI wsys.$user. pid\fR,
+as
+.IR rio (1)
+does: one that died leaves its entry behind; then also as
+.BR wsys.$user ,
+replacing what was there: the user's newest
+.IR wsys ,
+where a program that outlived one finds the next, as
+.IR wlsys (4)
+does)
+and serves a tree of windows.
+With
+.BR -i ,
+it runs
+.I cmd
+with
+.IR rc (1)
+in a name space and an environment of its own with the tree on
+.B /mnt/wsys
+and
+.B $wsys
+naming the service;
+.B -x
+makes it exit when
+.I cmd
+does;
+.B -O
+uses no overlay plane (see
+.B gpubuffer
+below).
+.B -z
+sends what its own devdraw drew to the screen compressed
+(draw(3)'s
+.BR Y ,
+.IR image (6)'s
+compression); it does so anyway where
+.B /dev/draw
+is the terminal's of a cpu session
+.RB ( /mnt/term 's:
+.IR drawterm 's
+through
+.IR rcpu (1);
+not in a window of another
+.IR wsys ,
+whose
+.B /dev/draw
+is that one's):
+a window's flat colours and repeated rows come to some sixteenth.
+.B WSYSDEBUG=compress
+says at the end how many bytes of pixels went in how many of messages.
+.B WSYSDEBUG=resize
+says what each resize of the window it is in found.
+.B WSYSDEBUG=wctl
+says each message to a
+.B wctl
+file, with the window's number.
+.B WSYSDEBUG=ctl
+says each message to a window's
+.B ctl
+that
+.I wsys
+refuses, and why.
+.PP
+Where it can,
+.I wsys
+composes the screen on the GPU (Vulkan, Mesa's
+.BR libvulkan.a ):
+a swapchain on the whole screen goes to the display (gpu(4)
+.BR scanout ),
+each frame from what
+.IR draw (3)
+changed on the screen (gpu(3)'s
+.BR dirty ,
+copied from its framebuffer by the processor) and, over it, the windows'
+GPU buffers where they are seen, copied by the GPU (the processor copies
+none of their pixels; the window on the overlay plane, below, is left out:
+the plane shows it over the frames).
+A presented GPU buffer stays
+.IR wsys 's
+while it is shown: the client gets the one shown before back
+.RB ( "b \fIn\fP" )
+when a frame with the new one is on its way, at the display's rate.
+.B /mnt/wsys/screen
+and a GPU window's
+.B window
+are then read back from a frame; such a window's own image in
+.IR draw (3)
+does not have the client's pixels.
+Only on the whole screen (not in a window), with an x8r8g8b8 screen, a
+GPU's driver drawing it (gpu(3)'s framebuffer; not under VESA);
+otherwise, if Vulkan does not start, when its thread fails, or when
+the display refuses its frames (the WSI would copy them into the
+screen they are composed from), the processor composes.
+.B -p
+makes the processor compose;
+.B -g
+asks for the GPU and says why not when it cannot, and what it does
+(as does
+.BR WSYSDEBUG=comp ).
+.PP
+.IR Draw (3)
+is
+.IR wsys 's
+own (unless
+.BR -k ,
+the kernel's: its windows are then windows of the kernel's devdraw, as
+.IR rio 's;
+where its own cannot start, the kernel's;
+.B -d
+makes that an error; on a screen far away, the terminal's of a cpu
+session as above, the terminal's unless
+.BR -d :
+its programs draw there and a window moves by a message, where
+.IR wsys 's
+own would send the screen's pixels over the network): the kernel's devdraw, libmemdraw and libmemlayer in its process
+.RB ( drawfs (4)'s,
+built for APE), on a screen as big as the screen or the window (of
+.IR rio ,
+or
+.IR drawterm 's
+through
+.IR rcpu (1))
+it shows, in a segment of
+.IR segment (3)
+.RB ( wsys.screen. pid)
+that holds 4096 by 2304 from the start (its pages made where they are
+drawn) and is made again bigger when the screen outgrows it.
+When that window or the screen changes (moved or resized, a monitor
+plugged in or out: the mouse's
+.BR r ),
+devdraw's screen image is made again in the new size (as the kernel's,
+a new
+.BR noborder.screen. n)
+and
+.I wsys
+follows: its screen is the window's size, a bar as wide, each window made
+again on the new image (its program hears
+.BR r ),
+a maximized window over it again, a window whose corner is off it moved
+back onto it.
+On the machine's own screen
+.I wsys
+knows the monitors
+.RI ( gpu (4)'s
+outputs that are on, from their
+.B mode
+files): a window is maximized or made full screen on the monitor it is
+most on, and a new one comes on the monitor with the mouse.
+When a monitor goes, its windows go onto the one with the mouse, where
+they were on theirs in proportion and no bigger than it; when it comes
+again they go back where they were (unless moved meanwhile).
+With
+.B "scale auto"
+each monitor has its own scale, from its EDID: a window is at the scale
+of the monitor it is most on (its border, title bar and, for a text
+window, font; its
+.B dpi
+and
+.B theme
+files say it), and dropped on a monitor of another scale it is made
+as big to the eye there and its program hears
+.BR r ;
+the cursor is as big as the scale of the monitor it is on.
+Menus are at the theme's scale.
+Its tree and every window's directory have a directory
+.B draw
+.RB ( new ,
+.IB n /colormap\fR,
+.BR ctl ,
+.BR data ,
+.BR refresh ,
+as
+.BR #i 's),
+so the programs in its windows, which find the window's directory on
+.BR /dev ,
+draw through it.
+What it drew the GPU composes from that segment, or
+.I wsys
+copies into the kernel's screen.
+.PP
+A window's pixels are not sent through the files: they are in global
+segments of
+.IR segment (3)
+that the client makes and owns, its buffers.
+As
+.I wsys
+attaches a segment at the address it has everywhere, each window gets a
+range of addresses of its own
+.RI ( base ,
+.IR size );
+the client puts its buffers there, and they cannot collide in
+.IR wsys .
+A buffer's layout is
+.B x8r8g8b8
+(32 bits a pixel, little-endian: blue, green, red, unused),
+a line every
+.I stride
+bytes.
+Once announced, the client may remove the segment's entry in
+.BR #g :
+the segment lives while either side has it attached.
+.PP
+Each window is also a window of
+.IR draw (3)
+on
+.IR wsys 's
+screen, border and all, publicly named; and
+.I wsys
+serves
+.IR rio (4)'s
+files, so that
+.IR draw (3)
+programs,
+.IR window (1)
+and
+.I rio
+itself run in its windows unchanged.
+The attach name
+.B new
+with
+.IR rio 's
+options
+.RB ( -r ,
+.BR -dx ,
+.BR -dy ,
+.BR -pid ,
+.BR -cd ;
+and
+.BR -bar ,
+not rio's: a bar from the start, without border or title bar, as the ctl
+message
+.B bar
+makes it, so that a bar's few pixels need not hold them first; and
+.BR -restart ,
+not rio's either: its program started again when it goes, below)
+makes a window and attaches to its directory; a window's number attaches to
+an existing one;
+.B none
+or none at all gives the tree below.
+.B wctl
+at the root takes
+.BR new ,
+.B helper
+and
+.B restart
+(below);
+a window's
+.BR wctl ,
+.IR rio 's
+messages
+.RB ( resize ,
+.BR move ,
+.BR top ,
+.BR bottom ,
+.BR current ,
+.BR delete ,
+.BR set ,
+.BR new ,
+.BR hide ,
+.BR unhide ,
+.BR scroll ,
+.BR noscroll ),
+.B fullscreen
+(the window all of the screen, without border or title bar, above the bars
+while it is on top; another window made current goes over it, the bars over
+both again; it stays the screen's size when the screen changes),
+.B unfullscreen
+(its frame, border and title bar as before)
+and
+.BR bar :
+the window becomes a bar
+.RI ( wbar (1)):
+no border or title bar (its image's name starts with
+.BR noborder. ,
+as
+.IR graphics (2)
+and p9win know such a window), above the other windows, the mouse while it
+is over it (or a button went down there) but never the keyboard's focus, not
+in Mod4+Tab; a window maximized leaves the edge of the screen it is on free.
+.PP
+A window's
+.B menu
+shows a menu of
+.IR wsys 's
+for its program, anywhere on the screen (a bar's, below it):
+written, its first line is
+.I x y
+(the menu's top left, kept on the screen), each further line an item;
+a read then waits until the menu is gone and gives the item chosen, from 0,
+or \-1 for none.
+A button held when it opens, let go on an item, chooses it; let go
+elsewhere, the menu stays open; then the next press's release chooses the
+item under it, or none off them.
+.PP
+A process
+.I wsys
+starts in a new window gets a name space and an environment of its own with the window's files on
+.B /dev
+and
+.BR /mnt/wsys ,
+and a note group of its own;
+.B delete
+sends it
+.BR hangup ,
+Del in a window that is not raw
+.BR interrupt .
+A window lives while its files are open (or the
+.B clone
+file that made it).
+.PP
+With the theme's
+.B "title 1"
+each window but a popup has a title bar between the top of its border and
+its content, as high as the font and 4 more, in the border's colour: its
+label (else
+.BI window " n\f1)"
+and at its end the buttons
+.BR min ,
+.B max
+and
+.BR x .
+Button 1 on the bar moves the window; twice within half a second, the window
+fills the screen, and again it has its frame back.
+A button acts when button 1 is let go on it:
+.B x
+deletes the window (as button 3's Delete),
+.B max
+is the double click,
+.B min
+hides it (as Hide).
+Buttons 2 and 3 on the bar are as on the border.
+The bar is a window of its own in
+.IR draw (3)
+above the window's (border and content), which
+.B winname
+names, as in
+.IR rio :
+.IR draw (3)
+programs inset that by the border and keep off the bar.
+The frame (what
+.B wctl
+and
+.B stack
+give, and
+.B new
+and
+.B resize
+take) holds the bar; the content
+.RB ( ctl )
+is below it.
+Writing
+.B title
+to the theme keeps each window's frame: its content grows or shrinks by the bar.
+.B WSYSDEBUG=mouse
+writes each mouse message and the window under it.
+.PP
+Mod4+Tab (the Windows key) makes the bottom visible window current and
+raises it, so pressing it again and again goes through all windows;
+Mod4+Shift+Tab goes back (the current window to the bottom, the top one
+current).
+These keys do not reach a window; Tab without Mod4 does.
+This is the only key
+.I wsys
+keeps for itself.
+.PP
+A window made by
+.B new
+is a text window, as
+.IR rio 's:
+while no program has its
+.B mouse
+open,
+.I wsys
+shows the end of what was written to its
+.B cons
+(and
+.BR text )
+and the line being typed, wrapped to the window, in the font given by
+.BR -f ,
+else the theme's
+.RB ( font ,
+below),
+else
+.BR $font ,
+else
+.BR /lib/font/bit/vga/unicode.font
+.RI ( font (6));
+the wheel scrolls it, output scrolls it back to the end; a tab is
+.B $tabstop
+(default 4) zeros wide.
+As in
+.IR rio ,
+a scroll bar is at its left: grey, white for the part shown; button 1 in it
+scrolls back and button 3 on by as many lines as the mouse is below its top
+(again and again while held), button 2 goes to that place of the text.
+Button 1 selects text (on a pale background); twice at one place within half
+a second, a word, or what is between brackets or quotes when next to one,
+or a line when at its start or end; button 2's menu
+.B cut
+(the selection to the snarf buffer, out of the text),
+.BR paste
+(the snarf buffer typed; over a selection in the line typed, in its place),
+.BR snarf ,
+.B plumb
+(the selection, else the word around it with
+.BR click= ,
+to the plumber of
+.IR wsys 's
+name space, as
+.IR rio ),
+.B look
+(the next place with the selected text),
+.B send
+(the selection, else the snarf buffer, typed as a line) and
+.B scroll
+or
+.B noscroll
+(as
+.IR rio 's:
+whether output goes to the end while the window shows text further back;
+off at the start, there the text shown stays; also
+.B scroll
+and
+.B noscroll
+on the window's
+.BR wctl ).
+Esc toggles
+.IR rio 's
+hold mode (also
+.B holdon
+and
+.B holdoff
+on
+.BR consctl ):
+lines typed wait until it ends, the text and border are blue; Del ends it and
+interrupts.
+The snarf buffer is the
+.B snarf
+file's; when
+.I wsys
+runs in a window of
+.IR rio ,
+.IR rio 's.
+.PP
+.TP
+.B theme
+The desktop's colours, a line
+.I "name value"
+each (lines starting with
+.B #
+are comments, colours
+.BI # rrggbb\f1):
+.B back
+(the screen behind the windows),
+.B border
+and
+.B borderinactive
+(the current window's and the others'),
+.B window
+and
+.B text
+(a text window's and a menu's background and text),
+.BR select ,
+.BR menuhigh ,
+.BR scroll ,
+.B hold
+and
+.B holdinactive
+(a window holding, Esc),
+.B title
+(0 or 1: title bars, above),
+.B scale
+(below),
+.B font
+(wsys' own, a
+.IR font (6)
+file),
+.B uifont
+and
+.B monofont
+(TrueType files for
+.IR ui (4)
+and
+.IR term (1)).
+Reading gives the theme; writing lines changes what they name, at once
+(a line it does not know is an error, and nothing changes).
+The same file is in each window's directory, so programs find it as
+.BR /dev/theme .
+.B /lib/theme/classic
+holds the default (rio's colours),
+.B /lib/theme/modern
+paper, ink and slate blue,
+.B /lib/theme/9space
+(the desktop's, from
+.BR $home/lib/profile )
+rio's grey, paper and ink with earth tones, light and dark;
+.B -t
+starts with a theme file.
+.IP
+Besides the colours above,
+.BR accent ,
+.BR surface ,
+.BR secondary ,
+.BR separator ,
+.BR danger ,
+.B success
+and
+.B warning
+are
+.IR ui (4)'s:
+what is chosen or on, a control's face, text that matters less, lines
+between things, and the colours of a state.
+A theme has a light palette, the colours' lines, and may have a dark one:
+.BI dark. name
+lines (a colour the dark palette does not name stays the light one).
+.B "mode light"
+or
+.B "mode dark"
+chooses; written alone it switches the desktop at once, its windows,
+.IR ui (4)
+and
+.IR term (1)
+with it.
+.IP
+.B scale
+is the factor the desktop is drawn at, 1 at 96 dots per inch:
+.B "scale 1.5"
+or
+.B "scale 2"
+for a monitor with more pixels to the inch;
+.B "scale auto"
+(the default) lets
+.I wsys
+find it, and reads back as
+.B "scale auto"
+.I s
+with what it found:
+in a window of another
+.IR wsys ,
+that one's;
+on the screen of the machine itself, from the EDID of the output that shows it
+.RI ( gpu (4):
+its width in millimetres; 1 below 120 dots per inch, else the dots per inch
+over 96, down to a quarter);
+else 1.
+.B -S
+gives it at the start.
+At another scale than 1 the borders, title bars, scroll bars, menus and
+corners are as many times as big, and so is the cursor on the machine's own
+screen
+.RI ( vga (3)'s
+.BR cursorsize ;
+16 again when
+.I wsys
+ends)
+(the rounding of
+.IR graphics (2)'s
+.IR scalesize ), and so is the font of the text windows, which the programs
+of new windows get as
+.BR $font :
+unless
+.B -f
+or the theme's
+.B font
+says one (taken as it is),
+.B $font
+as big when it is one of
+.IR truetypefs (4)
+.RI ( name .ttf. n [ a ]),
+for the default (none, vga's) Go Mono as big, antialiased
+.RB ( Go-Mono.ttf. "\fIn\fPa" ;
+.I wsys
+starts a truetypefs where
+.B /n/ttf
+has none); a bitmap font of one's own stays as it is (it cannot grow;
+.I wsys
+says so).
+Programs that know the scale (libdraw's
+.BR display->dpi ,
+p9win's and winit's scale factor:
+.IR ui (4),
+.IR term (1),
+.IR wbar (1),
+.IR wdock (1))
+draw as big at the window's pixels; written, they are told as a resize.
+.TP
+.B stack
+Reading gives the windows, bottom to top, a line each:
+.I n
+.I x0 y0 x1 y1
+(its frame on the screen, border and all)
+.I border
+(its width)
+.I hidden
+(1 if hidden).
+.TP
+.B clone
+Opening it makes a window; the open file is then the window's
+.BR ctl ,
+and the window lives until it is closed.
+The window is off the screen, without the focus, until its first
+.B present
+(or
+.BR top ):
+then it comes up where the client put it, with its first picture, and
+takes the focus (as Wayland's compositors map a surface with its first
+buffer; nothing white flashes where it would be made).
+Ranges of closed windows are given again.
+.TP
+.B kbdtap
+The keyboard's tap, as
+.IR rio (4)'s
+(each window's
+.IB n /kbdtap
+is the same tap): while a program reads it, the keyboard's
+.IR kbd (3)
+messages go to it, one a read, instead of the current window (after
+.IR wsys 's
+own Mod4 keys), each after the keys went to another window a
+.B z
+and that window's number; the messages it writes (each with its NUL) go
+to the current window, unless the keys go to another window since
+.RB ( z
+messages written are ignored).
+One reader and one writer at a time (else
+.LR "file in use" ),
+usually one program,
+.IP
+.EX
+reform/shortcuts </mnt/wsys/kbdtap >/mnt/wsys/kbdtap
+.EE
+.IP
+(the volume, mute and brightness keys:
+.IR reform (1)).
+A reader 32 messages behind is passed by.
+.TP
+.B screen
+an
+.IR image (6)
+of where
+.I wsys
+draws (as
+.IR rio 's;
+its header has the rectangle), with what the overlay plane shows over it
+(a window's buffer in VRAM through gpu(4)'s
+.BR readback ).
+.TP
+.IB n /clone
+As
+.BR clone ,
+the window made a dialog or popup of window
+.I n
+(its parent): it stays above
+.IR n ,
+moves with it (by as much as
+.I n
+moves), is hidden and shown with it, and goes when it goes;
+Mod4+Tab passes it (it comes with
+.IR n ).
+A program in a window finds it as
+.BR /dev/clone :
+the windows of one program (its dialogs, its menus as windows of their own,
+a second main window as a dialog of none, see
+.B parent
+below) all from its namespace.
+.TP
+.IB n /dpi
+The scale as dots per inch, round(96×scale), for
+.IR graphics (2)'s
+.BR display->dpi .
+.TP
+.IB n /cons ", " consctl ", " cursor ", " kbd ", " kbdtap ", " label ", " mouse ", " screen ", " snarf ", " text ", " wctl ", " wdir ", " window ", " winid ", " winname
+as in
+.IR rio (4):
+the mouse while it is over the window or a button is held (first an
+.B r
+message after a change of the window), keys as
+.IR kbd (3)
+messages to
+.B kbd
+while it is open, else their runes to
+.B cons
+(a line at a time unless raw: backspace, ^U, ^D, Del);
+.B wctl
+reads as
+.IR rio 's,
+a second read waits for a change; writes to
+.B cons
+collect in
+.BR text ;
+.B window
+and
+.B screen
+are
+.IR image (6)s
+of the window (border and all) and of the screen, taken at a read at offset 0
+.RI ( mc (1)
+takes its width from
+.BR window 's
+header).
+.TP
+.IB n /wsys/
+all windows, by number, with their files, as
+.IR rio 's
+.BR /dev/wsys :
+a program in a window sees them at
+.B /dev/wsys
+.RI ( winwatch (1)
+runs on it).
+.TP
+.IB n /ctl
+Reading gives one line of fields:
+.I n
+.I x0 y0 x1 y1
+(the window's content on the screen)
+.I w h
+.I base size
+(the range for its buffers)
+.I focus
+(1 if it has the focus); Mesa's plan9 WSI knows a window of
+.I wsys
+by these ten fields.
+Messages written:
+.RS
+.TP
+.BI rect " x0 y0 x1 y1
+moves the window; with a new size it keeps showing its picture (white
+beyond it) until a buffer is presented.
+.TP
+.BI buffer " b seg w h stride \fR[\fPoff \fR[\fPchan\fR]]\fP
+announces buffer
+.I b
+(0 to 31): segment
+.I seg
+of
+.I w
+by
+.I h
+pixels,
+.I off
+bytes into it (default 0);
+.I chan
+is
+.B x8r8g8b8
+(the default: opaque) or
+.B a8r8g8b8
+(premultiplied alpha, which counts in
+.BR layers ).
+.I Wsys
+attaches it; it must lie in the window's range, or in the region
+where the kernel puts segments made with an address of 0
+.RI ( segment (3)):
+their addresses are unique anyway.
+Several buffers, of one window or more, may be in one segment (a
+Wayland client's pool, see
+.IR wlsys (4));
+it is attached once.
+To reuse an address, unbuffer first.
+.TP
+.BI gpubuffer " b token w h stride \fR[\fPchan\fR]\fP
+announces buffer
+.I b
+as a GPU buffer the client exported from its context of
+.IR gpu (4)
+.RB ( export ,
+which gives
+.IR token ).
+.I Wsys
+imports it into a context of its own on the first device
+.RB ( /shr/gpu/0 ,
+.IR gpu (4))
+and reads the pixels where the processor sees them (the device's host
+visible memory).
+Mesa's plan9 WSI does this for Vulkan programs in a window of
+.IR wsys :
+their frames are not copied by the program.
+With
+.IR aux/amdgpu ,
+a window on top (of those that are not bars, with no bar over it),
+wholly on the screen, with nothing of
+.I wsys
+over it (a menu, a sweep) and a GPU buffer as big as its contents (rows
+a multiple of 256 bytes) goes on an overlay plane
+.RB ( overlay
+in
+.IR gpu (4)):
+the display shows the buffer, copied into VRAM by the GPU, and
+.I wsys
+copies nothing; a present returns at the display's next vblank, done
+by a thread of its own, so that
+.I wsys
+answers its other clients meanwhile.
+When the window may no longer be there, the plane goes off and the last
+presented buffer is composed by the GPU again, or copied into the window
+by the processor.
+To a window with GPU buffers
+.I wsys
+sends the event
+.B overlay 1
+when it may go on the plane and
+.B overlay 0
+when no longer: Mesa's plan9 WSI then makes its swapchain's buffers in
+VRAM, which the plane shows as they are (no copy at all), or again where
+.I wsys
+reads them; a buffer in VRAM the processor cannot read the GPU composes all the same;
+copying, it shows nothing new until the client's next buffers come.
+.B -O
+keeps every window on
+.IR wsys 's
+screen (tests that read the pixels back);
+.B WSYSDEBUG=overlay
+writes why a window's present does not go on the plane,
+.B WSYSDEBUG=release
+each frame composed on the GPU and each buffer given back.
+.TP
+.BI unbuffer " b
+.I wsys
+detaches buffer
+.I b
+(a GPU buffer: lets go of it).
+.TP
+.BR present " \fIb\fP [\fIx0 y0 x1 y1\fP]"
+the pixels of the rectangle (in the buffer's coordinates, which are the
+window's; all of the buffer that fits without one) go to the screen.
+When
+.I wsys
+is done with the buffer it sends the event
+.BI b " b\fR:"
+the client may write it again.
+With two or more buffers the client draws the next picture meanwhile.
+A buffer the display shows (composed on the GPU,
+or on the overlay plane) stays
+.IR wsys 's
+until another one of the window is shown, at the display's rate, also
+while the window is hidden; Mesa's plan9 WSI gives the program an image
+again only on its
+.BR b ,
+so that Vulkan programs draw no faster than the display shows (an image
+not back within 2 seconds it takes back, with a message); its swapchains
+have three images then (one shown, one on its way, one being drawn).
+.TP
+.BR layers " [" + "]\fIb x y\fR ..."
+the window shows these buffers, bottom to top, each with its top left
+corner at
+.I x y
+in the window (a Wayland window with subsurfaces,
+.IR wlsys (4)):
+the bottom one is copied, one over others blended if it has alpha
+.RB ( a8r8g8b8 ;
+Plan 9's and Wayland's premultiplied over).
+.B +
+marks a buffer with new content: it gets its
+.B s
+when a frame shows it.
+A listed buffer stays
+.IR wsys 's
+while listed; one no longer listed comes back with
+.B b
+once no frame shows it (a
+.B present
+ends the layers: all but its buffer come back).
+When the GPU composes the screen and has all of them it composes them
+(a layer with alpha drawn over the frame by a shader that reads the
+client's buffer itself); else
+.IR draw (3)
+does, through an image of
+.B a8r8g8b8
+.RB ( SoverD ).
+A window with layers does not go on the overlay plane.
+.B WSYSDEBUG=layers
+writes which composes a window's layers.
+.TP
+.B top
+raises the window and gives it the focus.
+.TP
+.BR popup " [" grab ]
+before the first
+.BR present :
+the window has no border (a menu's or a tooltip's,
+.IR wlsys (4));
+shown, it takes the focus with
+.B grab
+(a menu), else leaves it where it is (a tooltip).
+.TP
+.BI label " text
+.TP
+.B delete
+.TP
+.BI parent " p\fR|\fP-
+makes the window a dialog or popup of window
+.I p
+(as made by
+.IB p /cloneR),
+or of none.
+.TP
+.BR modal " [" 0|1 ]
+while the window is shown, a press of a button in its parent's content
+raises the window and gives it the focus instead (the parent's border and
+title bar still move and size it, the dialog along), and Mod4+Tab to the
+parent gives the focus to it.
+.TP
+.BR askclose " [" 0|1 ]
+the user's Delete (the title bar's
+.BR x ,
+button 3's menu) only sends the event
+.BR close :
+the client deletes the window (closes its clone file, or
+.BR delete ),
+or keeps it (a dialog asks whether to save first).
+A second Delete of a window asked so deletes it at once (a client that
+hangs, or will not).
+.B wctl
+and
+.B ctl
+.B delete
+still delete it at once.
+.RE
+.TP
+.IB n /event
+Reading blocks until there are events; each is a line:
+.BI m " x y buttons msec
+(the mouse, in the window's coordinates, while it is over the window or a button is held,
+and once when it has left it; also over a window without the focus while
+no button is held, there on its
+.B event
+file alone (its
+.B mouse
+file is
+.IR rio 's:
+the focused window's), for hover and tooltips in a program's other windows),
+.BI k " rune
+(a key, the rune in hexadecimal),
+.BI r " w h
+(a new size),
+.BI f " focus
+(1: the window got the focus, 0: lost it),
+.BI s " b
+(buffer
+.I b
+is on the display, composed, on the overlay plane or copied: the time for
+the next picture, as Wayland's frame callbacks;
+.I wsys
+may keep it until another one is shown),
+.BI b " b
+(buffer
+.I b
+released),
+.BI overlay " 0|1
+(whether its buffers may go on the overlay plane),
+.B close
+(the user asked to delete the window,
+.BR askclose ).
+Programs skip events they do not know.
+.PP
+.I Wsys
+composes on the processor through
+.IR draw (3):
+a background, the windows bottom to top, each with a border (blue with the focus).
+Mouse events come from
+.B /dev/mouse
+(opened once: the kernel's takes one opener),
+keys from
+.B /dev/kbd
+(else
+.B /dev/cons
+in raw mode);
+a button pressed over a window gives it the focus and raises it;
+on its border, as in
+.IR rio ,
+button 1 (or 2) sweeps it to a new size (the corner when within 20 pixels of
+it, else the edge; an outline until the button comes up, then the client gets
+an
+.B r
+event) and button 3 moves the window.
+Button 3 on the background or in a text window gives
+.IR rio 's
+menu:
+.B New
+(sweep a rectangle with button 3: a window with
+.B rc
+in it),
+.B Resize
+(sweep from a point in the window to its new corner),
+.BR Move ,
+.B Delete
+and
+.B Hide
+(button 3 on the window), and the hidden windows by their labels, to bring one
+back; a cross is the cursor while a command waits for its button.
+A hidden window is off the screen, as in
+.IR rio ;
+.B wctl
+says
+.B hidden
+and takes
+.B hide
+and
+.BR unhide .
+Keys go to the focused window.
+With
+.BR -x ,
+.I wsys
+prints the name it posted and its rectangle (for scripts); otherwise nothing.
+.PP
+When memory runs out the pager passes
+.I wsys
+over: it sets
+.B nokill
+.RI ( proc (3);
+not
+.BR noswap :
+it has no claim on the last free pages)
+first thing, which its threads inherit and the programs it starts in its
+windows do not (exec clears it): the pager kills the biggest process it
+may, and
+.IR wsys ,
+with the windows' images, would be the first to go and every window with
+it.
+The window bar and the windows' programs may still be killed, and the GPU
+drivers are passed over as well
+.RI ( gpu (4)).
+As FreeBSD's
+.IR protect (1)
+for X.
+.PP
+The desktop's helpers are kept going by
+.I wsys
+(the window manager's job): a window made with
+.B -restart
+.RB ( "window -restart" ,
+riostart's
+.IR wbar (1)
+and
+.IR stats (8)),
+and a program without a window started by
+.B helper
+.RB [ -restart ]
+.I cmd
+written to the root's
+.B wctl
+(in
+.IR wsys '
+name space with
+.B /mnt/wsys
+mounted; riostart's reform shortcuts on
+.BR kbdtap ,
+which goes to the windows again while it is gone).
+When the program ends,
+.I wsys
+tells by its wait message:
+killed by the pager for memory
+.RB ( "Killed: Insufficient physical memory" ):
+started again, in the same window, after 1 second, the pause doubling to
+30 seconds while it keeps going within a minute;
+any other status (a crash): started again the same way, each time said on
+.IR wsys '
+standard error, and after 5 crashes in 10 minutes not any more, the window
+kept with that line in it;
+no status (it ended of its own), or the note
+.BR hangup ,
+.B interrupt
+or
+.B kill
+(the user's): not started again, and its window goes;
+the window deleted (Delete,
+.BR "wctl delete" ):
+not started again either.
+.B restart
+written to such a window's
+.B wctl
+starts its program again by hand (its count of crashes anew), as does
+button 3's menu item
+.BI restart " cmd
+of a window given up;
+.B restart
+written to the root's
+.B wctl
+does so for the helpers given up.
+A riostart of one's own
+.RB ( $home/bin/rc/riostart ,
+copied at installation) keeps its old lines: the helpers there are not
+kept going until they are written as in
+.BR /sys/lib/dist/usr/glenda/bin/rc/riostart
+.RB ( "window -bar -restart" " ... " wbar ,
+.BR "window -restart" " ... " stats ,
+and reform's shortcuts by
+.BR "helper -restart" ).
+.I Wsys
+starts its own font server,
+.IR truetypefs (4)
+(at a scale other than 1), with
+.BR -k ,
+so that the pager passes it over too: every window's name space mounts it,
+and a new server would reach none of them.
+.SH EXAMPLES
+In
+.IR plan9.ini ,
+.B desktop=wsys
+makes the terminal's profile start
+.B wsys -i riostart
+instead of
+.IR rio .
+.B wsysflags=-g
+adds
+.B -g
+(and logs what wsys says to
+.B wsysboot.log
+on the boot stick's ESP);
+.B comprun
+in one of its windows checks the composition (two
+.B vktri
+at once, one partly covered) and logs to
+.B comp.log
+on the boot stick's ESP;
+.B deskrun
+checks the desktop on that screen (the modern theme, title bars,
+.IR wbar (1),
+Mod4+Tab; pixels from
+.BR /mnt/wsys/screen )
+and logs to
+.BR desk.log .
+.PP
+Over the network there are two ways, for two things.
+The whole desktop: a terminal (drawterm, or
+.IR rcpu (1)
+from 9front) runs
+.I wsys
+on a cpu server; it draws on the terminal's screen through
+.B /mnt/term/dev/draw
+(draw(3) over 9P: pixels), what changed compressed, and follows the
+terminal's window as it is resized.
+Its windows' programs run on the cpu server, buffer clients (segments, GPU
+buffers) among them; the GPU composes only on the machine's own screen.
+One program: a
+.IR ui (4)
+client on one machine and its window on another; what goes over the
+network is the tree of widgets and the user's events, not pixels
+.RI ( import (4)
+the window's
+.BR /srv ,
+or the client's
+.IR ui (2)
+over TCP).
+Draw(3) programs (stats, acme) go either way: in a window of a
+.I wsys
+far away, or by themselves on the terminal as under
+.IR rio .
+.IP
+.EX
+drawterm -h 'tcp!cpu!17019' -a 'tcp!auth!567' -u glenda
+cpu% wsys -t /lib/theme/modern -i 'window -r 0 0 1000 30 wbar; window term'
+.EE
+.PP
+A client in C: see
+.BR /tests/ui/wsystest.c .
+.SH SOURCE
+.B /sys/src/cmd/wsys
+(Rust;
+.BR sys/src/build/step/cargo.sh )
+.SH SEE ALSO
+.IR proc (3),
+.IR gpu (4),
+.IR rio (1),
+.IR rio (4),
+.IR wlsys (4),
+.IR window (1),
+.IR draw (3),
+.IR segment (3),
+.IR rcpu (1),
+.IR ui (4)
+.SH BUGS
+A
+.I wsys
+that grows without bound is not stopped by the pager (it is passed
+over): when only such processes are left, the pager waits for pages
+instead of killing.
+.I Wsys
+must be allowed to attach the clients' segments: the same user, or the
+host owner.
+With the processor backend a buffer is released as soon as it is
+copied.
+When
+.I wsys
+exits the windows are gone.
+The programs of p9win (Rust's winit, term, ui) and of Mesa's WSI make
+theirs again in the next
+.I wsys
+and go on; a
+.IR draw (3)
+program's window does not come back.
+GPU buffers: those of
+.I virtiogpu
+(venus) and
+.I amdgpu
+(RADV) and
+.I i915
+(hasvk) so far; when the processor composes,
+.I wsys
+copies them to the screen.
+On the GPU, draw(3)'s changes are still copied by the processor (into a buffer the
+GPU reads), and a client presenting the buffer shown again gets it back
+at once, while it is still read each frame.
+With
+.BR -g ,
+the screen's image of
+.IR draw (3)
+(read with
+.I unloadimage
+from
+.BR display->image ,
+or the kernel's
+.B /dev/screen
+outside
+.IR wsys 's
+name space) lacks the windows the GPU composes;
+.B /dev/screen
+and
+.B /dev/window
+in a window
+.RB ( /mnt/wsys )
+give the frame as composed.
+A cursor drawn by
+.IR draw (3)
+(vga hwgc soft, only when the driver's cursor plane refuses) is hidden by
+the GPU windows; the GPU drivers' cursor plane is not.
+Each buffer is a segment of
+.IR wsys 's
+own as well.
+The windows' clients' segments lie in address ranges
+.I wsys
+gives each window: on 386 there are 27 of them (32 MB each), on arm64
+32 (256 MB each), on amd64 more than enough.
+.I Rio
+in a window breaks when the window goes (its procs, on the note group's
+.BR hangup ,
+as in a window of
+.IR rio ).

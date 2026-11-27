@@ -7,6 +7,74 @@
  * on attach.
  */
 
+/*
+ * 9space: what was added here follows OpenBSD's sources, each place
+ * names its function: 802.11n (HT capabilities, MAC context and station
+ * flags, the link quality table, QoS header padding), receiving and
+ * sending aggregates (block ack agreements, aggregation queues by
+ * SCD_QUEUE_CFG, the scheduler's byte count table, tx done and
+ * compressed block ack handling), 5 GHz (the NVM's SKU), the signal of
+ * each frame (rx phy and the 9000 family's rx descriptor, with its
+ * header padding), the Smart FIFO, the binding's time quota, the rx
+ * buffer timeout and periodic interrupt, the 7265D's firmware:
+ *
+ * sys/dev/pci/if_iwm.c (ISC):
+ * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
+ *   Author: Stefan Sperling <stsp@openbsd.org>
+ * Copyright (c) 2014 Fixup Software Ltd.
+ * Copyright (c) 2017 Stefan Sperling <stsp@openbsd.org>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ *
+ * sys/dev/pci/if_iwmreg.h, the commands' layouts and constants, under
+ * the BSD licence of its dual BSD/GPLv2 licence:
+ *
+ * BSD LICENSE
+ *
+ * Copyright(c) 2005 - 2014 Intel Corporation. All rights reserved.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in
+ *    the documentation and/or other materials provided with the
+ *    distribution.
+ *  * Neither the name Intel Corporation nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ *
+ * AMRR (amrrchoose) is OpenBSD's sys/net80211/ieee80211_amrr.c, its
+ * notice there. Nothing comes from Linux's iwlwifi.
+ */
+
 #include "u.h"
 #include "../port/lib.h"
 #include "mem.h"
@@ -24,7 +92,10 @@ enum {
 
 	Ntxlog		= 8,
 	Ntx		= 1<<Ntxlog,
+	Nlegq		= 7,	/* 9space: the queues set up at boot; 10-17 aggregation (Aggq0+tid) */
+	Aggq0		= 10,
 	Ntxqmax		= MaxQueue/1500,
+	Aggqmax		= 16,	/* 9space: an aggregation queue's by default (ctl aggq N; 64 hung the 7265D's firmware under load both ways) */
 
 	Nrxlog		= 8,
 	Nrx		= 1<<Nrxlog,
@@ -71,6 +142,9 @@ enum {
 
 	Iclsc		= 0x004,	/* interrupt coalescing */
 		ClscDis		= 1<<31,
+	Iperiodic	= 0x005,	/* 9space: the periodic interrupt, in 32 us (iwm's IWM_CSR_INT_PERIODIC_REG) */
+		PeriodicDis	= 0x00,
+		PeriodicEna	= 0xff,		/* ~8 ms */
 	Isr		= 0x008,	/* interrupt status */
 	Imr		= 0x00c,	/* interrupt mask */
 		Ialive		= 1<<0,
@@ -185,6 +259,7 @@ enum {
 
 		FhRxConfigNrbdShift	= 20,
 		FhRxConfigRbTimeoutShift= 4,
+		RxRbTimeout		= 0x11,	/* 9space: iwm's IWM_RX_RB_TIMEOUT */
 
 	FhRxStatus	= 0x1c44,
 
@@ -445,6 +520,7 @@ struct FWImage
 
 	u32int	flags;
 	u32int	capa[4];
+	u32int	nscanchan;	/* 9space: IWM_UCODE_TLV_N_SCAN_CHANNELS */
 	u32int	api[4];
 
 	u32int	physku;
@@ -500,6 +576,9 @@ struct TXQ
 {
 	uint	n;
 	uint	i;
+	uint	atail;	/* 9space: an aggregation queue's oldest entry (freed up to the firmware's SSN) */
+	int	agg;	/* 9space: an aggregation queue in use */
+	int	lim;	/* 9space: its frames in flight, at most */
 	Block	**b;
 	uchar	*d;
 	uchar	*c;
@@ -577,9 +656,46 @@ struct Ctlr {
 	} te;
 
 	uvlong systime;
+	int rxsignal;	/* 9space: the last rx phy's strongest antenna, dBm; 0: none */
+	int auxsta;	/* 9space: the aux station for scans is there (setauxsta) */
+	int scanning;	/* 9space: a background scan of the firmware's runs */
+	ulong nscan;	/* 9space: background scans */
+	int pmflags;	/* 9space: the MAC power table's flags (ctl pm), -1: the default */
+	int aggqmax;	/* 9space: an aggregation queue's frames in flight (ctl aggq), 0: Aggqmax */
+	int devpm;	/* 9space: the device power flags (ctl devpm), -1: the default */
+	u32int hwrev;	/* 9space: the hardware revision register (7265D: type 0x210) */
+	ulong ngone;	/* 9space: interrupts that read 0xffffffff or 0xa5a5a5a0 (and left the mask off) */
+	ulong nintr;	/* 9space: statistics: interrupts, those with rx, frames received */
+	ulong nrxintr;
+	ulong nrxframe;
+
+	/*
+	 * 9space: HT with the access point (7000 and newer): the MCS
+	 * ladder by rate, the step in use (the firmware's link quality
+	 * table starts there), AMRR's counts
+	 */
+	struct {
+		int	on;
+		int	mimo;		/* two streams both ways */
+		uchar	ladder[16];
+		int	n;
+		int	cur;
+		int	lq;		/* the step the firmware's table has, -1: none */
+		int	txcnt;
+		int	retrycnt;
+		int	success;
+		int	recovery;
+		int	threshold;
+		ulong	lastchoose;	/* ticks of AMRR's last decision */
+		int	aggtids;	/* TIDs whose aggregation queue is on */
+		ulong	nampdu;		/* statistics: aggregates, frames in them */
+		ulong	nampduframes;
+		ulong	ntx;		/* statistics */
+		ulong	nretry;
+	} ht;
 
 	RXQ rx;
-	TXQ tx[7];
+	TXQ tx[18];	/* 9space: 0-6 as 9front, 10-17 the TIDs' aggregation queues (iwm's IWM_FIRST_AGG_TX_QUEUE) */
 
 	int ndma;
 	int ntxq;
@@ -597,6 +713,7 @@ struct Ctlr {
 		uchar	pnum;
 		uchar	txantmask;
 		uchar	rxantmask;
+		uchar	band5;	/* 9space: the NVM's SKU enables 5 GHz (7000 and newer) */
 	} rfcfg;
 
 	struct {
@@ -1324,6 +1441,7 @@ iwlinit(Ether *edev)
 	}
 
 	ctlr->type = csr32r(ctlr, Rev);
+	ctlr->hwrev = ctlr->type;	/* 9space: the register as read (ifstats) */
 	if(ctlr->family >= 8000){
 		ctlr->type &= 0xFFFF;
 		ctlr->dash = 0;
@@ -1559,6 +1677,11 @@ Tooshort:
 				if(t >= nelem(i->capa))
 					goto Tooshort;
 				i->capa[t] = get32(p+4);
+				break;
+			case 31:	/* 9space: the scan command's channels (IWM_UCODE_TLV_N_SCAN_CHANNELS) */
+				if(l < 4)
+					goto Tooshort;
+				i->nscanchan = get32(p);
 				break;
 			case 32:
 				if(l < 4)
@@ -1944,6 +2067,13 @@ reset(Ctlr *ctlr)
 			FhRxConfigIgnRxfEmpty |
 			FhRxConfigIrqDstHost | 
 			FhRxConfigSingleFrame |
+			/*
+			 * 9space: an interrupt for each received buffer after
+			 * this timeout (iwm); without it frames waited for the
+			 * next other interrupt, around each beacon: round trips
+			 * of up to 100 ms and ~2 Mbit/s over the WLAN
+			 */
+			(RxRbTimeout << FhRxConfigRbTimeoutShift) |
 			(Nrxlog << FhRxConfigNrbdShift));
 
 		csr8w(ctlr, Iclsc, 64); /* 64*32=2048 usec */
@@ -2010,6 +2140,8 @@ reset(Ctlr *ctlr)
 		csr32w(ctlr, Gpc, csr32r(ctlr, Gpc) | 0x4000000);
 
 	ctlr->ie = Idefmask;
+	if(ctlr->family >= 7000)
+		ctlr->ie |= Irxperiodic;	/* 9space: the one-shot below (iwlinterrupt) */
 	csr32w(ctlr, Imr, ctlr->ie);
 	csr32w(ctlr, Isr, ~0);
 
@@ -2284,6 +2416,9 @@ readnvmconfig(Ctlr *ctlr)
 		ctlr->rfcfg.step = (u >> 2) & 3;
 		ctlr->rfcfg.dash = (u >> 0) & 3;
 		ctlr->rfcfg.pnum = (u >> 6) & 3;
+
+		/* 9space: the SKU, word 2 of the SW section (iwm: IWM_SKU, IWM_NVM_SKU_CAP_BAND_52GHZ) */
+		ctlr->rfcfg.band5 = (get16(buf + 4) & (1<<1)) != 0;
 	} else {
 		if(readnvmsect(ctlr, 12, buf, 8, 0) != 8)
 			return "can't read nvm phy config";
@@ -2297,6 +2432,9 @@ readnvmconfig(Ctlr *ctlr)
 
 		ctlr->rfcfg.txantmask = (u >> 24) & 15;
 		ctlr->rfcfg.rxantmask = (u >> 28) & 15;
+
+		/* 9space: the SKU, at word 2 of the PHY SKU section (iwm: IWM_SKU_8000) */
+		ctlr->rfcfg.band5 = (get32(buf + 4) & (1<<1)) != 0;
 	}
 	if(ctlr->family >= 8000){
 		if(readnvmsect(ctlr, 11, ea, Eaddrlen, 0x01<<1) != Eaddrlen){
@@ -2383,8 +2521,754 @@ enum {
 	StaTypeAux,
 };
 
+/*
+ * 9space: HT (802.11n) on the 7000 family and newer. The registers
+ * and commands as OpenBSD's if_iwm.c uses them (ISC licence,
+ * "Copyright (c) 2014, 2016 genua gmbh", "Copyright (c) 2014 Fixup
+ * Software Ltd.", "Copyright (c) 2017 Stefan Sperling"): the station's
+ * MIMO flag, the MAC context's HT and protection flags, the link quality
+ * command whose table the firmware walks down on retries
+ * (iwm_set_rate_table), rate_n_flags for HT; the rate is chosen with
+ * AMRR (amrrchoose below).
+ */
+enum {
+	StaFlgMimo2	= 1<<28,	/* IWM_STA_FLG_MIMO_EN_MIMO2 */
+
+	MacQosTgn	= 1<<1,		/* IWM_MAC_QOS_FLG_TGN: HT */
+	MacProtHt	= 1<<23,	/* IWM_MAC_PROT_FLG_HT_PROT */
+	MacProtFat	= 1<<24,	/* IWM_MAC_PROT_FLG_FAT_PROT */
+
+	RateHt		= 1<<8,		/* IWM_RATE_MCS_HT_MSK */
+	RateAntPos	= 14,		/* IWM_RATE_MCS_ANT_POS */
+
+	TxOffldPad	= 1<<13,	/* IWM_TX_CMD_OFFLD_PAD: the header padded to 4 */
+
+	CmdLq		= 0x4e,		/* IWM_LQ_CMD */
+	Lqsize		= 4+4+4+4+4+16*4+4,	/* struct iwm_lq_cmd */
+};
+
+static int
+nant(int mask)
+{
+	return (mask & 1) + ((mask>>1) & 1) + ((mask>>2) & 1);
+}
+
+/* the first antenna of a mask, as transmit picks it */
+static int
+firstant(int mask)
+{
+	mask &= 7;
+	mask |= mask == 0;
+	return ((mask - 1) & mask) ^ mask;
+}
+
+/*
+ * The MCS by rate: one stream 0-7, then the two-stream ones faster
+ * than MCS 7 (12: 78 Mbit/s, 13, 14, 15) where both sides have two.
+ */
+static void
+htladder(Ctlr *ctlr)
+{
+	int i;
+
+	ctlr->ht.n = 0;
+	for(i = 0; i < 8; i++)
+		ctlr->ht.ladder[ctlr->ht.n++] = i;
+	if(ctlr->ht.mimo)
+		for(i = 12; i < 16; i++)
+			ctlr->ht.ladder[ctlr->ht.n++] = i;
+	ctlr->ht.cur = 0;
+	ctlr->ht.lq = -1;
+	ctlr->ht.txcnt = ctlr->ht.retrycnt = 0;
+	ctlr->ht.success = ctlr->ht.recovery = 0;
+	ctlr->ht.threshold = 1;
+}
+
+/*
+ * AMRR, as OpenBSD's net80211/ieee80211_amrr.c (ieee80211_amrr_choose):
+ *
+ * Copyright (c) 2006
+ *	Damien Bergamini <damien.bergamini@free.fr>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ *
+ * Called from the interrupt with the frames' status every 500 ms: a step
+ * up after enough frames with few retries, down after many.
+ */
+enum {
+	AmrrMinThreshold	= 1,
+	AmrrMaxThreshold	= 15,
+};
+
+static void
+amrrchoose(Ctlr *ctlr)
+{
+	int change;
+
+	change = 0;
+	if(ctlr->ht.retrycnt < ctlr->ht.txcnt/10 && ctlr->ht.txcnt > 10){
+		ctlr->ht.success++;
+		if(ctlr->ht.success >= ctlr->ht.threshold && ctlr->ht.cur < ctlr->ht.n-1){
+			ctlr->ht.recovery = 1;
+			ctlr->ht.success = 0;
+			ctlr->ht.cur++;
+			change = 1;
+		} else
+			ctlr->ht.recovery = 0;
+	} else if(ctlr->ht.retrycnt > ctlr->ht.txcnt/3){
+		ctlr->ht.success = 0;
+		if(ctlr->ht.cur > 0){
+			if(ctlr->ht.recovery){
+				ctlr->ht.threshold *= 2;
+				if(ctlr->ht.threshold > AmrrMaxThreshold)
+					ctlr->ht.threshold = AmrrMaxThreshold;
+			} else
+				ctlr->ht.threshold = AmrrMinThreshold;
+			ctlr->ht.cur--;
+			change = 1;
+		}
+		ctlr->ht.recovery = 0;
+	}
+	if(ctlr->ht.txcnt > 10 || change)
+		ctlr->ht.txcnt = ctlr->ht.retrycnt = 0;
+}
+
+/*
+ * The link quality table: from the step in use down the ladder, the
+ * two-stream rates first (mimo_delim says how many); the firmware
+ * takes the next entry on each retry. Sent without waiting for the
+ * answer: from transmit.
+ */
+/*
+ * 9space: a frame's status from the tx done notification (iwm_tx_resp:
+ * failure_frame, the retries, at 3; status at 36), counted as
+ * OpenBSD's iwm_rx_tx_cmd_single counts them for AMRR
+ */
+static void htcount(Ctlr*, int, int, int);
+
+/*
+ * 9space: the access point's station flags for HT (iwm_add_sta_cmd):
+ * two streams, the largest aggregate it takes (its A-MPDU length
+ * exponent, at most 64K) and the spacing it wants (2-16 us)
+ */
+static u32int
+htstaflags(Ctlr *ctlr, Wnode *bss)
+{
+	u32int f;
+	int sz, ss;
+
+	if(!ctlr->ht.on)
+		return 0;
+	f = ctlr->ht.mimo? StaFlgMimo2: 0;
+	sz = bss->htampdu & 3;
+	f |= sz << 19;
+	ss = bss->htampdu>>2 & 7;
+	if(ss >= 4)
+		f |= ss << 23;
+	return f;
+}
+
+static void
+htstatus(Ctlr *ctlr, Block *b, int ok, int retries)
+{
+	Wifipkt *w;
+
+	if(!ctlr->ht.on || b == nil || BLEN(b) < 24)
+		return;
+	w = (Wifipkt*)b->rp;
+	if((w->fc[0] & 0x0c) != 0x08 || (w->a1[0] & 1) != 0
+	|| memcmp(w->a1, ctlr->bssid, Eaddrlen) != 0)
+		return;
+	htcount(ctlr, 1, !ok + (retries > 0), retries);
+}
+
+/*
+ * 9space: n frames sent, nbad of them with retries or failed, retries
+ * in all: AMRR's counts, a decision every 500 ms (as OpenBSD's drivers
+ * call AMRR from a timeout)
+ */
+static void
+htcount(Ctlr *ctlr, int n, int nbad, int retries)
+{
+	if(!ctlr->ht.on || n <= 0)
+		return;
+	ctlr->ht.txcnt += n;
+	ctlr->ht.ntx += n;
+	ctlr->ht.retrycnt += nbad;
+	ctlr->ht.nretry += retries;
+	if(TK2MS(MACHP(0)->PMach.ticks - ctlr->ht.lastchoose) >= 500){
+		ctlr->ht.lastchoose = MACHP(0)->PMach.ticks;
+		amrrchoose(ctlr);
+	}
+}
+
+/*
+ * 9space: our HT capabilities element for wifi.c's association request
+ * (as iwm's ic_htcaps, ic_ampdu_params, ic_sup_mcs): SM power save off,
+ * short guard interval at 20 MHz, MCS 0-7 or 0-15 by the receiving
+ * antennas, 20 MHz only; and QoS data (WMM), which HT needs
+ */
+static void
+htcaps(Ctlr *ctlr)
+{
+	uchar *c;
+
+	c = ctlr->wifi->caps;
+	memset(c, 0, 2+26);
+	c[0] = 45;
+	c[1] = 26;
+	put16(c+2, 3<<2 | 1<<5);	/* HT capability info */
+	c[4] = 5<<2 | 3;		/* A-MPDU: 4 us spacing, 64K */
+	c[5] = 0xff;			/* MCS 0-7 */
+	if(nant(ctlr->rfcfg.rxantmask) >= 2)
+		c[6] = 0xff;		/* MCS 8-15 */
+	c[17] = 1;			/* tx MCS set defined, the same */
+	ctlr->wifi->ncaps = 2+26;
+	ctlr->wifi->wmm = 1;
+}
+
+/*
+ * 9space: the Smart FIFO, as OpenBSD's iwm_sf_config and
+ * iwm_fill_sf_command (the timers and watermarks of if_iwmreg.h): the
+ * firmware's receive FIFO keeps frames until these timers run out;
+ * never configured, it held them for long (round trips of up to
+ * 100 ms). Off (SF_INIT_OFF) until associated, then full on with the
+ * short timers. The command is struct iwm_sf_cfg_cmd: state,
+ * watermark[2], long_delay_timeouts[5][2], full_on_timeouts[5][2].
+ */
+enum {
+	CmdSfCfg	= 0xd1,
+	SfFullOn	= 1,
+	SfInitOff	= 3,
+	SfWmarkSiso	= 4096,
+	SfWmarkMimo2	= 8192,
+	SfWmarkLegacy	= 4096,
+	SfWmarkScan	= 4096,
+	SfLongDelayAging = 1000000,	/* 1 s */
+};
+
+static u32int sffulltimeout[5][2] = {	/* aging, idle in us: single unicast, aggregated unicast, multicast, BA, TX response */
+	{ 2016, 320 }, { 2016, 320 }, { 10016, 2016 }, { 2016, 320 }, { 2016, 320 },
+};
+static u32int sffulltimeoutdef[5][2] = {
+	{ 400, 160 }, { 400, 160 }, { 400, 160 }, { 400, 160 }, { 400, 160 },
+};
+
 static char*
-setstation(Ctlr *ctlr, int id, int type, uchar addr[6], Station *sta)
+setsmartfifo(Ctlr *ctlr, int state, Wnode *bss)
+{
+	uchar c[4 + 2*4 + 5*2*4 + 5*2*4], *p;
+	u32int (*t)[2];
+	int i, j, wmark;
+
+	if(ctlr->family < 7000)
+		return nil;
+	memset(c, 0, sizeof(c));
+	p = c;
+	put32(p, state);
+	p += 4;
+	if(state == SfFullOn && bss != nil)
+		wmark = ctlr->ht.on? (ctlr->ht.mimo? SfWmarkMimo2: SfWmarkSiso): SfWmarkLegacy;
+	else
+		wmark = SfWmarkMimo2;
+	put32(p, SfWmarkScan);		/* watermark[long delay on] */
+	p += 4;
+	put32(p, wmark);		/* watermark[full on] */
+	p += 4;
+	for(i = 0; i < 5; i++)
+		for(j = 0; j < 2; j++){
+			put32(p, SfLongDelayAging);
+			p += 4;
+		}
+	t = state == SfFullOn && bss != nil? sffulltimeout: sffulltimeoutdef;
+	for(i = 0; i < 5; i++)
+		for(j = 0; j < 2; j++){
+			put32(p, t[i][j]);
+			p += 4;
+		}
+	return cmd(ctlr, CmdSfCfg, c, p - c);
+}
+
+/*
+ * 9space: a block ack agreement of the access point's (it sends us
+ * aggregates): the firmware answers them for this TID from ssn on, as
+ * OpenBSD's iwm_sta_rx_agg: ADD_STA modifying the station
+ * (IWM_STA_MODIFY_ADD_BA_TID 1<<3, ..._REMOVE_BA_TID 1<<4); wifi.c
+ * puts the frames in order
+ */
+static char*
+setstationba(Ctlr *ctlr, int tid, int ssn, int win, int on)
+{
+	uchar c[Tcmdsize], *p;
+
+	if(ctlr->family < 7000 || ctlr->bss.id < 0)
+		return "no station";
+	memset(p = c, 0, sizeof(c));
+	*p++ = 1;			/* control: modify */
+	p++;				/* awake_acs */
+	p += 2;				/* tid_disable_tx (not modified) */
+	put32(p, ctlr->macid);
+	p += 4;
+	memmove(p, ctlr->bssid, 6);
+	p += 8;
+	*p++ = ctlr->bss.id;		/* sta id */
+	*p++ = on? 1<<3: 1<<4;		/* modify mask: add or remove a BA TID */
+	p += 2;				/* reserved */
+	p += 4;				/* station_flags */
+	p += 4;				/* station_flags_mask: none changed */
+	*p++ = on? tid: 0;		/* add_immediate_ba_tid */
+	*p++ = on? 0: tid;		/* remove_immediate_ba_tid */
+	put16(p, on? ssn: 0);		/* add_immediate_ba_ssn */
+	p += 2;
+	p += 2;				/* sleep_tx_count */
+	p++;				/* sleep state flags */
+	p++;				/* station_type */
+	p += 2;				/* assoc id */
+	p += 2;				/* beamform flags */
+	p += 4;				/* tfd_queue_mask (not modified) */
+	if(ctlr->fw->api[0] & UcodeApiSta){
+		put16(p, on? win: 0);	/* rx_ba_window */
+		p += 2;
+		p++;			/* sp_length */
+		p++;			/* uapsd_acs */
+	}
+	return cmd(ctlr, 24, c, p - c);
+}
+
+static int
+iwlrxba(Wifi *wifi, int tid, int ssn, int win, int on)
+{
+	Ctlr *ctlr;
+	char *err;
+
+	ctlr = wifi->ether->ctlr;
+	qlock(&ctlr->QLock);
+	err = ctlr->ht.on? setstationba(ctlr, tid, ssn, win, on): "no HT";
+	qunlock(&ctlr->QLock);
+	if(err != nil){
+		if(wifi->debug)
+			print("#l%d: block ack tid %d %s: %s\n", wifi->ether->ctlrno, tid, on? "on": "off", err);
+		return -1;
+	}
+	if(wifi->debug)
+		print("#l%d: block ack tid %d ssn %d window %d %s\n", wifi->ether->ctlrno, tid, ssn, win, on? "on": "off");
+	return 0;
+}
+
+/*
+ * 9space: sending aggregates (A-MPDU), as OpenBSD's iwm does it with a
+ * queue of its own per TID (iwm_sta_tx_agg, iwm_enable_txq,
+ * iwm_update_sched, iwm_txq_advance, iwm_ampdu_tx_done,
+ * iwm_rx_compressed_ba), here beside 9front's queues (no DQA): the
+ * queue's ring index is the frame's sequence number (mod 256), its
+ * entries are freed up to the firmware's SSN, the scheduler's byte
+ * count table has each frame's length.
+ */
+enum {
+	CmdScdQueueCfg	= 0x1d,	/* IWM_SCD_QUEUE_CFG */
+	StaModQueues	= 1<<7,	/* IWM_STA_MODIFY_QUEUES */
+	StaModTidDis	= 1<<1,	/* IWM_STA_MODIFY_TID_DISABLE_TX */
+	FwDwBcTable	= 1<<4,	/* IWM_UCODE_TLV_FLAGS_DW_BC_TABLE */
+	Framelimit	= 64,
+};
+
+/* the TID's access category's FIFO (iwm_tid_to_ac, iwm_ac_to_tx_fifo) */
+static int tidfifo[8] = { 1, 0, 0, 1, 2, 2, 3, 3 };
+
+/* the scheduler's byte count table: a frame's length, each queue 256+64 entries */
+static void
+bcset(Ctlr *ctlr, int qid, int idx, int sta, int len)
+{
+	uchar *t;
+	int v;
+
+	if(ctlr->fw->flags & FwDwBcTable)
+		len = (len + 8 + 3) / 4;	/* + CRC and delimiter, in words */
+	else
+		len += 8;
+	v = sta<<12 | len;
+	t = (uchar*)ctlr->sched.s + qid*(256+64)*2;
+	put16(t + idx*2, v);
+	dmaflush(1, t + idx*2, 2);
+	if(idx < 64){
+		put16(t + (256+idx)*2, v);
+		dmaflush(1, t + (256+idx)*2, 2);
+	}
+}
+
+/* entries up to the SSN's are done (the firmware sends none before its window); called from the interrupt */
+static void
+aggadvance(Ctlr *ctlr, int qid, int ssn)
+{
+	TXQ *q;
+	Block *b;
+	int idx;
+
+	q = &ctlr->tx[qid];
+	idx = ssn & (Ntx-1);
+	while(q->atail != idx && q->n > 0){
+		if((b = q->b[q->atail]) != nil){
+			q->b[q->atail] = nil;
+			freeblist(b);
+		}
+		bcset(ctlr, qid, q->atail, ctlr->bss.id, 1-8);	/* iwm_reset_sched: length 1 */
+		q->n--;
+		q->atail = (q->atail + 1) % Ntx;
+	}
+	wakeup(&q->Rendez);
+}
+
+/* the station's queues and the TIDs it may aggregate (ADD_STA modify) */
+static char*
+setstationagg(Ctlr *ctlr)
+{
+	uchar c[Tcmdsize], *p;
+	u32int qmask;
+	int i;
+
+	qmask = 1<<0;
+	for(i = 0; i < 8; i++)
+		if(ctlr->ht.aggtids & 1<<i)
+			qmask |= 1<<(Aggq0+i);
+	memset(p = c, 0, sizeof(c));
+	*p++ = 1;			/* control: modify */
+	p++;				/* awake_acs */
+	put16(p, ~ctlr->ht.aggtids & 0xffff);	/* tid_disable_tx: no aggregates but on these */
+	p += 2;
+	put32(p, ctlr->macid);
+	p += 4;
+	memmove(p, ctlr->bssid, 6);
+	p += 8;
+	*p++ = ctlr->bss.id;		/* sta id */
+	*p++ = StaModQueues | StaModTidDis;	/* modify mask */
+	p += 2;
+	p += 4;				/* station_flags */
+	p += 4;				/* station_flags_mask: none changed */
+	p += 4;				/* add/remove_immediate_ba_tid, ssn */
+	p += 2;				/* sleep_tx_count */
+	p += 2;				/* sleep state flags, station_type */
+	p += 2;				/* assoc id */
+	p += 2;				/* beamform flags */
+	put32(p, qmask);		/* tfd_queue_mask */
+	p += 4;
+	if(ctlr->fw->api[0] & UcodeApiSta)
+		p += 4;			/* rx_ba_window, sp_length, uapsd_acs */
+	return cmd(ctlr, 24, c, p - c);
+}
+
+static char*
+scdqueuecfg(Ctlr *ctlr, int qid, int tid, int on, int ssn)
+{
+	uchar c[12];
+
+	memset(c, 0, sizeof(c));
+	c[1] = ctlr->bss.id;		/* sta_id */
+	c[2] = tid;
+	c[3] = qid;			/* scd_queue */
+	c[4] = on;			/* enable */
+	c[5] = on;			/* aggregate */
+	c[6] = tidfifo[tid & 7];	/* tx_fifo */
+	c[7] = Framelimit;		/* window */
+	put16(c+8, ssn);
+	return cmd(ctlr, CmdScdQueueCfg, c, sizeof(c));
+}
+
+/* the TID's aggregation queue on from ssn: returns the ssn it starts at (iwm: one more for the scheduler's bug) */
+static int
+aggstart(Ctlr *ctlr, int tid, int ssn)
+{
+	TXQ *q;
+	char *err;
+	int qid, idx;
+
+	qid = Aggq0 + tid;
+	q = &ctlr->tx[qid];
+	if(q->agg)
+		return -1;
+	/*
+	 * moving the scheduler's write pointer by steps of 0x40 sticks
+	 * it (fixed from the 9000 family on, iwm_enable_txq)
+	 */
+	if(!ctlr->mqrx && ((ssn - q->i) & 0x3f) == 0 && (ssn & (Ntx-1)) != q->i)
+		ssn = (ssn + 1) & 0xfff;
+	idx = ssn & (Ntx-1);
+	if((err = niclock(ctlr)) != nil)
+		return -1;
+	csr32w(ctlr, HbusTargWptr, qid<<8 | idx);
+	nicunlock(ctlr);
+	q->i = q->atail = idx;
+	q->n = 0;
+	q->lim = ctlr->aggqmax > 0 && ctlr->aggqmax <= Framelimit? ctlr->aggqmax: Aggqmax;
+	if((err = scdqueuecfg(ctlr, qid, tid, 1, ssn)) != nil){
+		print("#l%d: aggregation queue %d: %s\n", ctlr->edev->ctlrno, qid, err);
+		return -1;
+	}
+	ctlr->ht.aggtids |= 1<<tid;
+	if((err = setstationagg(ctlr)) != nil){
+		print("#l%d: aggregation station: %s\n", ctlr->edev->ctlrno, err);
+		ctlr->ht.aggtids &= ~(1<<tid);
+		scdqueuecfg(ctlr, qid, tid, 0, 0);
+		return -1;
+	}
+	q->agg = 1;
+	return ssn;
+}
+
+/* the TID's aggregates off: the queue drained and kept enabled (the firmware panics if disabled, iwm) */
+static void
+aggstop(Ctlr *ctlr, int tid)
+{
+	TXQ *q;
+
+	q = &ctlr->tx[Aggq0 + tid];
+	if(!q->agg)
+		return;
+	q->agg = 0;
+	ctlr->ht.aggtids &= ~(1<<tid);
+	if(ctlr->bss.id >= 0)
+		setstationagg(ctlr);
+	ilock(&ctlr->Lock);
+	aggadvance(ctlr, Aggq0 + tid, q->i);
+	iunlock(&ctlr->Lock);
+}
+
+static int
+iwlbatx(Wifi *wifi, int tid, int ssn, int on)
+{
+	Ctlr *ctlr;
+	int n;
+
+	ctlr = wifi->ether->ctlr;
+	if(tid >= 8)
+		return -1;
+	qlock(&ctlr->QLock);
+	n = -1;
+	if(on){
+		if(ctlr->ht.on && ctlr->bss.id >= 0)
+			n = aggstart(ctlr, tid, ssn);
+	} else
+		aggstop(ctlr, tid);
+	qunlock(&ctlr->QLock);
+	if(wifi->debug)
+		print("#l%d: aggregates tid %d %s: ssn %d\n", wifi->ether->ctlrno, tid, on? "on": "off", n);
+	return n;
+}
+
+/*
+ * 9space: a background scan by the firmware (the LMAC scan, for firmware
+ * without the UMAC one: 7000 and 8000), passive, the firmware returning
+ * to our channel between its channels: OpenBSD's iwm_lmac_scan with
+ * bgscan set (struct iwm_scan_req_lmac, iwm_scan_channel_cfg_lmac,
+ * iwm_scan_probe_req_v1; the aux station of iwm_add_aux_sta). The
+ * beacons it hears come in as frames (wifi.c keeps their nodes and
+ * signals); the iteration complete notification ends it.
+ */
+enum {
+	CmdScanLmac	= 0x51,		/* IWM_SCAN_OFFLOAD_REQUEST_CMD */
+	NotifScanDone	= 0x6d,		/* IWM_SCAN_OFFLOAD_COMPLETE */
+	NotifScanIter	= 0xe7,		/* IWM_SCAN_ITERATION_COMPLETE */
+	AuxStaId	= 1,		/* IWM_AUX_STA_ID */
+	AuxMacIndex	= 4,		/* IWM_MAC_INDEX_AUX */
+	AuxQueue	= 5,		/* 9front's queue on the multicast FIFO (iwm: IWM_TX_FIFO_MCAST) */
+	StaTypeAuxActivity = 4,		/* IWM_STA_AUX_ACTIVITY */
+
+	ScanPassAll	= 1<<0,		/* IWM_LMAC_SCAN_FLAG_PASS_ALL */
+	ScanPassive	= 1<<1,
+	ScanIterComplete= 1<<3,
+	ScanExtDwell	= 1<<7,
+	ScanChanPartial	= 1<<28,	/* IWM_UNIFIED_SCAN_CHANNEL_PARTIAL */
+	PhyBand24	= 1,		/* IWM_PHY_BAND_24 (5 GHz is 0) */
+	FilterAcceptGrp	= 1<<2,		/* IWM_MAC_FILTER_ACCEPT_GRP */
+	FilterInBeacon	= 1<<6,		/* IWM_MAC_FILTER_IN_BEACON */
+	TxFlgBtDis	= 1<<12,	/* IWM_TX_CMD_FLG_BT_DIS */
+	TxFlgSeqCtl	= 1<<13,	/* IWM_TX_CMD_FLG_SEQ_CTL */
+
+	Lmacfixed	= 764,		/* struct iwm_scan_req_lmac without its channels */
+	Lmacchan	= 12,		/* struct iwm_scan_channel_cfg_lmac */
+	Lmacprobe	= 4*4 + 512,	/* struct iwm_scan_probe_req_v1 */
+};
+
+/* the firmware scans by LMAC (no UMAC scan capability), and says how many channels */
+static int
+lmacscanok(Ctlr *ctlr)
+{
+	return ctlr->family >= 7000 && (ctlr->fw->capa[0] & (1<<2)) == 0
+		&& ctlr->fw->nscanchan > 0 && ctlr->fw->nscanchan <= 64;
+}
+
+static char*
+setauxsta(Ctlr *ctlr)
+{
+	uchar c[Tcmdsize], *p;
+
+	memset(p = c, 0, sizeof(c));
+	*p++ = 0;			/* control: add */
+	p++;				/* awake_acs */
+	put16(p, 0xffff);		/* tid_disable_tx */
+	p += 2;
+	put32(p, AuxMacIndex);		/* mac_id_n_color */
+	p += 4;
+	p += 8;				/* addr, reserved */
+	*p++ = AuxStaId;		/* sta id */
+	p++;				/* modify mask */
+	p += 2;
+	p += 4;				/* station_flags */
+	p += 4;				/* station_flags_mask */
+	p += 4;				/* ba tids, ssn */
+	p += 2;				/* sleep_tx_count */
+	p++;				/* sleep state flags */
+	*p++ = ctlr->fw->api[0] & UcodeApiSta ? StaTypeAuxActivity : 0;	/* station_type */
+	p += 2;				/* assoc id */
+	p += 2;				/* beamform flags */
+	put32(p, 1<<AuxQueue);		/* tfd_queue_mask */
+	p += 4;
+	if(ctlr->fw->api[0] & UcodeApiSta)
+		p += 4;			/* rx_ba_window, sp_length, uapsd_acs */
+	return cmd(ctlr, 24, c, p - c);
+}
+
+/* the scan over the channels of chans (0 ends) */
+static char*
+lmacscan(Ctlr *ctlr, uchar *chans)
+{
+	uchar *c, *p, *ch;
+	int n, size, rxant, txant;
+	char *err;
+
+	size = Lmacfixed + Lmacchan*ctlr->fw->nscanchan + Lmacprobe;
+	if((c = malloc(size)) == nil)
+		return "no memory for the scan";
+	memset(c, 0, size);
+	rxant = ctlr->rfcfg.rxantmask & 7;
+	txant = firstant(ctlr->rfcfg.txantmask);
+	p = c + 4;			/* reserved1 */
+	p++;				/* n_channels, below */
+	*p++ = 10;			/* active_dwell */
+	*p++ = 110;			/* passive_dwell */
+	*p++ = 44;			/* fragmented_dwell */
+	*p++ = 90;			/* extended_dwell */
+	p++;				/* reserved2 */
+	put16(p, rxant<<1 | rxant<<4 | rxant<<7 | 1);	/* rx_chain_select (iwm_scan_rx_chain) */
+	p += 2;
+	put32(p, ScanPassAll | ScanPassive | ScanIterComplete | ScanExtDwell);
+	p += 4;
+	put32(p, 120);			/* max_out_time: back on our channel within */
+	p += 4;
+	put32(p, 120);			/* suspend_time */
+	p += 4;
+	put32(p, PhyBand24);		/* flags */
+	p += 4;
+	put32(p, FilterAcceptGrp | FilterInBeacon);
+	p += 4;
+	/* tx_cmd[2]: 2.4 GHz at 1 Mbit/s (CCK), 5 GHz at 6 Mbit/s, from the aux station */
+	put32(p, TxFlgSeqCtl | TxFlgBtDis);
+	put32(p+4, 10 | RFlagCCK<<8 | txant<<RateAntPos);
+	p[8] = AuxStaId;
+	p += 12;
+	put32(p, TxFlgSeqCtl | TxFlgBtDis);
+	put32(p+4, 0xd | txant<<RateAntPos);
+	p[8] = AuxStaId;
+	p += 12;
+	p += 20*34;			/* direct_scan: none (passive) */
+	put32(p, 2);			/* scan_prio: high */
+	p += 4;
+	put32(p, 1);			/* iter_num */
+	p += 4;
+	p += 4;				/* delay */
+	p[2] = 1;			/* schedule[0]: one iteration */
+	p[3] = 1;			/* full_scan_mul */
+	p += 2*4;
+	put16(p+2, 1);			/* channel_opt[0].non_ebs_ratio: no EBS */
+	put16(p+6, 1);
+	p += 2*4;
+	assert(p - c == Lmacfixed);
+	n = 0;
+	for(ch = chans; *ch != 0 && n < ctlr->fw->nscanchan; ch++){
+		put32(p, ScanChanPartial);	/* flags */
+		put16(p+4, *ch);		/* channel_num */
+		put16(p+6, 1);			/* iter_count */
+		p += Lmacchan;
+		n++;
+	}
+	c[4] = n;			/* n_channels */
+	err = cmd(ctlr, CmdScanLmac, c, size);
+	free(c);
+	return err;
+}
+
+/* wifi.c's background scan: -1 where it cannot (no LMAC scan, none associated, one running) */
+static int
+iwlbgscan(Wifi *wifi)
+{
+	Ctlr *ctlr;
+	char *err;
+	uchar *chans;
+
+	ctlr = wifi->ether->ctlr;
+	qlock(&ctlr->QLock);
+	if(!ctlr->auxsta || ctlr->scanning || ctlr->aid == 0 || ctlr->bss.id < 0){
+		qunlock(&ctlr->QLock);
+		return -1;
+	}
+	chans = wifi->scan != nil? wifi->scan: wifiscan2g;
+	ctlr->scanning = 1;
+	if((err = lmacscan(ctlr, chans)) != nil){
+		ctlr->scanning = 0;
+		qunlock(&ctlr->QLock);
+		if(wifi->debug)
+			print("#l%d: background scan: %s\n", wifi->ether->ctlrno, err);
+		return -1;
+	}
+	ctlr->nscan++;
+	qunlock(&ctlr->QLock);
+	return 0;
+}
+
+static char*
+sethtlq(Ctlr *ctlr)
+{
+	uchar c[Lqsize], *p;
+	int i, j, mcs, cur, siso, delim;
+
+	cur = ctlr->ht.cur;
+	siso = firstant(ctlr->rfcfg.txantmask);
+	memset(c, 0, sizeof(c));
+	c[0] = ctlr->bss.id;		/* sta_id */
+	c[6] = siso;			/* single_stream_ant_msk */
+	c[7] = ctlr->rfcfg.txantmask & 7;	/* dual_stream_ant_msk */
+	put16(c+12, 4000);		/* agg_time_limit, 4 ms */
+	c[14] = 3;			/* agg_disable_start_th */
+	c[15] = 0x3f;			/* agg_frame_cnt_limit */
+	p = c + 20;			/* rs_table[16] */
+	delim = 0;
+	for(i = cur, j = 0; j < 16; j++){
+		mcs = ctlr->ht.ladder[i];
+		if(mcs >= 8){
+			put32(p, mcs | RateHt | (ctlr->rfcfg.txantmask & 7)<<RateAntPos);
+			delim = j+1;
+		} else
+			put32(p, mcs | RateHt | siso<<RateAntPos);
+		p += 4;
+		if(i > 0)
+			i--;
+	}
+	c[5] = delim;			/* mimo_delim */
+	ctlr->ht.lq = cur;
+	return qcmd(ctlr, 4, CmdLq, c, sizeof(c), nil);
+}
+
+static char*
+setstation(Ctlr *ctlr, int id, int type, uchar addr[6], Station *sta, u32int staflags)
 {
 	uchar c[Tcmdsize], *p;
 	char *err;
@@ -2411,11 +3295,11 @@ setstation(Ctlr *ctlr, int id, int type, uchar addr[6], Station *sta)
 		*p++ = 1 << 1;		/* modify mask */
 		p += 2;			/* reserved */
 
-		put32(p, 0<<26 | 0<<28);
+		put32(p, staflags);	/* 9space: MIMO (bits 28-29) for HT */
 		p += 4;			/* station_flags */
 
-		put32(p, 3<<26 | 3<<28);
-		p += 4;			/* station_flags_mask */
+		put32(p, 3<<26 | 3<<28 | 7<<19 | 7<<23);
+		p += 4;			/* station_flags_mask (9space: and the aggregates' size and spacing) */
 
 		p++;			/* add_immediate_ba_tid */
 		p++;			/* remove_immediate_ba_tid */
@@ -2500,7 +3384,8 @@ setphycontext(Ctlr *ctlr, int amr)
 
 	put32(p, ctlr->rfcfg.txantmask);
 	p += 4;
-	put32(p, ctlr->rfcfg.rxantmask<<1 | (1<<10) | (1<<12));
+	/* 9space: active chains 2 where there are two (MIMO reception, as iwm) */
+	put32(p, ctlr->rfcfg.rxantmask<<1 | (1<<10) | ((nant(ctlr->rfcfg.rxantmask) >= 2? 2: 1)<<12));
 	p += 4;
 	put32(p, 0);		// acquisition_data ????
 	p += 4;
@@ -2556,12 +3441,14 @@ setmaccontext(Ether *edev, Ctlr *ctlr, int amr, Wnode *bss)
 	memmove(p, ctlr->bssid, 6);
 	p += 8;
 
-	put32(p, bss == nil? 0xF : (bss->validrates & 0xF));
+	put32(p, ctlr->channel > 14? 0: bss == nil? 0xF : (bss->validrates & 0xF));	/* 9space: no CCK on 5 GHz */
 	p += 4;
 	put32(p, bss == nil? 0xFF : (bss->validrates >> 4));
 	p += 4;
 
-	put32(p, 0);	// protection flags
+	/* 9space: HT protection as the access point's HT operation says (iwm) */
+	put32(p, ctlr->ht.on && bss != nil && (bss->htprot == 1 || bss->htprot == 3)?
+		MacProtHt | MacProtFat: 0);	// protection flags
 	p += 4;
 
 	put32(p, ctlr->rxflags & RFlagShPreamble);
@@ -2571,7 +3458,7 @@ setmaccontext(Ether *edev, Ctlr *ctlr, int amr, Wnode *bss)
 	put32(p, ctlr->rxfilter);
 	p += 4;
 
-	put32(p, 0);	// qos flags
+	put32(p, ctlr->ht.on? MacQosTgn: 0);	// qos flags (9space: HT)
 	p += 4;
 
 	for(i = 0; i < 4; i++){
@@ -2847,7 +3734,15 @@ setmacpowermode(Ctlr *ctlr, Wnode *bss)
 	put32(p, ctlr->macid);
 	p += 4;
 
-	put16(p, ctlr->prom ? 0 : 1);	// flags
+	/*
+	 * flags: 1 power save allowed, 2 power management by the rest of
+	 * these parameters (with the rx/tx data timeouts below, iwm's
+	 * IWM_DEFAULT_PS_*_DATA_TIMEOUT). 9space: 1 alone by default, as
+	 * iwm: with 2 the radio dozed 100 ms after the last frame and
+	 * sparse traffic (a ping every 200 ms, keystrokes) waited for the
+	 * next beacon; ctl "pm N" sets them
+	 */
+	put16(p, ctlr->prom ? 0 : ctlr->pmflags >= 0 ? ctlr->pmflags : 1);	// flags
 	p += 2;
 	/* a value below 25 seconds results in weird behavior */
 	dtim = bss ? 3*bss->dtimperiod*bss->ival : 0;
@@ -2855,9 +3750,9 @@ setmacpowermode(Ctlr *ctlr, Wnode *bss)
 	put16(p, dtim > 25 ? dtim : 25);	// keep alive seconds
 	p += 2;
 
-	put32(p, 0);	// rx data timeout
+	put32(p, 100*1000);	// rx data timeout, microseconds
 	p += 4;
-	put32(p, 0);	// tx data timeout
+	put32(p, 100*1000);	// tx data timeout
 	p += 4;
 	put32(p, 0);	// rx data timeout uapsd
 	p += 4;
@@ -2913,7 +3808,7 @@ updatedevicepower(Ctlr *ctlr)
 	uchar c[4];
 
 	memset(c, 0, sizeof(c));
-	put16(c, 0<<13 | 1<<0);	// cont active off, pm enable
+	put16(c, ctlr->devpm >= 0 ? ctlr->devpm : 0<<13 | 1<<0);	// cont active off, pm enable
 
 	return cmd(ctlr, 119, c, 4);
 }
@@ -2989,6 +3884,20 @@ postboot7000(Ctlr *ctlr)
 		if((err = disablebeaconfilter(ctlr)) != nil){
 			print("can't disable beacon filter: %s\n", err);
 			return err;
+		}
+
+		/*
+		 * 9space: the aux station the firmware's scans name
+		 * (iwm_init_hw: iwm_add_aux_sta); only the runtime
+		 * firmware has stations (the calibration's died at it)
+		 */
+		ctlr->auxsta = 0;
+		ctlr->scanning = 0;
+		if(lmacscanok(ctlr)){
+			if((err = setauxsta(ctlr)) != nil)
+				print("#l%d: aux station: %s\n", ctlr->edev->ctlrno, err);
+			else
+				ctlr->auxsta = 1;
 		}
 	}
 
@@ -3195,7 +4104,7 @@ postboot(Ctlr *ctlr)
 		prphwrite(ctlr, SchedChainExtEn, 0);
 	}
 
-	for(i = 0; i < nelem(ctlr->tx); i++){
+	for(i = 0; i < Nlegq; i++){	/* 9space: the aggregation queues by SCD_QUEUE_CFG (aggstart) */
 		if(i == 4 && ctlr->family < 7000 && ctlr->type == Type4965)
 			f = 4;
 		else {
@@ -3501,7 +4410,7 @@ static int
 txqready(void *arg)
 {
 	TXQ *q = arg;
-	return q->n < Ntxqmax;
+	return q->n < (q->agg? q->lim: Ntxqmax);
 }
 
 static char*
@@ -3513,7 +4422,7 @@ qcmd(Ctlr *ctlr, uint qid, uint code, uchar *data, int size, Block *block)
 	uchar *d, *c;
 	TXQ *q;
 
-	assert(qid < ctlr->ntxq);
+	assert(qid < ctlr->ntxq && qid < nelem(ctlr->tx));
 
 	if((code & 0xFF00) != 0)
 		hdrlen = 8;
@@ -3527,7 +4436,7 @@ qcmd(Ctlr *ctlr, uint qid, uint code, uchar *data, int size, Block *block)
 
 	ilock(&ctlr->Lock);
 	q = &ctlr->tx[qid];
-	while(q->n >= Ntxqmax && !ctlr->broken){
+	while(q->n >= (q->agg? q->lim: Ntxqmax) && !ctlr->broken){
 		iunlock(&ctlr->Lock);
 		qlock(&q->QLock);
 		if(!waserror()){
@@ -3743,6 +4652,10 @@ rxon7000(Ether *edev, Ctlr *ctlr, Wnode *bss)
 		print("can't set binding quotas: %s\n", err);
 		return err;
 	}
+	if((err = setsmartfifo(ctlr, SfInitOff, nil)) != nil){	/* 9space */
+		print("can't set smart fifo: %s\n", err);
+		return err;
+	}
 	return nil;
 }
 
@@ -3791,6 +4704,14 @@ rxon(Ether *edev, Wnode *bss)
 {
 	Ctlr *ctlr = edev->ctlr;
 	char *err;
+	int i;
+
+	/* 9space: our aggregates end with the association (iwm_run_stop) */
+	for(i = 0; i < 8; i++)
+		if(ctlr->ht.aggtids & 1<<i){
+			aggstop(ctlr, i);
+			scdqueuecfg(ctlr, Aggq0+i, i, 0, 0);
+		}
 
 	if(ctlr->family >= 7000)
 		if((err = rxoff7000(edev, ctlr)) != nil)
@@ -3806,6 +4727,9 @@ rxon(Ether *edev, Wnode *bss)
 	if(bss != nil){
 		ctlr->aid = bss->aid;
 		ctlr->channel = bss->channel;
+		/* 9space: the band by the channel (the PHY context's) on 7000 and newer */
+		if(ctlr->family >= 7000 && ctlr->channel > 14)
+			ctlr->rxflags &= ~RFlag24Ghz;
 		memmove(ctlr->bssid, bss->bssid, sizeof(ctlr->bssid));
 		if(bss->cap & (1<<5))
 			ctlr->rxflags |= RFlagShPreamble;
@@ -3817,9 +4741,11 @@ rxon(Ether *edev, Wnode *bss)
 			ctlr->bss.id = -1;
 		} else {
 			ctlr->bcast.id = -1;
+			ctlr->ht.on = ctlr->ht.mimo = 0;
 		}
 	} else {
 		ctlr->aid = 0;
+		ctlr->ht.on = ctlr->ht.mimo = 0;
 		memmove(ctlr->bssid, edev->Netif.bcast, sizeof(ctlr->bssid));
 		ctlr->bcast.id = -1;
 		ctlr->bss.id = -1;
@@ -3848,20 +4774,38 @@ rxon(Ether *edev, Wnode *bss)
 			(ctlr->type != Type4965)? 15: 31,
 			StaTypeGeneralPurpose,
 			edev->Netif.bcast,
-			&ctlr->bcast)) != nil)
+			&ctlr->bcast, 0)) != nil)
 			goto Out;
 	}
 	if(ctlr->bss.id == -1 && bss != nil && ctlr->aid != 0){
+		/*
+		 * 9space: HT where the access point has it and we associated
+		 * with QoS (wifi.c sent our HT capabilities; access points
+		 * give HT only to WMM stations); two streams where both
+		 * have two antennas and it receives MCS 8-15
+		 */
+		ctlr->ht.on = ctlr->family >= 7000 && bss->ht && bss->qos && ctlr->wifi->ncaps > 0;
+		ctlr->ht.mimo = ctlr->ht.on && bss->htrxmcs[1] != 0
+			&& nant(ctlr->rfcfg.txantmask) >= 2 && nant(ctlr->rfcfg.rxantmask) >= 2;
+		htladder(ctlr);
+		if(ctlr->wifi->debug)
+			print("#l%d: ht %d mimo %d, its mcs %.2ux %.2ux, protection %d\n",
+				edev->ctlrno, ctlr->ht.on, ctlr->ht.mimo,
+				bss->htrxmcs[0], bss->htrxmcs[1], bss->htprot);
 		if((err = setstation(ctlr,
 			0,
 			StaTypeLink,
 			bss->bssid,
-			&ctlr->bss)) != nil)
+			&ctlr->bss, htstaflags(ctlr, bss))) != nil)
 			goto Out;
 
-		if(ctlr->family >= 7000)
+		if(ctlr->family >= 7000){
 			if((err = setmaccontext(edev, ctlr, CmdModify, bss)) != nil)
 				goto Out;
+			/* 9space: associated: the Smart FIFO full on (iwm_run) */
+			if((err = setsmartfifo(ctlr, SfFullOn, bss)) != nil)
+				goto Out;
+		}
 	}
 Out:
 	return err;
@@ -3870,7 +4814,7 @@ Out:
 static void
 transmit(Wifi *wifi, Wnode *wn, Block *b)
 {
-	int flags, rate, ant;
+	int flags, rate, ant, ht, hdrlen, pad, qid, tid, seq;
 	uchar c[Tcmdsize], *p;
 	Ether *edev;
 	Station *sta;
@@ -3936,10 +4880,60 @@ Broken:
 	if(sta->id == -1)
 		goto Broken;
 
+	/*
+	 * 9space: the firmware wants the 802.11 header padded to a
+	 * multiple of 4 bytes (a QoS data header has 26), flagged in the
+	 * command (iwm_tx: IWM_TX_CMD_FLG_MH_PAD, IWM_TX_CMD_OFFLD_PAD);
+	 * without it the firmware died at the first QoS frame
+	 */
+	pad = 0;
+	hdrlen = wifihdrlen(w);
+	if(ctlr->family >= 7000){
+		if(hdrlen & 3){
+			pad = 4 - (hdrlen & 3);
+			b = padblock(b, pad);
+			memmove(b->rp, b->rp+pad, hdrlen);
+			memset(b->rp+hdrlen, 0, pad);
+			w = (Wifipkt*)b->rp;
+			flags |= TFlagNeedPadding;
+		}
+	}
+
+	/*
+	 * 9space: data to an HT access point goes at the MCS of the link
+	 * quality table (TFlagLinkq: iwm's IWM_TX_CMD_FLG_STA_RATE)
+	 */
+	ht = sta == &ctlr->bss && ctlr->ht.on;
+
+	/*
+	 * 9space: QoS data of a TID with aggregates goes on its queue
+	 * where the ring's next index is the frame's sequence number
+	 * (one numbered before the agreement goes the old way)
+	 */
+	qid = 0;
+	tid = 0;
+	if(ht && ctlr->ht.aggtids != 0 && (w->fc[0] & 0x8c) == 0x88 && BLEN(b) >= hdrlen){
+		tid = b->rp[hdrlen-2] & 15;
+		seq = (w->seq[0] | w->seq[1]<<8) >> 4;
+		if(tid < 8 && (ctlr->ht.aggtids & 1<<tid) && ctlr->tx[Aggq0+tid].i == (seq & (Ntx-1))){
+			qid = Aggq0 + tid;
+			bcset(ctlr, qid, seq & (Ntx-1), sta->id, BLEN(b) - pad);
+		} else
+			tid = 0;
+	}
+	if(ht){
+		flags |= TFlagLinkq;
+		if(ctlr->ht.lq != ctlr->ht.cur && (err = sethtlq(ctlr)) != nil)
+			print("#l%d: link quality: %s\n", edev->ctlrno, err);
+	}
+
 	if(p >= wifi->rates)
 		rate = p - wifi->rates;
 	else
 		rate = 0;
+	/* 9space: no CCK (802.11b) on 5 GHz: the scan's probes have no rates of their own */
+	if(ctlr->channel > 14 && (ratetab[rate].flags & RFlagCCK) != 0)
+		rate = 4;	/* 6 Mbit/s OFDM */
 
 	/* select first available antenna */
 	ant = ctlr->rfcfg.txantmask & 7;
@@ -3947,16 +4941,21 @@ Broken:
 	ant = ((ant - 1) & ant) ^ ant;
 
 	memset(p = c, 0, sizeof(c));
-	put16(p, BLEN(b));
+	put16(p, BLEN(b) - pad);	/* the frame, without the padding */
 	p += 2;
-	p += 2;		/* lnext */
+	put16(p, pad? TxOffldPad: 0);	/* lnext; offload_assist on 7000 and newer */
+	p += 2;
 	put32(p, flags);
 	p += 4;
 	put32(p, 0);
 	p += 4;		/* scratch */
 
-	*p++ = ratetab[rate].plcp;
-	*p++ = ratetab[rate].flags | (ant<<6);
+	if(ht)
+		p += 2;	/* rate_n_flags 0: the table's */
+	else {
+		*p++ = ratetab[rate].plcp;
+		*p++ = ratetab[rate].flags | (ant<<6);
+	}
 
 	p += 2;		/* xflags */
 	*p++ = sta->id;	/* station id */
@@ -3978,13 +4977,13 @@ Broken:
 
 	*p++ = 60;	/* rts ntries */
 	*p++ = 15;	/* data ntries */
-	*p++ = 0;	/* tid */
+	*p++ = tid;	/* tid (9space: an aggregate's) */
 	put16(p, 0);	/* timeout */
 	p += 2;
 	p += 2;		/* txop */
 	qunlock(&ctlr->QLock);
 
-	if((err = qcmd(ctlr, 0, 28, c, p - c, b)) != nil){
+	if((err = qcmd(ctlr, qid, 28, c, p - c, b)) != nil){
 		print("#l%d: transmit %s\n", edev->ctlrno, err);
 		freeb(b);
 	}
@@ -4000,6 +4999,53 @@ iwlctl(Ether *edev, void *buf, long n)
 		ctlr->broken = 1;
 		return n;
 	}
+	/*
+	 * 9space: the power flags for testing: "pm N" (MAC power table:
+	 * 1 power save allowed, 2 power management), "devpm N" (device;
+	 * -1 either: the default), sent at once on 7000 and newer
+	 */
+	if(ctlr->family >= 7000 && n >= 5 && memcmp(buf, "aggq ", 5) == 0){
+		char tmp[16];
+		int i;
+
+		if(n >= sizeof tmp)
+			error(Ebadarg);
+		memmove(tmp, buf, n);
+		tmp[n] = 0;
+		ctlr->aggqmax = atoi(tmp+5);	/* 9space: the next aggregation queues' depth; the running ones too */
+		for(i = Aggq0; i < nelem(ctlr->tx); i++)
+			if(ctlr->tx[i].agg && ctlr->aggqmax > 0 && ctlr->aggqmax <= Framelimit)
+				ctlr->tx[i].lim = ctlr->aggqmax;
+		return n;
+	}
+	if(ctlr->family >= 7000 && n >= 3 && (memcmp(buf, "pm ", 3) == 0 || n >= 6 && memcmp(buf, "devpm ", 6) == 0)){
+		char tmp[32], *f[3];
+		char *err;
+
+		if(n >= sizeof tmp)
+			error(Ebadarg);
+		memmove(tmp, buf, n);
+		tmp[n] = 0;
+		if(tokenize(tmp, f, nelem(f)) != 2)
+			error(Ebadarg);
+		qlock(&ctlr->QLock);
+		if(waserror()){
+			qunlock(&ctlr->QLock);
+			nexterror();
+		}
+		if(strcmp(f[0], "pm") == 0){
+			ctlr->pmflags = strtol(f[1], nil, 0);
+			err = ctlr->attached? setmacpowermode(ctlr, ctlr->wifi->bss): nil;
+		} else {
+			ctlr->devpm = strtol(f[1], nil, 0);
+			err = ctlr->attached? updatedevicepower(ctlr): nil;
+		}
+		if(err != nil)
+			error(err);
+		poperror();
+		qunlock(&ctlr->QLock);
+		return n;
+	}
 	if(ctlr->wifi)
 		return wifictl(ctlr->wifi, buf, n);
 	return 0;
@@ -4010,7 +5056,36 @@ iwlifstat(void *a, char *s, char *e)
 {
 	Ether *edev = a;
  	Ctlr *ctlr = edev->ctlr;
-	return wifistat(ctlr->wifi, s, e);
+
+	s = wifistat(ctlr->wifi, s, e);
+	/*
+	 * 9space: netif calls this with no room for stats (p, p): seprint
+	 * would give nil, and the next one write through it
+	 */
+	if(s == nil || s >= e)
+		return s;
+	s = seprint(s, e, "intr: %lud, with rx %lud, frames %lud, gone %lud, isr %.8ux imr %.8ux\n",	/* 9space */
+		ctlr->nintr, ctlr->nrxintr, ctlr->nrxframe, ctlr->ngone,
+		csr32r(ctlr, Isr), csr32r(ctlr, Imr));
+	s = seprint(s, e, "bgscan: %s, %lud done, aux station %d, %ud scan channels\n",
+		ctlr->scanning? "running": "idle", ctlr->nscan, ctlr->auxsta, ctlr->fw->nscanchan);
+	s = seprint(s, e, "hwrev: %#.8ux, firmware %s, capa %.8ux %.8ux %.8ux %.8ux, api %.8ux %.8ux\n",
+		ctlr->hwrev, ctlr->fwname,
+		ctlr->fw->capa[0], ctlr->fw->capa[1], ctlr->fw->capa[2], ctlr->fw->capa[3],
+		ctlr->fw->api[0], ctlr->fw->api[1]);
+	{
+		int i;
+
+		for(i = Aggq0; i < nelem(ctlr->tx); i++)
+			if(ctlr->tx[i].agg)
+				s = seprint(s, e, "aggq %d: n %ud of %d, next %ud, oldest %ud\n",
+					i, ctlr->tx[i].n, ctlr->tx[i].lim, ctlr->tx[i].i, ctlr->tx[i].atail);
+	}
+	if(ctlr->ht.on)	/* 9space */
+		s = seprint(s, e, "ht: mcs %d%s, frames %lud, retries %lud, aggregates %lud of %lud frames, tids %#ux\n",
+			ctlr->ht.ladder[ctlr->ht.cur], ctlr->ht.mimo? " (2 streams)": "",
+			ctlr->ht.ntx, ctlr->ht.nretry, ctlr->ht.nampdu, ctlr->ht.nampduframes, ctlr->ht.aggtids);
+	return s;
 }
 
 static void
@@ -4146,6 +5221,25 @@ iwlattach(Ether *edev)
 			/* tested with 2230, it has transmit issues using higher bit rates */
 			if(ctlr->family >= 7000 || ctlr->type != Type2030)
 				ctlr->wifi->rates = iwlrates;
+			/* 9space: HT and aggregates on 7000 and newer (9000: the rx padding taken off above, untested) */
+			if(ctlr->family >= 7000){
+				htcaps(ctlr);
+				/* 9space: the access point's aggregates, answered by the firmware (iwlrxba) */
+				ctlr->wifi->ba = 1;
+				ctlr->wifi->baagree = iwlrxba;
+				/* and our own aggregates (aggstart) */
+				ctlr->wifi->batx = 1;
+				ctlr->wifi->batxagree = iwlbatx;
+			}
+			/* 9space: 2.4 and 5 GHz where the NVM enables it (wifi.c only listens on DFS channels) */
+			if(ctlr->family >= 7000 && ctlr->rfcfg.band5)
+				ctlr->wifi->scan = wifiscan5g;
+			/* 9space: the signal of each frame: wifi.c chooses the strongest node (a mesh's) */
+			if(ctlr->family >= 7000)
+				ctlr->wifi->sigs = 1;
+			/* 9space: background scans for roaming (iwlbgscan) */
+			if(ctlr->family >= 7000)
+				ctlr->wifi->bgscan = iwlbgscan;
 		}
 
 		setoptions(edev);
@@ -4198,7 +5292,7 @@ receive(Ctlr *ctlr)
 
 		tx = nil;
 		bb = nil;
-		if((qid & 0x80) == 0 && qid < ctlr->ntxq){
+		if((qid & 0x80) == 0 && qid < Nlegq){	/* 9space: the aggregation queues free by SSN (aggadvance) */
 			tx = &ctlr->tx[qid];
 			bb = tx->b[idx];
 			tx->b[idx] = nil;
@@ -4215,7 +5309,38 @@ receive(Ctlr *ctlr)
 				break;
 			break;
 		case 28:	/* tx done */
+			/*
+			 * 9space: an aggregation queue's (iwm_rx_tx_cmd,
+			 * iwm_ampdu_tx_done): frame_count at 0, its status
+			 * entries (4 bytes) from 36, then the firmware's SSN;
+			 * one frame alone is counted for AMRR, an aggregate by
+			 * its block ack (197); the entries before the SSN done
+			 */
+			if(ctlr->family >= 7000 && (qid & 0x80) == 0 && qid >= Aggq0 && qid < nelem(ctlr->tx)){
+				int nf, ssn;
+
+				nf = d[0];
+				if(nf < 1 || len < 36 + 4*nf + 4 || !ctlr->tx[qid].agg)
+					break;
+				/*
+				 * an aggregate's status only counts: its frames
+				 * are freed by the block ack (197); its SSN may be
+				 * past what the firmware has done with, and freeing
+				 * those let it DMA from reused buffers (the radio
+				 * hung under load both ways). A single frame's
+				 * status (a final attempt) moves the window, as
+				 * iwm_ampdu_tx_done
+				 */
+				if(nf > 1)
+					break;
+				ssn = get32(d + 36 + 4*nf) & 0xfff;
+				htcount(ctlr, 1, d[36] == 1 || d[36] == 2 ? (d[3] > 0) : 1, d[3]);
+				aggadvance(ctlr, qid, ssn);
+				break;
+			}
 			if(ctlr->family >= 7000){
+				if(len > 36)
+					htstatus(ctlr, bb, d[36] == 1 || d[36] == 2, d[3]);
 				if(len <= 36 || d[36] == 1 || d[36] == 2)
 					break;
 			} else if(ctlr->type == Type4965){
@@ -4311,6 +5436,14 @@ receive(Ctlr *ctlr)
 		case 130:	/* start scan */
 		case 132:	/* stop scan */
 			break;
+		case NotifScanIter:	/* 9space: the background scan done (iwm_endscan) */
+		case NotifScanDone:
+			if(ctlr->scanning){
+				ctlr->scanning = 0;
+				if(ctlr->wifi != nil)
+					wifibgscandone(ctlr->wifi);
+			}
+			break;
 		case 136:	/* NVM access (>= 7000 family) */
 			if(ctlr->family < 7000)
 				break;
@@ -4340,6 +5473,26 @@ receive(Ctlr *ctlr)
 		case 192:	/* rx phy */
 			if(len >= 8)
 				updatesystime(ctlr, get32(d+4));
+			/*
+			 * 9space: the signal of the frame that follows, as
+			 * iwm_get_signal_strength: non_cfg_phy[1] has each
+			 * antenna's energy (-dBm) in a byte, 0 where none
+			 */
+			ctlr->rxsignal = 0;
+			if(len >= 32 && !ctlr->mqrx){
+				u32int e;
+				int i, a, best;
+
+				e = get32(d+28);
+				best = -256;
+				for(i = 0; i < 3; i++){
+					a = (e >> 8*i) & 0xFF;
+					if(a != 0 && -a > best)
+						best = -a;
+				}
+				if(best > -256)
+					ctlr->rxsignal = best;
+			}
 			break;
 		case 195:	/* rx done */
 			if(d + 2 > b->lim)
@@ -4352,12 +5505,45 @@ receive(Ctlr *ctlr)
 				break;
 			len = get16(d);
 			if(ctlr->mqrx){
+				int mflags2, status, hdr, e, best, i;
+
 				if(d + 48 + len > b->lim)
 					break;
 				updatesystime(ctlr, get32(d+36));
 				if((d[12] & 3) != 3)
 					break;
+				/*
+				 * 9space: struct iwm_rx_mpdu_desc (48 bytes):
+				 * mac_flags2 at 3, status at 12, energy_a and _b
+				 * at 32, 33 (the signal, as
+				 * iwm_rxmq_get_signal_strength)
+				 */
+				mflags2 = d[3];
+				status = get16(d+12);
+				best = -256;
+				for(i = 32; i < 34; i++)
+					if((e = d[i]) != 0 && -e > best)
+						best = -e;
+				ctlr->rxsignal = best > -256? best: 0;
 				d += 48;
+				/*
+				 * 9space: the firmware padded the header to a
+				 * multiple of 4 (IWM_RX_MPDU_MFLG2_PAD), after the
+				 * CCMP IV where it found one (iwm_rx_mpdu_mq)
+				 */
+				if((mflags2 & 0x20) != 0 && len >= 24+2){
+					if((d[0] & 0x0c) == 0x04)
+						hdr = 16;	/* control: frame_min */
+					else
+						hdr = wifihdrlen((Wifipkt*)d);
+					if((status>>8 & 7) == 2)
+						hdr += 8;	/* IWM_RX_MPDU_RES_STATUS_SEC_CCM_ENC */
+					if(hdr + 2 <= len){
+						memmove(d+2, d, hdr);
+						d += 2;
+						len -= 2;
+					}
+				}
 			} else {
 				d += 4;
 				if(d + len + 4 > b->lim)
@@ -4374,10 +5560,35 @@ receive(Ctlr *ctlr)
 
 			put64(d - 8, ctlr->systime);
 			b->flag |= Btimestamp;
+			ctlr->nrxframe++;	/* 9space */
+			if(ctlr->rxsignal != 0){	/* 9space: wifi.c's Bsignal, the byte before the timestamp */
+				d[-9] = ctlr->rxsignal;
+				b->flag |= Bsignal;
+			}
 
 			wifiiq(ctlr->wifi, b);
 			break;
 		case 197:	/* rx compressed ba */
+			/*
+			 * 9space: iwm_ba_notif: the station's address (6),
+			 * reserved (2), sta_id (8), tid (9), seq_ctl, bitmap
+			 * (8 bytes at 12), scd_flow (20), scd_ssn (22), txed
+			 * (24), txed_2_done (25): the aggregate's frames up to
+			 * the SSN acked (iwm_rx_compressed_ba)
+			 */
+			if(ctlr->family >= 7000 && len >= 26){
+				int bqid, btid;
+
+				btid = d[9];
+				bqid = get16(d+20);
+				if(btid < 8 && bqid == Aggq0 + btid && ctlr->tx[bqid].agg
+				&& memcmp(d, ctlr->bssid, Eaddrlen) == 0){
+					ctlr->ht.nampdu++;
+					ctlr->ht.nampduframes += d[24];
+					htcount(ctlr, d[24], d[24] - d[25], 0);
+					aggadvance(ctlr, bqid, get16(d+22) & 0xfff);
+				}
+			}
 			break;
 		}
 		freeblist(bb);
@@ -4410,16 +5621,31 @@ iwlinterrupt(Ureg*, void *arg)
 	isr = csr32r(ctlr, Isr);
 	fhisr = csr32r(ctlr, FhIsr);
 	if(isr == 0xffffffff || (isr & 0xfffffff0) == 0xa5a5a5a0){
+		ctlr->ngone++;	/* 9space: ifstats */
 		iunlock(&ctlr->Lock);
 		return;
 	}
 	if(isr == 0 && fhisr == 0)
 		goto done;
+	ctlr->nintr++;	/* 9space */
+	if((isr & (Iswrx | Ifhrx | Irxperiodic)) || (fhisr & Ifhrx))
+		ctlr->nrxintr++;
 	csr32w(ctlr, Isr, isr);
 	csr32w(ctlr, FhIsr, fhisr);
 
-	if((isr & (Iswrx | Ifhrx | Irxperiodic | Ialive)) || (fhisr & Ifhrx))
+	if((isr & (Iswrx | Ifhrx | Irxperiodic | Ialive)) || (fhisr & Ifhrx)){
+		/*
+		 * 9space: as iwm_intr: the periodic interrupt as a one-shot,
+		 * 8 ms after a real rx interrupt, for an rx the hardware
+		 * left without one ("dangling")
+		 */
+		if(ctlr->family >= 7000){
+			csr8w(ctlr, Iperiodic, PeriodicDis);
+			if((isr & (Iswrx | Ifhrx)) || (fhisr & Ifhrx))
+				csr8w(ctlr, Iperiodic, PeriodicEna);
+		}
 		receive(ctlr);
+	}
 	if(isr & Ierr){
 		ctlr->broken = 1;
 		print("#l%d: fatal firmware error\n", edev->ctlrno);
@@ -4538,6 +5764,8 @@ iwlpci(void)
 			print("iwl: unable to alloc Ctlr\n");
 			continue;
 		}
+		ctlr->pmflags = -1;	/* 9space */
+		ctlr->devpm = -1;
 		ctlr->port = pdev->mem[0].bar & ~0xF;
 		mem = vmap(ctlr->port, pdev->mem[0].size);
 		if(mem == nil) {
@@ -4547,6 +5775,14 @@ iwlpci(void)
 		}
 		ctlr->nic = mem;
 		ctlr->pdev = pdev;
+		/*
+		 * 9space: a 7265D (hardware revision type 0x210, OpenBSD's
+		 * IWM_CSR_HW_REV_TYPE_7265D) has firmware of its own, 7265D-29
+		 * (DQA-capable); the register reads before the power-up
+		 */
+		if(family == 7000 && (pdev->did == 0x095a || pdev->did == 0x095b)
+		&& (csr32r(ctlr, Rev) & 0xFFF0) == 0x210)
+			fwname = "iwm-7265D-29";
 		ctlr->fwname = fwname;
 		ctlr->family = family;
 		ctlr->mqrx = family >= 9000;

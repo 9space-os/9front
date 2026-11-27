@@ -8,13 +8,13 @@ segattach, segdetach, segfree \- map/unmap a segment in virtual memory
 .PP
 .ta \w'\fLlong 'u
 .B
-void*	segattach(int attr, char *class, void *va, ulong len)
+void*	segattach(int attr, char *class, void *va, usize len)
 .PP
 .B
 int	segdetach(void *addr)
 .PP
 .B
-int	segfree(void *va, ulong len)
+int	segfree(void *va, usize len)
 .PP
 .SH DESCRIPTION
 .I Segattach
@@ -90,6 +90,17 @@ may be any address within the bounds of the segment.
 The system will not permit the initial stack segment to be detached
 from the address space.
 .PP
+Processes that share memory
+.RB ( rfork (RFMEM),
+.IR fork (2);
+threads)
+share it whole: a segment one of them attaches is attached in the others
+too, at the same address, and one it detaches is detached in all of them.
+Each keeps its own stack segment.
+A process that
+.IR exec (2)s
+leaves them; the segments it keeps across the exec are its own from then.
+.PP
 .I Segfree
 tells the system that it may free any physical memory within the span
 .RI [ va ,
@@ -163,6 +174,27 @@ These functions set
 returns
 .B (void*)-1
 on error.
+.PP
+In 9space the lengths are a
+.BR usize ,
+the width of an address; 9front's are a
+.BR ulong ,
+32 bits also on amd64, which limits a segment there to less than 4 GB.
+A program compiled against 9front's
+.B libc.h
+(with
+.BR ulong )
+may leave the upper half of the length undefined on amd64 and arm64;
+compile it against these headers.
+.PP
+In 9front a process that shares memory shares only the segments there
+are when it is made: one attached or detached later changes only the
+process that attached or detached it, and two processes could hold
+different segments at one address.
+In 9space a program's processes are one memory image, as threads
+elsewhere; nothing of 9front's relies on the difference (its programs
+that detach a segment do so in a process of their own).
 .SH BUGS
-There is a small fixed limit on the number of segments that may be attached,
-as well as a maximum segment size.
+There is a maximum segment size.
+The number of segments a process may attach is limited by memory only:
+its table grows as it attaches more.

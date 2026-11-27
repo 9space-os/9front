@@ -1516,6 +1516,28 @@ evalnop(void)
 	return nil;
 }
 
+/* 9space: Notify (object, value) to amlnotify (aml.h), else nothing */
+static void*
+evalnotify(void)
+{
+	void *p;
+
+	p = FP->arg[0];
+	while(p != nil && (TAG(p) == 'R' || TAG(p) == 'A' || TAG(p) == 'L'))
+		p = ((Ref*)p)->ref;
+	/*
+	 * a method runs in a copy of its scope's path (forkname): a name
+	 * found through it may be such a copy (Notify(HKEY, ...) from a
+	 * method of HKEY's), which the collector frees after the method.
+	 * The namespace's own node, which the receiver can keep.
+	 */
+	while(p != nil && TAG(p) == 'N' && ((Name*)p)->fork != nil)
+		p = ((Name*)p)->fork;
+	if(amlnotify != nil && p != nil && TAG(p) == 'N')
+		amlnotify(p, ival(FP->arg[1]));
+	return nil;
+}
+
 static void*
 evalbad(void)
 {
@@ -2267,7 +2289,7 @@ static Op optab[] = {
 	[Otoint]	"ToInteger",		"*@",		evalconv,
 	[Otostr]	"ToString",		"*i@",		evaltostr,
 
-	[Onotify]	"Notify",		"@i",		evalnop,
+	[Onotify]	"Notify",		"@i",		evalnotify,
 };
 
 static uchar octab1[] = {
@@ -2394,14 +2416,57 @@ amlnew(char tag, int len)
 	}
 }
 
+/*
+ * 9space: the Windows versions firmware asks for, up to the current ones:
+ * from Windows 8 (2012) on, firmware reports the brightness keys as the
+ * ACPI video extension's notifications (0x86, 0x87) instead of handling
+ * them itself, and takes the paths it is tested with today.  The list is
+ * OpenBSD's AML_VALID_OSI (sys/dev/acpi/dsdt.h,v 1.82):
+ *
+ * Copyright (c) 2005 Marco Peereboom <marco@openbsd.org>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
 static void*
 evalosi(void)
 {
 	static char *w[] = { 
+		"Windows 2000",
 		"Windows 2001",
+		"Windows 2001.1",
+		"Windows 2001.1 SP1",
+		"Windows 2001 SP0",
 		"Windows 2001 SP1",
 		"Windows 2001 SP2",
+		"Windows 2001 SP3",
+		"Windows 2001 SP4",
 		"Windows 2006",
+		"Windows 2006.1",
+		"Windows 2006 SP1",
+		"Windows 2006 SP2",
+		"Windows 2009",
+		"Windows 2012",
+		"Windows 2013",
+		"Windows 2015",
+		"Windows 2016",
+		"Windows 2017",
+		"Windows 2017.2",
+		"Windows 2018",
+		"Windows 2018.2",
+		"Windows 2019",
+		"Windows 2020",
+		"Windows 2021",
+		"Windows 2022",
 	};
 	char *s;
 	int i;

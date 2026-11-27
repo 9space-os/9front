@@ -2,13 +2,15 @@
  * pANS stdio -- fclose
  */
 #include "iolib.h"
-int fclose(FILE *f){
+static int fclose_l(FILE *f){
 	int d, error=0;
 	char *p;
 
 	if(!f) return EOF;
 	if(f->state==CLOSED) return EOF;
 	if(fflush(f)==EOF) error=EOF;
+	if(f->flags&MEMSTR)
+		f->flags&=~BALLOC;	/* 9front-ng: open_memstream's buffer is the caller's now */
 	if(f->flags&BALLOC){
 		if((p = f->buf)!=0){
 			f->buf = 0;
@@ -28,4 +30,16 @@ int fclose(FILE *f){
 	f->state=CLOSED;
 	f->flags=0;
 	return error;
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+int
+fclose(FILE *f)
+{
+	int r;
+
+	_IO_lock(f);
+	r = fclose_l(f);
+	_IO_unlock(f);
+	return r;
 }

@@ -707,6 +707,10 @@ newproc(void)
 		}
 		p = (Proc*)(b + KSTACK);
 		p->index = procalloc.nextindex++;
+		/* 9front-ng: the segment table it starts with (segment.c) */
+		p->seg = p->seg0;
+		p->sorted = p->sorted0;
+		p->segcap = NSEG;
 		procalloc.tab[p->index] = p;
 	}
 	assert(p->state == Dead);
@@ -715,6 +719,10 @@ newproc(void)
 	unlock(&procalloc.Lock);
 
 	p->psstate = nil;
+	p->nseg = NSEG;		/* 9front-ng: p->seg0 (pexit: segtabreset) */
+	p->nsorted = 0;
+	p->mgrp = nil;
+	p->mnext = nil;
 	p->state = New;
 	p->PFPU.fpstate = FPinit;
 #ifdef KFPSTATE
@@ -1254,6 +1262,38 @@ freenotes(Proc *p)
 	}
 }
 
+/*
+ * 9front-ng: up dies of a trap (pexit without freemem: it stays Broken for
+ * the debugger). The memory it shares with the other members of its
+ * memory image (rfork RFMEM) may be wrong now, and they would go on
+ * without it (a program's threads waiting for one that is gone): they are
+ * killed, as proc(3)'s kill does, as POSIX's fatal signals end a process
+ * with all its threads. Members Broken already stay so; a child rfork is
+ * making exits as soon as it runs (sysrfork: dying).
+ */
+static void
+mgrpkill(void)
+{
+	Mgrp *g;
+	Proc *p;
+
+	if((g = up->mgrp) == nil)
+		return;
+	qlock(&g->QLock);
+	g->dying = 1;
+	for(p = g->procs; p != nil; p = p->mnext){
+		if(p == up || p->state == Broken)
+			continue;
+		qlock(&p->debug);
+		if(p->state <= New)
+			p->procctl = Proc_exitme;	/* not running yet */
+		else
+			killproc(p, Proc_exitme);
+		qunlock(&p->debug);
+	}
+	qunlock(&g->QLock);
+}
+
 _Noreturn void
 pexit(char *exitstr, int freemem)
 {
@@ -1289,7 +1329,7 @@ pexit(char *exitstr, int freemem)
 	qunlock(&up->debug);
 
 	if(fgrp != nil)
-		closefgrp(fgrp);
+		closefgrpgoing(fgrp);	/* 9space: CGOING for the chans it last held */
 	if(egrp != nil)
 		closeegrp(egrp);
 	if(rgrp != nil)
@@ -1348,13 +1388,16 @@ pexit(char *exitstr, int freemem)
 	}
 
 	if(!freemem){
+		mgrpkill();	/* 9front-ng: the program ends as a whole */
 		edfstop(up);
 		addbroken();
 	}
 
+	mgrpleave();	/* 9front-ng: before the table goes (segment.c) */
 	qlock(&up->seglock);
-	for(i = NSEG-1; i >= 0; i--)
+	for(i = up->nseg-1; i >= 0; i--)
 		putseg(detachseg(up, i));
+	segtabreset(up);
 	qunlock(&up->seglock);
 
 	qlock(&up->debug);
@@ -1466,8 +1509,10 @@ dumpaproc(Proc *p)
 		return;
 
 	bss = 0;
+	ilock(&p->segtab);	/* 9front-ng: others change p's table too (segment.c) */
 	if(p->seg[BSEG] != nil)
 		bss = p->seg[BSEG]->top;
+	iunlock(&p->segtab);
 
 	s = p->psstate;
 	if(s == nil)
@@ -1552,7 +1597,12 @@ procflushmmu(int firstproc, int lastproc, int (*match)(Proc*, void*), void *a)
 static int
 matchseg(Proc *p, void *a)
 {
-	return segno(p, (Segment*)a) >= 0;
+	int r;
+
+	ilock(&p->segtab);	/* 9front-ng: others change p's table too (segment.c) */
+	r = segno(p, (Segment*)a) >= 0;
+	iunlock(&p->segtab);
+	return r;
 }
 void
 procflushseg(Segment *s)
@@ -1563,15 +1613,20 @@ procflushseg(Segment *s)
 static int
 matchpseg(Proc *p, void *a)
 {
-	int i;
+	int i, r;
 	Segment *s;
 
-	for(i = 0; i < NSEG; i++) {
+	r = 0;
+	ilock(&p->segtab);	/* 9front-ng: others change p's table too (segment.c) */
+	for(i = 0; i < p->nseg; i++) {
 		s = p->seg[i];
-		if(s != nil && s->pseg == a)
-			return 1;
+		if(s != nil && s->pseg == a){
+			r = 1;
+			break;
+		}
 	}
-	return 0;
+	iunlock(&p->segtab);
+	return r;
 }
 void
 procflushpseg(Physseg *ps)
@@ -1588,6 +1643,18 @@ void
 procflushothers(void)
 {
 	procflushmmu(0, conf.nproc, matchother, up);
+}
+
+/* 9front-ng: the other members of a memory image: a segment left them (syssegdetach) */
+static int
+matchmgrp(Proc *p, void *a)
+{
+	return p != up && p->mgrp == a;
+}
+void
+mgrpflush(Mgrp *g)
+{
+	procflushmmu(0, conf.nproc, matchmgrp, g);
 }
 
 static void
@@ -1744,10 +1811,12 @@ procpagecount(Proc *p)
 	ulong pages;
 
 	pages = 0;
-	for(i = 0; i < NSEG; i++) {
+	ilock(&p->segtab);	/* 9front-ng: others change p's table too (segment.c) */
+	for(i = 0; i < p->nseg; i++) {
 		if((s = p->seg[i]) != nil)
 			pages += s->used;
 	}
+	iunlock(&p->segtab);
 	return pages;
 }
 

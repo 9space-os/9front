@@ -1,68 +1,42 @@
 #!/usr/bin/env python3
-"""
-find-clobbered.py: locals a jump back to waserror() can clobber (gcc's
--Wclobbered), in a kernel manifest's sources.
-
-waserror() is setlabel(), Plan 9's setjmp (portfns.h: returns_twice for
-gcc).  A local changed between waserror() and the error() that comes back
-to it, and read after that, is undefined unless volatile: gcc may keep it
-in a register, which the jump restores to its value at waserror().  kencc
-keeps such locals in memory, so 9front never needed volatile there.  This
-is how port/sdmmc.c's retryproc spun forever (its counter came back 0).
-
-Each source of the manifest is compiled as the build does (in the
-manifest's directory, with its Cflags and the arch's includes), output to
-/dev/null, with -Wclobbered added; the warnings are printed, sorted by
-file, one per place.  Objects of the tree are not touched.
-
-usage: sys/src/build/host/check/find-clobbered.py [manifest]	(default sys/src/9/pc64/build.json)
-       exit status 1 if there are warnings
-"""
-import concurrent.futures
-import json
-import os
-import re
-import subprocess
-import sys
-
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..'))
-
-
-def main():
-	manifest = sys.argv[1] if len(sys.argv) > 1 else 'sys/src/9/pc64/build.json'
-	manifest = os.path.join(ROOT, manifest)
-	d = json.load(open(manifest))
-	m = d[0] if isinstance(d, list) else d
-	cwd = os.path.dirname(manifest)
-	arch = 'amd64' if '-m64' in m.get('Cflags', []) else os.environ.get('objtype', 'amd64')
-	cc = os.environ.get('CC', 'gcc')
-	base = [cc, '-std=c11', '-c', '-I', os.path.join(ROOT, arch, 'include'),
-		'-I', os.path.join(ROOT, 'sys', 'include'), '-I', '.'] + m.get('Cflags', []) + ['-Wclobbered']
-	srcs = [s for s in m.get('SourceFiles', []) if s.endswith('.c') and os.path.exists(os.path.join(cwd, s))]
-	missing = [s for s in m.get('SourceFiles', []) if s.endswith('.c') and not os.path.exists(os.path.join(cwd, s))]
-	if missing:
-		print('find-clobbered: %d sources missing (generated or copied by the build: build first): %s'
-			% (len(missing), ' '.join(missing[:5])), file=sys.stderr)
-
-	def one(src):
-		r = subprocess.run(base + [src, '-o', os.devnull], cwd=cwd, capture_output=True, text=True,
-			env=dict(os.environ, LC_ALL='C'))
-		return [l for l in r.stderr.splitlines() if '-Wclobbered' in l]
-
-	found = set()
-	with concurrent.futures.ThreadPoolExecutor(os.cpu_count() or 4) as ex:
-		for lines in ex.map(one, srcs):
-			for l in lines:
-				# file:line:col: warning: variable 'x' might be clobbered ... [-Wclobbered]
-				mm = re.match(r'(.*?):(\d+):\d+: warning: (.*) \[-Wclobbered\]', l)
-				if mm:
-					found.add((os.path.normpath(os.path.join(os.path.relpath(cwd, ROOT), mm.group(1))),
-						int(mm.group(2)), mm.group(3)))
-	for f, n, w in sorted(found):
-		print('%s:%d: %s' % (f, n, w))
-	print('find-clobbered: %d sources, %d places' % (len(srcs), len(found)), file=sys.stderr)
-	return 1 if found else 0
-
-
-if __name__ == '__main__':
-	sys.exit(main())
+# sys/src/build/host/check/find-clobbered.py FILE...: kernel C where a local is assigned after a
+# waserror() and read in its handler: after error()'s longjmp it is indeterminate
+# unless volatile (C11 7.13.2.1), and gcc keeps it in a register (devmnt.c mntwalk
+# leaked a chan per failed walk). A heuristic, only up to the handler's poperror:
+# review each hit
+# heuristic: locals assigned after a waserror() and read in its handler block
+import re, sys, os
+def funcs(src):
+    for m in re.finditer(r'\n(\w[\w \t\*]*\n)?(\w+)\(([^;{)]*)\)\n\{', src):
+        start = m.end(); depth = 1; i = start
+        while depth and i < len(src):
+            depth += {'{':1,'}':-1}.get(src[i],0); i += 1
+        yield m.group(2), m.start(), src[start:i]
+for path in sys.argv[1:]:
+    src = open(path, errors='replace').read()
+    for name, off, body in funcs(src):
+        decl = body.split('\n\n')[0]
+        locs = set(re.findall(r'\b(\w+)\s*(?:\[[^\]]*\])?\s*[,;=]', decl)) - {'volatile','int','long','char','uchar','ulong','uint','vlong','uvlong','uintptr','void','static'}
+        for w in re.finditer(r'if\s*\(\s*waserror\(\)\s*\)\s*\{', body):
+            # handler block
+            j = w.end(); depth = 1
+            while depth and j < len(body):
+                depth += {'{':1,'}':-1}.get(body[j],0); j += 1
+            handler = body[w.end():j]
+            # only while the handler is armed: up to its own poperror()
+            # (inner waserror/poperror pairs counted)
+            rest = body[j:]
+            depth = 0
+            for t in re.finditer(r'\bwaserror\(\)|\bpoperror\(\)', rest):
+                if t.group(0).startswith('waserror'):
+                    depth += 1
+                elif depth == 0:
+                    rest = rest[:t.start()]
+                    break
+                else:
+                    depth -= 1
+            used = set(re.findall(r'\b(\w+)\b', handler)) & locs
+            for v in used:
+                if re.search(r'(?<![=!<>])\b' + v + r'\s*(=(?!=)|\+\+|--|\+=|-=|\|=)', rest) and not re.search(r'volatile[^;]*\b' + v + r'\b', decl):
+                    line = src[:off].count('\n') + body[:w.start()].count('\n') + 2
+                    print('%s:%d: %s: %s' % (path, line, name, v))

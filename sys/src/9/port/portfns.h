@@ -35,9 +35,12 @@ void		checkb(Block*, char*);
 void		cinit(void);
 Chan*		cclone(Chan*);
 void		cclose(Chan*);
+void		cclosegoing(Chan*);
 void		ccloseq(Chan*);
+void		ccloseqgoing(Chan*);
 void		closeegrp(Egrp*);
 void		closefgrp(Fgrp*);
+void		closefgrpgoing(Fgrp*);
 void		closepgrp(Pgrp*);
 void		closergrp(Rgrp*);
 long		clrfpintr(void);
@@ -171,7 +174,9 @@ void		isdir(Chan*);
 int		iseve(void);
 int		islo(void);
 Segment*	isoverlap(uintptr, uintptr);
+Segment*	findseg(Proc*, uintptr);
 Physseg*	findphysseg(char*);
+void	delphysseg(char*);
 int		kenter(Ureg*);
 void		kexit(Ureg*);
 void		kickpager(void);
@@ -354,6 +359,7 @@ int		segfree(void*, uintptr);
 void		segclock(uintptr);
 long		segio(Segio*, Segment*, void*, long, vlong, int);
 Page**		segmap(Segment*, uintptr);
+void		segrevoke(Segment*, int);
 int		segno(Proc*, Segment*);
 void		segpage(Segment*, Page*);
 Page*		segpeek(Segment*, uintptr);
@@ -448,6 +454,19 @@ Segment*	data2txt(Segment*);
 Segment*	dupseg(int, int);
 Segment*	newseg(int, uintptr, ulong);
 Segment*	seg(Proc*, uintptr, int);
+Segment*	segbyaddr(Proc*, uintptr);
+Segment*	segref(uintptr, int);
+void		segunref(Segment*);
+Segment*	segslot(Proc*, int);
+void		segtabreset(Proc*);
+Mgrp*		mgrplock(void);
+void		mgrpunlock(Mgrp*);
+void		mgrpleave(void);
+void		mgrpflush(Mgrp*);
+extern int	(*_pagerpa)(Pager*, uintptr, uintptr*);
+extern int	(*_pagerwait)(Pager*, uintptr);
+extern void	(*_pagerfree)(Pager*);
+void		segreserve(Proc*, int);
 Segment*	txt2data(Segment*);
 void		hnputv(void*, uvlong);
 void		hnputl(void*, uint);
@@ -493,9 +512,14 @@ memsetio(volatile void *d, int c, long n)
  * some volatile loads under a mask (mmio[R] & 0xFF stored into a field)
  * into byte loads; an atomic load is one access of the object's width.
  * sys/src/build/host/check/find-narrow-mmio.py finds the loads that need it.
+ * kencc never narrows a load: a plain one there.
  */
 static inline u32int
 mmio32r(volatile u32int *p)
 {
+#ifdef __GNUC__
 	return __atomic_load_n(p, __ATOMIC_RELAXED);
+#else
+	return *p;
+#endif
 }

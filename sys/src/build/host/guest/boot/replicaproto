@@ -1,0 +1,7 @@
+dist	d775
+	replica	d775
+		9space	775
+		9space.pub	664
+		client	d775
+			9space.db	664
+			9space.log	664

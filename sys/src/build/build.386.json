@@ -50,6 +50,7 @@
 			"/sys/src/libstdio/libstdio.386.json",
 			"/sys/src/libsunrpc/libsunrpc.386.json",
 			"/sys/src/libttf/libttf.386.json",
+			"/sys/src/libui/libui.386.json",
 			"/sys/src/libventi/libventi.386.json",
 			"/sys/src/libdtracy/libdtracy.386.json"
 		]
@@ -86,9 +87,12 @@
 			"/sys/src/ape/lib/bio/cmds.386.json",
 			"/sys/src/ape/lib/bsd/cmds.386.json",
 			"/sys/src/ape/lib/bz2/cmds.386.json",
+			"/sys/src/ape/lib/devdraw/cmds.386.json",
 			"/sys/src/ape/lib/draw/cmds.386.json",
 			"/sys/src/ape/lib/fmt/cmds.386.json",
 			"/sys/src/ape/lib/l/cmds.386.json",
+			"/sys/src/ape/lib/memdraw/cmds.386.json",
+			"/sys/src/ape/lib/memlayer/cmds.386.json",
 			"/sys/src/ape/lib/mp/port/cmds.386.json",
 			"/sys/src/ape/lib/net/cmds.386.json",
 			"/sys/src/ape/lib/plumb/cmds.386.json",
@@ -116,6 +120,7 @@
 			"/sys/src/ape/cmd/expr/cmds.386.json",
 			"/sys/src/ape/cmd/make/cmds.386.json",
 			"/sys/src/ape/cmd/pdksh/cmds.386.json",
+			"/sys/src/ape/cmd/ptyfs/cmds.386.json",
 			"/sys/src/ape/cmd/sed/cmds.386.json",
 			"/acme/bin/source/cmds.386.json",
 			"/acme/bin/source/win/cmds.386.json",
@@ -173,6 +178,9 @@
 			"/sys/src/cmd/aux/mnihongo/cmds.386.json",
 			"/sys/src/cmd/aux/flashfs/cmds.386.json",
 			"/sys/src/cmd/aux/gps/cmds.386.json",
+			"/sys/src/cmd/aux/gpu/virtio/cmds.386.json",
+			"/sys/src/cmd/aux/gpu/intel/cmds.386.json",
+			"/sys/src/cmd/aux/i2chid/cmds.386.json",
 			"/sys/src/cmd/aux/kbdfs/cmds.386.json",
 			"/sys/src/cmd/aux/na/cmds.386.json",
 			"/sys/src/cmd/aux/vga/cmds.386.json",
@@ -208,6 +216,7 @@
 			"/sys/src/cmd/disk/smart/cmds.386.json",
 			"/sys/src/cmd/disk/vblade/cmds.386.json",
 			"/sys/src/cmd/dossrv/cmds.386.json",
+			"/sys/src/cmd/drawfs/cmds.386.json",
 			"/sys/src/cmd/dtracy/cmds.386.json",
 			"/sys/src/cmd/eqn/cmds.386.json",
 			"/sys/src/cmd/execnet/cmds.386.json",
@@ -362,6 +371,18 @@
 			"/sys/src/games/swar/cmds.386.json",
 			"/sys/src/games/timmy/cmds.386.json",
 			"/sys/src/games/v8e/cmds.386.json"
+		]
+	},
+	{
+		"Name": "rust",
+		"Pre": [
+			"bash /sys/src/build/step/cargo.sh -n sys/src/cmd/files files",
+			"bash /sys/src/build/step/cargo.sh -n sys/src/cmd/term term",
+			"bash /sys/src/build/step/cargo.sh -n sys/src/cmd/ui ui",
+			"bash /sys/src/build/step/cargo.sh -n sys/src/cmd/uidemo uicount uitodo uitick uiwidgets",
+			"bash /sys/src/build/step/cargo.sh -n sys/src/cmd/wbar wbar",
+			"bash /sys/src/build/step/cargo.sh -n sys/src/cmd/wdock wdock",
+			"bash /sys/src/build/step/cargo.sh -n sys/src/cmd/wsys wsys"
 		]
 	},
 	{

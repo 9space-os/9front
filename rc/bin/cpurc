@@ -86,6 +86,12 @@ if(! ps|grep -s timesync){
 	sleep 2
 }
 
+# 9space: aux/pstate, the processors' clock (P-states, pstate(8));
+# only with pstate= in plan9.ini: auto, high or low (shelved for now:
+# not started by default)
+if(test -e '#P/msr' && ~ $pstate auto high low && ! test -e /srv/pstate)
+	aux/pstate $pstate
+
 if(test -d /cfg/$sysname/service)
 	serviced=/cfg/$sysname/service
 if not if(test -d /cfg/default/service)
@@ -118,4 +124,7 @@ if(test -e /cfg/$sysname/cpustart)
 
 # mode of /proc/*/ctl is inherited across rfork, and sets modes on
 # other /proc files, such as note, so let listen be killed.
-dontkill '^(9660srv|cfs|cs|cwfs.*|disk|dns|dossrv|ether|factotum|gefs|hjfs|ipconfig|kb|kfs|mntgen|paqfs|reboot|usbd|venti|wpa)$'
+# 9space: noswap only for what frees memory or carries the way to the disk
+# or the root; nokill for the rest (proc(3))
+dontkill -r '^(9660srv|cfs|cwfs.*|disk|dossrv|ether|gefs|hjfs|kfs|paqfs|usbd|venti)$'
+dontkill '^(cs|dns|factotum|ipconfig|kb|mntgen|reboot|wpa)$'

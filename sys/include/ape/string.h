@@ -74,6 +74,7 @@ extern char	*strtok_r(char *, const char *, char **);
 extern char	*strerror_r(int, char *, int);	/* 9space: libap's (GNU's form: the message), for libc++ */
 extern void	*memmem(const void *, size_t, const void *, size_t);
 extern char	*strsignal(int);
+extern char	*strchrnul(const char *, int);	/* GNU's, the BSDs' (ap/gnu/gnuext.c) */
 #ifdef __cplusplus
 }
 #endif

@@ -135,6 +135,25 @@ and
 segments.
 Otherwise, the child inherits a copy of those segments.
 Other segment types, in particular stack segments, will be unaffected.
+In 9space the processes then share their memory whole: what one of them
+attaches or detaches later is attached or detached in all
+.RI ( segattach (2));
+9front's share only the segments there are at the fork.
+When one of them dies of a note the system generated (a trap, see
+.IR notify (2)),
+the others are killed, as if by
+.B kill
+in their
+.BI /proc/ n /ctl
+.RI ( proc (3)),
+and their parents see
+.BR Killed ;
+the one that died stays
+.B Broken
+for debugging, as do others already
+.BR Broken .
+The program ends as a whole, as a POSIX process does with all its threads;
+in 9front the others go on.
 May be set only with
 .BR RFPROC .
 .PD

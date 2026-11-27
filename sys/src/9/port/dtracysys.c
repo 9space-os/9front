@@ -68,7 +68,11 @@ extern Syscall *systab[];
  * 386 every address from 0x80000000 up became 0xffffffff........, as
  * 8c does not), any other type as it is (an int's -1 stays -1)
  */
+#ifdef __GNUC__
 #define DTARG(e)	__builtin_choose_expr(__builtin_classify_type(e) == 5, (uvlong)(uintptr)(e), (uvlong)(e))
+#else
+#define DTARG(e)	((uvlong)(e))	/* kencc zero-extends a pointer */
+#endif
 
 #define WRAP0(x,y,z)\
 	Syscall z; uintptr x(uchar *va){\

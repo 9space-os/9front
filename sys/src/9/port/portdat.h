@@ -17,6 +17,7 @@ typedef struct Lock	Lock;
 typedef struct Log	Log;
 typedef struct Logflag	Logflag;
 typedef struct Mntcache Mntcache;
+typedef struct Mgrp	Mgrp;
 typedef struct Mount	Mount;
 typedef struct Mntrah	Mntrah;
 typedef struct Mntrpc	Mntrpc;
@@ -29,6 +30,7 @@ typedef struct Palloc	Palloc;
 typedef struct Perf	Perf;
 typedef struct PhysUart	PhysUart;
 typedef struct Pgrp	Pgrp;
+typedef struct Pager	Pager;
 typedef struct Physseg	Physseg;
 typedef struct Proc	Proc;
 typedef struct Pte	Pte;
@@ -59,6 +61,7 @@ typedef int    Devgen(Chan*, char*, Dirtab*, int, int, Dir*);
 #pragma incomplete Edf
 #pragma incomplete Mntcache
 #pragma incomplete Mntrpc
+#pragma incomplete Pager	/* 9front-ng: devsegment.c's */
 #pragma incomplete Mnt
 #pragma incomplete Queue
 #pragma incomplete Timers
@@ -167,6 +170,7 @@ enum
 	CFREE	= 0x0010,		/* not in use */
 	CRCLOSE	= 0x0020,		/* remove on close */
 	CCACHE	= 0x0080,		/* client cache */
+	CGOING	= 0x0100,		/* 9space: its last reference dropped by its exiting process (pexit) */
 };
 
 /* flag values */
@@ -408,6 +412,8 @@ enum
 	SG_CACHED	= 0400,		/* Normal cached memory */
 	SG_DEVICE	= 01000,	/* Memory mapped device */
 	SG_NOEXEC	= 02000,	/* No execute */
+	SG_WC		= 04000,	/* Write-combining (where there is PTEWC) */
+	SG_LOST		= 010000,	/* 9space: revoked as its owner went: every page is its lost page */
 };
 
 #define PG_ONSWAP	1
@@ -416,6 +422,13 @@ enum
 #define swapaddr(s)	(((uintptr)s)&~PG_ONSWAP)
 
 #define SEGMAXSIZE	(1ULL*SEGMAPSIZE*PTEMAPMEM)
+/*
+ * 9front-ng: the region where segment(3) puts the segments whose address
+ * it chooses ("va 0 len"), each at an address no other one has, so any
+ * process can attach any of them; segattach's own choice stays out of it
+ */
+#define	SHAREDBASE	((USTKTOP/2) & ~(uintptr)(2*1024*1024-1))
+#define	SHAREDTOP	(SHAREDBASE + ((USTKTOP/16) & ~(uintptr)(2*1024*1024-1)))
 
 struct Physseg
 {
@@ -423,6 +436,10 @@ struct Physseg
 	char	*name;			/* Attach name */
 	uintptr	pa;			/* Physical address */
 	uintptr	size;			/* Maximum segment size in bytes */
+	int	eveonly;		/* 9front-ng: only the hostowner attaches it (a GPU's bars: #G) */
+	Pager	*pager;			/* 9front-ng: its pages one by one, from a driver (devsegment.c) */
+	Ref	*users;			/* 9space: the segments of it (nil: not counted) */
+	void	(*unused)(Physseg*);	/* 9space: called when the last of them goes */
 };
 
 struct Sema
@@ -466,6 +483,7 @@ struct Segment
 	int	firstproc;	/* lowest proc->index having segment attached */
 	int	lastproc;	/* highest proc->index having segment attached */
 	int	segno;		/* last attached proc->seg[segno] number */
+	Page	*lost;		/* 9space: SG_LOST's page, its own (freed with the segment) */
 };
 
 /*
@@ -558,6 +576,19 @@ struct Rgrp
 	Proc	*rendhash[RENDHASH];	/* Rendezvous tag hash */
 };
 
+/*
+ * 9front-ng: the processes of one memory image, made by rfork(RFMEM): a
+ * segment one of them attaches or detaches is attached or detached in
+ * all of them (segment.c, segattach(2)); each keeps its own stack.
+ */
+struct Mgrp
+{
+	Ref;
+	QLock;			/* held while the members' tables change; before any p->seglock */
+	Proc	*procs;		/* the members, by Proc.mnext */
+	int	dying;		/* a member died of a trap: the others are killed (mgrpkill) */
+};
+
 struct Evalue
 {
 	char	*value;
@@ -594,7 +625,8 @@ struct Fgrp
 
 enum
 {
-	DELTAFD	= 20		/* incremental increase in Fgrp.fd's */
+	DELTAFD	= 20,		/* incremental increase in Fgrp.fd's */
+	MAXNFD	= 5000,		/* 9front-ng: most Fgrp.fd's (APE's OPEN_MAX, sys/include/ape/sys/limits.h) */
 };
 
 struct Palloc
@@ -656,6 +688,9 @@ enum
 
 /*
  *  process memory segments - NSEG always last !
+ *  9front-ng: NSEG is the table a process starts with; segattach grows
+ *  it (a GPU driver's buffer objects are segments, gpu(4): a Vulkan
+ *  program keeps hundreds mapped), segment.c
  */
 enum
 {
@@ -745,7 +780,16 @@ struct Proc
 	Rendez	waitr;		/* Place to hang out in wait */
 
 	QLock	seglock;	/* locked whenever seg[] changes */
-	Segment	*seg[NSEG];
+	Lock	segtab;		/* 9front-ng: seg, sorted, nseg, nsorted as they change (ilock; segment.c) */
+	Mgrp	*mgrp;		/* 9front-ng: the memory image shared with others (rfork RFMEM), or nil */
+	Proc	*mnext;		/* in mgrp->procs */
+	Segment	**seg;		/* 9front-ng: seg0, or the table it grew into (segment.c) */
+	int	nseg;		/* slots in use: seg[0] to seg[nseg-1] */
+	int	segcap;		/* slots of seg and sorted */
+	Segment	**sorted;	/* the attached segments by base, for seg() */
+	int	nsorted;
+	Segment	*seg0[NSEG];
+	Segment	*sorted0[NSEG];
 
 	Pgrp	*pgrp;		/* Process group for namespace */
 	Egrp 	*egrp;		/* Environment group */
@@ -773,6 +817,7 @@ struct Proc
 	ulong	procmode;	/* proc device default file mode */
 	int	privatemem;	/* proc does not let anyone read mem */
 	int	noswap;		/* process is not swappable */
+	int	nokill;		/* 9space: not the pager's to kill, but no reserve (proc(3)) */
 	int	hang;		/* hang at next exec for debug */
 	int	procctl;	/* Control for /proc debugging */
 

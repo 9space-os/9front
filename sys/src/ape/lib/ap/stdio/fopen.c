@@ -8,5 +8,5 @@ FILE *fopen(const char *name, const char *mode){
 
 	if((f = _IO_newfile()) == NULL)
 		return NULL;
-	return freopen(name, mode, f);
+	return _IO_reopen(name, mode, f);	/* 9front-ng: f is reserved, not closed */
 }

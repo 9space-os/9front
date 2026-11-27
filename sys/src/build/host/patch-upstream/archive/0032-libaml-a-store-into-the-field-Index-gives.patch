@@ -1,0 +1,37 @@
+From a8cb7c661ec76b32f27294a8758ae90e95244da9 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sat, 14 Nov 2026 22:47:52 +0100
+Subject: [PATCH 32/59] libaml: a store into the field Index gives
+
+store() took as its target only references (R, L, A) and names; the
+buffer field that Index returns ('u') fell into the default case and
+the store was dropped without an error.  So Store (x, Index (BUFF, i))
+left the named buffer as it was.  A laptop's ATIF method fills its
+reply buffer that way (Lenovo ThinkBook 16 G7 ARP, function 0x10): the
+caller got the previous call's reply back.  Such a target is written
+through rwfield now, as a field reached through a reference already is.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/libaml/aml.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/sys/src/libaml/aml.c b/sys/src/libaml/aml.c
+index 0c548a383..e12090343 100644
+--- a/sys/src/libaml/aml.c
++++ b/sys/src/libaml/aml.c
+@@ -845,6 +845,11 @@ store(void *s, void *d)
+ 	switch(TAG(d)){
+ 	default:
+ 		return nil;
++	case 'f':
++	case 'u':
++		/* a field as the target itself: Store (x, Index (BUFF, i)) */
++		rwfield(d, s, 1);
++		return d;
+ 	case 'A':
+ 		s = deref(s);
+ 		/* no break */
+-- 
+2.56.0
+

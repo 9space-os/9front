@@ -1,0 +1,17 @@
+#!/bin/rc
+# aux/amdgpu's screen over the connected outputs (an extended desktop):
+# gpuoutputs' steps (the layout, the last output off, on, as a mirror,
+# back; a panel's backlight), then vkcube on the screen (scanout to
+# every output); the log's warnings.  Look at the monitors.
+fn amdg { for(d in /shr/gpu/[0-9]*) if(grep -s '^device amd' $d/status >[2]/dev/null) echo $d }	# the AMD card's entry (gpu(4): named for its #G/n)
+bind -a '#i' /dev
+bind -a '#v' /dev
+aux/amdgpu $* >/tmp/amd.log >[2=1]
+sleep 2
+gpuoutputs
+WSI_PLAN9_STATS=1 /tests/vkcube --c 120 >[2=1] | grep 'scanout:|copy:|rror' | sed 2q
+grep size /dev/vgactl
+cat `{amdg}^/ctl
+grep screen /tmp/amd.log
+grep 'WARN|error|fault|overflow|kmsout|hotplug' /tmp/amd.log
+echo TESTEND

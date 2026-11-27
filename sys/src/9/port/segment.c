@@ -8,7 +8,12 @@
 /*
  * Attachable segment types
  */
-static Physseg physseg[10] = {
+/*
+ * gpu branch: room for #G's segments too: per GPU (Maxgpu 4) each memory
+ * BAR (6) uncached, cached and write-combining, its framebuffer and
+ * OpRegion; 10 entries were full with two GPUs
+ */
+static Physseg physseg[96] = {
 	{ SG_SHARED,	"shared",	0,	SEGMAXSIZE	},
 	{ SG_BSS,	"memory",	0,	SEGMAXSIZE	},
 	{ 0,		0,		0,	0		},
@@ -33,6 +38,12 @@ static struct Imagealloc
 }imagealloc;
 
 Segment* (*_globalsegattach)(char*);
+/* 9front-ng: a pager's segment (devsegment.c): a page's address, waiting for one, the end */
+static Segment*	groupoverlap(Mgrp*, uintptr, uintptr);
+
+int	(*_pagerpa)(Pager*, uintptr, uintptr*);
+int	(*_pagerwait)(Pager*, uintptr);
+void	(*_pagerfree)(Pager*);
 
 Segment *
 newseg(int type, uintptr base, ulong size)
@@ -45,9 +56,13 @@ newseg(int type, uintptr base, ulong size)
 	if(size > (SEGMAPSIZE*PTEPERTAB))
 		error(Enovmem);
 
+	/*
+	 * 9front-ng: a physical segment has room for a Physseg of its own
+	 * (segment(3)'s phys: a part of another one, freed with it)
+	 */
 	s = malloc(((type & SG_TYPE) != SG_PHYSICAL)?
 		sizeof(Segment)+sizeof(Pte):
-		sizeof(Segment));
+		sizeof(Segment)+sizeof(Physseg));
 
 	if(s == nil)
 		error(Enomem);
@@ -96,12 +111,226 @@ newseg(int type, uintptr base, ulong size)
 	return s;
 }
 
-/* Must be called with p->seglock locked. */
+/*
+ * 9front-ng: a process's table of segments grows.  It starts as p->seg0
+ * (NSEG slots, the fixed ones SSEG to SEG4 among them); segreserve makes
+ * room for more, doubling it (a GPU client maps each buffer object as a
+ * segment of its own: SDL's Vulkan renderer keeps some 300, games more).
+ * p->nseg bounds the slots in use, which loops over the table walk.
+ * p->sorted holds the attached segments by base (they do not overlap:
+ * isoverlap), for the binary search of segbyaddr and isoverlap.
+ *
+ * Who changes it holds p->seglock: the process itself, its parent in
+ * fork, devproc, and the other processes of its memory image (Mgrp, which
+ * they hold first): a segment one of them attaches or detaches is
+ * attached or detached in all (segattach, syssegdetach).  The arrays
+ * change under p->segtab as well (an ilock: segclock reads TSEG at clock
+ * interrupt), which is what a reader without p->seglock holds:
+ * procflushmmu's matchers, procpagecount, segbyaddr; a table that grew
+ * is freed, as no one reads it any more once the new one is in.  A
+ * segment found that way stays only while the reader holds the lock: one
+ * used after it (fault, the semaphores) is taken with a reference
+ * (segref), as another process may detach it meanwhile.
+ */
+static int
+growtab(Proc *p, int n)
+{
+	Segment **t, **o, **ot, **oo;
+	int cap;
+
+	if(n <= p->segcap)
+		return 0;
+	for(cap = 2*p->segcap; cap < n; cap *= 2)
+		;
+	t = malloc(cap*sizeof(Segment*));
+	o = malloc(cap*sizeof(Segment*));
+	if(t == nil || o == nil){
+		free(t);
+		free(o);
+		return -1;
+	}
+	memmove(t, p->seg, p->segcap*sizeof(Segment*));
+	memmove(o, p->sorted, p->nsorted*sizeof(Segment*));
+	ilock(&p->segtab);
+	ot = p->seg;
+	oo = p->sorted;
+	p->seg = t;
+	p->sorted = o;
+	p->segcap = cap;
+	iunlock(&p->segtab);
+	if(ot != p->seg0)
+		free(ot);
+	if(oo != p->sorted0)
+		free(oo);
+	return 0;
+}
+
+void
+segreserve(Proc *p, int n)
+{
+	if(growtab(p, n) < 0)
+		error(Enovmem);
+}
+
+/* 9front-ng: p's table back to p->seg0, every segment detached (pexit) */
+void
+segtabreset(Proc *p)
+{
+	Segment **ot, **oo;
+
+	ilock(&p->segtab);
+	ot = p->seg;
+	oo = p->sorted;
+	memset(p->seg0, 0, sizeof(p->seg0));
+	p->seg = p->seg0;
+	p->sorted = p->sorted0;
+	p->segcap = NSEG;
+	p->nseg = NSEG;
+	p->nsorted = 0;
+	iunlock(&p->segtab);
+	if(ot != p->seg0)
+		free(ot);
+	if(oo != p->sorted0)
+		free(oo);
+}
+
+/* the first of p->sorted that starts at or above base */
+static int
+sortpos(Proc *p, uintptr base)
+{
+	int lo, hi, m;
+
+	lo = 0;
+	hi = p->nsorted;
+	while(lo < hi){
+		m = (lo+hi)/2;
+		if(p->sorted[m]->base < base)
+			lo = m+1;
+		else
+			hi = m;
+	}
+	return lo;
+}
+
+static void
+sortin(Proc *p, Segment *s)
+{
+	int i;
+
+	i = sortpos(p, s->base);
+	memmove(&p->sorted[i+1], &p->sorted[i], (p->nsorted-i)*sizeof(Segment*));
+	p->sorted[i] = s;
+	p->nsorted++;
+}
+
+static void
+sortout(Proc *p, Segment *s)
+{
+	int i;
+
+	for(i = sortpos(p, s->base); i < p->nsorted; i++)
+		if(p->sorted[i] == s){
+			p->nsorted--;
+			memmove(&p->sorted[i], &p->sorted[i+1], (p->nsorted-i)*sizeof(Segment*));
+			return;
+		}
+	panic("sortout: segment %#p not in pid %lud's table", s->base, p->pid);
+}
+
+/* of p->sorted the last that starts at or below addr, if it holds addr (p->segtab or p->seglock held) */
+Segment*
+findseg(Proc *p, uintptr addr)
+{
+	int lo, hi, m;
+	Segment *s;
+
+	lo = 0;
+	hi = p->nsorted;
+	while(lo < hi){
+		m = (lo+hi)/2;
+		if(p->sorted[m]->base <= addr)
+			lo = m+1;
+		else
+			hi = m;
+	}
+	if(lo == 0)
+		return nil;
+	s = p->sorted[lo-1];
+	return addr < s->top ? s : nil;
+}
+
+/*
+ * the attached segment holding addr, or nil; unless the caller holds
+ * p->seglock it may be gone once found (good for a test of the address)
+ */
+Segment*
+segbyaddr(Proc *p, uintptr addr)
+{
+	Segment *s;
+
+	ilock(&p->segtab);
+	s = findseg(p, addr);
+	iunlock(&p->segtab);
+	return s;
+}
+
+/* 9front-ng: p's segment in slot i with a reference (putseg), or nil: devproc's text and profile */
+Segment*
+segslot(Proc *p, int i)
+{
+	Segment *s;
+
+	ilock(&p->segtab);
+	s = i < p->nseg ? p->seg[i] : nil;
+	if(s != nil)
+		incref(&s->Ref);
+	iunlock(&p->segtab);
+	return s;
+}
+
+/*
+ * 9front-ng: up's segment holding addr, locked if dolock, or nil; given
+ * back with segunref.  What a process uses without its seglock (fault,
+ * the semaphores, segfree): in a memory image of several (up->mgrp)
+ * another may detach the segment meanwhile, so it comes with a
+ * reference; alone, nobody else changes up's table (only up joins or
+ * leaves one), and the table's own reference keeps it, as in 9front.
+ */
+Segment*
+segref(uintptr addr, int dolock)
+{
+	Segment *s;
+
+	ilock(&up->segtab);
+	s = findseg(up, addr);
+	if(s != nil && up->mgrp != nil)
+		incref(&s->Ref);
+	iunlock(&up->segtab);
+	if(s == nil || dolock == 0)
+		return s;
+	qlock(&s->QLock);
+	if(addr >= s->base && addr < s->top)
+		return s;
+	qunlock(&s->QLock);
+	segunref(s);
+	return nil;
+}
+
+void
+segunref(Segment *s)
+{
+	if(up->mgrp != nil)
+		putseg(s);
+}
+
+/* Must be called with p->seglock locked; segno below p->segcap (segreserve). */
 void
 attachseg(Proc *p, int segno, Segment *s)
 {
 	int i = p->index;
 
+	if(segno >= p->segcap)
+		panic("attachseg: slot %d of %d", segno, p->segcap);
 	qlock(&s->QLock);
 	if(i < s->firstproc)
 		s->firstproc = i;
@@ -110,7 +339,12 @@ attachseg(Proc *p, int segno, Segment *s)
 	s->segno = segno;
 	qunlock(&s->QLock);
 
+	ilock(&p->segtab);
 	p->seg[segno] = s;
+	sortin(p, s);
+	if(segno >= p->nseg)
+		p->nseg = segno+1;
+	iunlock(&p->segtab);
 }
 
 int
@@ -118,9 +352,9 @@ segno(Proc *p, Segment *s)
 {
 	int i = s->segno;
 
-	if(i < 0 || p->seg[i] == s)
+	if(i < 0 || (i < p->nseg && p->seg[i] == s))
 		return i;
-	for(i = 0; i < NSEG; i++) {
+	for(i = 0; i < p->nseg; i++) {
 		if(p->seg[i] == s)
 			return i;
 	}
@@ -131,8 +365,15 @@ segno(Proc *p, Segment *s)
 Segment*
 detachseg(Proc *p, int segno)
 {
-	Segment *s = p->seg[segno];
-	p->seg[segno] = nil;
+	Segment *s;
+
+	ilock(&p->segtab);
+	s = p->seg[segno];
+	if(s != nil){
+		p->seg[segno] = nil;
+		sortout(p, s);
+	}
+	iunlock(&p->segtab);
 	return s;
 }
 
@@ -213,6 +454,19 @@ putseg(Segment *s)
 
 	if(s->profile != nil)
 		free(s->profile);
+
+	/* 9space: a lost segment's page (segrevoke) */
+	if(s->lost != nil)
+		putpage(s->lost);
+
+	/* 9front-ng: a pager's segment (devsegment.c) */
+	if((s->type&SG_TYPE) == SG_PHYSICAL && s->pseg != nil && s->pseg->pager != nil && _pagerfree != nil)
+		(*_pagerfree)(s->pseg->pager);
+
+	/* 9space: the last segment of a counted physical one (#G's framebuffers) */
+	if((s->type&SG_TYPE) == SG_PHYSICAL && s->pseg != nil && s->pseg->users != nil)
+		if(decref(s->pseg->users) == 0 && s->pseg->unused != nil)
+			(*s->pseg->unused)(s->pseg);
 
 	free(s);
 }
@@ -730,6 +984,73 @@ done:
 	return 1;
 }
 
+/*
+ * 9front-ng: take all pages out of segment s (an alias segment of
+ * segment(3)): every process that has it attached loses them at once,
+ * its TLB flushed; a later access faults.  The pages stay where else
+ * they are (the sticky segments they came from).
+ */
+void
+segrevoke(Segment *s, int lost)
+{
+	int flush;
+	Page *p;
+	KMap *k;
+
+	/*
+	 * 9space: lost (its owner, a GPU driver, went: gpu(3)): a process
+	 * writing there does not die; each page of the segment maps one
+	 * page of its own (fault.c), zeroed here, freed with the segment:
+	 * writes go nowhere, and nothing goes from one segment to another,
+	 * as Linux maps a dummy page after a device is unplugged. The
+	 * program learns that the device is gone from its next call to it
+	 */
+	if(lost){
+		p = newpage(0, nil);
+		k = kmap(p);
+		memset((void*)VA(k), 0, BY2PG);
+		kunmap(k);
+		qlock(&s->QLock);
+		if(s->lost == nil)
+			s->lost = p;
+		else
+			putpage(p);
+		s->type |= SG_LOST;
+		if((s->type & SG_TYPE) == SG_PHYSICAL){
+			qunlock(&s->QLock);
+			if(s->Ref.ref > 1)
+				procflushseg(s);
+			flushmmu();
+			return;
+		}
+		flush = segfreemap(s, s->base, s->top);
+		qunlock(&s->QLock);
+		if(flush)
+			flushmmu();
+		return;
+	}
+
+	/*
+	 * a physical segment (segment(3)'s phys) has no pages to take:
+	 * it faults from now on, its mappings flushed everywhere; a
+	 * fault that mapped it meanwhile goes around (fault's tlbflush)
+	 */
+	if((s->type & SG_TYPE) == SG_PHYSICAL){
+		qlock(&s->QLock);
+		s->type |= SG_FAULT;
+		qunlock(&s->QLock);
+		if(s->Ref.ref > 1)
+			procflushseg(s);
+		flushmmu();
+		return;
+	}
+	qlock(&s->QLock);
+	flush = segfreemap(s, s->base, s->top);
+	qunlock(&s->QLock);
+	if(flush)
+		flushmmu();
+}
+
 uintptr
 ibrk(int segno, uintptr newtop)
 {
@@ -777,7 +1098,7 @@ ibrk(int segno, uintptr newtop)
 		return 0;
 	}
 
-	if(isoverlap(s->top, newtop - s->top) != nil){
+	if(groupoverlap(up->mgrp, s->top, newtop - s->top) != nil){	/* 9front-ng: caller holds the image's lock (sysproc.c) */
 		qunlock(&s->QLock);
 		error(Esoverlap);
 	}
@@ -806,21 +1127,99 @@ done:
 	return 0;
 }
 
-Segment*
-isoverlap(uintptr base, uintptr len)
+/* p's segment overlapping base to base+len, or nil (p->seglock held) */
+static Segment*
+overlap(Proc *p, uintptr base, uintptr len)
 {
 	int i;
 	Segment *s;
 	uintptr top;
 
+	/*
+	 * 9front-ng: of the segments, sorted by base and not overlapping,
+	 * the last that starts below top ends last of those: it overlaps
+	 * if any does
+	 */
 	top = base+len;
-	for(i = 0; i < NSEG; i++) {
-		s = up->seg[i];
-		if(s == nil)
-			continue;
-		if(top > s->base && base < s->top)
+	i = sortpos(p, top);
+	if(i == 0)
+		return nil;
+	s = p->sorted[i-1];
+	if(top > s->base && base < s->top)
+		return s;
+	return nil;
+}
+
+Segment*
+isoverlap(uintptr base, uintptr len)
+{
+	return overlap(up, base, len);
+}
+
+/*
+ * 9front-ng: the memory image up shares (rfork RFMEM), locked for a change
+ * of the members' tables, or nil; before up->seglock
+ */
+Mgrp*
+mgrplock(void)
+{
+	Mgrp *g;
+
+	g = up->mgrp;	/* only up changes it */
+	if(g != nil)
+		qlock(&g->QLock);
+	return g;
+}
+
+void
+mgrpunlock(Mgrp *g)
+{
+	if(g != nil)
+		qunlock(&g->QLock);
+}
+
+/*
+ * up leaves its memory image: exec's commit, pexit; the others change
+ * its table no more
+ */
+void
+mgrpleave(void)
+{
+	Mgrp *g;
+	Proc **l;
+
+	if((g = up->mgrp) == nil)
+		return;
+	qlock(&g->QLock);
+	for(l = &g->procs; *l != nil; l = &(*l)->mnext)
+		if(*l == up){
+			*l = up->mnext;
+			break;
+		}
+	up->mnext = nil;
+	up->mgrp = nil;
+	qunlock(&g->QLock);
+	if(decref(&g->Ref) == 0)
+		free(g);
+}
+
+/*
+ * the segment overlapping va to va+len in up's table, or in another
+ * member's: the temporary stack of an exec (ESEG) is each one's own;
+ * everything else is the same in all (g held)
+ */
+static Segment*
+groupoverlap(Mgrp *g, uintptr va, uintptr len)
+{
+	Segment *s;
+	Proc *p;
+
+	if((s = isoverlap(va, len)) != nil || g == nil)
+		return s;
+	for(p = g->procs; p != nil; p = p->mnext)
+		if(p != up && (s = p->seg[ESEG]) != nil
+		&& va+len > s->base && va < s->top)
 			return s;
-	}
 	return nil;
 }
 
@@ -833,14 +1232,21 @@ addphysseg(Physseg* new)
 	 * Check not already entered and there is room
 	 * for a new entry and the terminating null entry.
 	 */
+	Physseg *free;
+
 	lock(&physseglock);
+	free = nil;
 	for(ps = physseg; ps->name; ps++){
+		if(ps->name[0] == 0 && free == nil)
+			free = ps;	/* 9space: delphysseg's */
 		if(strcmp(ps->name, new->name) == 0){
 			unlock(&physseglock);
 			return nil;
 		}
 	}
-	if(ps-physseg >= nelem(physseg)-2){
+	if(free != nil)
+		ps = free;
+	else if(ps-physseg >= nelem(physseg)-2){
 		unlock(&physseglock);
 		return nil;
 	}
@@ -862,16 +1268,98 @@ findphysseg(char *name)
 	return nil;
 }
 
+/*
+ * 9space: physical segment name no longer attachable (#G's framebuffer
+ * replaced): its entry stays (segments point at it) under an empty name,
+ * which addphysseg gives again; the caller knows none is attached
+ */
+void
+delphysseg(char *name)
+{
+	Physseg *ps;
+
+	lock(&physseglock);
+	for(ps = physseg; ps->name; ps++)
+		if(strcmp(ps->name, name) == 0){
+			ps->name = "";
+			ps->users = nil;
+			ps->unused = nil;
+			break;
+		}
+	unlock(&physseglock);
+}
+
+/* 9front-ng: a free slot of p, i if it is, the table grown if every one is in use; -1 if it cannot grow (p->seglock held) */
+static int
+freesegno(Proc *p, int i)
+{
+	if(i < 0 || i == ESEG || i >= p->nseg || p->seg[i] != nil)
+		i = 0;
+	for(; i < p->nseg; i++) {
+		if(p->seg[i] == nil && i != ESEG)
+			return i;
+	}
+	if(growtab(p, p->nseg+1) < 0)
+		return -1;
+	return p->nseg;
+}
+
 static int
 unusedsegno(int i)
 {
-	if(i < 0 || i == ESEG || up->seg[i] != nil)
-		i = 0;
-	for(; i < NSEG; i++) {
-		if(up->seg[i] == nil && i != ESEG)
-			return i;
+	i = freesegno(up, i);
+	if(i < 0)
+		error(Enovmem);
+	return i;
+}
+
+/* the members' seglocks taken so far: up to (not with) end */
+static void
+unlockmembers(Mgrp *g, Proc *end)
+{
+	Proc *p;
+
+	for(p = g->procs; p != end; p = p->mnext)
+		if(p != up)
+			qunlock(&p->seglock);
+}
+
+/*
+ * 9front-ng: s, about to be attached in up, attached in the other members
+ * of g as well, at the same place; all or none (g and up->seglock held).
+ * The tables are the same but for the stacks (va 0 kept clear of the
+ * temporary ones: groupoverlap), so what fits up fits them.
+ */
+static void
+mgrpattach(Mgrp *g, Segment *s, int segno)
+{
+	Proc *p;
+	char *e;
+	int n;
+
+	e = nil;
+	for(p = g->procs; p != nil; p = p->mnext){
+		if(p == up)
+			continue;
+		qlock(&p->seglock);
+		if(overlap(p, s->base, s->top - s->base) != nil)
+			e = Esoverlap;
+		else if(freesegno(p, segno) < 0)
+			e = Enovmem;
+		if(e != nil){
+			qunlock(&p->seglock);
+			unlockmembers(g, p);
+			error(e);
+		}
 	}
-	return -1;
+	for(p = g->procs; p != nil; p = p->mnext){
+		if(p == up)
+			continue;
+		n = freesegno(p, segno);	/* found above: no growth now */
+		incref(&s->Ref);
+		attachseg(p, n, s);
+		qunlock(&p->seglock);
+	}
 }
 
 uintptr
@@ -880,13 +1368,16 @@ segattach(int attr, char *name, uintptr va, uintptr len)
 	int segno;
 	Segment *s, *os;
 	Physseg *ps;
+	Mgrp *g;
 
 	if(va != 0 && va >= USTKTOP)
 		error(Ebadarg);
 
+	g = mgrplock();
 	qlock(&up->seglock);
 	if(waserror()){
 		qunlock(&up->seglock);
+		mgrpunlock(g);
 		nexterror();
 	}
 		
@@ -899,11 +1390,15 @@ segattach(int attr, char *name, uintptr va, uintptr len)
 		if(s != nil){
 			va = s->base;
 			len = s->top - va;
-			if(isoverlap(va, len) != nil)
+			/* 9front-ng: an error puts the reference (9front kept it) */
+			if(groupoverlap(g, va, len) != nil){
+				putseg(s);
 				error(Esoverlap);
-			segno = unusedsegno(s->segno);
-			if(segno < 0)
+			}
+			if((segno = freesegno(up, s->segno)) < 0){
+				putseg(s);
 				error(Enovmem);
+			}
 			goto done;
 		}
 	}
@@ -924,11 +1419,17 @@ segattach(int attr, char *name, uintptr va, uintptr len)
 	 * map the zero page.
 	 */
 	if(va == 0) {
-		for (os = up->seg[SSEG]; os != nil; os = isoverlap(va, len)) {
+		for (os = up->seg[SSEG]; os != nil; os = groupoverlap(g, va, len)) {
 			va = os->base;
 			if(len >= va)
 				error(Enovmem);
 			va -= len;
+			/* 9front-ng: not in segment(3)'s shared region (portdat.h) */
+			if(va < SHAREDTOP && va+len > SHAREDBASE){
+				if(len >= SHAREDBASE)
+					error(Enovmem);
+				va = SHAREDBASE - len;
+			}
 		}
 	}
 
@@ -936,31 +1437,48 @@ segattach(int attr, char *name, uintptr va, uintptr len)
 	if(va == 0 || (va+len) > USTKTOP || (va+len) < va)
 		error(Ebadarg);
 
-	if(isoverlap(va, len) != nil)
+	if(groupoverlap(g, va, len) != nil)
 		error(Esoverlap);
 
 	ps = findphysseg(name);
 	if(ps == nil)
 		error(Ebadarg);
 
+	/*
+	 * 9front-ng: a device whose memory and registers reach all of the
+	 * machine's (a GPU's bars: it does DMA) is for the hostowner; its
+	 * driver gives clients segment(3) phys views of their objects
+	 */
+	if(ps->eveonly && !iseve())
+		error(Eperm);
+
 	if(len > ps->size)
 		error(Enovmem);
 
 	segno = unusedsegno(-1);
-	if(segno < 0)
-		error(Enovmem);
 
 	/* Turn off what is not allowed */
-	attr &= ~(SG_TYPE | SG_CACHED | SG_DEVICE);
+	attr &= ~(SG_TYPE | SG_CACHED | SG_DEVICE | SG_WC);
 
 	/* Copy in defaults */
 	attr |= ps->attr;
 
 	s = newseg(attr, va, len/BY2PG);
 	s->pseg = ps;
+	if(ps->users != nil)
+		incref(ps->users);	/* 9space: putseg puts it */
 done:
+	if(g != nil){
+		if(waserror()){
+			putseg(s);
+			nexterror();
+		}
+		mgrpattach(g, s, segno);
+		poperror();
+	}
 	attachseg(up, segno, s);
 	qunlock(&up->seglock);
+	mgrpunlock(g);
 	poperror();
 
 	return va;
@@ -1100,7 +1618,7 @@ withsegrange(void *va, uintptr len, int (*fun)(Segment*, uintptr, uintptr))
 
 	flush = 0;
 	while(from < to){
-		s = seg(up, from, 1);
+		s = segref(from, 1);	/* 9front-ng: another of the memory image may detach it */
 		if(s == nil){
 			if(flush)
 				flushmmu();
@@ -1110,10 +1628,12 @@ withsegrange(void *va, uintptr len, int (*fun)(Segment*, uintptr, uintptr))
 		if(to <= top){
 			flush |= (*fun)(s, from, to);
 			qunlock(&s->QLock);
+			segunref(s);
 			break;
 		}
 		flush |= (*fun)(s, from, top);
 		qunlock(&s->QLock);
+		segunref(s);
 		from = top;
 	}
 
@@ -1140,14 +1660,17 @@ segclock(uintptr pc)
 {
 	Segment *s;
 
+	/* 9front-ng: another of the memory image may detach the text (segtab) */
+	ilock(&up->segtab);
 	s = up->seg[TSEG];
-	if(s == nil || s->profile == nil)
-		return;
-	s->profile[0] += TK2MS(1);
-	if(pc >= s->base && pc < s->top) {
-		pc -= s->base;
-		s->profile[pc>>LRESPROF] += TK2MS(1);
+	if(s != nil && s->profile != nil){
+		s->profile[0] += TK2MS(1);
+		if(pc >= s->base && pc < s->top) {
+			pc -= s->base;
+			s->profile[pc>>LRESPROF] += TK2MS(1);
+		}
 	}
+	iunlock(&up->segtab);
 }
 
 Segment*

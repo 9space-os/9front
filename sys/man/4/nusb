@@ -345,7 +345,7 @@ the picture settings control file;
 .BR frame ,
 which captures and outputs a single video frame as an
 .IR image (6)
-file;
+file (9space: after a second of frames, while the sensor's exposure settles);
 and
 .IR video ,
 streaming video in a preset format, resolution and framerate.

@@ -28,6 +28,47 @@ static int pcicfgrw8raw(int, int, int, int);
 static int pcicfgrw16raw(int, int, int, int);
 static int pcicfgrw32raw(int, int, int, int);
 
+/*
+ * 9space: PCI Express's extended configuration space (registers 256 to
+ * 4095) by its memory mapping (ECAM), whose address ACPI's MCFG table
+ * gives (archacpi.c), as OpenBSD's pci_mcfg_init and pci_conf_read do:
+ * the registers below 256 the old way, the others there, each bus's
+ * megabyte mapped.  Without it they read as ~0 and writes are dropped
+ * (they went to the wrong register: mode 1 has 8 bits of rno).
+ */
+static volatile uchar *mcfgva[256];	/* GCC port: volatile, the ECAM: PCI configuration registers */
+static int mcfgmin, mcfgmax = -1;
+
+void
+pcimcfginit(uvlong pa, int minbus, int maxbus)
+{
+	int b;
+
+	if(mcfgmax >= 0 || minbus > maxbus || maxbus > 255)
+		return;
+	for(b = minbus; b <= maxbus; b++)
+		if((mcfgva[b] = vmap(pa + ((uvlong)b<<20), 1<<20)) == nil){
+			print("pcimcfginit: bus %d: cannot map %#llux\n", b, pa + ((uvlong)b<<20));
+			while(--b >= minbus)
+				vunmap(mcfgva[b], 1<<20);
+			return;
+		}
+	mcfgmin = minbus;
+	mcfgmax = maxbus;
+}
+
+/* the extended register rno of tbdf, or nil */
+static volatile void*	/* GCC port: volatile, a register */
+mcfgreg(int tbdf, int rno)
+{
+	int b;
+
+	b = BUSBNO(tbdf);
+	if(rno < 256 || rno >= 4096 || b < mcfgmin || b > mcfgmax)
+		return nil;
+	return mcfgva[b] + (BUSDNO(tbdf)<<15 | BUSFNO(tbdf)<<12 | rno);
+}
+
 int (*pcicfgrw8)(int, int, int, int) = pcicfgrw8raw;
 int (*pcicfgrw16)(int, int, int, int) = pcicfgrw16raw;
 int (*pcicfgrw32)(int, int, int, int) = pcicfgrw32raw;
@@ -35,8 +76,17 @@ int (*pcicfgrw32)(int, int, int, int) = pcicfgrw32raw;
 static int
 pcicfgrw8raw(int tbdf, int rno, int data, int read)
 {
+	volatile uchar *r;	/* GCC port: volatile, a configuration register (ECAM) */
 	int o;
 
+	if(rno >= 256){
+		if((r = mcfgreg(tbdf, rno)) == nil)
+			return read ? -1 : data;
+		if(read)
+			return *(volatile uchar*)r;
+		*(volatile uchar*)r = data;
+		return data;
+	}
 	switch(pcicfgmode){
 	case 1:
 		o = rno & 0x03;
@@ -67,8 +117,17 @@ pcicfgrw8raw(int tbdf, int rno, int data, int read)
 static int
 pcicfgrw16raw(int tbdf, int rno, int data, int read)
 {
+	volatile ushort *r;	/* GCC port: volatile, a configuration register (ECAM) */
 	int o;
 
+	if(rno >= 256){
+		if((r = mcfgreg(tbdf, rno & ~1)) == nil)
+			return read ? -1 : data;
+		if(read)
+			return *(volatile ushort*)r;
+		*(volatile ushort*)r = data;
+		return data;
+	}
 	switch(pcicfgmode){
 	case 1:
 		o = rno & 0x02;
@@ -99,6 +158,16 @@ pcicfgrw16raw(int tbdf, int rno, int data, int read)
 static int
 pcicfgrw32raw(int tbdf, int rno, int data, int read)
 {
+	volatile u32int *r;	/* GCC port: volatile, a configuration register (ECAM) */
+
+	if(rno >= 256){
+		if((r = mcfgreg(tbdf, rno & ~3)) == nil)
+			return read ? -1 : data;
+		if(read)
+			return *(volatile u32int*)r;
+		*(volatile u32int*)r = data;
+		return data;
+	}
 	switch(pcicfgmode){
 	case 1:
 		rno &= ~0x03;
@@ -346,6 +415,50 @@ struct Router {
 static ushort pciirqs;		/* Exclusive PCI irqs */
 static Bridge *southbridge;	/* Which southbridge to use. */
 
+/*
+ * 9space: the links the routing table uses, for suspend and resume
+ * (pc64/acpisleep.c): a chipset reset in S3 (QEMU's PIIX) loses them,
+ * and the firmware need not set them again on the way back.
+ */
+static Pcidev *sbrouter;
+static uchar sblink[32], sbirq[32];
+static int nsblink;
+
+static void
+addsblink(uchar link)
+{
+	int i;
+
+	for(i = 0; i < nsblink; i++)
+		if(sblink[i] == link)
+			return;
+	if(nsblink < nelem(sblink))
+		sblink[nsblink++] = link;
+}
+
+void
+pciroutingsave(void)
+{
+	int i;
+
+	if(sbrouter == nil)
+		return;
+	for(i = 0; i < nsblink; i++)
+		sbirq[i] = southbridge->get(sbrouter, sblink[i]);
+}
+
+void
+pciroutingrestore(void)
+{
+	int i;
+
+	if(sbrouter == nil || southbridge->set == nil)
+		return;
+	for(i = 0; i < nsblink; i++)
+		if(sbirq[i] != 0 && southbridge->get(sbrouter, sblink[i]) != sbirq[i])
+			southbridge->set(sbrouter, sblink[i], sbirq[i]);
+}
+
 static void
 pcirouting(void)
 {
@@ -384,6 +497,7 @@ pcirouting(void)
 	southbridge = &southbridges[i];
 	if(southbridge->get == nil)
 		return;
+	sbrouter = sbpci;	/* 9space: suspend and resume */
 
 	pciirqs = (r->pciirqs[1] << 8)|r->pciirqs[0];
 	for(e = (Slot *)&r[1]; (uchar *)e < p + size; e++) {
@@ -406,6 +520,7 @@ pcirouting(void)
 
 			map = &e->maps[((pin - 1) % 4) * 3];
 			link = map[0];
+			addsblink(link);	/* 9space */
 			irq = southbridge->get(sbpci, link);
 			if(irq == pci->intl)
 				continue;

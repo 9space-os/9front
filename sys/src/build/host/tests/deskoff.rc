@@ -1,0 +1,76 @@
+#!/bin/rc
+# deskoff.rc [name ...]: on the instance's throwaway boot (sys/src/build/host/tests/lib.sh
+# deskguest), the processes of these names (default: wsys and rio, the
+# desktop) end, and every process under them: the windows' programs
+# (libdraw's wsysagain would take them over into the test's own wsys), and,
+# with 9front-mcp, the programs an earlier test left under its MCP server
+# (when the next category takes the boot over). Its own chain of parents is
+# spared: it runs under such a server itself. After the desktop the profile
+# ends and init starts a plain rc on the console; what the profile started
+# before it (plumber, webfs) stays. Prints "deskoff: N processes" or why not.
+rfork n
+names=($*)
+if(~ $#names 0)
+	names=(wsys rio)
+fn kids {	# pid: its children, and theirs
+	for(p in /proc/[0-9]*){
+		if(~ `{cat $p/ppid >[2]/dev/null} $1){
+			q=`{basename $p}
+			echo $q
+			kids $q
+		}
+	}
+}
+fn named {
+	ps | awk -v 'n='^$"names 'BEGIN { split(n, a, " "); for(i in a) w[a[i]] = 1 } ($NF in w) {print $2}'
+}
+# this script's parents, up to init: not to be killed, nor the other
+# processes of a program among them (9front-mcp is Go: several processes,
+# one note group; each of its calls has a note group of its own)
+mine=()
+p=$pid
+while(! ~ $p 0 1 ''){
+	mine=($mine $p)
+	p=`{cat /proc/$p/ppid >[2]/dev/null}
+}
+notes=()
+for(p in $mine)
+	if(~ `{ps | awk '$2=='$p' {print $NF}'} 9front-mcp)
+		notes=($notes `{cat /proc/$p/noteid})
+if(! ~ $#notes 0){
+	for(p in /proc/[0-9]*){
+		if(~ `{cat $p/noteid >[2]/dev/null} $notes)
+			mine=($mine `{basename $p})
+	}
+}
+# all of them, ours too: their children are looked at (ours are spared below)
+top=`{named}
+if(~ $#top 0){
+	echo deskoff: none of $names
+	exit
+}
+all=($top)
+for(t in $top)
+	all=($all `{kids $t})
+n=0
+for(p in $all){
+	if(! ~ $p $mine && test -e /proc/$p/ctl){	# not gone meanwhile (with the desktop)
+		@{echo kill >/proc/$p/ctl} >[2]/dev/null
+		n=`{echo $n+1 | hoc}
+	}
+}
+sleep 1
+left=()
+for(p in `{named})
+	if(! ~ $p $mine)
+		left=($left $p)
+if(! ~ $#left 0){
+	echo deskoff: still running: $left
+	exit left
+}
+# a killed wsys cannot take its screen's segments out of #g (wsys.screen.PID,
+# wsys.screen.PID.N: drawcore.rs): they would stay, and hold their memory
+for(t in $top)
+	if(! ~ $t $mine)
+		rm -f '#g/wsys.screen.'$t '#g/wsys.screen.'$t.* >[2]/dev/null
+echo deskoff: $n processes

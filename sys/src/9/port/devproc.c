@@ -49,6 +49,7 @@ enum
 	CMkill,
 	CMnohang,
 	CMnoswap,
+	CMnokill,
 	CMpri,
 	CMprivate,
 	CMprofile,
@@ -78,7 +79,7 @@ enum{
 	Emask = Nevents - 1,
 };
 
-#define	STATSIZE	(2*28+12+9*12)
+#define	STATSIZE	(2*28+12+9*12+7)	/* 9space: + the protection */
 /*
  * Status, fd, and ns are left fully readable (0444) because of their use in debugging,
  * particularly on shared servers.
@@ -120,6 +121,7 @@ Cmdtab proccmd[] = {
 	CMhang,			"hang",			1,
 	CMnohang,		"nohang",		1,
 	CMnoswap,		"noswap",		1,
+	CMnokill,		"nokill",		1,
 	CMkill,			"kill",			1,
 	CMpri,			"pri",			2,
 	CMprivate,		"private",		1,
@@ -254,11 +256,12 @@ procgen(Chan *c, char *name, Dirtab *tab, int, int s, Dir *dp)
 		len = p->nwait;	/* incorrect size, but >0 means there's something to read */
 		break;
 	case Qprofile:
-		q = p->seg[TSEG];
+		q = segslot(p, TSEG);	/* 9front-ng: with a reference (segment.c) */
 		if(q != nil && q->profile != nil) {
 			len = (q->top-q->base)>>LRESPROF;
 			len *= sizeof(*q->profile);
 		}
+		putseg(q);
 		break;
 	case Qwatchpt:
 		len = lenwatchpt(p);
@@ -873,7 +876,7 @@ procread(Chan *c, void *va, long n, vlong off)
 {
 	char statbuf[1024], *sps;
 	ulong offset;
-	int i, j, rsize;
+	int i, j, k, rsize;
 	uchar *rptr;
 	uintptr addr;
 	Segment *s;
@@ -950,16 +953,26 @@ procread(Chan *c, void *va, long n, vlong off)
 		return readnum(offset, va, n, p->parentpid, NUMSIZE);
 
 	case Qprofile:
-		s = p->seg[TSEG];
-		if(s == nil || s->profile == nil)
+		s = segslot(p, TSEG);	/* 9front-ng: with a reference: the copy may fault (segment.c) */
+		if(s == nil || s->profile == nil){
+			putseg(s);
 			error("profile is off");
+		}
+		if(waserror()){
+			putseg(s);
+			nexterror();
+		}
 		i = (s->top-s->base)>>LRESPROF;
 		i *= sizeof(s->profile[0]);
 		if(i < 0 || offset >= i)
-			return 0;
-		if(offset+n > i)
-			n = i - offset;
-		memmove(va, ((char*)s->profile)+offset, n);
+			n = 0;
+		else {
+			if(offset+n > i)
+				n = i - offset;
+			memmove(va, ((char*)s->profile)+offset, n);
+		}
+		poperror();
+		putseg(s);
 		return n;
 
 	case Qproc:
@@ -1016,7 +1029,7 @@ procread(Chan *c, void *va, long n, vlong off)
 			"%-27s %-27s %-11s "
 			"%11lud %11lud %11lud "
 			"%11lud %11lud %11lud "
-			"%11lud %11lud %11lud\n",
+			"%11lud %11lud %11lud %-6s\n",	/* 9space: the protection, proc(3) */
 			p->text, p->user, sps,
 			tk2ms(p->time[TUser]),
 			tk2ms(p->time[TSys]),
@@ -1025,7 +1038,8 @@ procread(Chan *c, void *va, long n, vlong off)
 			tk2ms(p->time[TCSys]),
 			tk2ms(p->time[TCReal]),
 			(ulong)(procpagecount(p)*BY2PG/1024),
-			p->basepri, p->priority);
+			p->basepri, p->priority,
+			p->noswap ? "noswap" : p->nokill ? "nokill" : "-");
 	statbufread:
 		if(offset >= j)
 			return 0;
@@ -1035,19 +1049,36 @@ procread(Chan *c, void *va, long n, vlong off)
 		return n;
 
 	case Qsegment:
+		/* 9front-ng: the table's lines do not fit statbuf; it grows (segment.c) */
+		eqlock(&p->seglock);
+		if(waserror()){
+			qunlock(&p->seglock);
+			nexterror();
+		}
+		k = p->nseg;
+		sps = smalloc(k*64);
 		j = 0;
-		for(i = 0; i < NSEG; i++) {
+		for(i = 0; i < k; i++) {
 			s = p->seg[i];
 			if(s == nil)
 				continue;
-			j += snprint(statbuf+j, sizeof(statbuf)-j,
+			j += snprint(sps+j, k*64-j,
 				"%-6s %c%c %8p %8p %4ld\n",
 				sname[s->type&SG_TYPE],
 				s->type&SG_FAULT ? 'F' : (s->type&SG_RONLY ? 'R' : ' '),
 				s->profile ? 'P' : ' ',
 				s->base, s->top, s->Ref.ref);
 		}
-		goto statbufread;
+		qunlock(&p->seglock);
+		poperror();
+		if(waserror()){
+			free(sps);
+			nexterror();
+		}
+		n = readstr(offset, va, n, sps);
+		poperror();
+		free(sps);
+		return n;
 
 	case Qwait:
 		if(!canqlock(&p->qwaitr))
@@ -1480,6 +1511,9 @@ procctlreq(Proc *p, char *va, int n)
 	case CMnoswap:
 		p->noswap = 1;
 		break;
+	case CMnokill:
+		p->nokill = 1;
+		break;
 	case CMpri:
 		pri = atoi(cb->f[1]);
 		if(pri > PriNormal && !iseve())
@@ -1504,9 +1538,15 @@ procctlreq(Proc *p, char *va, int n)
 			flushmmu();
 		break;
 	case CMprofile:
-		s = p->seg[TSEG];
-		if(s == nil || (s->type&SG_TYPE) != SG_TEXT)	/* won't expand */
+		s = segslot(p, TSEG);	/* 9front-ng: with a reference (segment.c) */
+		if(s == nil || (s->type&SG_TYPE) != SG_TEXT){	/* won't expand */
+			putseg(s);
 			error(Egreg);
+		}
+		if(waserror()){
+			putseg(s);
+			nexterror();
+		}
 		eqlock(&s->QLock);
 		npc = (s->top-s->base)>>LRESPROF;
 		if(s->profile == nil){
@@ -1519,6 +1559,8 @@ procctlreq(Proc *p, char *va, int n)
 			memset(s->profile, 0, npc*sizeof(*s->profile));
 		}
 		qunlock(&s->QLock);
+		poperror();
+		putseg(s);
 		break;
 	case CMstart:
 		if(p->state != Stopped)

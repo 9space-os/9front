@@ -326,11 +326,28 @@ struct Ctlr {
 
 	uint codecmask;	
 	Codec *codec[Maxcodecs];
+
+	/*
+	 * 9space: the headphone jack: the output goes to it while
+	 * something is plugged in, else to the speaker (hdajackproc)
+	 */
+	QLock pinlock;		/* connectpin of the output: ctl and the jack */
+	int autojack;		/* switch by the jack (ctl jack auto|off) */
+	int spkpin, spkcad;	/* the speaker (fixed), the output at boot */
+	int hppin, hpcad;	/* the headphone jack, -1 if none */
+	int hpin;		/* something is plugged in now */
+	int jackproc;		/* hdajackproc started */
 };
 
-#define csr32(c, r)	(*(volatile ulong*)&(c)->mem[r])	/* GCC port: volatile, device registers */
-#define csr16(c, r)	(*(volatile ushort*)&(c)->mem[r])	/* GCC port: volatile, device registers */
-#define csr8(c, r)	(*(volatile uchar*)&(c)->mem[r])	/* GCC port: volatile, device registers */
+/*
+ * GCC port: volatile: gcc merged adjacent register stores into one wider
+ * write (Corbwp/Corbrp and Rirbwp/Rintcnt as one 32-bit store; QEMU's
+ * intel-hda took it as a write of Corbwp alone, the CORB never ran: "no
+ * audio codecs found"); kencc emits each store as written.
+ */
+#define csr32(c, r)	(*(volatile ulong *)&(c)->mem[r])
+#define csr16(c, r)	(*(volatile ushort *)&(c)->mem[r])
+#define csr8(c, r)	(*(volatile uchar *)&(c)->mem[r])
 
 static char *widtype[] = {
 	"aout",
@@ -497,12 +514,22 @@ static int
 cmderr(Id id, uint verb, uint par, uint *ret)
 {
 	uint q, w[2];
+	int r;
+
 	q = (id.codec << 28) | (id.nid << 20);
 	if((verb & 0x700) == 0x700)
 		q |= (verb << 8) | par;
 	else
 		q |= (verb << 16) | par;
-	if(hdacmd(id.ctlr, q, w) != 1)
+	/*
+	 * 9space: one command at a time: devaudio locks each open
+	 * channel only (audioctl, volume, audiostat), and the jack's
+	 * kproc sends commands too
+	 */
+	qlock(&id.ctlr->QLock);
+	r = hdacmd(id.ctlr, q, w);
+	qunlock(&id.ctlr->QLock);
+	if(r != 1)
 		return -1;
 	if(w[1] != id.codec)
 		return -1;
@@ -1097,6 +1124,65 @@ bestpin(Ctlr *ctlr, int *pcad, int (*fscore)(Widget *))
 	return pin;
 }
 
+/*
+ * 9space: the headphone jack (as OpenBSD's azalia switches the speaker
+ * off when the jack senses a plug, azalia_codec.c: by its unsolicited
+ * responses; here by asking, as hdacmd's replies come in order and an
+ * unsolicited one would take a command's place).  At boot the output
+ * went to the best pin, on a laptop the speaker (fixed); a headphone
+ * jack is a pin that can sense, a jack (not fixed), default device
+ * HP out, on the same codec.
+ */
+static void
+findjack(Ctlr *ctlr)
+{
+	Widget *w, *spk;
+	uint r;
+	int i;
+
+	ctlr->hppin = -1;
+	ctlr->hpin = -1;
+	ctlr->autojack = 0;
+	spk = ctlr->sout.jack;
+	if(spk == nil || ((spk->pin >> 30) & 0x3) < 2)	/* not fixed: no speaker to leave */
+		return;
+	ctlr->spkpin = ctlr->sout.pin;
+	ctlr->spkcad = ctlr->sout.cad;
+	for(i=0; i<Maxwidgets; i++){
+		w = ctlr->codec[ctlr->spkcad]->widgets[i];
+		if(w == nil || w->type != Wpin || w == spk)
+			continue;
+		r = w->pin;
+		if((w->pincap & (Pout|Pdetect)) != (Pout|Pdetect))
+			continue;
+		if(((r >> 30) & 0x3) != 0 || ((r >> 20) & 0xf) != 2)
+			continue;
+		ctlr->hppin = w->id.nid;
+		ctlr->hpcad = ctlr->spkcad;
+		ctlr->autojack = 1;
+		return;
+	}
+}
+
+static void hdajackproc(void*);
+
+/*
+ * the jack's kproc, from the first use of the device on: not at the
+ * reset, which runs before there is a host owner (eve) for a kproc
+ */
+static void
+jackstart(Ctlr *ctlr)
+{
+	if(ctlr->hppin < 0 || ctlr->jackproc)
+		return;
+	qlock(&ctlr->pinlock);
+	if(!ctlr->jackproc){
+		ctlr->jackproc = 1;
+		kproc("hdajack", hdajackproc, ctlr);
+	}
+	qunlock(&ctlr->pinlock);
+}
+
 static long
 buffered(Ring *r)
 {
@@ -1260,11 +1346,12 @@ static long
 hdactl(Audio *adev, void *va, long n, vlong)
 {
 	char *p, *e, *x, *route, *tok[4];
-	int ntok;
+	int ntok, r;
 	Ctlr *ctlr;
 	uint pin, cad;
 	
 	ctlr = adev->ctlr;
+	jackstart(adev->ctlr);	/* 9space: the jack's kproc */
 	p = va;
 	e = p + n;
 	
@@ -1282,8 +1369,27 @@ hdactl(Audio *adev, void *va, long n, vlong)
 			pin = strtoul(tok[1], &route, 0);
 			if(ntok > 2)
 				cad = strtoul(tok[2], 0, 0);
-			if(connectpin(ctlr, &ctlr->sout, Waout, pin, cad, route) < 0)
+			/* 9space: a pin chosen by hand: the jack no longer switches */
+			qlock(&ctlr->pinlock);
+			ctlr->autojack = 0;
+			r = connectpin(ctlr, &ctlr->sout, Waout, pin, cad, route);
+			qunlock(&ctlr->pinlock);
+			if(r < 0)
 				error("connectpin failed");
+		}else
+		if(cistrcmp(tok[0], "jack") == 0 && ntok == 2){
+			/* 9space: jack auto|off */
+			if(cistrcmp(tok[1], "auto") == 0){
+				if(ctlr->hppin < 0)
+					error("no headphone jack");
+				qlock(&ctlr->pinlock);
+				ctlr->autojack = 1;
+				ctlr->hpin = -1;	/* hdajackproc connects what it finds */
+				qunlock(&ctlr->pinlock);
+			} else if(cistrcmp(tok[1], "off") == 0)
+				ctlr->autojack = 0;
+			else
+				error(Ebadctl);
 		}else
 		if(cistrcmp(tok[0], "inpin") == 0 && ntok >= 2){
 			cad = ctlr->sin.cad;
@@ -1375,6 +1481,7 @@ hdawrite(Audio *adev, void *vp, long n, vlong)
 	p = vp;
 	e = p + n;
 	ctlr = adev->ctlr;
+	jackstart(adev->ctlr);	/* 9space: the jack's kproc */
 	ring = &ctlr->sout.ring;
 	if(ring->buf == nil || ctlr->sout.conv == nil)
 		return 0;
@@ -1513,6 +1620,55 @@ hdasetvol(Audio *adev, int x, int a[2])
 	return 0;
 }
 
+/* is something plugged into the headphone jack; -1 if it does not say */
+static int
+jacksense(Ctlr *ctlr)
+{
+	Widget *w;
+	uint r;
+
+	w = ctlr->codec[ctlr->hpcad]->widgets[ctlr->hppin];
+	if(w == nil)
+		return -1;
+	if(w->pincap & Ptrigreq)
+		cmd(w->id, Exepinsense, 0);
+	r = cmd(w->id, Getpinsense, 0);
+	if(r == ~0)
+		return -1;
+	return (r >> 31) & 1;
+}
+
+static void
+hdajackproc(void *arg)
+{
+	Ctlr *ctlr;
+	int in, a[2];
+
+	ctlr = arg;
+	for(;;){
+		tsleep(&up->sleep, return0, nil, 500);
+		if(!ctlr->autojack)
+			continue;
+		if((in = jacksense(ctlr)) < 0 || in == ctlr->hpin)
+			continue;
+		qlock(&ctlr->pinlock);
+		if(ctlr->autojack){
+			/* the volume goes along to the other path's amplifier */
+			a[0] = a[1] = -1;
+			hdagetvol(ctlr->adev, Vmaster, a);
+			if(connectpin(ctlr, &ctlr->sout, Waout,
+			    in ? ctlr->hppin : ctlr->spkpin,
+			    in ? ctlr->hpcad : ctlr->spkcad, nil) == 0){
+				if(a[0] >= 0)
+					hdasetvol(ctlr->adev, Vmaster, a);
+				ctlr->hpin = in;
+			} else
+				ctlr->autojack = 0;
+		}
+		qunlock(&ctlr->pinlock);
+	}
+}
+
 static void
 fillvoltab(Ctlr *ctlr, Volume *vt)
 {
@@ -1529,6 +1685,7 @@ static long
 hdavolread(Audio *adev, void *a, long n, vlong)
 {
 	Volume voltab[Nvol+1];
+	jackstart(adev->ctlr);	/* 9space: the jack's kproc */
 	fillvoltab(adev->ctlr, voltab);
 	return genaudiovolread(adev, a, n, 0, voltab, hdagetvol, 0);
 }
@@ -1537,6 +1694,7 @@ static long
 hdavolwrite(Audio *adev, void *a, long n, vlong)
 {
 	Volume voltab[Nvol+1];
+	jackstart(adev->ctlr);	/* 9space: the jack's kproc */
 	fillvoltab(adev->ctlr, voltab);
 	return genaudiovolwrite(adev, a, n, 0, voltab, hdasetvol, 0);
 }
@@ -1595,7 +1753,11 @@ hdastatus(Audio *adev, void *a, long n, vlong)
 	
 	s = a;
 	e = s + n;
+	jackstart(adev->ctlr);	/* 9space: the jack's kproc */
 	s = seprint(s, e, "bufsize %6d buffered %6ld\n", Blocksize, buffered(&ctlr->sout.ring));
+	if(ctlr->hppin >= 0)	/* 9space */
+		s = seprint(s, e, "jack %s pin %d speaker %d %s\n", ctlr->autojack ? "auto" : "off",
+			ctlr->hppin, ctlr->spkpin, ctlr->hpin == 1 ? "plugged" : ctlr->hpin == 0 ? "empty" : "unknown");
 	for(i=0; i<Maxcodecs; i++){
 		if((codec = ctlr->codec[i]) == nil)
 			continue;
@@ -1948,6 +2110,8 @@ hdareset1(Audio *adev, Ctlr *ctlr)
 		print("#A%d: no output pins found\n", ctlr->no);
 	else if(connectpin(ctlr, &ctlr->sout, Waout, best, cad, nil) < 0)
 		print("#A%d: error connecting output pin\n", ctlr->no);
+
+	findjack(ctlr);
 
 	best = bestpin(ctlr, &cad, scorein);
 	if(best < 0)

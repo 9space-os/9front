@@ -31,8 +31,13 @@
 			"threadtest.c",
 			"authtest.c",
 			"wpatest.c",
+			"reservetest.c",
 			"mptest.c",
-			"paktest.c"
+			"paktest.c",
+			"segtest.c",
+			"segpager.c",
+			"segshared.c",
+			"segmgrp.c"
 		]
 	},
 	{
@@ -56,8 +61,8 @@
 			"/$ARCH/lib.gcc/ape/libauth.a",
 			"/$ARCH/lib.gcc/ape/libsec.a",
 			"/$ARCH/lib.gcc/ape/libmp.a",
-			"/$ARCH/lib.gcc/ape/libnet.a",
 			"/$ARCH/lib.gcc/ape/libbsd.a",
+			"/$ARCH/lib.gcc/ape/libnet.a",
 			"/$ARCH/lib.gcc/ape/libl.a",
 			"/$ARCH/lib.gcc/ape/libv.a",
 			"/$ARCH/lib.gcc/ape/libz.a",
@@ -71,6 +76,46 @@
 		],
 		"SourceFilesCmd": [
 			"apetest.c"
+		]
+	},
+	{
+		"Name": "guest-ape9tests",
+		"Include": [
+			"/$ARCH/cflags.json",
+			"/$ARCH/ape.json"
+		],
+		"Ape": true,
+		"Cflags": [
+			"-D_POSIX_SOURCE",
+			"-D_PLAN9_SOURCE",
+			"-I../../../../ape/lib/9"
+		],
+		"Install": "/sys/src/build/host/tests/guest/root/tests/",
+		"Oflags": [
+			"--entry=_main"
+		],
+		"Libs": [
+			"--start-group",
+			"/$ARCH/lib.gcc/ape/libdraw.a",
+			"/$ARCH/lib.gcc/ape/libplumb.a",
+			"/$ARCH/lib.gcc/ape/libauth.a",
+			"/$ARCH/lib.gcc/ape/libsec.a",
+			"/$ARCH/lib.gcc/ape/libmp.a",
+			"/$ARCH/lib.gcc/ape/libbsd.a",
+			"/$ARCH/lib.gcc/ape/libnet.a",
+			"/$ARCH/lib.gcc/ape/libl.a",
+			"/$ARCH/lib.gcc/ape/libv.a",
+			"/$ARCH/lib.gcc/ape/libz.a",
+			"/$ARCH/lib.gcc/ape/libbz2.a",
+			"/$ARCH/lib.gcc/ape/libbio.a",
+			"/$ARCH/lib.gcc/ape/lib9.a",
+			"/$ARCH/lib.gcc/ape/libfmt.a",
+			"/$ARCH/lib.gcc/ape/libutf.a",
+			"/$ARCH/lib.gcc/ape/libap.a",
+			"--end-group"
+		],
+		"SourceFilesCmd": [
+			"ape9test.c"
 		]
 	},
 	{
@@ -96,8 +141,8 @@
 			"/$ARCH/lib.gcc/ape/libauth.a",
 			"/$ARCH/lib.gcc/ape/libsec.a",
 			"/$ARCH/lib.gcc/ape/libmp.a",
-			"/$ARCH/lib.gcc/ape/libnet.a",
 			"/$ARCH/lib.gcc/ape/libbsd.a",
+			"/$ARCH/lib.gcc/ape/libnet.a",
 			"/$ARCH/lib.gcc/ape/libl.a",
 			"/$ARCH/lib.gcc/ape/libv.a",
 			"/$ARCH/lib.gcc/ape/libz.a",

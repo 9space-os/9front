@@ -1,0 +1,224 @@
+From f4f999a207b83fd892d09accdb69292e90f21bf4 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 20 Nov 2026 09:56:22 +0100
+Subject: [PATCH 62/62] ip/tftpfs, ip/socksd: the UDP header Udphdrsize bytes,
+ not sizeof a struct around it
+
+Both read and write udp(3)'s "headers" form through a struct of
+Udphdr and the data after it, with sizeof(Udphdr) as the header's
+length. udp(3) takes the first Udphdrsize (52) bytes as the header and
+the rest as data. 6c pads a struct to 8 bytes at its end (cc/dcl.c
+sualign, 6c/swt.c Asu2): sizeof(Udphdr) is 56 and the data starts at
+56. tftpfs on amd64 sent its requests and acknowledgements with 4
+bytes of padding in front of them and read every reply 4 bytes too far
+on (the opcode and the block number skipped). socksd's UDP relay
+likewise. 8c pads to 4: 52, right by chance.
+
+Now one byte buffer: the header at 0, the data at Udphdrsize (Udphdr
+has only uchar fields, alignment 1, so a Udphdr* onto the buffer is
+right for every compiler).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/cmd/ip/socksd.c | 49 +++++++++++++++++++++++------------------
+ sys/src/cmd/ip/tftpfs.c | 39 ++++++++++++++++++--------------
+ 2 files changed, 49 insertions(+), 39 deletions(-)
+
+diff --git a/sys/src/cmd/ip/socksd.c b/sys/src/cmd/ip/socksd.c
+index 8e3ff19c6..0f8b42582 100644
+--- a/sys/src/cmd/ip/socksd.c
++++ b/sys/src/cmd/ip/socksd.c
+@@ -90,14 +90,19 @@ addr2str(char *proto, uchar *a){
+ int
+ udprelay(int fd, char *dir)
+ {
+-	struct {
+-		Udphdr;
+-		uchar data[8*1024];
+-	} msg;
++	/*
++	 * the header Udphdrsize bytes, the data right after it: not a struct
++	 * with Udphdr in it, whose size the compiler may round up (kencc's 6c to
++	 * 56; the data would then start 4 bytes after where udp(3) takes it)
++	 */
++	uchar msg[Udphdrsize + 8*1024], *mdata;
++	Udphdr *uh;
+ 	char addr[128], ldir[40];
+ 	int r, n, rfd, cfd;
+ 	uchar *p;
+ 
++	uh = (Udphdr*)msg;
++	mdata = msg + Udphdrsize;
+ 	snprint(addr, sizeof(addr), "%s/udp!*!0", outside);
+ 	if((cfd = announce(addr, ldir)) < 0)
+ 		return -1;
+@@ -121,10 +126,10 @@ udprelay(int fd, char *dir)
+ 	case -1:
+ 		return -1;
+ 	case 0:
+-		while((r = read(fd, msg.data, sizeof(msg.data))) > 0){
++		while((r = read(fd, mdata, (sizeof msg - Udphdrsize))) > 0){
+ 			if(r < 4)
+ 				continue;
+-			p = msg.data;
++			p = mdata;
+ 			if(p[0] | p[1] | p[2])
+ 				continue;
+ 			p += 3;
+@@ -135,51 +140,51 @@ udprelay(int fd, char *dir)
+ 				r -= 2+1+1+4+2;
+ 				if(r < 0)
+ 					continue;
+-				v4tov6(msg.raddr, p);
++				v4tov6(uh->raddr, p);
+ 				p += 4;
+ 				break;
+ 			case 0x04:
+ 				r -= 2+1+1+16+2;
+ 				if(r < 0)
+ 					continue;
+-				memmove(msg.raddr, p, 16);
++				memmove(uh->raddr, p, 16);
+ 				p += 16;
+ 				break;
+ 			}
+-			memmove(msg.rport, p, 2);
++			memmove(uh->rport, p, 2);
+ 			p += 2;
+-			memmove(msg.data, p, r);
+-			write(rfd, &msg, sizeof(Udphdr)+r);
++			memmove(mdata, p, r);
++			write(rfd, msg, Udphdrsize+r);
+ 		}
+ 		break;
+ 	default:
+-		while((r = read(rfd, &msg, sizeof(msg))) > 0){
+-			r -= sizeof(Udphdr);
++		while((r = read(rfd, msg, sizeof(msg))) > 0){
++			r -= Udphdrsize;
+ 			if(r < 0)
+ 				continue;
+-			p = msg.data;
+-			if(isv4(msg.raddr))
++			p = mdata;
++			if(isv4(uh->raddr))
+ 				n = 2+1+1+4+2;
+ 			else
+ 				n = 2+1+1+16+2;
+-			if(r+n > sizeof(msg.data))
+-				r = sizeof(msg.data)-n;
++			if(r+n > (sizeof msg - Udphdrsize))
++				r = (sizeof msg - Udphdrsize)-n;
+ 			memmove(p+n, p, r);
+ 			*p++ = 0;
+ 			*p++ = 0;
+ 			*p++ = 0;
+-			if(isv4(msg.raddr)){
++			if(isv4(uh->raddr)){
+ 				*p++ = 0x01;
+-				v6tov4(p, msg.raddr);
++				v6tov4(p, uh->raddr);
+ 				p += 4;
+ 			} else {
+ 				*p++ = 0x04;
+-				memmove(p, msg.raddr, 16);
++				memmove(p, uh->raddr, 16);
+ 				p += 16;
+ 			}
+-			memmove(p, msg.rport, 2);
++			memmove(p, uh->rport, 2);
+ 			r += n;
+-			write(fd, msg.data, r);
++			write(fd, mdata, r);
+ 		}
+ 	}
+ 	return -1;
+diff --git a/sys/src/cmd/ip/tftpfs.c b/sys/src/cmd/ip/tftpfs.c
+index 7cf83f9a8..73ab7a731 100644
+--- a/sys/src/cmd/ip/tftpfs.c
++++ b/sys/src/cmd/ip/tftpfs.c
+@@ -153,11 +153,16 @@ download(void *aux)
+ 	Tfile *f;
+ 	Req *r;
+ 
+-	struct {
+-		Udphdr;
+-		uchar buf[2+2+Segsize+1];
+-	} msg;
++	/*
++	 * the header Udphdrsize bytes, the data right after it: not a struct
++	 * with Udphdr in it, whose size the compiler may round up (kencc's 6c to
++	 * 56; the data would then start 4 bytes after where udp(3) takes it)
++	 */
++	uchar msg[Udphdrsize + 2+2+Segsize+1], *mdata;
++	Udphdr *uh;
+ 
++	uh = (Udphdr*)msg;
++	mdata = msg + Udphdrsize;
+ 	c = nil;
+ 	r = nil;
+ 	fd = cfd = -1;
+@@ -187,10 +192,10 @@ download(void *aux)
+ 		goto out;
+ 	}
+ 
+-	n = filereq(msg.buf, f->path);
+-	ipmove(msg.raddr, f->addr);
+-	hnputs(msg.rport, TftpPort);
+-	if(write(fd, &msg, sizeof(Udphdr) + n) < 0){
++	n = filereq(mdata, f->path);
++	ipmove(uh->raddr, f->addr);
++	hnputs(uh->rport, TftpPort);
++	if(write(fd, msg, Udphdrsize + n) < 0){
+ 		err = "send read request: %r";
+ 		goto out;
+ 	}
+@@ -201,28 +206,28 @@ download(void *aux)
+ 	last = 0;
+ 	while(!last){
+ 		alarm(5000);
+-		if((n = read(fd, &msg, sizeof(Udphdr) + sizeof(msg.buf)-1)) < 0){
++		if((n = read(fd, msg, sizeof msg - 1)) < 0){
+ 			err = "receive response: %r";
+ 			goto out;
+ 		}
+ 		alarm(0);
+ 
+-		n -= sizeof(Udphdr);
+-		msg.buf[n] = 0;
+-		switch(nhgets(msg.buf)){
++		n -= Udphdrsize;
++		mdata[n] = 0;
++		switch(nhgets(mdata)){
+ 		case Tftp_ERROR:
+-			werrstr("%s", (char*)msg.buf+4);
++			werrstr("%s", (char*)mdata+4);
+ 			err = "%r";
+ 			goto out;
+ 
+ 		case Tftp_DATA:
+ 			if(n < 4)
+ 				continue;
+-			block = nhgets(msg.buf+2);
++			block = nhgets(mdata+2);
+ 			if(block > seq)
+ 				continue;
+-			hnputs(msg.buf, Tftp_ACK);
+-			if(write(fd, &msg, sizeof(Udphdr) + 4) < 0){
++			hnputs(mdata, Tftp_ACK);
++			if(write(fd, msg, Udphdrsize + 4) < 0){
+ 				err = "send acknowledge: %r";
+ 				goto out;
+ 			}
+@@ -233,7 +238,7 @@ download(void *aux)
+ 			if(n < Segsize)
+ 				last = 1;
+ 			data = erealloc9p(data, ndata + n);
+-			memcpy(data + ndata, msg.buf+4, n);
++			memcpy(data + ndata, mdata+4, n);
+ 			ndata += n;
+ 
+ 		rloop:	/* hanlde read request while downloading */
+-- 
+2.56.0
+

@@ -17,18 +17,29 @@ acpi \- Advanced Configuration and Power Interface
 .B -s
 .I service
 ]
+.PP
+.B aux/acpikeys
+[
+.B -f
+.I events
+]
 .SH DESCRIPTION
 .I Aux/acpi
 presents at
 .I mountpoint
 (default
 .BR /dev )
-an interface to the ACPI. If a
-.I service
-is specified, the interface will be
-posted at
-.BI /srv/ service 
-as well.
+an interface to the ACPI, and posts it at
+.BI /srv/ service
+(default
+.BR acpi ).
+The machine has one AML interpreter: if the service is posted
+already (a GPU driver may have started it,
+.IR gpu (4)),
+.I aux/acpi
+mounts it at
+.I mountpoint
+instead and exits.
 .PP
 With the
 .B -H
@@ -50,10 +61,31 @@ left as
 the status (a string, one of
 .BR unknown ,
 .BR critical ,
-.BR discharging
+.BR discharging ,
+.B charging
 or
-.BR charging ) 
+.BR idle :
+neither charging nor discharging, as on AC with the battery full;
+.B unknown
+when the firmware does not answer)
 and the charge start and stop limits in percent.
+The information comes from the battery's
+.B _BIX
+(ACPI 4.0) or else its
+.BR _BIF .
+.B Idle
+and
+.B _BIX
+are 9space additions.
+.TP
+.B ac
+Contains one line for each AC adapter (ACPI0003):
+.B online
+or
+.BR offline ,
+from its
+.BR _PSR .
+An 9space addition.
 .TP
 .B cputemp
 Each line provides a current temperature reading of a specific CPU.
@@ -64,6 +96,26 @@ Writing
 to
 .B pmctl
 will turn off the power.
+Writing
+.I suspend
+suspends the machine to RAM (ACPI S3) and returns when it wakes:
+.BR _TTS ,
+.B _PTS
+and
+.B \e_SI._SST
+before, then the kernel's
+.B sleep
+.RI ( arch (3))
+with the GPEs of the devices whose
+.B _PRW
+wakes from S3, then
+.BR _WAK ,
+.B _SST
+and
+.BR _TTS (0);
+.B acpievents
+gets a line
+.BR resume .
 Writing 
 .I charge bat min max
 to
@@ -71,10 +123,189 @@ to
 will set the upper and lower limit for charging a battery. bat is either
 .B "all"
 for all batteries or starts with 0.
+.TP
+.B aml
+The interpreter for other programs (the GPU drivers'
+ACPI methods, see
+.IR gpu (4));
+only the host owner opens it.
+A write is a request, a read on the same file descriptor its answer:
+.RS
+.TP
+.BI eval " path nargs value" ...
+the value of the object at
+.I path
+(of a method: its result, called with the arguments)
+.TP
+.BI walk " path name"
+the path of
+.I name
+right below
+.I path
+.RB ( -
+for the root; not found by the search rules higher up),
+or of an absolute
+.I name
+.TP
+.BI parent " path"
+the scope above
+.TP
+.BI pci " bus dev fn"
+the device of that PCI address, by
+.B _ADR
+.TP
+.BI hid " path"
+a device's
+.B _HID
+as text
+.TP
+.B devices
+.RI ` path " " hid '
+for every device with a
+.B _HID
+.RE
+.IP
+Paths are as
+.IR aml (2)'s
+.B %N
+prints them
+.RB ( \\_SB.PCI0.GFX0 ).
+A value is
+.B -
+(none),
+.BI i hex ;
+(integer),
+.BI s n : bytes
+(string),
+.BI b n : hex
+(buffer of
+.I n
+bytes),
+.BI p n :
+followed by
+.I n
+values (package) or
+.BI r n : path
+(reference).
+Operation regions in a PCI device's configuration space reach the
+device through
+.BR #$/pci .
+.SS Events
+Where the kernel offers the firmware's events
+.RB ( #P/acpiev ,
+.IR arch (3)),
+.I aux/acpi
+enables every general-purpose event (GPE) that has a method
+.RB ( \\_GPE._L\fIxx\fP ,
+.BR _E\fIxx\fP )
+and the embedded controller's, runs the method when the event comes
+(for the embedded controller, its query's
+.BR _Q\fIxx\fP ),
+the same for the GPIO-signaled events of a GPIO controller's
+.B _AEI
+through
+.IR gpio (3)
+(a pin's
+.BR _L\fIxx\fP ,
+.BR _E\fIxx\fP ,
+else
+.BR _EVT ;
+a laptop's power button),
+and reports what those methods notify, and the fixed power and sleep
+buttons, as lines of
+.BR acpievents :
+.TP
+.BI "notify " "path value"
+each
+.B Notify
+as it is;
+.TP
+.BI "key " name
+.B brightnessup
+and
+.B brightnessdown
+(a display output's 0x86 and 0x87, a ThinkPad's hotkeys 0x1010 and
+0x1011 where no display output has brightness levels: one press, one line),
+.BR brightnesszero ,
+.BR brightnesscycle ,
+.B displayoff
+(0x88, 0x85, 0x89), and
+.B displayswitch
+(a display adapter's 0x80);
+.TP
+.BI "hotkey " n
+a ThinkPad's other hotkeys (and 0x1010, 0x1011 that a display output reports too) (its
+.B MHKP
+code; the hotkeys are enabled through
+.B MHKA ,
+.B MHKM
+and
+.BR MHKC );
+.TP
+.BR "button power" ", " "button sleep"
+.TP
+.B resume
+the machine woke from a
+.I suspend
+written to
+.BR pmctl ;
+.TP
+.BR "lid open" ", " "lid closed"
+.TP
+.BR "ac online" ", " "ac offline"
+.TP
+.B battery
+its state or information changed.
+.PP
+A reader gets the lines from its open on; one that falls 256 lines
+behind loses the oldest.
+.PP
+.B backlight
+is there where a display output has brightness levels
+.RB ( _BCL ):
+reading it gives the level and 100, writing
+.I n
+sets the level nearest to it through
+.B _BCM
+(the next one in that direction, if that is the level set).
+The GPU drivers have their own
+.RI ( gpu (4)).
+.PP
+.I Aux/acpikeys
+reads
+.I events
+(default
+.BR /dev/acpievents )
+and moves the backlight of every panel a GPU driver serves
+.RI ( gpu (4):
+.BR /shr/gpu/ \fIN\fP)
+one of sixteen steps for each brightness key, on a curve the eye sees as
+even (the maximum times
+.RI (( k + a )/(16+ a ))^3,
+.I a
+such that the lowest step is a thirty-second: each of the sixteen is seen),
+without one the
+firmware's
+.RB ( /dev/backlight ).
+When the lid closes it darkens the panels (their brightness kept) and
+sets the processors' clock to
+.B low
+.RI ( pstate (8));
+when it opens it puts both back.
+The machine does not sleep: there is no suspend.
+The lid is 9space's addition.
+.IR termrc (8)
+starts both where there are events.
 .SH SOURCE
 .B /sys/src/cmd/aux/acpi.c
+.br
+.B /sys/src/cmd/aux/acpikeys.c
 .SH SEE ALSO
-.IR reform (1)
+.IR reform (1),
+.IR arch (3),
+.IR gpu (4),
+.IR pstate (8),
+.IR batteryguard (8)
 .SH BUGS
 ACPI itself.
 .PP

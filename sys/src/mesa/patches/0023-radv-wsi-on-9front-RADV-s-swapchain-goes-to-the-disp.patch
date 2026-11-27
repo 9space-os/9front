@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Mon, 2 Nov 2026 02:00:33 +0100
+Subject: [PATCH] radv, wsi: on 9front RADV's swapchain goes to the display
+ (plan9_scanout: drm9Scanout with the memory's GEM handle); the copy the
+ display shows is exportable VRAM (plan9_scanout_device_local: a discrete
+ GPU's display reads VRAM only, and amdgpu exports no VM-local object)
+
+---
+ src/amd/vulkan/radv_wsi.c         | 28 +++++++++++++++++++
+ src/vulkan/wsi/wsi_common.h       |  5 ++++
+ 2 files changed, 33 insertions(+)
+
+diff --git a/src/amd/vulkan/radv_wsi.c b/src/amd/vulkan/radv_wsi.c
+index 5c8dfb1..3e6c92b 100644
+--- a/src/amd/vulkan/radv_wsi.c
++++ b/src/amd/vulkan/radv_wsi.c
+@@ -90,6 +90,30 @@ radv_wsi_get_prime_blit_queue(VkDevice _device)
+    return NULL;
+ }
+ 
++#include "util/detect_os.h"
++#if DETECT_OS_PLAN9
++#include <xf86drm.h>
++#include "winsys/amdgpu/radv_amdgpu_bo.h"
++#include "winsys/amdgpu/radv_amdgpu_winsys.h"
++
++/*
++ * 9front: the memory's object on the display, no copy (libdrm's
++ * drm9Scanout: aux/amdgpu's scanoutgem, the client's GEM handle);
++ * VK_NULL_HANDLE: the screen again
++ */
++static VkResult
++radv_plan9_scanout(VkDevice _device, VkDeviceMemory _memory, uint32_t width, uint32_t height, uint32_t stride)
++{
++   VK_FROM_HANDLE(radv_device, device, _device);
++   VK_FROM_HANDLE(radv_device_memory, mem, _memory);
++   uint32_t handle = mem != NULL ? radv_amdgpu_winsys_bo(mem->bo)->bo_handle : 0;
++
++   if (drm9Scanout(radv_amdgpu_winsys(device->ws)->fd, handle, width, height, stride) < 0)
++      return VK_ERROR_FEATURE_NOT_PRESENT;
++   return VK_SUCCESS;
++}
++#endif
++
+ VkResult
+ radv_init_wsi(struct radv_physical_device *pdev)
+ {
+@@ -104,6 +128,10 @@ radv_init_wsi(struct radv_physical_device *pdev)
+    pdev->wsi_device.supports_modifiers = pdev->info.gfx_level >= GFX9;
+    pdev->wsi_device.set_memory_ownership = radv_wsi_set_memory_ownership;
+    pdev->wsi_device.get_blit_queue = radv_wsi_get_prime_blit_queue;
++#if DETECT_OS_PLAN9
++   pdev->wsi_device.plan9_scanout = radv_plan9_scanout;
++   pdev->wsi_device.plan9_scanout_device_local = true;	/* DCN scans out VRAM */
++#endif
+ 
+    for (uint32_t i = 0; i < ARRAY_SIZE(pdev->wsi_device.supports_protected); i++) {
+       pdev->wsi_device.supports_protected[i] = radv_tmz_enabled(pdev);
+diff --git a/src/vulkan/wsi/wsi_common.h b/src/vulkan/wsi/wsi_common.h
+index 77adc64..a4ff249 100644
+--- a/src/vulkan/wsi/wsi_common.h
++++ b/src/vulkan/wsi/wsi_common.h
+@@ -207,6 +207,11 @@ struct wsi_device {
+     */
+    VkResult (*plan9_scanout)(VkDevice device, VkDeviceMemory memory,
+                              uint32_t width, uint32_t height, uint32_t stride);
++   /* 9front: the display scans out device local memory only (a
++    * discrete GPU's VRAM): with scanout, the host visible copy is made
++    * there (device local and host visible) instead of in cached memory
++    */
++   bool plan9_scanout_device_local;
+ 
+ #define WSI_CB(cb) PFN_vk##cb cb
+    WSI_CB(AllocateMemory);

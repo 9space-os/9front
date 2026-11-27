@@ -1,0 +1,2278 @@
+// SPDX-License-Identifier: MIT
+/*
+ * aux/i915, aux/amdgpu: the outputs and the screen, the Linux side,
+ * shared (kmsout.h); each driver builds it into its library
+ * (linux/kmsout.c includes this file) and gives the screen object.
+ *
+ * The file server holds the primary node open (a DRM master, as a
+ * display server on Linux) and works through the KMS ioctls.  The
+ * screen of draw(3) is one object, the bounding box of the outputs
+ * that are on; each output shows its part, a CRTC of its own set to the
+ * object at the output's x y (SETCRTC), as an extended desktop; two at
+ * the same place in the same mode show the same.  At the start every
+ * connected output is on, in its preferred mode, side by side in the
+ * connectors' order.  A client's picture (gpu(4) scanout) of the
+ * screen's size goes to every output (a page flip each, the CRTCs keep
+ * their x y); one of an output's size to the first output with a mode
+ * of that size (SETCRTC at 0 0, then flips); scanout 0 gives the
+ * outputs the screen again.  A monitor connected later (DRM's hotplug
+ * event, to an in-kernel client of ours) goes on right of the others,
+ * one no longer connected off (not the last one); one turned off by
+ * hand stays off while it is connected.  The mouse cursor (vga hwgc
+ * gpu) is on every output's cursor plane, a 64 x 64 ARGB object.
+ */
+#include <linux/kernel.h>
+#include <linux/slab.h>
+#include <linux/file.h>
+#include <linux/mutex.h>
+#include <linux/wait.h>
+#include <linux/backlight.h>
+#include <drm/drm_drv.h>
+#include <drm/drm_file.h>
+#include <drm/drm_ioctl.h>
+#include <drm/drm_connector.h>
+#include <drm/drm_crtc.h>
+#include <drm/drm_device.h>
+#include <drm/drm_modes.h>
+#include <drm/drm_mode_config.h>
+#include <drm/drm_probe_helper.h>
+#include <drm/drm_fourcc.h>
+#include <drm/drm_mode.h>
+#include <drm/drm_client.h>
+#include <drm/drm_gem.h>
+#include <drm/drm_plane.h>
+#include <drm/drm_framebuffer.h>
+#include <drm/drm_modeset_lock.h>
+#include <linux/iosys-map.h>
+#include <linux/dma-resv.h>
+#include <linux/ktime.h>
+#include "kmsout.h"
+
+enum {
+	Nout = 16,
+	Ncrtc = 8,
+	Nmode = 64,
+	Nenc = 8,
+};
+
+struct out {
+	u32	conn;		/* the connector's id */
+	char	name[32];
+	bool	on;
+	struct drm_mode_modeinfo	mode;
+	int	x, y;		/* its part of the screen */
+	u32	crtc;		/* the CRTC it is lit on, 0 */
+	bool	byhand;		/* turned off by hand: hotplug leaves it off while connected */
+	bool	connected;	/* when the layout was made */
+};
+
+static struct file *kms;
+static const struct kmsout_ops *ops;
+static DEFINE_MUTEX(kmslock);
+static struct out outs[Nout];
+static int nout;
+static u32 crtcs[Ncrtc];		/* GETRESOURCES' order: possible_crtcs' bits */
+static int ncrtc;
+/*
+ * the screen: two objects of the same size and pitch where there is
+ * room (kmsscreen.c copies devdraw's changes into the one not shown,
+ * then it is flipped to: no tearing), else one (scr_fb[1] 0: the copies
+ * go into the one shown); scr_front is the one on the outputs
+ */
+static u32 scr_handle[2], scr_fb[2], scr_w, scr_h, scr_pitch;
+static unsigned long long scr_off[2];
+static int scr_front;
+static u64 nscrflip, nscrfail, nscrunseen;	/* for the status: the screen's flips, those refused, those not on the display after */
+static u32 shown_fb;			/* a client's picture on the display */
+static unsigned long long need;		/* the bytes of the last layout bigger than the framebuffer (apply) */
+static void takeoff(void);
+static int kmsidle(void);
+static struct file *shown_by;		/* the client's file */
+static int shown_out;			/* the output that shows it, -1: every one */
+static struct drm_mode_modeinfo shown_mode;	/* its mode there */
+/*
+ * an overlay plane per CRTC (GETRESOURCES' order), XRGB8888; a client's
+ * window on one of them: two objects of ours in VRAM, the driver copies
+ * the client's picture into the one not shown (kmsout_overlay_back),
+ * then it is shown (kmsout_overlay_show)
+ */
+static u32 ovplane[Ncrtc];
+static u32 primary[Ncrtc];		/* each CRTC's primary plane (atomic commits) */
+static u32 crtcfb[Ncrtc];		/* the framebuffer each CRTC's primary plane shows (SETCRTC, a commit's event) */
+static bool atomic;			/* the driver takes atomic commits (DRM_CLIENT_CAP_ATOMIC) */
+static struct file *ov_by;		/* the client's file, NULL: none */
+static u32 ov_handle[2], ov_fb[2];	/* ours, in VRAM */
+static u32 ov_w, ov_h, ov_pitch;
+static int ov_back;			/* the one not shown */
+static u32 ov_plane, ov_crtc;		/* where it is, 0: not shown yet */
+static int ov_x, ov_y;
+/* variant b: the client's own objects in VRAM, on the plane as they are (no copy) */
+enum { Ndirect = 4 };			/* a swapchain's images */
+static struct { u32 handle, fb; } ovd[Ndirect];	/* ours (PRIME) and their framebuffers */
+static u32 ovd_fb;			/* the one shown */
+static void	ovfree(void);
+static char	*ovstate(void);
+static struct drm_client_dev client;	/* for DRM's hotplug events */
+
+enum { Curw = 64 };			/* the cursor object's side: every display has 64 */
+static DEFINE_MUTEX(curlock);		/* the cursor; never with kmslock after it */
+static u32 cur_handle;			/* a dumb buffer, ARGB8888 */
+static bool cur_on, cur_loaded;
+static int cur_x, cur_y, cur_ox, cur_oy;
+static int cur_size = 16;		/* the picture's side in the object (scaled from 16 x 16) */
+static void	curset(void);
+static DECLARE_WAIT_QUEUE_HEAD(hotplugq);
+static atomic_t hotplugs;
+
+/* a connector's state may have changed (DRM's hotplug event): wake kmsout_hotplug_wait */
+static int
+clienthotplug(struct drm_client_dev *c)
+{
+	atomic_inc(&hotplugs);
+	wake_up_all(&hotplugq);
+	return 0;
+}
+
+static const struct drm_client_funcs clientfuncs = {
+	.owner = THIS_MODULE,
+	.hotplug = clienthotplug,
+};
+
+/* the screen as it is (also after a request refused) */
+static void
+geom(unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff)
+{
+	*w = scr_w;
+	*h = scr_h;
+	*pitch = scr_pitch;
+	*baroff = scr_off[scr_front];
+}
+
+static int
+kioctl(struct file *f, unsigned int cmd, void *arg)
+{
+	return drm_ioctl(f, cmd, (unsigned long)arg);
+}
+
+static struct drm_device *
+kmsdev(void)
+{
+	struct drm_file *fp = kms ? kms->private_data : NULL;
+
+	return fp ? fp->minor->dev : NULL;
+}
+
+static struct out *
+findout(const char *name)
+{
+	int i;
+
+	for (i = 0; i < nout; i++)
+		if (strcmp(outs[i].name, name) == 0)
+			return &outs[i];
+	return NULL;
+}
+
+static struct drm_connector *
+findconn(const char *name)
+{
+	struct drm_device *dev = kmsdev();
+	struct drm_connector_list_iter it;
+	struct drm_connector *c, *found = NULL;
+
+	if (!dev)
+		return NULL;
+	drm_connector_list_iter_begin(dev, &it);
+	drm_for_each_connector_iter(c, &it)
+		if (strcmp(c->name, name) == 0) {
+			drm_connector_get(c);
+			found = c;
+			break;
+		}
+	drm_connector_list_iter_end(&it);
+	return found;
+}
+
+/*
+ * the connector's state, modes and encoders; probe: the output asked
+ * first (GETCONNECTOR with no room for modes probes it, the EDID read
+ * again; we are the master)
+ */
+static int
+getconn(u32 id, struct drm_mode_get_connector *gc, struct drm_mode_modeinfo *modes, u32 *encs, bool probe)
+{
+	int r;
+
+	if (probe) {
+		memset(gc, 0, sizeof(*gc));
+		gc->connector_id = id;
+		r = kioctl(kms, DRM_IOCTL_MODE_GETCONNECTOR, gc);
+		if (r)
+			return r;
+	}
+	memset(gc, 0, sizeof(*gc));
+	gc->connector_id = id;
+	gc->modes_ptr = (u64)(uintptr_t)modes;
+	gc->count_modes = Nmode;
+	gc->encoders_ptr = (u64)(uintptr_t)encs;
+	gc->count_encoders = Nenc;
+	r = kioctl(kms, DRM_IOCTL_MODE_GETCONNECTOR, gc);
+	if (gc->count_modes > Nmode)
+		gc->count_modes = Nmode;
+	if (gc->count_encoders > Nenc)
+		gc->count_encoders = Nenc;
+	return r;
+}
+
+/* the CRTCs the output's encoders can drive, as possible_crtcs' bits */
+static u32
+possible(struct out *o)
+{
+	struct drm_mode_get_connector gc;
+	struct drm_mode_get_encoder enc;
+	struct drm_mode_modeinfo *modes;
+	u32 encs[Nenc], bits = 0;
+	unsigned int j;
+
+	modes = kmalloc_array(Nmode, sizeof(*modes), GFP_KERNEL);
+	if (!modes)
+		return 0;
+	if (getconn(o->conn, &gc, modes, encs, false) == 0)
+		for (j = 0; j < gc.count_encoders; j++) {
+			memset(&enc, 0, sizeof(enc));
+			enc.encoder_id = encs[j];
+			if (kioctl(kms, DRM_IOCTL_MODE_GETENCODER, &enc) == 0)
+				bits |= enc.possible_crtcs;
+		}
+	kfree(modes);
+	return bits;
+}
+
+/*
+ * the output's mode w x h, at hz if not 0 (else the preferred one of
+ * that size, or the fastest); w 0: the preferred one; -ENOENT if none
+ */
+static int
+findmode(struct out *o, u32 w, u32 h, u32 hz, struct drm_mode_modeinfo *m, bool *connected, bool probe)
+{
+	struct drm_mode_get_connector gc;
+	struct drm_mode_modeinfo *modes, *best = NULL;
+	u32 encs[Nenc];
+	unsigned int j;
+	int r;
+
+	modes = kmalloc_array(Nmode, sizeof(*modes), GFP_KERNEL);
+	if (!modes)
+		return -ENOMEM;
+	r = getconn(o->conn, &gc, modes, encs, probe);
+	if (connected)
+		*connected = r == 0 && gc.connection == connector_status_connected;	/* the uapi value is the enum's */
+	if (r == 0)
+		for (j = 0; j < gc.count_modes; j++) {
+			struct drm_mode_modeinfo *x = &modes[j];
+			bool pref = x->type & DRM_MODE_TYPE_PREFERRED;
+
+			if (w == 0) {
+				if (pref || !best)
+					best = x;
+				if (pref)
+					break;
+				continue;
+			}
+			if (x->hdisplay != w || x->vdisplay != h)
+				continue;
+			if (hz) {
+				if (x->vrefresh == hz) {
+					best = x;
+					break;
+				}
+				continue;
+			}
+			if (!best || pref || (!(best->type & DRM_MODE_TYPE_PREFERRED) && x->vrefresh > best->vrefresh))
+				best = x;
+		}
+	r = best ? 0 : -ENOENT;
+	if (best)
+		*m = *best;
+	kfree(modes);
+	return r;
+}
+
+/*
+ * the biggest mode of output o (the most pixels, then the highest
+ * refresh) with which the layout of the outputs on fits maxbytes and
+ * the display engine (o where it is, the others as they are)
+ */
+static int
+fitmode(struct out *o, unsigned long long maxbytes, struct drm_mode_modeinfo *m)
+{
+	struct drm_device *dev = kmsdev();
+	struct drm_mode_get_connector gc;
+	struct drm_mode_modeinfo *modes, *best = NULL;
+	u32 encs[Nenc], ow = 0, oh = 0, bw, bh;
+	unsigned int j;
+	int i;
+
+	for (i = 0; i < nout; i++)
+		if (outs[i].on && &outs[i] != o) {
+			ow = max_t(u32, ow, outs[i].x + outs[i].mode.hdisplay);
+			oh = max_t(u32, oh, outs[i].y + outs[i].mode.vdisplay);
+		}
+	modes = kmalloc_array(Nmode, sizeof(*modes), GFP_KERNEL);
+	if (!modes)
+		return -ENOMEM;
+	if (getconn(o->conn, &gc, modes, encs, false) == 0)
+		for (j = 0; j < gc.count_modes; j++) {
+			struct drm_mode_modeinfo *x = &modes[j];
+
+			bw = max_t(u32, ow, o->x + x->hdisplay);
+			bh = max_t(u32, oh, o->y + x->vdisplay);
+			if (bw > dev->mode_config.max_width || bh > dev->mode_config.max_height ||
+			    (unsigned long long)bw * bh * 4 > maxbytes)
+				continue;
+			if (!best || (u32)x->hdisplay * x->vdisplay > (u32)best->hdisplay * best->vdisplay ||
+			    ((u32)x->hdisplay * x->vdisplay == (u32)best->hdisplay * best->vdisplay && x->vrefresh > best->vrefresh))
+				best = x;
+		}
+	if (best)
+		*m = *best;
+	kfree(modes);
+	return best ? 0 : -ENOENT;
+}
+
+/*
+ * the overlay planes, the first for each CRTC that takes XRGB8888, and
+ * each CRTC's primary plane (with atomic commits GETPLANERESOURCES lists
+ * every plane: their type from the kernel's own)
+ */
+static void
+findplanes(void)
+{
+	struct drm_mode_get_plane_res pr = { };
+	struct drm_mode_get_plane gp;
+	struct drm_device *dev = kmsdev();
+	struct drm_plane *pl;
+	struct drm_crtc *c;
+	u32 ids[32], fmts[64];
+	unsigned int i, j, k;
+
+	memset(ovplane, 0, sizeof(ovplane));
+	memset(primary, 0, sizeof(primary));
+	for (k = 0; k < (unsigned)ncrtc; k++)
+		if ((c = drm_crtc_find(dev, NULL, crtcs[k])) != NULL && c->primary)
+			primary[k] = c->primary->base.id;
+	pr.plane_id_ptr = (u64)(uintptr_t)ids;
+	pr.count_planes = ARRAY_SIZE(ids);
+	if (kioctl(kms, DRM_IOCTL_MODE_GETPLANERESOURCES, &pr))
+		return;
+	for (i = 0; i < min_t(u32, pr.count_planes, ARRAY_SIZE(ids)); i++) {
+		memset(&gp, 0, sizeof(gp));
+		gp.plane_id = ids[i];
+		gp.format_type_ptr = (u64)(uintptr_t)fmts;
+		gp.count_format_types = ARRAY_SIZE(fmts);
+		if (kioctl(kms, DRM_IOCTL_MODE_GETPLANE, &gp))
+			continue;
+		if ((pl = drm_plane_find(dev, NULL, ids[i])) == NULL || pl->type != DRM_PLANE_TYPE_OVERLAY)
+			continue;
+		for (j = 0; j < min_t(u32, gp.count_format_types, ARRAY_SIZE(fmts)); j++)
+			if (fmts[j] == DRM_FORMAT_XRGB8888)
+				break;
+		if (j == min_t(u32, gp.count_format_types, ARRAY_SIZE(fmts)))
+			continue;
+		for (k = 0; k < (unsigned)ncrtc; k++)
+			if ((gp.possible_crtcs & (1U << k)) && ovplane[k] == 0)
+				ovplane[k] = ids[i];
+	}
+}
+
+unsigned long long
+kmsout_aperture(void)
+{
+	return ops && ops->aperture ? ops->aperture() : 0;
+}
+
+int
+kmsout_init(struct file *f, const struct kmsout_ops *o)
+{
+	struct drm_mode_card_res res = { };
+	struct drm_connector_list_iter it;
+	struct drm_connector *c;
+	struct drm_set_client_cap cap = { .capability = DRM_CLIENT_CAP_ATOMIC, .value = 1 };
+	struct drm_device *dev;
+	int r;
+
+	kms = f;
+	ops = o;
+	shown_out = -1;
+	/* one commit a CRTC and vblank with every plane that changed (flips, the overlay) */
+	atomic = kioctl(kms, DRM_IOCTL_SET_CLIENT_CAP, &cap) == 0;
+	if (!atomic)
+		pr_warn("kmsout: no atomic commits: page flips, no overlay plane\n");
+	res.crtc_id_ptr = (u64)(uintptr_t)crtcs;
+	res.count_crtcs = Ncrtc;
+	r = kioctl(kms, DRM_IOCTL_MODE_GETRESOURCES, &res);
+	if (r)
+		return r;
+	ncrtc = min_t(int, res.count_crtcs, Ncrtc);
+	findplanes();
+	if (!atomic)
+		memset(ovplane, 0, sizeof(ovplane));
+	dev = kmsdev();
+	nout = 0;
+	drm_connector_list_iter_begin(dev, &it);
+	drm_for_each_connector_iter(c, &it)
+		if (nout < Nout) {
+			outs[nout].conn = c->base.id;
+			strscpy(outs[nout].name, c->name, sizeof(outs[nout].name));
+			nout++;
+		}
+	drm_connector_list_iter_end(&it);
+	r = drm_client_init(dev, &client, "kmsout", &clientfuncs);
+	if (r == 0)
+		drm_client_register(&client);
+	else
+		pr_warn("kmsout: no hotplug events: %d\n", r);
+	return 0;
+}
+
+/* how many outputs can be on at once: the CRTCs, at most the outputs */
+int
+kmsout_npipes(void)
+{
+	return min(ncrtc, nout);
+}
+
+void
+kmsout_free(char *s)
+{
+	kfree(s);
+}
+
+int
+kmsout_names(char **names, int max)
+{
+	int i, n = 0;
+
+	for (i = 0; i < nout && n < max; i++)
+		names[n++] = kstrdup(outs[i].name, GFP_KERNEL);
+	return n;
+}
+
+/* the output's EDID into buf; its length */
+int
+kmsout_edid(char *name, unsigned char *buf, int n)
+{
+	struct drm_device *dev = kmsdev();
+	struct drm_connector *c;
+	int len = 0;
+
+	if (!dev || !(c = findconn(name)))
+		return -ENOENT;
+	mutex_lock(&dev->mode_config.mutex);
+	drm_helper_probe_single_connector_modes(c, dev->mode_config.max_width, dev->mode_config.max_height);
+	if (c->edid_blob_ptr) {
+		len = min_t(int, n, c->edid_blob_ptr->length);
+		memcpy(buf, c->edid_blob_ptr->data, len);
+	}
+	mutex_unlock(&dev->mode_config.mutex);
+	drm_connector_put(c);
+	return len;
+}
+
+/* "w x h hz" a line, the preferred first; kmalloc'd */
+char *
+kmsout_modes(char *name)
+{
+	struct drm_mode_get_connector gc;
+	struct drm_mode_modeinfo *modes;
+	struct out *o = findout(name);
+	u32 encs[Nenc];
+	char *s, *t;
+	unsigned int j;
+	int pass;
+
+	if (!o || !(modes = kmalloc_array(Nmode, sizeof(*modes), GFP_KERNEL)))
+		return NULL;
+	s = kstrdup("", GFP_KERNEL);
+	if (getconn(o->conn, &gc, modes, encs, true) == 0)
+		for (pass = 0; pass < 2 && s; pass++)
+			for (j = 0; j < gc.count_modes && s; j++) {
+				if (!!(modes[j].type & DRM_MODE_TYPE_PREFERRED) != (pass == 0))
+					continue;
+				t = kasprintf(GFP_KERNEL, "%s%dx%d %d\n", s, modes[j].hdisplay, modes[j].vdisplay, modes[j].vrefresh);
+				kfree(s);
+				s = t;
+			}
+	kfree(modes);
+	return s;
+}
+
+/* what the output shows: "w x h hz at x y", or "off"; kmalloc'd */
+char *
+kmsout_mode(char *name)
+{
+	struct out *o = findout(name);
+	char *s;
+
+	if (!o)
+		return NULL;
+	mutex_lock(&kmslock);
+	if (o->on && o->crtc)
+		s = kasprintf(GFP_KERNEL, "%dx%d %d at %d %d\n", o->mode.hdisplay, o->mode.vdisplay, o->mode.vrefresh, o->x, o->y);
+	else
+		s = kstrdup("off\n", GFP_KERNEL);
+	mutex_unlock(&kmslock);
+	return s;
+}
+
+/*
+ * what the display's cursor plane of the output's CRTC holds (DRM's
+ * state, what the driver programmed): " cursor fb N WxH image S at x y"
+ * (S: the picture's side in it, scaled), " cursor off"; kmalloc'd
+ */
+static char *
+curstate(struct out *o)
+{
+	struct drm_device *dev = kmsdev();
+	struct drm_crtc *crtc;
+	struct drm_plane_state *ps;
+	char *s = NULL;
+
+	if (!o->on || !o->crtc || !(crtc = drm_crtc_find(dev, NULL, o->crtc)) || !crtc->cursor)
+		return kstrdup("", GFP_KERNEL);
+	drm_modeset_lock(&crtc->cursor->mutex, NULL);
+	ps = crtc->cursor->state;
+	if (ps && ps->fb && ps->crtc == crtc)
+		s = kasprintf(GFP_KERNEL, " cursor fb %u %ux%u image %d at %d %d", ps->fb->base.id, ps->crtc_w, ps->crtc_h, cur_size, ps->crtc_x, ps->crtc_y);
+	else
+		s = kstrdup(" cursor off", GFP_KERNEL);
+	drm_modeset_unlock(&crtc->cursor->mutex);
+	return s;
+}
+
+/* "output conn connected|disconnected|unknown [cursor ...]" a line; kmalloc'd */
+char *
+kmsout_status(void)
+{
+	struct drm_mode_get_connector gc;
+	char *s, *t, *c;
+	int i;
+
+	s = kstrdup("", GFP_KERNEL);
+	for (i = 0; i < nout && s && kms; i++) {
+		memset(&gc, 0, sizeof(gc));
+		gc.connector_id = outs[i].conn;
+		if (kioctl(kms, DRM_IOCTL_MODE_GETCONNECTOR, &gc))	/* probes */
+			continue;
+		c = curstate(&outs[i]);
+		t = kasprintf(GFP_KERNEL, "%soutput %s %s%s\n", s, outs[i].name,
+		    gc.connection == connector_status_connected ? "connected" :
+		    gc.connection == connector_status_disconnected ? "disconnected" : "unknown", c ? c : "");
+		kfree(c);
+		kfree(s);
+		s = t;
+	}
+	if (s && kms) {
+		mutex_lock(&kmslock);
+		c = ovstate();
+		t = kasprintf(GFP_KERNEL, "%sscreen %s, flips %llu, refused %llu, not on the display after %llu\n%s", s,
+		    scr_fb[1] ? "double" : "single", nscrflip, nscrfail, nscrunseen, c ? c : "");
+		mutex_unlock(&kmslock);
+		kfree(c);
+		kfree(s);
+		s = t;
+	}
+	return s;
+}
+
+/* a handle of one DRM file made a handle of another (PRIME, a dma-buf between) */
+int
+kmsout_prime(struct file *from, u32 handle, struct file *to, u32 *out)
+{
+	struct drm_prime_handle p = { .handle = handle, .flags = DRM_CLOEXEC | DRM_RDWR };
+	int r;
+
+	r = kioctl(from, DRM_IOCTL_PRIME_HANDLE_TO_FD, &p);
+	if (r)
+		return r;
+	p.handle = 0;
+	r = kioctl(to, DRM_IOCTL_PRIME_FD_TO_HANDLE, &p);
+	close_fd(p.fd);
+	if (r)
+		return r;
+	*out = p.handle;
+	return 0;
+}
+
+/* crtc on fb at x y in mode m for connector conn; fb 0: off */
+static int
+setcrtc(u32 crtc, u32 fb, int x, int y, struct drm_mode_modeinfo *m, u32 conn)
+{
+	struct drm_mode_crtc c = { .crtc_id = crtc };
+	int k, r;
+
+	if (fb) {
+		c.fb_id = fb;
+		c.x = x;
+		c.y = y;
+		c.mode = *m;
+		c.mode_valid = 1;
+		c.set_connectors_ptr = (u64)(uintptr_t)&conn;
+		c.count_connectors = 1;
+	}
+	r = kioctl(kms, DRM_IOCTL_MODE_SETCRTC, &c);
+	/* SETCRTC waits: what the CRTC shows from now on */
+	for (k = 0; k < ncrtc; k++)
+		if (crtcs[k] == crtc && r == 0)
+			crtcfb[k] = fb;
+	return r;
+}
+
+/*
+ * a CRTC each for the outputs that are on: the one they have if they
+ * may keep it, else a free one their encoders can drive; -ENOSPC if
+ * there are too few
+ */
+static int
+assign(u32 *want)
+{
+	u32 used = 0, bits;
+	int i, k;
+
+	for (i = 0; i < nout; i++) {
+		want[i] = 0;
+		if (!outs[i].on)
+			continue;
+		bits = possible(&outs[i]);
+		for (k = 0; k < ncrtc; k++)
+			if (crtcs[k] == outs[i].crtc && (bits & (1U << k)) && !(used & (1U << k))) {
+				want[i] = crtcs[k];
+				used |= 1U << k;
+			}
+	}
+	for (i = 0; i < nout; i++) {
+		if (!outs[i].on || want[i])
+			continue;
+		bits = possible(&outs[i]);
+		for (k = 0; k < ncrtc && !want[i]; k++)
+			if ((bits & (1U << k)) && !(used & (1U << k))) {
+				want[i] = crtcs[k];
+				used |= 1U << k;
+			}
+		if (!want[i])
+			return -ENOSPC;
+	}
+	return 0;
+}
+
+/* the screen's size of the outputs that are on, moved to start at 0 0 */
+static int
+bbox(u32 *w, u32 *h)
+{
+	int i, x0 = INT_MAX, y0 = INT_MAX, x1 = 0, y1 = 0;
+
+	for (i = 0; i < nout; i++)
+		if (outs[i].on) {
+			x0 = min(x0, outs[i].x);
+			y0 = min(y0, outs[i].y);
+		}
+	if (x0 == INT_MAX)
+		return -ENODEV;
+	for (i = 0; i < nout; i++)
+		if (outs[i].on) {
+			outs[i].x -= x0;
+			outs[i].y -= y0;
+			x1 = max(x1, outs[i].x + outs[i].mode.hdisplay);
+			y1 = max(y1, outs[i].y + outs[i].mode.vdisplay);
+		}
+	*w = x1;
+	*h = y1;
+	return 0;
+}
+
+static void
+screenfree(u32 fb, u32 handle)
+{
+	if (fb)
+		kioctl(kms, DRM_IOCTL_MODE_RMFB, &fb);
+	if (handle)
+		ops->screen_free(kms, handle);
+}
+
+/* a screen object w x h and its framebuffer */
+static int
+screenalloc(u32 w, u32 h, u32 *handle, u32 *fbid, u32 *pitch, unsigned long long *off)
+{
+	struct drm_mode_fb_cmd2 fb = { };
+	int r;
+
+	r = ops->screen_alloc(kms, w, h, handle, pitch, off);
+	if (r)
+		return r;
+	fb.width = w;
+	fb.height = h;
+	fb.pixel_format = DRM_FORMAT_XRGB8888;
+	fb.pitches[0] = *pitch;
+	fb.handles[0] = *handle;
+	r = kioctl(kms, DRM_IOCTL_MODE_ADDFB2, &fb);
+	if (r) {
+		ops->screen_free(kms, *handle);
+		return r;
+	}
+	*fbid = fb.fb_id;
+	return 0;
+}
+
+/*
+ * the layout in outs[] onto the display: the screen object of its size
+ * (a new one if the size changed: the old goes after, or first if there
+ * is no room for both), the CRTCs; the outputs as they were if it fails
+ */
+static int
+apply(unsigned long long maxbytes)
+{
+	struct drm_device *dev = kmsdev();
+	u32 want[Nout], w, h, handle, fb, pitch, bhandle, bfb, bpitch, ofb[2] = { }, ohandle[2] = { };
+	unsigned long long off, boff;
+	int i, j, k, r;
+
+	r = bbox(&w, &h);
+	if (r)
+		return r;
+	ovfree();	/* a new layout: the client's overlay comes again with its next picture */
+	need = 0;
+	if (w > dev->mode_config.max_width || h > dev->mode_config.max_height)
+		return -E2BIG;
+	if ((unsigned long long)w * h * 4 > maxbytes) {
+		need = (unsigned long long)w * h * 4;
+		return -E2BIG;
+	}
+	r = assign(want);
+	if (r)
+		return r;
+	/*
+	 * the commits on their way and latched done first: one latched may
+	 * name a screen object freed below (a flip of kmsscreen's), and a
+	 * modeset goes after them
+	 */
+	kmsidle();
+	if (!scr_fb[0] || w != scr_w || h != scr_h) {
+		r = screenalloc(w, h, &handle, &fb, &pitch, &off);
+		if (r == -ENOSPC || r == -ENOMEM) {
+			/* VRAM for one: the old screen off and away first */
+			for (i = 0; i < nout; i++)
+				if (outs[i].crtc)
+					setcrtc(outs[i].crtc, 0, 0, 0, NULL, 0);
+			for (j = 0; j < 2; j++) {
+				screenfree(scr_fb[j], scr_handle[j]);
+				scr_fb[j] = scr_handle[j] = 0;
+			}
+			for (i = 0; i < nout; i++)
+				outs[i].crtc = 0;
+			r = screenalloc(w, h, &handle, &fb, &pitch, &off);
+		}
+		if (r)
+			return r;
+		/*
+		 * the second only where there is room beside the first (never
+		 * the screen off for it): else one, the copies into the one shown
+		 */
+		bfb = bhandle = 0;
+		boff = 0;
+		if (screenalloc(w, h, &bhandle, &bfb, &bpitch, &boff) == 0 && bpitch != pitch) {
+			screenfree(bfb, bhandle);
+			bfb = bhandle = 0;
+		}
+		if (!bfb)
+			pr_info("kmsout: screen %ux%u: one object (no room for a second): the copies may tear\n", w, h);
+		for (j = 0; j < 2; j++) {
+			ofb[j] = scr_fb[j];
+			ohandle[j] = scr_handle[j];
+		}
+		scr_fb[0] = fb;
+		scr_handle[0] = handle;
+		scr_off[0] = off;
+		scr_fb[1] = bfb;
+		scr_handle[1] = bhandle;
+		scr_off[1] = boff;
+		scr_front = 0;
+		scr_w = w;
+		scr_h = h;
+		scr_pitch = pitch;
+	}
+	/* first off what goes elsewhere or off, then the outputs on */
+	for (i = 0; i < nout; i++)
+		if (outs[i].crtc && outs[i].crtc != want[i]) {
+			setcrtc(outs[i].crtc, 0, 0, 0, NULL, 0);
+			outs[i].crtc = 0;
+		}
+	for (k = 0; k < ncrtc; k++) {
+		bool ours = false;
+
+		for (i = 0; i < nout; i++)
+			if (want[i] == crtcs[k])
+				ours = true;
+		if (!ours)
+			setcrtc(crtcs[k], 0, 0, 0, NULL, 0);	/* lit before us (firmware, fbdev) */
+	}
+	for (i = 0; i < nout; i++) {
+		if (!outs[i].on)
+			continue;
+		r = setcrtc(want[i], scr_fb[scr_front], outs[i].x, outs[i].y, &outs[i].mode, outs[i].conn);
+		if (r) {
+			pr_err("kmsout: %s: %dx%d at %d %d: %d\n", outs[i].name, outs[i].mode.hdisplay, outs[i].mode.vdisplay,
+			    outs[i].x, outs[i].y, r);
+			outs[i].on = false;
+			continue;
+		}
+		outs[i].crtc = want[i];
+	}
+	for (j = 0; j < 2; j++)
+		screenfree(ofb[j], ohandle[j]);	/* SETCRTC waited for the commits that showed them */
+	/* the cursor on the outputs as they are now */
+	mutex_lock(&curlock);
+	curset();
+	mutex_unlock(&curlock);
+	return 0;
+}
+
+int
+kmsout_screen(unsigned long long maxbytes, unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff)
+{
+	bool conn;
+	int i, x = 0, r;
+
+	if (!kms)
+		return -ENODEV;
+	mutex_lock(&kmslock);
+	for (i = 0; i < nout; i++) {
+		outs[i].on = false;
+		outs[i].byhand = false;
+		outs[i].connected = findmode(&outs[i], 0, 0, 0, &outs[i].mode, &conn, true) == 0 && conn;
+		if (outs[i].connected) {
+			outs[i].on = true;
+			outs[i].x = x;
+			outs[i].y = 0;
+			x += outs[i].mode.hdisplay;
+		}
+	}
+	r = apply(maxbytes);
+	if (r == -E2BIG) {
+		/* too big for the framebuffer: the first output alone */
+		for (i = 0; i < nout; i++)
+			if (outs[i].on) {
+				for (i++; i < nout; i++)
+					outs[i].on = false;
+				break;
+			}
+		r = apply(maxbytes);
+	}
+	geom(w, h, pitch, baroff);
+	mutex_unlock(&kmslock);
+	return r;
+}
+
+static const char *
+errstr(int r)
+{
+	switch (r) {
+	case -ENOENT:	return "no such mode";
+	case -E2BIG:	return "screen bigger than its framebuffer or the display engine";
+	case -ENOSPC:	return "no display pipe (CRTC) left for the output";
+	case -ENODEV:	return "the screen needs an output that is on";
+	case -EBUSY:	return "a context's picture is on the display";
+	case -EINVAL:	return "the display refuses the mode";
+	}
+	return "display error";
+}
+
+/*
+ * "w x h [hz] [at x y]" or "off": the output's mode, its place (without
+ * one where it was, or right of the others)
+ */
+const char *
+kmsout_set(char *name, char *spec, unsigned long long maxbytes, Kmsgrow grow, unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff)
+{
+	struct out *o = findout(name), save[Nout];
+	struct drm_mode_modeinfo m;
+	char *s = spec, *e;
+	unsigned long mw, mh, hz = 0;
+	long x = -1, y = -1;
+	int i, r;
+
+	geom(w, h, pitch, baroff);
+	if (!o)
+		return "no such output";
+	while (*s == ' ' || *s == '\t')
+		s++;
+	if (strncmp(s, "off", 3) == 0) {
+		mw = 0;
+	} else {
+		mw = simple_strtoul(s, &e, 10);
+		if (e == s || *e != 'x')
+			return "usage: w x h [hz] [at x y], or off";
+		s = e + 1;
+		mh = simple_strtoul(s, &e, 10);
+		if (e == s || mw == 0 || mh == 0)
+			return "usage: w x h [hz] [at x y], or off";
+		s = e;
+		while (*s == ' ' || *s == '\t')
+			s++;
+		if (*s >= '0' && *s <= '9') {
+			hz = simple_strtoul(s, &e, 10);
+			s = e;
+			while (*s == ' ' || *s == '\t')
+				s++;
+		}
+		if (strncmp(s, "at", 2) == 0) {
+			x = simple_strtol(s + 2, &e, 10);
+			s = e;
+			y = simple_strtol(s, &e, 10);
+			if (e == s || x < 0 || y < 0)
+				return "usage: w x h [hz] [at x y], or off";
+		}
+	}
+	mutex_lock(&kmslock);
+	takeoff();	/* the screen's layout changes: a client's picture of the old one goes */
+	memcpy(save, outs, sizeof(save));
+	if (mw == 0) {
+		o->on = false;
+		o->byhand = true;
+	} else {
+		o->byhand = false;
+		r = findmode(o, mw, mh, hz, &m, NULL, true);
+		if (r) {
+			mutex_unlock(&kmslock);
+			return errstr(r);
+		}
+		if (x < 0) {
+			if (o->on) {
+				x = o->x;
+				y = o->y;
+			} else {
+				x = y = 0;
+				for (i = 0; i < nout; i++)
+					if (outs[i].on && &outs[i] != o)
+						x = max_t(long, x, outs[i].x + outs[i].mode.hdisplay);
+			}
+		}
+		o->mode = m;
+		o->x = x;
+		o->y = y;
+		o->on = true;
+	}
+	r = apply(maxbytes);
+	if (r == -E2BIG && need && grow && grow(need, &maxbytes) == 0)
+		r = apply(maxbytes);	/* in a bigger framebuffer */
+	if (r) {
+		/* as it was: the CRTCs that went off come on again */
+		for (i = 0; i < nout; i++) {
+			save[i].crtc = outs[i].crtc;
+			if (!outs[i].on)
+				save[i].crtc = 0;
+		}
+		memcpy(outs, save, sizeof(save));
+		apply(maxbytes);
+	}
+	geom(w, h, pitch, baroff);
+	mutex_unlock(&kmslock);
+	return r ? errstr(r) : NULL;
+}
+
+/* the cursor where it is on every output that is on (relative to its part); curlock held */
+static void
+curmove(void)
+{
+	struct drm_mode_cursor c;
+	int i;
+
+	for (i = 0; i < nout; i++) {
+		struct out *o = &outs[i];
+
+		if (!o->on || !o->crtc)
+			continue;
+		memset(&c, 0, sizeof(c));
+		c.flags = DRM_MODE_CURSOR_MOVE;
+		c.crtc_id = o->crtc;
+		c.x = cur_x + cur_ox - o->x;
+		c.y = cur_y + cur_oy - o->y;
+		kioctl(kms, DRM_IOCTL_MODE_CURSOR, &c);
+	}
+}
+
+/* the cursor's object on every output that is on (or off), then where it is; curlock held */
+static void
+curset(void)
+{
+	struct drm_mode_cursor c;
+	int i, r;
+
+	for (i = 0; i < nout; i++) {
+		struct out *o = &outs[i];
+
+		if (!o->on || !o->crtc)
+			continue;
+		memset(&c, 0, sizeof(c));
+		c.flags = DRM_MODE_CURSOR_BO;
+		c.crtc_id = o->crtc;
+		if (cur_on && cur_loaded) {
+			c.handle = cur_handle;
+			c.width = Curw;
+			c.height = Curw;
+		}
+		r = kioctl(kms, DRM_IOCTL_MODE_CURSOR, &c);
+		if (r)
+			pr_warn("kmsout: %s: cursor: %d\n", o->name, r);
+	}
+	if (cur_on && cur_loaded)
+		curmove();
+}
+
+/*
+ * the cursor's image: Plan 9's (cursor.h: 16 x 16, a bit each of clr,
+ * white, and set, black, over it), drawn size pixels big (scaled), offset (ox oy) from the mouse's
+ * point; 0 or the error
+ */
+int
+kmsout_cursor_image(unsigned char *clr, unsigned char *set, int ox, int oy, int size)
+{
+	struct drm_mode_create_dumb cd = { .width = Curw, .height = Curw, .bpp = 32 };
+	struct drm_gem_object *obj;
+	struct iosys_map map;
+	u32 *px;
+	int x, y, sx, sy, r, b;
+
+	if (!kms)
+		return -ENODEV;
+	mutex_lock(&curlock);
+	if (!cur_handle) {
+		r = kioctl(kms, DRM_IOCTL_MODE_CREATE_DUMB, &cd);
+		if (r)
+			goto out;
+		if (cd.pitch != Curw * 4) {
+			pr_warn("kmsout: the cursor's pitch is %u\n", cd.pitch);
+			r = -EINVAL;
+			goto out;
+		}
+		cur_handle = cd.handle;
+	}
+	px = kcalloc(Curw * Curw, sizeof(*px), GFP_KERNEL);
+	if (!px) {
+		r = -ENOMEM;
+		goto out;
+	}
+	/* size pixels big (a window system's scale): each the nearest of the 16 x 16 */
+	if (size < 16 || size > Curw)
+		size = 16;
+	for (y = 0; y < size; y++)
+		for (x = 0; x < size; x++) {
+			sx = x * 16 / size;
+			sy = y * 16 / size;
+			b = 0x80 >> (sx & 7);
+			if (set[sy * 2 + sx / 8] & b)
+				px[y * Curw + x] = 0xff000000;
+			else if (clr[sy * 2 + sx / 8] & b)
+				px[y * Curw + x] = 0xffffffff;
+		}
+	ox = ox * size / 16;
+	oy = oy * size / 16;
+	obj = drm_gem_object_lookup(kms->private_data, cur_handle);
+	r = obj ? drm_gem_vmap(obj, &map) : -ENOENT;
+	if (r == 0) {
+		iosys_map_memcpy_to(&map, 0, px, Curw * Curw * sizeof(*px));
+		drm_gem_vunmap(obj, &map);
+	}
+	if (obj)
+		drm_gem_object_put(obj);
+	kfree(px);
+	if (r)
+		goto out;
+	cur_ox = ox;
+	cur_oy = oy;
+	cur_size = size;
+	cur_loaded = true;
+	curset();	/* the display reads it again */
+out:
+	mutex_unlock(&curlock);
+	return r;
+}
+
+/* the cursor at x y on the screen, shown or not */
+void
+kmsout_cursor_move(int x, int y, int on)
+{
+	if (!kms)
+		return;
+	mutex_lock(&curlock);
+	cur_x = x;
+	cur_y = y;
+	if (!!on != cur_on) {
+		cur_on = on;
+		curset();
+	} else if (cur_on && cur_loaded)
+		curmove();
+	mutex_unlock(&curlock);
+}
+
+/* until a hotplug event after the one *seen; 0, or -EINTR (a note) */
+int
+kmsout_hotplug_wait(unsigned int *seen)
+{
+	int r;
+
+	r = wait_event_interruptible(hotplugq, (unsigned int)atomic_read(&hotplugs) != *seen);
+	*seen = atomic_read(&hotplugs);
+	return r;
+}
+
+/*
+ * after a hotplug event: an output newly connected on (its preferred
+ * mode, right of the others) unless it was turned off by hand, one no
+ * longer connected off (not the last one on); nil, or the error; *changed
+ * if the layout did.  A client's picture on the display goes when the
+ * layout changes: its next scanout, of the old size, is refused, and the
+ * client (Mesa's WSI: VK_ERROR_OUT_OF_DATE_KHR) makes one of the new
+ */
+const char *
+kmsout_relayout(unsigned long long maxbytes, Kmsgrow grow, int *changed, unsigned int *w, unsigned int *h, unsigned int *pitch, unsigned long long *baroff)
+{
+	struct out save[Nout];
+	struct drm_mode_modeinfo m;
+	bool conn, any;
+	int i, j, x, r = 0;
+
+	*changed = 0;
+	geom(w, h, pitch, baroff);
+	if (!kms || !scr_fb[0])
+		return "no screen";
+	mutex_lock(&kmslock);
+	memcpy(save, outs, sizeof(save));
+	for (i = 0; i < nout; i++) {
+		struct out *o = &outs[i];
+
+		if (findmode(o, 0, 0, 0, &m, &conn, true) != 0)
+			conn = false;
+		if (conn == o->connected)
+			continue;
+		o->connected = conn;
+		if (!conn) {
+			o->byhand = false;
+			if (!o->on)
+				continue;
+			any = false;
+			for (j = 0; j < nout; j++)
+				if (j != i && outs[j].on)
+					any = true;
+			if (!any)
+				continue;	/* the last one stays */
+			o->on = false;
+			pr_info("kmsout: %s disconnected: off\n", o->name);
+			*changed = 1;
+		} else if (!o->on && !o->byhand) {
+			x = 0;
+			for (j = 0; j < nout; j++)
+				if (outs[j].on)
+					x = max(x, outs[j].x + outs[j].mode.hdisplay);
+			o->mode = m;
+			o->x = x;
+			o->y = 0;
+			o->on = true;
+			pr_info("kmsout: %s connected: %dx%d at %d 0\n", o->name, m.hdisplay, m.vdisplay, x);
+			*changed = 1;
+		}
+	}
+	if (*changed) {
+		takeoff();
+		r = apply(maxbytes);
+		if (r == -E2BIG && need && grow) {
+			if (grow(need, &maxbytes) == 0)
+				r = apply(maxbytes);	/* in a bigger framebuffer */
+			else
+				pr_warn("kmsout: no framebuffer of %llu bytes\n", need);
+		}
+		if (r == -E2BIG && need) {
+			/* no bigger one: the new monitors in the biggest of their modes that fit */
+			for (i = 0; i < nout; i++)
+				if (outs[i].on && !save[i].on && fitmode(&outs[i], maxbytes, &m) == 0) {
+					pr_info("kmsout: %s: %dx%d, the most the framebuffer has room for\n", outs[i].name, m.hdisplay, m.vdisplay);
+					outs[i].mode = m;
+				}
+			r = apply(maxbytes);
+		}
+		if (r) {
+			/* as it was, but knowing what is connected now */
+			for (i = 0; i < nout; i++) {
+				bool c = outs[i].connected;
+
+				save[i].crtc = outs[i].on ? outs[i].crtc : 0;
+				outs[i] = save[i];
+				outs[i].connected = c;
+			}
+			apply(maxbytes);
+			*changed = 0;
+		}
+	}
+	geom(w, h, pitch, baroff);
+	mutex_unlock(&kmslock);
+	return r ? errstr(r) : NULL;
+}
+
+int
+kmsout_screenfb(u32 *fb, u32 *w, u32 *h, u32 *pitch)
+{
+	if (!scr_fb[0])
+		return -ENODEV;
+	*fb = scr_fb[scr_front];
+	*w = scr_w;
+	*h = scr_h;
+	*pitch = scr_pitch;
+	return 0;
+}
+
+/*
+ * Commits: one at a time on each CRTC, with an event (DRM_MODE_PAGE_FLIP_EVENT),
+ * and on each one commit a vblank with every plane that changed: the
+ * primary plane's framebuffer (a client's picture, the screen again) and
+ * the overlay plane (a window on it).  What comes while one is on its way
+ * is latched and goes with its event, together (the GPU composing the
+ * screen and a window on the overlay plane: two commits would take two
+ * vblanks, both at half the rate).  Each waits for the commit that took
+ * its change, without kmslock (so that the next change can be latched
+ * meanwhile).  After an event the latched changes wait until shortly
+ * before the next vblank (due, Margin ms before it): each client sends
+ * its next change some time after its commit is done (wsys composing,
+ * the client of the overlay drawing), so that without the wait the
+ * commits would take the clients' changes in turn, one each, every
+ * client at half the rate; then what came meanwhile goes together (a
+ * frame clock, as Linux' compositors have).  They go at once when every
+ * plane that changed in the last frames (Active) has its change latched:
+ * the timed wait is not precise on 9front (milliseconds late), and the
+ * changes of all who send are what it waits for.  The display shows the framebuffers it had until the event
+ * (a commit waits for the fences of its objects: an external one's
+ * rendering), so those taken off are removed only then (gone); one
+ * removed while on the display turns its plane off (a black screen).
+ * Without atomic commits (DRM_CLIENT_CAP_ATOMIC) a page flip does the
+ * primary plane's change, and there is no overlay plane.
+ */
+enum { Ngone = 16 };
+static struct {
+	bool	busy;		/* a commit on its way */
+	u64	sent, done;	/* its sequence number, the last one done */
+	unsigned long	at;	/* jiffies when it went */
+	unsigned long	due;	/* jiffies when the latched changes may go */
+	u64	errseq;		/* the one that failed last, and how */
+	int	err;
+	u64	next;		/* the latched changes' number, 0: none */
+	u32	pfb;		/* latched: the primary plane's fb, 0 none */
+	u32	spfb;		/* the commit on its way: the primary plane's fb it names, 0 none */
+	bool	ov, ovon;	/* latched: the overlay plane, on or off */
+	u32	ofb;
+	int	ox, oy;
+	u32	ow, oh;
+	unsigned long	seen[2];	/* jiffies when the primary plane's, the overlay's change came last */
+} cs[Ncrtc];
+enum { Active = 40 };	/* ms: a plane whose change came in them changes each frame */
+static u64 seqgen;
+static u64 ncommit, nboth, nlate, ndone, msdone, nprim, nover, nempty;	/* for the status: commits, with both planes, latched until due */
+static struct { u32 fb; u64 need[Ncrtc]; } gone[Ngone];
+static int ngone;
+static bool reading;		/* one reads the events, the others wait for it */
+static u64 nread;		/* events read: the others look again */
+static u64 nlatch;		/* changes latched: the reader looks again when they are due */
+static DECLARE_WAIT_QUEUE_HEAD(kmsq);
+
+static int
+crtcindex(u32 crtc)
+{
+	int k;
+
+	for (k = 0; k < ncrtc; k++)
+		if (crtcs[k] == crtc)
+			return k;
+	return -1;
+}
+
+/* the framebuffers whose commits are done removed; kmslock held */
+static void
+gonedone(void)
+{
+	int i, k;
+
+	for (i = 0; i < ngone; ) {
+		for (k = 0; k < ncrtc; k++)
+			if (cs[k].done < gone[i].need[k])
+				break;
+		if (k < ncrtc) {
+			i++;
+			continue;
+		}
+		kioctl(kms, DRM_IOCTL_MODE_RMFB, &gone[i].fb);
+		gone[i] = gone[--ngone];
+	}
+}
+
+/* CRTC k's latched changes as one commit on its way; kmslock held */
+static void
+submit(int k)
+{
+	struct drm_mode_config *mc = &kmsdev()->mode_config;
+	u32 objs[2], counts[2], props[12];
+	u64 vals[12];
+	struct drm_mode_atomic a = { };
+	struct drm_mode_crtc_page_flip f = { };
+	int no = 0, np = 0, r;
+
+	if (!cs[k].next)
+		return;
+	cs[k].sent = cs[k].next;
+	cs[k].next = 0;
+	cs[k].spfb = 0;
+	if (cs[k].pfb && primary[k]) {
+		cs[k].spfb = cs[k].pfb;
+		objs[no] = primary[k];
+		counts[no++] = 1;
+		props[np] = mc->prop_fb_id->base.id;
+		vals[np++] = cs[k].pfb;
+	}
+	if (cs[k].ov && ovplane[k]) {
+		int n = np;
+
+		objs[no] = ovplane[k];
+		props[np] = mc->prop_fb_id->base.id;
+		vals[np++] = cs[k].ovon ? cs[k].ofb : 0;
+		props[np] = mc->prop_crtc_id->base.id;
+		vals[np++] = cs[k].ovon ? crtcs[k] : 0;
+		if (cs[k].ovon) {
+			props[np] = mc->prop_src_x->base.id;
+			vals[np++] = 0;
+			props[np] = mc->prop_src_y->base.id;
+			vals[np++] = 0;
+			props[np] = mc->prop_src_w->base.id;
+			vals[np++] = (u64)cs[k].ow << 16;
+			props[np] = mc->prop_src_h->base.id;
+			vals[np++] = (u64)cs[k].oh << 16;
+			props[np] = mc->prop_crtc_x->base.id;
+			vals[np++] = (u64)(s64)cs[k].ox;
+			props[np] = mc->prop_crtc_y->base.id;
+			vals[np++] = (u64)(s64)cs[k].oy;
+			props[np] = mc->prop_crtc_w->base.id;
+			vals[np++] = cs[k].ow;
+			props[np] = mc->prop_crtc_h->base.id;
+			vals[np++] = cs[k].oh;
+		}
+		counts[no++] = np - n;
+	}
+	cs[k].pfb = 0;
+	cs[k].ov = false;
+	ncommit++;
+	if (no == 2)
+		nboth++;
+	if (no == 0)
+		nempty++;
+	else if (objs[0] == primary[k])
+		nprim++;
+	if (no > 0 && objs[no-1] == ovplane[k])
+		nover++;
+	if (no == 0) {
+		cs[k].done = cs[k].sent;	/* nothing to change */
+		wake_up_all(&kmsq);
+		return;
+	}
+	if (atomic) {
+		a.flags = DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT;
+		a.count_objs = no;
+		a.objs_ptr = (u64)(uintptr_t)objs;
+		a.count_props_ptr = (u64)(uintptr_t)counts;
+		a.props_ptr = (u64)(uintptr_t)props;
+		a.prop_values_ptr = (u64)(uintptr_t)vals;
+		a.user_data = k;
+		r = kioctl(kms, DRM_IOCTL_MODE_ATOMIC, &a);
+	} else {
+		f.crtc_id = crtcs[k];
+		f.fb_id = vals[0];
+		f.flags = DRM_MODE_PAGE_FLIP_EVENT;
+		f.user_data = k;
+		r = kioctl(kms, DRM_IOCTL_MODE_PAGE_FLIP, &f);
+	}
+	if (r) {
+		cs[k].errseq = cs[k].sent;
+		cs[k].err = r;
+		cs[k].done = cs[k].sent;
+		wake_up_all(&kmsq);
+		return;
+	}
+	cs[k].busy = true;
+	cs[k].at = jiffies;
+}
+
+enum { Margin = 5000 };	/* µs before the vblank a commit goes (amdgpu's commit work, the fences) */
+
+/*
+ * from now until the latched changes are due: the next vblank of the
+ * output on CRTC k (a frame after the one at vbl, µs of ktime_get, the
+ * event's time) less Margin; at least a jiffy
+ */
+static unsigned long
+untilnext(int k, s64 vbl)
+{
+	int i, refresh = 60;	/* not hz: msecs_to_jiffies uses the KPI's */
+	s64 frame, lag, us;
+
+	for (i = 0; i < nout; i++)
+		if (outs[i].on && outs[i].crtc == crtcs[k] && outs[i].mode.vrefresh > 0)
+			refresh = outs[i].mode.vrefresh;
+	frame = 1000000 / refresh;
+	lag = ktime_to_us(ktime_get()) - vbl;
+	if (lag < 0 || lag > frame)
+		lag = 0;	/* no time, or not this frame's */
+	us = frame - Margin - lag;
+	return msecs_to_jiffies(us > 1000 ? us / 1000 : 1);
+}
+
+/* CRTC k's commit came (its event, at vbl): the latched changes go shortly before the next vblank; kmslock held */
+static void
+commitdone(int k, s64 vbl)
+{
+	if (k < 0 || k >= ncrtc || !cs[k].busy)
+		return;
+	cs[k].busy = false;
+	cs[k].done = cs[k].sent;
+	if (cs[k].spfb)
+		crtcfb[k] = cs[k].spfb;	/* its event: on the display now */
+	ndone++;
+	msdone += jiffies_to_msecs(jiffies - cs[k].at);
+	cs[k].due = jiffies + untilnext(k, vbl);
+	gonedone();
+	wake_up_all(&kmsq);
+}
+
+/*
+ * whether CRTC k's latched changes may go before they are due: every
+ * plane changed in the last Active ms has its change latched
+ */
+static bool
+allin(int k)
+{
+	unsigned long now = jiffies;
+	bool in[2] = { cs[k].pfb != 0, cs[k].ov };
+	int i;
+
+	for (i = 0; i < 2; i++)
+		if (!in[i] && cs[k].seen[i] && time_before(now, cs[k].seen[i] + msecs_to_jiffies(Active)))
+			return false;
+	return true;
+}
+
+/* the latched changes that are due, or all in, go; kmslock held */
+static void
+submitdue(void)
+{
+	int k;
+
+	for (k = 0; k < ncrtc; k++)
+		if (cs[k].next && !cs[k].busy && (time_after_eq(jiffies, cs[k].due) || allin(k)))
+			submit(k);
+}
+
+/* jiffies until latched changes are due (0: now), or until end */
+static long
+untildue(unsigned long end)
+{
+	long left = (long)(end - jiffies), d;
+	int k;
+
+	for (k = 0; k < ncrtc; k++)
+		if (cs[k].next && !cs[k].busy) {
+			d = (long)(cs[k].due - jiffies);
+			if (d < left)
+				left = d;
+		}
+	return left < 0 ? 0 : left;
+}
+
+/*
+ * the changes latched for CRTC k go in a commit: now if none is on its
+ * way, else with its event; its number.  One on its way for two seconds
+ * did not come (the event lost): the next goes all the same.  kmslock held.
+ */
+static u64
+commit(int k)
+{
+	if (!cs[k].next)
+		cs[k].next = ++seqgen;
+	if (cs[k].pfb)
+		cs[k].seen[0] = jiffies;
+	if (cs[k].ov)
+		cs[k].seen[1] = jiffies;
+	if (cs[k].busy && time_after(jiffies, cs[k].at + 2*HZ)) {
+		pr_err("kmsout: crtc %u: no event of commit %llu for %u ms: the next goes\n",
+		    crtcs[k], cs[k].sent, jiffies_to_msecs(jiffies - cs[k].at));
+		cs[k].busy = false;
+		cs[k].done = cs[k].sent;
+		gonedone();
+	}
+	if (!cs[k].busy && (time_after_eq(jiffies, cs[k].due) || allin(k))) {
+		u64 seq = cs[k].next;
+
+		submit(k);
+		return seq;
+	}
+	nlate++;
+	/* the reader waits for an event: it sends this when due */
+	WRITE_ONCE(nlatch, nlatch + 1);
+	wake_up_all(&((struct drm_file *)kms->private_data)->event_wait);
+	return cs[k].next;	/* with the event, or when due */
+}
+
+/*
+ * until CRTC k's commit seq is done (timeout jiffies; -ETIMEDOUT): the
+ * events read, without kmslock meanwhile, by one waiter for all; its
+ * error.  kmslock held.
+ */
+static int
+kmswait(int k, u64 seq, long timeout)
+{
+	struct drm_file *fp = kms->private_data;
+	unsigned long end = jiffies + timeout;
+	char ev[1024];
+	loff_t pos;
+	long t, left;
+	u64 seen, latched;
+	int i, rr;
+
+	while (cs[k].done < seq) {
+		submitdue();
+		if (cs[k].done >= seq)
+			break;
+		left = (long)(end - jiffies);
+		if (left <= 0)
+			return -ETIMEDOUT;
+		if (reading) {
+			seen = nread;
+			mutex_unlock(&kmslock);
+			wait_event_timeout(kmsq, READ_ONCE(nread) != seen, left);
+			mutex_lock(&kmslock);
+			continue;
+		}
+		reading = true;
+		left = untildue(end);	/* the reader sends what becomes due */
+		latched = nlatch;
+		mutex_unlock(&kmslock);
+		t = left > 0 ? wait_event_interruptible_timeout(fp->event_wait,
+		    !list_empty(&fp->event_list) || READ_ONCE(nlatch) != latched, left) : 0;
+		rr = 0;
+		if (t > 0 && !list_empty(&fp->event_list)) {
+			pos = 0;
+			rr = drm_read(kms, (char __user *)ev, sizeof(ev), &pos);
+		}
+		mutex_lock(&kmslock);
+		reading = false;
+		for (i = 0; i + (int)sizeof(struct drm_event) <= rr; ) {
+			struct drm_event *e = (struct drm_event *)(ev + i);
+
+			if (e->length < sizeof(*e))
+				break;
+			if (e->type == DRM_EVENT_FLIP_COMPLETE && e->length >= sizeof(struct drm_event_vblank)) {
+				struct drm_event_vblank *v = (struct drm_event_vblank *)e;
+
+				commitdone((int)v->user_data, (s64)v->tv_sec * 1000000 + v->tv_usec);
+			}
+			i += e->length;
+		}
+		WRITE_ONCE(nread, nread + 1);
+		wake_up_all(&kmsq);
+		if (t < 0)
+			return t;
+	}
+	return cs[k].errseq == seq ? cs[k].err : 0;
+}
+
+/* every commit done (a second; -EBUSY), before a modeset; kmslock held */
+static int
+kmsidle(void)
+{
+	int k, r;
+
+	for (k = 0; k < ncrtc; k++)
+		if (cs[k].next || cs[k].busy) {
+			r = kmswait(k, cs[k].next ? commit(k) : cs[k].sent, HZ);
+			if (r == -ETIMEDOUT) {
+				pr_info("kmsout: crtc %u: commit not done after %u ms: busy\n", crtcs[k],
+				    jiffies_to_msecs(jiffies - cs[k].at));
+				return -EBUSY;
+			}
+		}
+	return 0;
+}
+
+/* for the log: whether the display still waits for the GPU to write fb */
+static const char *
+fbfences(u32 fb)
+{
+	struct drm_device *dev = kmsdev();
+	struct drm_framebuffer *f;
+	const char *s;
+
+	if (!dev || !(f = drm_framebuffer_lookup(dev, kms->private_data, fb)))
+		return "no framebuffer";
+	if (!f->obj[0])
+		s = "no object";
+	else if (dma_resv_test_signaled(f->obj[0]->resv, DMA_RESV_USAGE_WRITE))
+		s = "its object written (fences signalled): the display is slow";
+	else
+		s = "its object still being written (a fence not signalled)";
+	drm_framebuffer_put(f);
+	return s;
+}
+
+/* the fb off the display (or never on it): removed now, or when the commits on their way are done */
+static void
+fbgone(u32 fb)
+{
+	int k;
+	bool wait = false;
+
+	if (!fb)
+		return;
+	if (ngone == Ngone) {
+		pr_err("kmsout: %d framebuffers wait for commits: those go\n", Ngone);
+		kmsidle();
+		gonedone();
+		if (ngone == Ngone) {
+			while (ngone > 0)
+				kioctl(kms, DRM_IOCTL_MODE_RMFB, &gone[--ngone].fb);
+		}
+	}
+	for (k = 0; k < ncrtc; k++) {
+		gone[ngone].need[k] = cs[k].next ? cs[k].next : cs[k].busy ? cs[k].sent : 0;
+		if (gone[ngone].need[k] > cs[k].done)
+			wait = true;
+	}
+	if (!wait) {
+		kioctl(kms, DRM_IOCTL_MODE_RMFB, &fb);
+		return;
+	}
+	gone[ngone++].fb = fb;
+}
+
+/*
+ * the outputs that are on (or output only) to fb on their primary plane,
+ * and the wait until the display shows it (a second: one not done by then
+ * is still to come, the next goes after it).  A change the CRTC's state
+ * refuses ("requires full modeset", -EINVAL) is a SETCRTC instead.
+ * kmslock held, let go of while waiting.
+ */
+static int
+flipx(int only, int skip, u32 fb)
+{
+	u64 seq[Nout];
+	int i, k, r = 0, rr;
+
+	for (i = 0; i < nout; i++) {
+		struct out *o = &outs[i];
+
+		seq[i] = 0;
+		if (!o->on || !o->crtc || (only >= 0 && i != only) || i == skip || (k = crtcindex(o->crtc)) < 0)
+			continue;
+		cs[k].pfb = fb;
+		seq[i] = commit(k);
+	}
+	for (i = 0; i < nout; i++) {
+		struct out *o = &outs[i];
+
+		if (!seq[i] || (k = crtcindex(o->crtc)) < 0)
+			continue;
+		rr = kmswait(k, seq[i], HZ);
+		if (rr == -ETIMEDOUT) {
+			pr_err("kmsout: no flip event for fb %u within a second: still to come; %s\n",
+				fb, fbfences(fb));
+			rr = 0;
+		} else if (rr == -EINVAL)
+			rr = only >= 0 ? setcrtc(o->crtc, fb, 0, 0, &shown_mode, o->conn)
+			    : setcrtc(o->crtc, fb, o->x, o->y, &o->mode, o->conn);
+		if (rr && !r)
+			r = rr;
+	}
+	return r;
+}
+
+static int
+flip(int only, u32 fb)
+{
+	return flipx(only, -1, fb);
+}
+
+/*
+ * whether every output that shows the screen (not a client's picture)
+ * shows fb; kmslock held
+ */
+static bool
+screenon(u32 fb)
+{
+	int i, k;
+
+	for (i = 0; i < nout; i++) {
+		struct out *o = &outs[i];
+
+		if (!o->on || !o->crtc || (shown_fb && (shown_out < 0 || shown_out == i)))
+			continue;
+		if ((k = crtcindex(o->crtc)) < 0 || crtcfb[k] != fb)
+			return false;
+	}
+	return true;
+}
+
+/*
+ * the screen's object not shown (kmsscreen.c copied into it) onto the
+ * outputs that show the screen, after the commit that shows it (one a
+ * vblank: the wait is for its event); then it is the one shown.  A
+ * client's picture on every output: only that (back() shows it when the
+ * picture goes).  0, -ENODEV (one object), or the error (the one shown
+ * stays: the caller copies into it)
+ */
+int
+kmsout_screen_flip(void)
+{
+	int nb, r = 0;
+
+	if (!kms)
+		return -ENODEV;
+	mutex_lock(&kmslock);
+	if (!scr_fb[0] || !scr_fb[1]) {
+		mutex_unlock(&kmslock);
+		return -ENODEV;
+	}
+	nb = 1 - scr_front;
+	if (!shown_fb || shown_out >= 0)
+		r = flipx(-1, shown_fb ? shown_out : -1, scr_fb[nb]);
+	/*
+	 * a swap only when every output that shows the screen shows the new
+	 * one (its commit's event came, or a SETCRTC): else the processor
+	 * would copy into the one on the display (a commit timed out, latched
+	 * behind another, refused, or none named it)
+	 */
+	if (r == 0 && !screenon(scr_fb[nb]))
+		r = -EAGAIN;
+	if (r == 0) {
+		scr_front = nb;
+		nscrflip++;
+	} else if (r == -EAGAIN)
+		nscrunseen++;
+	else
+		nscrfail++;
+	mutex_unlock(&kmslock);
+	return r;
+}
+
+/*
+ * where the processor writes the screen's objects (as kmsout_aperture
+ * counts): the one shown, the other; 2, or 1 (one object)
+ */
+int
+kmsout_screen_objs(unsigned long long *front, unsigned long long *back)
+{
+	int n;
+
+	mutex_lock(&kmslock);
+	/* a flip whose event came late (after its wait): that one is on the display */
+	if (scr_fb[1] && !shown_fb && !screenon(scr_fb[scr_front]) && screenon(scr_fb[1 - scr_front]))
+		scr_front = 1 - scr_front;
+	*front = scr_off[scr_front];
+	*back = scr_off[1 - scr_front];
+	n = scr_fb[1] ? 2 : 1;
+	mutex_unlock(&kmslock);
+	return n;
+}
+
+/* the output with a mode w x h for a client's picture, its mode; -1 */
+static int
+outfor(u32 w, u32 h, struct drm_mode_modeinfo *m)
+{
+	int i;
+
+	if (shown_out >= 0 && outs[shown_out].on &&
+	    findmode(&outs[shown_out], w, h, 0, m, NULL, false) == 0)
+		return shown_out;
+	for (i = 0; i < nout; i++)
+		if (outs[i].on && outs[i].crtc && outs[i].mode.hdisplay == w && outs[i].mode.vdisplay == h) {
+			*m = outs[i].mode;
+			return i;
+		}
+	for (i = 0; i < nout; i++)
+		if (outs[i].on && outs[i].crtc && findmode(&outs[i], w, h, 0, m, NULL, false) == 0)
+			return i;
+	return -1;
+}
+
+/* the screen on the output that showed a client's picture again */
+static int
+back(void)
+{
+	struct out *o;
+
+	if (shown_out < 0)
+		return flip(-1, scr_fb[scr_front]);	/* the newest whole one: never the one being copied into */
+	o = &outs[shown_out];
+	kmsidle();	/* a modeset after the commits on their way */
+	return setcrtc(o->crtc, scr_fb[scr_front], o->x, o->y, &o->mode, o->conn);
+}
+
+/* with kmslock: a client's picture off the display, the screen again */
+static void
+takeoff(void)
+{
+	u32 old;
+
+	if (!shown_fb)
+		return;
+	old = shown_fb;
+	back();
+	shown_fb = 0;
+	shown_by = NULL;
+	shown_out = -1;
+	fbgone(old);
+	pr_info("kmsout: the layout changes: a client's picture off the display\n");
+}
+
+/*
+ * show the object handle of the client's file from (x8r8g8b8, w x h,
+ * stride bytes a row); handle 0: the screen again
+ */
+int
+kmsout_scanout(struct file *from, u32 handle, u32 w, u32 h, u32 stride)
+{
+	struct drm_mode_fb_cmd2 fb = { };
+	struct drm_gem_close cl = { };
+	struct drm_mode_modeinfo m;
+	u32 old;
+	int r, o;
+
+	if (!kms || !scr_fb[0])
+		return -ENODEV;
+	mutex_lock(&kmslock);
+	old = shown_fb;
+	if (handle == 0) {
+		if (from && from != shown_by) {
+			r = 0;		/* another's on the display */
+			goto out;
+		}
+		r = old ? back() : 0;
+		shown_fb = 0;
+		shown_by = NULL;
+		shown_out = -1;
+		goto rm;
+	}
+	if (w == scr_w && h == scr_h)
+		o = -1;
+	else if ((o = outfor(w, h, &m)) < 0) {
+		r = -EINVAL;	/* no output has a mode of that size: the client copies */
+		goto out;
+	}
+	r = kmsout_prime(from, handle, kms, &fb.handles[0]);
+	if (r)
+		goto out;
+	fb.width = w;
+	fb.height = h;
+	fb.pixel_format = DRM_FORMAT_XRGB8888;
+	fb.pitches[0] = stride;
+	r = kioctl(kms, DRM_IOCTL_MODE_ADDFB2, &fb);
+	cl.handle = fb.handles[0];
+	kioctl(kms, DRM_IOCTL_GEM_CLOSE, &cl);	/* the framebuffer keeps the object */
+	if (r)
+		goto out;
+	if (old && shown_out != o)
+		back();		/* the last picture was elsewhere */
+	if (o < 0)
+		r = flip(-1, fb.fb_id);
+	else if (old && shown_out == o)
+		r = flip(o, fb.fb_id);	/* the output shows the client's at 0 0 already */
+	else if ((r = kmsidle()) == 0)
+		r = setcrtc(outs[o].crtc, fb.fb_id, 0, 0, &m, outs[o].conn);
+	if (r) {
+		if (old) {
+			back();
+			fbgone(old);
+		}
+		fbgone(fb.fb_id);	/* refused: not on the display, or still on it, if a flip is to come */
+		shown_fb = 0;
+		shown_by = NULL;
+		shown_out = -1;
+		goto out;
+	}
+	shown_fb = fb.fb_id;
+	shown_by = from;
+	shown_out = o;
+	if (o >= 0)
+		shown_mode = m;
+rm:
+	/* the picture before is no longer on the display */
+	if (old && old != shown_fb)
+		fbgone(old);
+out:
+	mutex_unlock(&kmslock);
+	return r;
+}
+
+/* the client's objects of variant b let go of, but the one shown (keep); kmslock held */
+static void
+ovdfree(u32 keep)
+{
+	struct drm_gem_close cl;
+	int i;
+
+	for (i = 0; i < Ndirect; i++) {
+		if (!ovd[i].fb || ovd[i].fb == keep)
+			continue;
+		kioctl(kms, DRM_IOCTL_MODE_RMFB, &ovd[i].fb);
+		memset(&cl, 0, sizeof(cl));
+		cl.handle = ovd[i].handle;
+		kioctl(kms, DRM_IOCTL_GEM_CLOSE, &cl);
+		ovd[i].fb = ovd[i].handle = 0;
+	}
+	if (!keep)
+		ovd_fb = 0;
+}
+
+/*
+ * fb on the overlay plane of the output whose part of the screen has the
+ * window (ov_w x ov_h at x y) wholly; waits for the vblank.  -ERANGE: no
+ * output has it all, no overlay plane on its CRTC, or a client's picture
+ * in a mode of its own is on that output (scanout); over one laid out as
+ * the screen (shown_out -1: wsys composing on the GPU) the plane shows the
+ * window as over the screen.  kmslock held.
+ */
+static int
+ovplace(u32 fb, int x, int y)
+{
+	struct out *o = NULL;
+	int i, k, ko;
+	u64 seq;
+	int r;
+
+	for (i = 0; i < nout; i++) {
+		struct out *p = &outs[i];
+
+		if (p->on && p->crtc && x >= p->x && y >= p->y &&
+		    x + (int)ov_w <= p->x + p->mode.hdisplay && y + (int)ov_h <= p->y + p->mode.vdisplay) {
+			o = p;
+			break;
+		}
+	}
+	for (k = 0; o && k < ncrtc; k++)
+		if (crtcs[k] == o->crtc)
+			break;
+	if (!o || k == ncrtc || !ovplane[k] || (shown_fb && shown_out >= 0 && &outs[shown_out] == o))
+		return -ERANGE;
+	if (ov_plane && ov_crtc != o->crtc && (ko = crtcindex(ov_crtc)) >= 0) {
+		/* the window went to another output: off on the old one */
+		cs[ko].ov = true;
+		cs[ko].ovon = false;
+		commit(ko);
+	}
+	/* in the commit of the CRTC's next vblank, with its primary plane's change */
+	cs[k].ov = true;
+	cs[k].ovon = true;
+	cs[k].ofb = fb;
+	cs[k].ox = x - o->x;
+	cs[k].oy = y - o->y;
+	cs[k].ow = ov_w;
+	cs[k].oh = ov_h;
+	seq = commit(k);
+	r = kmswait(k, seq, HZ);
+	if (r == -ETIMEDOUT)
+		r = 0;	/* still to come */
+	if (r == 0) {
+		ov_plane = ovplane[k];
+		ov_crtc = o->crtc;
+		ov_x = x;
+		ov_y = y;
+	}
+	return r;
+}
+
+/* the overlay off the display and its objects freed; kmslock held */
+static void
+ovfree(void)
+{
+	struct drm_mode_set_plane sp = { };
+	int i, k;
+
+	for (k = 0; k < ncrtc; k++)
+		cs[k].ov = false;	/* latched, not sent: it goes off all the same */
+	if (ov_plane) {
+		sp.plane_id = ov_plane;
+		sp.crtc_id = ov_crtc;
+		kioctl(kms, DRM_IOCTL_MODE_SETPLANE, &sp);	/* fb 0: off */
+	}
+	for (i = 0; i < 2; i++) {
+		if (ov_fb[i])
+			kioctl(kms, DRM_IOCTL_MODE_RMFB, &ov_fb[i]);
+		if (ov_handle[i])
+			ops->screen_free(kms, ov_handle[i]);
+		ov_fb[i] = ov_handle[i] = 0;
+	}
+	ovdfree(0);
+	ov_by = NULL;
+	ov_plane = ov_crtc = 0;
+	ov_w = ov_h = ov_pitch = 0;
+}
+
+/*
+ * the object the client's picture (w x h, stride bytes a row, XRGB8888)
+ * goes into next: one of ours in VRAM, made (two) when the size changes;
+ * the master file and its handle there for the copy.  Another client's
+ * overlay stays: -EBUSY.
+ */
+int
+kmsout_overlay_back(struct file *from, u32 w, u32 h, u32 stride, struct file **kmsf, u32 *handle)
+{
+	struct drm_mode_fb_cmd2 fb;
+	unsigned long long off;
+	u32 pitch;
+	int i, r;
+
+	if (!kms || !scr_fb[0])
+		return -ENODEV;
+	if (w == 0 || h == 0 || stride < w * 4 || stride % 256)
+		return -EINVAL;	/* the copy is one piece: our pitch is the client's */
+	mutex_lock(&kmslock);
+	r = 0;
+	if (ov_by && ov_by != from) {
+		r = -EBUSY;
+		goto out;
+	}
+	if (ov_by != from || ov_w != w || ov_h != h || ov_pitch != stride || !ov_handle[0]) {
+		ovfree();
+		for (i = 0; i < 2; i++) {
+			/* screen_alloc's pitch is ALIGN(w*4, 256): the client's stride */
+			r = ops->screen_alloc(kms, stride / 4, h, &ov_handle[i], &pitch, &off);
+			if (r == 0 && pitch != stride)
+				r = -EINVAL;
+			if (r == 0) {
+				memset(&fb, 0, sizeof(fb));
+				fb.width = w;
+				fb.height = h;
+				fb.pixel_format = DRM_FORMAT_XRGB8888;
+				fb.handles[0] = ov_handle[i];
+				fb.pitches[0] = stride;
+				r = kioctl(kms, DRM_IOCTL_MODE_ADDFB2, &fb);
+				ov_fb[i] = fb.fb_id;
+			}
+			if (r) {
+				ovfree();
+				goto out;
+			}
+		}
+		ov_by = from;
+		ov_w = w;
+		ov_h = h;
+		ov_pitch = stride;
+		ov_back = 0;
+	}
+	*kmsf = kms;
+	*handle = ov_handle[ov_back];
+out:
+	mutex_unlock(&kmslock);
+	return r;
+}
+
+/*
+ * the back object on the overlay plane of the output whose part of the
+ * screen has the window (x y on the screen) wholly, then the other one
+ * is the back; returns when the display shows it (the plane's update
+ * waits for the vblank).  -ERANGE: no output has it all, or no overlay
+ * plane on its CRTC (the client copies).
+ */
+int
+kmsout_overlay_show(struct file *from, int x, int y)
+{
+	int r;
+
+	mutex_lock(&kmslock);
+	if (ov_by != from || !ov_fb[ov_back])
+		r = -EINVAL;
+	else if ((r = ovplace(ov_fb[ov_back], x, y)) == 0)
+		ov_back ^= 1;
+	mutex_unlock(&kmslock);
+	return r;
+}
+
+/*
+ * variant b: the client's object handle itself (in VRAM, XRGB8888, w x h,
+ * stride bytes a row, a multiple of 256) on the overlay plane at x y, no
+ * copy: ours by PRIME, a framebuffer of it kept while the client shows
+ * its swapchain's images in turn.  Returns when the display shows it.
+ */
+int
+kmsout_overlay_direct(struct file *from, u32 handle, u32 w, u32 h, u32 stride, int x, int y)
+{
+	struct drm_mode_fb_cmd2 fb;
+	struct drm_gem_close cl;
+	u32 kh;
+	int i, r;
+
+	if (!kms || !scr_fb[0])
+		return -ENODEV;
+	if (w == 0 || h == 0 || stride < w * 4 || stride % 256)
+		return -EINVAL;
+	r = kmsout_prime(from, handle, kms, &kh);
+	if (r)
+		return r;
+	mutex_lock(&kmslock);
+	if (ov_by && ov_by != from) {
+		r = -EBUSY;
+		goto close;
+	}
+	if (ov_by != from || ov_handle[0] || ov_w != w || ov_h != h || ov_pitch != stride) {
+		ovfree();	/* variant a's objects, or another size */
+		ov_by = from;
+		ov_w = w;
+		ov_h = h;
+		ov_pitch = stride;
+	}
+	for (i = 0; i < Ndirect; i++)
+		if (ovd[i].fb && ovd[i].handle == kh)
+			break;
+	if (i == Ndirect) {
+		/* a new one: in a free slot, or one not shown */
+		for (i = 0; i < Ndirect && ovd[i].fb; i++)
+			;
+		if (i == Ndirect)
+			for (i = 0; i < Ndirect && ovd[i].fb == ovd_fb; i++)
+				;
+		if (ovd[i].fb) {
+			kioctl(kms, DRM_IOCTL_MODE_RMFB, &ovd[i].fb);
+			memset(&cl, 0, sizeof(cl));
+			cl.handle = ovd[i].handle;
+			kioctl(kms, DRM_IOCTL_GEM_CLOSE, &cl);
+			ovd[i].fb = ovd[i].handle = 0;
+		}
+		memset(&fb, 0, sizeof(fb));
+		fb.width = w;
+		fb.height = h;
+		fb.pixel_format = DRM_FORMAT_XRGB8888;
+		fb.handles[0] = kh;
+		fb.pitches[0] = stride;
+		r = kioctl(kms, DRM_IOCTL_MODE_ADDFB2, &fb);
+		if (r)
+			goto close;
+		ovd[i].handle = kh;
+		ovd[i].fb = fb.fb_id;
+		kh = 0;		/* the slot holds it now */
+	} else if (kh != ovd[i].handle) {
+		memset(&cl, 0, sizeof(cl));
+		cl.handle = kh;
+		kioctl(kms, DRM_IOCTL_GEM_CLOSE, &cl);
+		kh = 0;
+	} else
+		kh = 0;		/* PRIME gave the handle we hold */
+	r = ovplace(ovd[i].fb, x, y);
+	if (r == 0)
+		ovd_fb = ovd[i].fb;
+	mutex_unlock(&kmslock);
+	return r;
+close:
+	mutex_unlock(&kmslock);
+	if (kh) {
+		memset(&cl, 0, sizeof(cl));
+		cl.handle = kh;
+		kioctl(kms, DRM_IOCTL_GEM_CLOSE, &cl);
+	}
+	return r;
+}
+
+/* the client's overlay off (from NULL: whoever's); its objects freed */
+void
+kmsout_overlay_off(struct file *from)
+{
+	mutex_lock(&kmslock);
+	if (ov_by && (from == NULL || ov_by == from))
+		ovfree();
+	mutex_unlock(&kmslock);
+}
+
+/* "overlay ..." for the device's status */
+static char *
+ovstate(void)
+{
+	int k, n = 0;
+
+	for (k = 0; k < ncrtc; k++)
+		if (ovplane[k])
+			n++;
+	if (!ov_plane)
+		return kasprintf(GFP_KERNEL, "overlay planes %d, none shown\ncommits %llu (primary %llu, overlay %llu, empty %llu), %llu with two planes, %llu latched, %llu ms to the event; primary planes %u %u\n",
+		    n, ncommit, nprim, nover, nempty, nboth, nlate, ndone ? msdone / ndone : 0, primary[0], primary[1]);
+	return kasprintf(GFP_KERNEL, "overlay planes %d, plane %u crtc %u: %ux%u at %d %d, %s\ncommits %llu (primary %llu, overlay %llu, empty %llu), %llu with two planes, %llu latched, %llu ms to the event\n",
+	    n, ov_plane, ov_crtc, ov_w, ov_h, ov_x, ov_y, ovd_fb ? "the client's object" : "copied", ncommit, nprim, nover, nempty, nboth, nlate,
+	    ndone ? msdone / ndone : 0);
+}
+
+/* "plane ..." for the device's ctl: the screen */
+char *
+kmsout_plane(void)
+{
+	if (!scr_fb[0])
+		return kstrdup("plane none\n", GFP_KERNEL);
+	return kasprintf(GFP_KERNEL, "plane A %#x %u %u %u %u%s\n", 0, scr_pitch, 32, scr_w, scr_h,
+		shown_fb ? " (a context's on the display)" : "");
+}
+
+static struct backlight_device *
+findbl(char *name)
+{
+	struct drm_connector *c;
+	struct backlight_device *b;
+
+	if (!ops || !ops->backlight || !(c = findconn(name)))
+		return NULL;
+	b = ops->backlight(c);
+	drm_connector_put(c);
+	return b;
+}
+
+int
+kmsout_hasbacklight(char *name)
+{
+	return findbl(name) != NULL;
+}
+
+/* "brightness max" of the output's backlight; kmalloc'd */
+char *
+kmsout_backlight(char *name)
+{
+	struct backlight_device *b = findbl(name);
+	int v;
+
+	if (!b)
+		return NULL;
+	mutex_lock(&b->ops_lock);
+	v = b->props.brightness;
+	if (b->ops && b->ops->get_brightness)
+		v = b->ops->get_brightness(b);
+	mutex_unlock(&b->ops_lock);
+	return kasprintf(GFP_KERNEL, "%d %d\n", v, b->props.max_brightness);
+}
+
+/* "n" (of max) or "n%": the output's brightness; nil or the error */
+const char *
+kmsout_setbacklight(char *name, char *spec)
+{
+	struct backlight_device *b = findbl(name);
+	unsigned long v;
+	char *e;
+
+	if (!b)
+		return "no backlight";
+	v = simple_strtoul(spec, &e, 10);
+	if (e == spec)
+		return "usage: brightness, or percent%";
+	if (*e == '%') {
+		if (v > 100)
+			return "more than 100%";
+		v = DIV_ROUND_CLOSEST(v * b->props.max_brightness, 100);
+	}
+	if (v > b->props.max_brightness)
+		return "brighter than its maximum";
+	return backlight_device_set_brightness(b, v) ? "the backlight refuses" : NULL;
+}

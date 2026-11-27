@@ -1,0 +1,5 @@
+# github.com/Harvey-OS/ninep v0.0.0-20200724082702-d30a6d4f9789
+## explicit
+github.com/Harvey-OS/ninep/filesystem
+github.com/Harvey-OS/ninep/pkg/debugfs
+github.com/Harvey-OS/ninep/protocol

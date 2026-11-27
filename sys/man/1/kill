@@ -17,6 +17,9 @@ kill, Kill, slay, broke, dontkill \- print commands to kill processes
 ]
 .PP
 .B dontkill
+[
+.B -r
+]
 .I regexp
 .SH DESCRIPTION
 .I Kill
@@ -76,7 +79,21 @@ the broken processes.
 flags processes matching the program name
 .I regexp
 as not to be killed in the event of memory
-exhaustion. This is usually run from
+exhaustion
+.RB ( nokill ,
+see
+.IR proc (3)).
+With
+.B -r
+they may also take the last free pages
+.RB ( noswap ):
+only for processes that free memory, the file servers and what
+serves the swap device.
+9front's
+.I dontkill
+always sets
+.BR noswap .
+This is usually run from
 .B termrc
 and
 .B cpurc

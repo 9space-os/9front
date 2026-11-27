@@ -41,7 +41,7 @@ def main():
 		print(fat_offset(sys.argv[2]))
 		return
 	src = sys.argv[1]
-	root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+	root = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', '..'))
 	stamp = time.strftime('%Y-%m-%d-%H%M%S')
 	if len(sys.argv) > 2:
 		dest = sys.argv[2]

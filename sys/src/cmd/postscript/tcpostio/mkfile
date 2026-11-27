@@ -10,6 +10,9 @@ BIN=$POSTBIN
 
 </sys/src/cmd/mkone
 CC=pcc
+# 9space: linked by pcc, with APE's libraries, not only by its headers'
+# #pragma lib (gcc and gccmk do not take it)
+LD=pcc
 CFLAGS=-Bw -c -D_POSIX_SOURCE -D_BSD_EXTENSION -D_NET_EXTENSION -Dplan9
 
 syms:V:

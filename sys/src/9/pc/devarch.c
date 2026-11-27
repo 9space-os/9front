@@ -430,6 +430,10 @@ static X86type x86amd[] =
 	{ 22,	0,	11,	"AMD Jaguar", },
 	{ 22,	3,	11,	"AMD Puma", },
 	{ 23,	1,	13,	"AMD Ryzen" },
+	/* 9space: by family alone (9front's model adds the extended model unshifted) */
+	{ 23,	-1,	13,	"AMD Zen" },	/* Zen, Zen 2 */
+	{ 25,	-1,	13,	"AMD Zen 3" },	/* Zen 3, 3+, 4 (Ryzen 7 7735HS) */
+	{ 26,	-1,	13,	"AMD Zen 5" },
 
 	{ -1,	-1,	11,	"unknown", },	/* total default */
 };
@@ -952,6 +956,8 @@ timerset(Tval x)
  *  and it reduces lock contention (thus system time and real time)
  *  on many-core systems with large values of NPROC.
  */
+void (*idlemwait)(void);	/* 9space: deeper C-states (pc64/cstate.c) */
+
 void
 idlehands(void)
 {
@@ -959,6 +965,8 @@ idlehands(void)
 
 	if(conf.nmach == 1)
 		halt();
+	else if(idlemwait != nil)
+		idlemwait();
 	else if(m->cpuidcx & Monitor)
 		mwait(&nrdy);
 	else if(idle_spin == 0)

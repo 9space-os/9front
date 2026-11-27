@@ -1,0 +1,72 @@
+.TH FILES 1
+.SH NAME
+files \- file manager on ui(4)
+.SH SYNOPSIS
+.B files
+[
+.I dir
+]
+.SH DESCRIPTION
+.I Files
+shows one directory in a new window of
+.IR ui (4),
+.I dir
+or the current one at the start.
+Its path is in a text box at the top; a path typed there (absolute, or
+relative to the directory shown) and enter go to it,
+.B up
+to the parent,
+.B home
+to
+.BR $home .
+Below are the directory's entries, its directories first (with a
+.BR / ),
+then its files with their sizes, each part by name.
+.PP
+A click on an entry selects it (shown with a
+.BR » );
+a second click on it, or
+.BR open ,
+opens it: a directory is gone into, a file's name is sent to the
+.IR plumber (4)
+from the directory shown, as a click of button 3 in
+.IR acme (1)
+does: the rules decide what opens it.
+With an entry selected, the text box beside
+.B open
+holds its name:
+.B rename
+(or enter) gives it the name typed there, a name in the same directory
+(as
+.IR stat (5)'s
+wstat renames).
+.B Delete
+asks first
+.RB ( yes
+or
+.BR no );
+a directory is deleted only when empty.
+A name typed into the box at the bottom and
+.B make
+(or enter) make a new directory there.
+The last line counts the entries and says what was done last, or what failed.
+.PP
+The directory is read again every 2 seconds: what other programs make,
+change or take away there shows.
+.PP
+The window's files are those of
+.IR ui (4):
+.B /srv/ui.\fIuser\fP.\fIpid\fP.0
+mounted elsewhere shows its tree; each entry is a button whose
+.B text
+is its name.
+.SH SOURCE
+.B /sys/src/cmd/files
+.SH SEE ALSO
+.IR ui (4),
+.IR uiview (2),
+.IR plumb (6),
+.IR ls (1)
+.SH BUGS
+No copying or moving into another directory, and no selection of more
+than one file.

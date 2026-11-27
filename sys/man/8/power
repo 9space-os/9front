@@ -1,0 +1,70 @@
+.TH POWER 8
+.SH NAME
+power \- what the processor package draws, how deep it idles
+.SH SYNOPSIS
+.B aux/power
+[
+.B -i
+.I seconds
+]
+[
+.B -n
+.I count
+]
+.SH DESCRIPTION
+.I Aux/power
+reads the processor's model-specific registers
+.RB ( #P/msr ,
+see
+.IR arch (3))
+every
+.I seconds
+(default 5) and prints a line:
+the average power of the RAPL domains the processor has
+.RB ( pkg ,
+the whole package;
+.BR cores ;
+.BR gpu ,
+the integrated graphics;
+.BR dram ;
+on AMD processors the package and the cores summed),
+then the share of the time the package spent in its C-states
+.RB ( pc2
+to
+.BR pc10 )
+and the cores, averaged over the processors, in theirs
+.RB ( cc3 ,
+.BR cc6 ,
+.BR cc7 ;
+Intel only).
+A register the processor lacks is left out.
+With
+.B -n
+it stops after
+.I count
+lines.
+.PP
+It reads each processor's registers on that processor, wiring itself
+to one after the other
+.RI ( proc (3)),
+and needs to open
+.BR #P/msr ,
+as the host owner.
+.SH EXAMPLE
+A ThinkPad X1 Carbon (Broadwell) idling in C1 only:
+.IP
+.EX
+% aux/power -i 5 -n 1
+pkg 2.29W  cores 0.11W  gpu 0.01W  dram 0.84W  pc2 0%  pc3 0% ...
+.EE
+.SH SOURCE
+.B /sys/src/cmd/aux/power.c
+.SH SEE ALSO
+.IR pstate (8),
+.IR arch (3)
+.SH BUGS
+The battery's own discharge rate, the whole machine's draw, is not
+shown:
+.IR acpi (8)'s
+.B battery
+file has no rate.

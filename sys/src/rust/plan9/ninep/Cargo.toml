@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# ninep: 9P2000 for the file servers in Rust (wsys, ui; webfs-rs later):
+# the T-messages parsed, the R-messages built, whole messages from a
+# connection's reads. Part of the workspace. Its master is this tree (as
+# desk's), not toolchain/rust (RUST_DIR): sys/src/build/rust/crates.sh copies
+# only crates/ and plan9/p9win from there and leaves this crate alone.
+[package]
+name = "ninep"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+workspace = "../.."
+
+[dependencies]

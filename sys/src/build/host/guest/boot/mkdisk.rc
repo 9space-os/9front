@@ -20,7 +20,7 @@ d=/dev/sdC0
 s=newfs
 proto=/n/src9/sys/lib/sysconfig/proto/distproto
 bootproto=/n/src9/sys/lib/sysconfig/proto/9bootproto
-gccproto=/n/src9/gccproto	# /$objtype/lib.gcc, /$objtype/gnu (sys/src/build/host/guest/boot/gccproto, gnuproto)
+gccproto=/n/src9/gccproto	# stage-dist.sh's extra protos in one (sys/src/build/host/guest/boot/*proto: lib.gcc, gnu, rust, go, ...)
 
 test -f $d/data || fail no disk $d
 if(! test -d /n/src9/$A)
@@ -80,7 +80,12 @@ hjfs -f $d/fs -n $s -S -r || fail hjfs
 	sleep 1
 } >> /srv/$s.cmd
 mount -N -c /srv/$s /n/newfs || fail mount newfs
-disk/mkfs -z 4096 -U -s /n/src9 -d /n/newfs <{cat $proto $bootproto $gccproto}
+# mkfs only warns about a file it cannot read, create or write (its status
+# says only skipped protos): here every warning is a failure
+disk/mkfs -z 4096 -U -s /n/src9 -d /n/newfs <{cat $proto $bootproto $gccproto} >[2]/tmp/mkfs.err
+st=$status
+cat /tmp/mkfs.err
+if(! ~ $st '' || grep -s '^mkfs: ' /tmp/mkfs.err) fail mkfs $st
 echo sync >> /srv/$s.cmd
 echo halt >> /srv/$s.cmd
 while(test -e /srv/$s.cmd) sleep 1

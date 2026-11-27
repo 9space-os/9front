@@ -1,22 +1,30 @@
 #!/usr/bin/env python3
 """
-The native gcc on the install CD (/$objtype/gnu, ../9front-gcc): boot to
-rio, then over the serial rc: gcc runs, compiles and links a POSIX program
+The native gcc on the install CD (/$objtype/gnu, toolchain/gcc: GCC_DIR in
+paths.env): boot to the desktop, then over the serial rc: gcc runs, compiles and links a POSIX program
 over APE, and a native Plan 9 program (/sys/src/cmd/echo.c with libc.a
 from /$objtype/lib.gcc); both run; gccmk builds hoc from its mkfile.
 
 usage: sys/src/build/host/tests/gcc/gcc.py iso workdir objtype
    prints one line per check: ok|fail <name>
 """
-import os, sys, time
+import os, re, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-from vm import VM
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../lib'))
+from vm import machine
+import paths
+
+def gccversion():
+	"""the version toolchain/gcc builds (its sources.txt: gcc-X.Y.Z)"""
+	f = os.path.join(paths.get('GCC_DIR'), 'sources.txt')
+	m = re.search(r'gcc-(\d+\.\d+\.\d+)', open(f).read())
+	if m is None:
+		sys.exit('gcc.py: no gcc version in %s' % f)
+	return m.group(1)
 
 iso, work, objtype = sys.argv[1:4]
-vm = VM(iso, work, objtype)
-def result(ok, name):
-	print('%s %s' % ('ok' if ok else 'fail', name), flush=True)
-	return ok
+vm = machine(iso, work, objtype)
+result = vm.result	# ok|fail lines; a failed one keeps the work directory
 
 def run(line, marker, secs):
 	"""line on the serial rc, then echo marker; output until it shows"""
@@ -29,9 +37,11 @@ def run(line, marker, secs):
 try:
 	if not result(vm.boot(), 'boot to rio, serial rc'):
 		sys.exit(0)
-	vm.serial('bind -b /%s/gnu/bin /bin; cd /tmp' % objtype, 2)
+	vm.serial('bind -b /%s/gnu/bin /bin' % objtype, 2)
+	W = vm.workdir('gcc')
 	out = run('gcc --version', 'gcc-version-done', 60)
-	result('16.2' in out, 'gcc --version')
+	want = gccversion()
+	result(want in out, 'gcc --version is %s (GCC_DIR)' % want)
 
 	vm.serial("echo '#include <stdio.h>' > hello.c", 1)
 	vm.serial("echo 'int main(void){ printf(\"hello from gcc\\n\"); return 0; }' >> hello.c", 1)
@@ -46,8 +56,8 @@ try:
 
 	# 9front's mkfile with gcc (the CD's /sys/src is read-only: a copy)
 	O = {'amd64': '6', '386': '8'}[objtype]
-	mk = ("mkdir /tmp/hoc && dircp /sys/src/cmd/hoc /tmp/hoc && cd /tmp/hoc && gccmk >/tmp/hoc.log"
-		" && echo '6*7' | ./%s.out | sed 's/^/hoc says /'") % O
+	mk = ("mkdir %s/hoc && dircp /sys/src/cmd/hoc %s/hoc && cd %s/hoc && gccmk >%s/hoc.log"
+		" && echo '6*7' | ./%s.out | sed 's/^/hoc says /'") % (W, W, W, W, O)
 	out = run(mk, 'mk-done', 600)
 	result('hoc says 42' in out, 'gccmk: hoc from its mkfile, runs')
 finally:

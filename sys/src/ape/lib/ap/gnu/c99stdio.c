@@ -68,8 +68,12 @@ vfprintf(FILE *f, const char *fmt, va_list arg)
 {
 	int n;
 
+	if(__isthreaded)
+		flockfile(f);	/* 9space: one call's output not torn (the engine writes in pieces) */
 	n = __apecompat_mvfprintf(f, fmt, arg);
 	seterrno();
+	if(__isthreaded)
+		funlockfile(f);
 	return n;
 }
 
@@ -148,8 +152,12 @@ vfscanf(FILE *f, const char *fmt, va_list arg)
 {
 	int n;
 
+	if(__isthreaded)
+		flockfile(f);	/* 9space: the stream's bytes for this call alone */
 	n = __apecompat_mvfscanf(f, fmt, arg);
 	seterrno();
+	if(__isthreaded)
+		funlockfile(f);
 	return n;
 }
 

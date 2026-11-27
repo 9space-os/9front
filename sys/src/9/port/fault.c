@@ -237,6 +237,11 @@ fixfault(Segment *s, uintptr addr, int read)
 		}
 		/* wet floor */
 	case SG_STICKY:			/* Never paged out */
+		/* 9front-ng: an alias segment's page not there (or revoked): a fault */
+		if(*pg == nil){
+			qunlock(&s->QLock);
+			return -2;
+		}
 		new = *pg;
 		mmuphys = PPN(new->pa) | PTEWRITE | PTECACHED | PTEVALID;
 		new->modref |= up->privatemem? PG_PRIV|PG_MOD|PG_REF: PG_MOD|PG_REF;
@@ -261,8 +266,9 @@ fixfault(Segment *s, uintptr addr, int read)
 	return 0;
 }
 
+/* 9front-ng: pa, the page's physical address (a pager's segment: from the driver) */
 static void
-mapphys(Segment *s, uintptr addr, int attr)
+mapphys(Segment *s, uintptr addr, int attr, uintptr pa)
 {
 	uintptr mmuphys;
 	Page pg = {0};
@@ -270,7 +276,7 @@ mapphys(Segment *s, uintptr addr, int attr)
 	addr &= ~(BY2PG-1);
 	pg.Ref.ref = 1;
 	pg.va = addr;
-	pg.pa = s->pseg->pa+(addr-s->base);
+	pg.pa = pa;
 	settxtflush(&pg, s->flushme);
 
 	mmuphys = PPN(pg.pa) | PTEVALID;
@@ -289,6 +295,11 @@ mapphys(Segment *s, uintptr addr, int attr)
 		mmuphys |= PTEDEVICE;
 	else
 #endif
+#ifdef PTEWC
+	if((attr & SG_WC) != 0)
+		mmuphys |= PTEWC;
+	else
+#endif
 	if((attr & SG_CACHED) == 0)
 		mmuphys |= PTEUNCACHED;
 	else
@@ -304,7 +315,7 @@ fault(uintptr addr, uintptr pc, int read)
 {
 	Segment *s;
 	char *sps;
-	int pnd, ins, attr;
+	int pnd, ins, attr, i;
 
 	if(up == nil)
 		panic("fault: no user process pc=%#p addr=%#p", pc, addr);
@@ -327,7 +338,8 @@ fault(uintptr addr, uintptr pc, int read)
 		ulong lastflush = up->tlbflush;
 		spllo();
 
-		s = seg(up, addr, 1);		/* leaves s locked if seg != nil */
+		/* 9front-ng: kept: another of the memory image may detach it (segment.c: segref) */
+		s = segref(addr, 1);		/* leaves s locked if seg != nil */
 		if(s == nil) {
 			up->psstate = sps;
 			up->insyscall = ins;
@@ -338,10 +350,17 @@ fault(uintptr addr, uintptr pc, int read)
 		if((attr & SG_TYPE) == SG_PHYSICAL)
 			attr |= s->pseg->attr;
 
+		/* 9space: a lost segment (segrevoke): its page of its own, wherever */
+		if((attr & SG_LOST) != 0 && s->lost != nil){
+			mapphys(s, addr, (attr & ~(SG_RONLY|SG_DEVICE|SG_WC)) | SG_CACHED | SG_NOEXEC, s->lost->pa);
+			goto done;
+		}
+
 		if((attr & SG_FAULT) != 0
 		|| (read ? ((attr & SG_NOEXEC) != 0 || s->flushme == 0) && (addr & -BY2PG) == (pc & -BY2PG):
 			 (attr & SG_RONLY) != 0)) {
-			qunlock(s);
+			qunlock(&s->QLock);
+			segunref(s);
 			up->psstate = sps;
 			up->insyscall = ins;
 			if(up->kp && up->nerrlab)	/* for segio */
@@ -350,17 +369,57 @@ fault(uintptr addr, uintptr pc, int read)
 		}
 
 		if((attr & SG_TYPE) == SG_PHYSICAL){
-			mapphys(s, addr, attr);
+			uintptr pa;
+
+			if(s->pseg->pager == nil)
+				pa = s->pseg->pa+((addr&~(BY2PG-1))-s->base);
+			else if(!(*_pagerpa)(s->pseg->pager, addr-s->base, &pa)){
+				/*
+				 * 9front-ng: a pager's segment without the page: the
+				 * driver puts it there (a GPU object made visible to
+				 * the processor, as Linux's fault handler does), then
+				 * around again; no page to come is a fault
+				 */
+				qunlock(&s->QLock);
+				if((*_pagerwait)(s->pseg->pager, addr-s->base) < 0){
+					segunref(s);
+					up->psstate = sps;
+					up->insyscall = ins;
+					if(up->kp && up->nerrlab)	/* for segio */
+						error(Eio);
+					return -1;
+				}
+				goto again;
+			}
+			/* 9front-ng: a pager's page of memory (devsegment.c "ram"): cached */
+			if(pa & 1){
+				pa &= ~(uintptr)1;
+				attr = (attr & ~(SG_DEVICE|SG_WC)) | SG_CACHED;
+			}
+			mapphys(s, addr, attr, pa);
 			goto done;
 		}
 
-		if(fixfault(s, addr, read) == 0){
+		if((i = fixfault(s, addr, read)) == -2){
+			/* 9front-ng: no page there and none to make (sticky) */
+			segunref(s);
+			up->psstate = sps;
+			up->insyscall = ins;
+			if(up->kp && up->nerrlab)	/* for segio */
+				error(Eio);
+			return -1;
+		}
+		if(i == 0){
 		done:
-			if(up->tlbflush == lastflush)
+			if(up->tlbflush == lastflush){
+				segunref(s);
 				break;
+			}
 			/* TLB might be stale, go around */
 		}
 
+	again:
+		segunref(s);
 		splhi();
 		switch(up->procctl){
 		case Proc_exitme:
@@ -394,8 +453,10 @@ okaddr(uintptr addr, ulong len, int write)
 	Segment *s;
 
 	if((s32int)len >= 0 && len <= -addr) {	/* GCC port: kencc's long is 32 bits like len, gcc's is 64 */
+		/* 9front-ng: under segtab, as another of the memory image may detach one (segment.c) */
+		ilock(&up->segtab);
 		for(;;) {
-			s = seg(up, addr, 0);
+			s = findseg(up, addr);
 			if(s == nil || (write && (s->type&SG_RONLY)))
 				break;
 
@@ -404,8 +465,10 @@ okaddr(uintptr addr, ulong len, int write)
 				addr = s->top;
 				continue;
 			}
+			iunlock(&up->segtab);
 			return 1;
 		}
+		iunlock(&up->segtab);
 	}
 	return 0;
 }
@@ -452,23 +515,17 @@ vmemchr(void *s, int c, ulong n)
 Segment*
 seg(Proc *p, uintptr addr, int dolock)
 {
-	int i;
 	Segment *s;
 
-	for(i = 0; i < NSEG; i++) {
-		if((s = p->seg[i]) == nil)
-			continue;
-		if(addr >= s->base && addr < s->top) {
-			if(dolock == 0)
-				return s;
-
-			qlock(&s->QLock);
-			if(addr >= s->base && addr < s->top)
-				return s;
-			qunlock(&s->QLock);
-		}
-	}
-
+	/* 9front-ng: by address, a binary search (segment.c: segbyaddr) */
+	if((s = segbyaddr(p, addr)) == nil)
+		return nil;
+	if(dolock == 0)
+		return s;
+	qlock(&s->QLock);
+	if(addr >= s->base && addr < s->top)
+		return s;
+	qunlock(&s->QLock);
 	return nil;
 }
 
@@ -485,7 +542,8 @@ checkpages(void)
 	if(up == nil)
 		return;
 
-	for(i = 0; i < NSEG; i++) {
+	qlock(&up->seglock);	/* 9front-ng: others change up's table too (segment.c) */
+	for(i = 0; i < up->nseg; i++) {
 		if((s = up->seg[i]) == nil)
 			continue;
 		qlock(&s->QLock);
@@ -497,5 +555,5 @@ checkpages(void)
 			}
 		}
 		qunlock(&s->QLock);
-	}
+	}	qunlock(&up->seglock);
 }

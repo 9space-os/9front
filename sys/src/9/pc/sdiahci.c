@@ -2076,7 +2076,15 @@ didtype(Pcidev *p)
 	type = Tahci;
 	switch(p->vid){
 	default:
-		return -1;
+		/*
+		 * 9space: any vendor's controller that says it is AHCI by
+		 * its class code (mass storage, SATA, AHCI 1.0), as
+		 * OpenBSD's ahci_pci_match and FreeBSD's ahci_probe take
+		 * them; the cases below are the controllers with quirks.
+		 * 9front took only the vendors listed (a Samsung PCIe AHCI
+		 * SSD, 144d/a801 in the X1 Carbon 3rd, was never seen).
+		 */
+		break;
 	case 0x8086:
 		if((p->did & 0xffff) == 0x1e02)
 			return Tich;		/* c210 */

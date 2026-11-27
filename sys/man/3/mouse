@@ -96,6 +96,15 @@ to be the mouse port.
 .TP
 .B ps2
 sets the PS2 port to be the mouse port.
+9space: a Synaptics touchpad there (its identify query answers) is set
+up as by
+.B synaptic
+on its own, as OpenBSD's and FreeBSD's drivers find one; 9front does
+not look.
+.TP
+.B ps2plain
+the PS2 port without that: a touchpad stays a plain PS2 mouse
+(9space).
 .TP
 .B intellimouse
 uses the wheel on a Microsoft Intellimouse
@@ -105,7 +114,29 @@ as the middle button.
 is equivalent to a write of
 .B ps2
 followed by a write of
-.BR intellimouse .
+.BR intellimouse
+(9space: a Synaptics touchpad is set up as by
+.BR synaptic ).
+.TP
+.B synaptic
+sets the PS2 port to a Synaptics touchpad in its absolute mode
+(9space: the pad as a laptop's: one finger moves the pointer, two
+scroll as the wheel, a click of a clickpad is button 1 with one finger
+on it, 3 with two, 2 with three; a TrackPoint behind it passes through,
+its buttons too where the pad carries them; 9front put the pointer
+where the finger touched).
+The touchpad's identity and capabilities go to the console.
+.TP
+.B "touchpad\fI on/off\fP"
+the touchpad of
+.B synaptic
+on or off (the TrackPoint stays).
+.TP
+.B "tap\fI on/off\fP"
+whether a tap on the touchpad of
+.B synaptic
+(a touch shorter than 180 ms that hardly moved) clicks: button 1 with
+one finger, 3 with two, 2 with three; on by default (9space).
 .TP
 .B "accelerated\fI [n]\fP"
 turns on mouse acceleration.
@@ -156,6 +187,22 @@ unlike
 .TP
 .B scrollswap
 inverts the scroll wheel.
+.TP
+.B "midscroll\fI on/off\fP"
+(PS/2 mice, 9space) scrolls by the middle button, as on a TrackPoint:
+held and moved up or down it sends the wheel's buttons 8 and 16 and
+the pointer stays; pressed and released without moving it is a
+middle click, sent at the release.
+Off by default, as that changes the middle button:
+.IR rio (1)'s
+menu and
+.IR acme (1)'s
+sweeps hold it and move.
+.I Screenrc
+turns it on with
+.B midscroll=on
+in
+.IR plan9.ini (8).
 .TP
 .B reset
 clears the mouse

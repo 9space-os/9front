@@ -57,7 +57,8 @@
 		],
 		"Program": "kb",
 		"SourceFiles": [
-			"kb.c"
+			"kb.c",
+			"hid.c"
 		]
 	}
 ]

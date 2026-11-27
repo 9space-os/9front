@@ -1,0 +1,66 @@
+#!/bin/rc
+# batteryguard - when the battery is critical and no AC charges it,
+# halt the file servers and power off (batteryguard(8); 9space)
+rfork e
+crit=5
+grace=60
+~ $#batterycrit 1 && crit=$batterycrit
+while(~ $1 -*){
+	switch($1){
+	case -c
+		crit=$2
+		shift
+	case -g
+		grace=$2
+		shift
+	case *
+		echo usage: batteryguard '[-c percent] [-g seconds]' >[1=2]
+		exit usage
+	}
+	shift
+}
+
+# the first battery's charge (percent) and status: acpi(8), fields 1 and 12
+fn battery {
+	b=`{sed 1q /dev/battery >[2]/dev/null}
+	pct=()
+	st=()
+	if(~ $#b 14){
+		pct=$b(1)
+		st=$b(12)
+	}
+}
+
+# a message on the console and in a window of the newest window system
+# (wsys(4), rio(1): their /srv files; window(1) mounts $wsys), as the
+# console is hidden under them; the message has no rc syntax in it.
+# window(1) writes the command to wctl as text, which the window system
+# runs by rc: hence the quotes within the quotes
+fn tell {
+	echo batteryguard: $* >[1=2]
+	for(s in `{ls -t /srv/wsys.* /srv/rio.* >[2]/dev/null | sed 1q})
+		wsys=$s window -r 400 300 1300 420 rc -c '''echo; echo batteryguard: '^$"*^'; sleep 300''' >[2]/dev/null &
+}
+
+fn low {
+	! ~ $st charging idle unknown && {~ $st critical || test $pct -le $crit}
+}
+
+battery
+if(~ $#pct 0)
+	exit nobattery
+while(){
+	battery
+	if(~ $#pct 1 && low){
+		tell battery at $pct%, $st: halting in $grace seconds unless AC is plugged in
+		sleep $grace
+		battery
+		if(~ $#pct 1 && low){
+			tell battery at $pct%: halting now
+			fshalt
+			exit
+		}
+		tell AC plugged in, not halting
+	}
+	sleep 30
+}

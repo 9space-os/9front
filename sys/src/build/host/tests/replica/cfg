@@ -1,0 +1,15 @@
+#!/bin/rc
+# sys/src/build/host/tests/replica's replica (replica(1)): as /dist/replica/9space
+# (sys/src/build/host/replica/publish.py), with the server and client from the
+# environment guest.rc sets
+s=/n/replica.test
+serverroot=$s/root
+serverlog=$s/log
+fn servermount {
+	if(! test -e /mnt/web/clone)
+		webfs
+	replica/httpfs -k /tests/replica/9space.pub -m $s $testurl
+}
+clientroot=$testroot
+clientdb=$testdb
+clientlog=$testlog

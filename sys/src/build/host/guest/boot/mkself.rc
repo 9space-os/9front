@@ -1,7 +1,7 @@
 #!/bin/rc
 # The system builds itself: run inside the guest by sys/src/build/host/guest/
 # build-self.sh, the build tool (built for Plan 9) with the native gcc
-# and binutils (/$objtype/gnu, ../9front-gcc) on a copy of the tree,
+# and binutils (/$objtype/gnu, from toolchain/gcc: GCC_DIR) on a copy of the tree,
 # served as /n/src9 -- what CC=gcc ARCH=$objtype build.exe does on Linux.
 # The build steps are sys/src/build/step/rc/*.rc there (build.exe: plan9step).
 rfork en
@@ -23,6 +23,11 @@ objtype=$cputype
 G=/$objtype/gnu/bin
 test -x $G/gcc || fail no $G/gcc
 cd /n/src9
+# the tree's headers where a 9front system has them, as the cross gcc
+# sees its sysroot: the native gcc's own include path names /sys/include/ape
+# and /$objtype/include/ape (manifests with Compat, Mesa)
+bind /n/src9/sys/include /sys/include
+bind /n/src9/$objtype/include /$objtype/include
 echo mkself: build
 # a fresh environment: the build tool hands its own on to its commands
 # as Go sees it, and rc cannot read functions back from that. CC=gcc

@@ -1,0 +1,194 @@
+#!/bin/rc
+# wlan - the wireless networks in range, joining one, the ones to know
+# (wlan(8); 9space)
+#	wlan [-d dev]				the networks in range
+#	wlan [-d dev] join [-s] essid		join (asks for a passphrase it does not know; -s keeps it)
+#	wlan [-d dev] auto			join the strongest known one in range
+#	wlan forget essid			a known one no more
+#	wlan [-d dev] off			leave the network
+rfork e
+known=$home/lib/wlan
+dev=()
+if(~ $1 -d){
+	dev=$2
+	shift
+	shift
+}
+
+fn usage {
+	echo 'usage: wlan [-d dev] [join [-s] essid | auto | forget essid | off]' >[1=2]
+	exit usage
+}
+
+# the first wlan interface (the boot binds only the one it came over:
+# the others' devices into /net; a wlan device loads its firmware then)
+# (rc has no return: the functions end where their last command does)
+fn findwlan {
+	if(~ $#dev 0)
+		for(i in 0 1 2 3 4 5 6 7)
+			if(test -e '#l'$i/ether$i){
+				test -e /net/ether$i || bind -a '#l'$i /net
+				if(~ $#dev 0 && grep -s '^essid:' /net/ether$i/ifstats)
+					dev=/net/ether$i
+			}
+	if(~ $#dev 0){
+		echo wlan: no wlan interface >[1=2]
+		exit nowlan
+	}
+}
+
+# the nodes heard, one line per network: rssi channel aps lock essid
+# (ifstats' node lines: bssid caps lastseen channel rssi essid...;
+# caps bit 4: privacy)
+fn networks {
+	grep '^node:' $dev/ifstats | awk '{
+		e = $7; for(i = 8; i <= NF; i++) e = e " " $i
+		if(e == "") next
+		c = 0; h = "0123456789abcdef"; s = tolower($3)
+		for(i = 1; i <= length(s); i++) c = c*16 + index(h, substr(s, i, 1)) - 1
+		priv = int(c / 16) % 2
+		n[e]++
+		if(!(e in r) || $6 + 0 > r[e]){ r[e] = $6 + 0; ch[e] = $5; p[e] = priv }
+	}
+	END { for(e in r) printf "%d %s %d %s %s\n", r[e], ch[e], n[e], p[e] ? "wpa" : "open", e }' | sort -nr
+}
+
+fn current {
+	if(grep -s '^status: associated' $dev/ifstats)
+		sed -n 's/^essid: //p' $dev/ifstats | tr -d '\012'
+}
+
+# the known networks' passphrase for $1, if any (lines essid<tab>passphrase)
+fn knownpw {
+	test -r $known && awk -F'	' -v 'e='$1 '$1 == e { print $2; exit }' $known
+}
+
+# factotum's quoting: a value in '' with '' for '
+fn fq { echo -n $1 | sed 's/''/''''/g; s/^/''/; s/$/''/' }
+
+# the known networks without essid $1 (the file only its owner's)
+fn drop {
+	touch $known
+	chmod 600 $known
+	awk -F'	' -v 'e='$1 '$1 != e' $known >$known.new
+	mv $known.new $known
+	chmod 600 $known
+}
+
+# its status: associated within 30 seconds
+fn waitassoc {
+	i=0
+	while(! grep -s '^status: associated' $dev/ifstats && test $i -lt 30){
+		sleep 1
+		i=`{echo $i + 1 | hoc}
+	}
+	grep -s '^status: associated' $dev/ifstats
+}
+
+# the interface's addresses gone, then one by DHCP
+fn address {
+	ip/ipconfig ether $dev unbind >[2]/dev/null
+	ip/ipconfig ether $dev
+}
+
+fn stopwpa {
+	for(pid in `{ps -a | awk '/aux\/wpa/ && $0 ~ "'$dev'" && !/awk/ {print $2}'})
+		if(test -e /proc/$pid/note)
+			@{echo kill >/proc/$pid/note} >[2]/dev/null
+}
+
+fn join {
+	essid=$1
+	save=$2
+	lock=`{networks | awk -v 'e='$essid '{ x = $5; for(i = 6; i <= NF; i++) x = x " " $i } x == e { print $4; exit }'}
+	stopwpa
+	if(~ $lock open){
+		echo essid $essid >$dev/clone
+	}
+	if not {
+		pw=`''{knownpw $essid}
+		if(~ $#pw 0 || ~ $pw ''){
+			echo -n 'passphrase for '$essid': ' >/dev/cons
+			{
+				echo rawon
+				pw=`''{read </dev/cons}
+				echo rawoff
+			} >/dev/consctl >[2]/dev/null
+			echo >/dev/cons
+			pw=`''{echo -n $pw | tr -d '\012\015'}
+		}
+		echo 'delkey proto=wpapsk essid='^`{fq $essid} >/mnt/factotum/ctl >[2]/dev/null
+		echo 'key proto=wpapsk essid='^`{fq $essid}^' !password='^`{fq $pw} >/mnt/factotum/ctl
+		aux/wpa -s $essid $dev
+	}
+	if(! waitassoc){
+		echo wlan: $essid: not associated >[1=2]
+		exit notassociated
+	}
+	if(~ $save 1){
+		~ $lock open && pw=''
+		drop $essid
+		echo $essid'	'$pw >>$known
+	}
+	address
+}
+
+switch($1){
+case ''
+	findwlan
+	c=`''{current}
+	networks | awk -v 'c='$"c '{ x = $5; for(i = 6; i <= NF; i++) x = x " " $i
+		printf "%s %4d dBm  ch %3s  %d ap  %-4s  %s\n", (x == c ? "*" : " "), $1, $2, $3, $4, x }'
+case join
+	shift
+	s=0
+	if(~ $1 -s){
+		s=1
+		shift
+	}
+	~ $#* 0 && usage
+	findwlan
+	join $"* $s
+case auto
+	findwlan
+	test -r $known || exit noknown
+	# networks' lines are strongest first: the first one known.
+	# 9space: at boot the radio's scan has heard nothing yet (its
+	# firmware just loaded): wait for one, $wlanwait s (default 30), as
+	# OpenBSD's join list waits for a network to show up
+	if(~ $#wlanwait 0)
+		wlanwait=30
+	i=0
+	best=()
+	while(~ $#best 0 && test $i -le $wlanwait){
+		best=`''{networks | awk 'FNR == NR { split($0, f, "	"); k[f[1]] = 1; next }
+			{ x = $5; for(i = 6; i <= NF; i++) x = x " " $i }
+			(x in k) { print x; exit }' $known -}
+		if(~ $best '')
+			best=()
+		if(~ $#best 0){
+			sleep 1
+			i=`{echo $i + 1 | hoc}
+		}
+	}
+	if(~ $#best 0){
+		echo wlan: no known network in range >[1=2]
+		exit nonetwork
+	}
+	best=`{echo -n $best | tr -d '\012'}
+	join $"best 0
+case forget
+	shift
+	~ $#* 0 && usage
+	test -r $known && drop $"*
+	echo 'delkey proto=wpapsk essid='^`{fq $"*} >/mnt/factotum/ctl >[2]/dev/null
+	status=''
+case off
+	findwlan
+	stopwpa
+	ip/ipconfig ether $dev unbind >[2]/dev/null
+	echo essid '' >$dev/clone >[2]/dev/null
+	status=''
+case *
+	usage
+}

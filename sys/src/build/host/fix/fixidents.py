@@ -4,7 +4,7 @@ Rename identifiers that use runes gcc does not accept in identifiers.
 
 kencc takes every rune >= 0x80 as an identifier character (galaxy's
 fx÷❨m₁m₂❩, upas' ∂); gcc in -std=gnu17 only takes the ranges of C11
-Annex D. Each rejected rune of an identifier becomes _<name>_ with the
+Annex D. Each rejected rune of an identifier becomes _<hex>_, the
 rune's hex code (÷ -> _f7_), so the rename is mechanical and the same in
 every file. Strings, character constants and comments are left alone.
 Each changed file gets one /* GCC port: */ note at the first changed line.

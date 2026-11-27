@@ -1,0 +1,24 @@
+#!/bin/rc
+# aux/amdgpu with its screen; the context, scanout, request (amdcs), RADV (radvtest, vkcube) and draw tests; the log's warnings
+fn amdg { for(d in /shr/gpu/[0-9]*) if(grep -s '^device amd' $d/status >[2]/dev/null) echo $d }	# the AMD card's entry (gpu(4): named for its #G/n)
+bind -a '#i' /dev
+bind -a '#v' /dev
+aux/amdgpu -t $* >/tmp/amd.log >[2=1]
+sleep 2
+/tests/amdctxtest | grep 'passed|FAIL|done in'
+/tests/amdscanout -s 2 | grep 'passed|FAIL'
+/tests/amdcs | grep 'passed|FAIL'
+DRM9DEBUG=1 /tests/radvtest >/tmp/radv.log >[2=1]
+grep 'passed|FAIL|assert' /tmp/radv.log
+# INFO's fields by name (libdrm9): a name only one side knows would stay 0; userq_num_slots is Linux's, unused
+grep 'only in' /tmp/radv.log | grep -v userq_num_slots | sort -u >/tmp/names
+if(test -s /tmp/names){ echo FAIL info: names on one side only; cat /tmp/names }
+if not echo ok info: the driver and Mesa know the same names
+WSI_PLAN9_STATS=1 /tests/vkcube --c 120 >[2=1] | grep 'scanout:|copy:|rror' | sed 2q
+/tests/gputest -l >/dev/null >[2=1] &
+sleep 5
+grep irq '#G/1/ctl'
+grep '^ih |^temp|^power' `{amdg}^/status
+echo fallbacks `{grep -c fallback /tmp/amd.log}
+grep 'WARN|error|fault|overflow' /tmp/amd.log
+echo TESTEND

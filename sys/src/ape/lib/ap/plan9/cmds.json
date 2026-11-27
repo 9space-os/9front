@@ -20,6 +20,7 @@
 			"_errno.c",
 			"_exit.c",
 			"_fdinfo.c",
+			"_gnuhooks.c",
 			"_getpw.c",
 			"_nap.c",
 			"9mallocz.c",

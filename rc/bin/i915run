@@ -1,0 +1,155 @@
+#!/bin/rc
+# i915run: Linux 7.3's i915 on the LinuxKPI (aux/i915), its output into
+# logs on the ESP (FAT) of the USB stick the system booted from (written
+# through: they survive a hang), as intelrun does:
+#	i915.log	the driver
+#	i915test.log	the checks: selftests, gpu(4), inteltest, Vulkan,
+#			then the driver's procs and their call chains
+# Two files: two writers of one FAT file overwrite each other.
+# With aux/i915 started at boot (plan9.ini monitor=i915: screenrc's
+# gpustart) the checks use that driver; its log is i915boot.log.
+#	i915run [-n] [aux/i915 flags]
+# i915 takes the outputs too (the screen may go dark: read the logs);
+# with -n the display stays 9front's (i915.disable_display), and the
+# checks of the outputs fail.
+# The driver gets until it has started (at most 60 seconds) and 5 more.
+# A trap in the driver puts its call chain in its log.  DRM's debug
+# output without DRM_UT_CORE (a line each ioctl).
+rfork e
+if(ps | grep -s ' intelgpu$'){
+	echo i915run: aux/intelgpu runs already: reboot first
+	exit running
+}
+# aux/i915 started at boot (screenrc: monitor=i915, gpustart): that one,
+# its log i915boot.log
+booted=()
+if(ps | grep -s ' i915$')
+	booted=1
+# the stick's FAT served once (/srv/gpu.esp, gpustart's if there)
+dir=/tmp
+if(! test -e /srv/gpu.esp){
+	for(d in '#σ/usb'/sdU*/esp)
+		if(! test -e /srv/gpu.esp && test -r $d)
+			dossrv -f $d gpu.esp >/dev/null >[2=1]
+}
+if(test -e /srv/gpu.esp && mount -c /srv/gpu.esp /n/esp){
+	dir=/n/esp
+	echo i915run: logs on the stick: i915.log or i915boot.log, i915test.log
+}
+if(~ $dir /tmp)
+	echo i915run: no USB stick with an ESP: the logs are in /tmp
+log=$dir/i915.log
+out=$dir/i915test.log
+if(~ $booted 1){
+	echo i915run: aux/i915 runs since boot: its log is i915boot.log
+	log=$out	# the driver writes i915boot.log; two writers of one FAT file overwrite each other
+}
+flags=(-v -d 0x1fe)
+if(~ $1 -n){
+	flags=(-D -v -d 0x1fe)
+	shift
+}
+if(~ $1 -a)	# the default now
+	shift
+{echo '# i915run' `{date}; cat /dev/osversion; echo} >$out
+if(! ~ $booted 1)
+	{echo '# i915run' `{date}; cat /dev/osversion; echo; echo '## aux/i915' $flags $*} >$log
+echo '## #G/0/ctl' >>$out
+cat '#G/0/ctl' >>$out
+# who shares the GPU's interrupt (the USB stick's controller: the logs)
+echo '## /dev/irqalloc' >>$out
+cat /dev/irqalloc >>$out >[2=1]
+if(~ $booted 1){
+	echo '## aux/i915 since boot (gpustart): no -T beside it' >>$out
+	grep '^(type|size|hwgc)' /dev/vgactl >>$out >[2=1]
+}
+if not{
+	echo '## aux/i915 -T (the KPI on this machine)' >>$out
+	aux/i915 -T >>$out >[2=1]
+	aux/i915 $flags $* >>$log >[2=1] &
+	# until it has started (or is gone), at most 60 s; then 5 s more
+	for(i in `{seq 60}){
+		if(grep -s '^i915: started' $log || ! ps | grep -s ' i915$')
+			i=done
+		if(! ~ $i done)
+			sleep 1
+	}
+	sleep 5
+}
+echo '## started' >>$out
+# the driver through gpu(4): contexts, objects, batches, fences
+if(test -e /shr/gpu/0/clone){
+	echo '## /shr/gpu/0/status' >>$out
+	cat /shr/gpu/0/status >>$out >[2=1]
+	echo '## aux/inteltest' >>$out
+	aux/inteltest >>$out >[2=1]
+	echo '## status' $status >>$out
+	# the screen over the outputs (several monitors), the panel's backlight
+	echo i915run: gpuoutputs >>$log
+	echo '## gpuoutputs' >>$out
+	gpuoutputs >>$out >[2=1]
+	# Vulkan through Mesa's hasvk (libdrm9 over gpu(4)), in this window
+	if(test -d /$objtype/vk){
+		bind -a /$objtype/vk /bin
+		# in a window of wsys the screen as wsys composes it (a window of GPU
+		# buffers is not in devdraw's image, nor one on the overlay plane): vktri
+		# reads its pixels there (comprun's way)
+		if(! ~ $#wsys 0 && test -e /dev/screen)
+			screenpeek=/dev/screen
+		# full screen: without a window system on the kernel's screen, first by
+		# copies alone (no scanout, no modeset), then with scanout; under wsys
+		# (which composes the screen meanwhile: the kernel's screen would take
+		# turns with its frames) in this window made full screen (wsys(4)'s
+		# fullscreen), then back
+		vkc=('vulkaninfo --summary' 'vktri 3' 'WSI_PLAN9_STATS=1 vkcube --c 300')
+		if(~ $#wsys 0)
+			vkc=($vkc '@{rfork en; bind -b ''#i'' /dev; WSI_PLAN9_COPY=1 WSI_PLAN9_STATS=1 vkcube --c 300}' \
+				'@{rfork en; bind -b ''#i'' /dev; WSI_PLAN9_STATS=1 vkcube --c 300}')
+		if not
+			vkc=($vkc '@{echo fullscreen >/dev/wctl; WSI_PLAN9_STATS=1 vkcube --c 300; st=$status; echo unfullscreen >/dev/wctl; status=$st}')
+		for(c in $vkc){
+			echo i915run: $c >>$log
+			echo '##' $c >>$out
+			# at most 60 s: a hang (full-screen vkcube on the laptop) leaves
+			# the call chains of the driver's and the program's procs in the log
+			# its status in a file: rc's wait loses a status that sleep or
+			# test reaped before (the log said "status test N: false")
+			rm -f /tmp/i915run.status
+			@{rfork ns; DRM9DEBUG=1; eval $c; echo $status >/tmp/i915run.status} >>$out >[2=1] &
+			vk=$apid
+			for(t in `{seq 60})
+				if(test -e /proc/$vk/status)
+					sleep 1
+			if(test -e /proc/$vk/status){
+				echo '## hung after 60 s: call chains' >>$out
+				aux/i915stk -a i915 >>$out >[2=1]
+				for(n in vkcube vktri vulkaninfo)
+					aux/i915stk -a $n >>$out >[2=1]
+				for(p in `{ps | awk '$7 ~ /^(vkcube|vktri|vulkaninfo)$/ {print $2}'})
+					echo kill >/proc/$p/ctl >[2]/dev/null
+				sleep 2
+			}
+			if(test -e /tmp/i915run.status)
+				echo '## status' `{cat /tmp/i915run.status} >>$out
+			if not
+				echo '## status: none (killed)' >>$out
+		}
+	}
+}
+# the GPU's error state, if i915 caught a hang (Mesa's aubinator_error_decode reads it)
+if(test -e /shr/gpu/0/error){
+	echo '## /shr/gpu/0/error' >>$out
+	cat /shr/gpu/0/error >>$out >[2=1]
+}
+echo '## then: procs' >>$out
+ps | grep i915 >>$out
+# still there: each proc's state and call chain (addresses: addr2line
+# -e amd64/bin/aux/i915 on the build machine)
+for(p in `{ps | awk '$7 == "i915" {print $2}'}){
+	echo '## proc' $p `{cat /proc/$p/status} >>$out
+	aux/i915stk $p >>$out >[2=1]
+}
+echo '## #G/0/ctl' >>$out
+cat '#G/0/ctl' >>$out
+echo '## end' >>$out
+tail -40 $out

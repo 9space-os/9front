@@ -347,13 +347,14 @@ main(int argc, char **argv)
 		usage();
 	}ARGEND
 
-	if((data = open("#J/i2c3/i2c.1a.data", OWRITE)) < 0)
-		sysfatal("i2c data: %r");
+	/* 9space: the data file keeps the configuration of its open (i2c(3)) */
 	if((ctl = open("#J/i2c3/i2c.1a.ctl", OWRITE)) < 0)
 		sysfatal("i2c ctl: %r");
 	fprint(ctl, "subaddress 1\n");
 	fprint(ctl, "size %d\n", 0x38<<1);
 	close(ctl);
+	if((data = open("#J/i2c3/i2c.1a.data", OWRITE)) < 0)
+		sysfatal("i2c data: %r");
 
 	reset();
 

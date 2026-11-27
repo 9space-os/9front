@@ -1,0 +1,41 @@
+</$objtype/mkfile
+
+# intel: Intel GPUs exist on PCs only (and the driver flushes with clflush)
+PCONLY=intel
+DIRS=virtio `{~ $objtype (386 amd64) && echo $PCONLY}
+# GCC port: Linux's i915 (gcc's C: its includes relative to the file) only
+# where gcc builds the mkfiles (APEGNU, set by gccmk's /$objtype/mkfile and
+# the tree's build), not under kencc's mk
+GCCONLY=intel
+
+all:V:	$DIRS
+
+$DIRS:V:
+	for (i in $DIRS) @{
+		if(~ $i $GCCONLY && ~ $#APEGNU 0) exit	# gcc-only, under kencc
+		echo mk $i
+		cd $i
+		mk all
+	}
+
+install:V:
+	for (i in $DIRS) @{
+		if(~ $i $GCCONLY && ~ $#APEGNU 0) exit	# gcc-only, under kencc
+		echo mk $i
+		cd $i
+		mk install
+	}
+
+clean:V:
+	for (i in $DIRS) @{
+		if(~ $i $GCCONLY && ~ $#APEGNU 0) exit	# gcc-only, under kencc
+		cd $i
+		mk clean
+	}
+
+nuke:V:
+	for (i in $DIRS) @{
+		if(~ $i $GCCONLY && ~ $#APEGNU 0) exit	# gcc-only, under kencc
+		cd $i
+		mk nuke
+	}

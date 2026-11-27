@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: MIT
+# The Rust programs of the tree that use crates of crates.io, as one
+# workspace: one Cargo.lock, one vendor/ (sys/src/build/rust/vendor.sh), and the
+# crates 9front changed patched in here (crates/, plan9/: a copy of
+# ../9front-rust's, sys/src/build/rust/crates.sh).
+[workspace]
+resolver = "2"
+members = ["desk", "../cmd/wsys", "../cmd/ui", "../cmd/term", "../cmd/wbar", "../cmd/wdock", "../libui/rust", "../cmd/uidemo", "../cmd/files", "winittest"]
+
+[patch.crates-io]
+raw-window-handle = { path = "crates/raw-window-handle-0.6.2" }
+winit = { path = "crates/winit-0.30.13" }
+softbuffer = { path = "crates/softbuffer-0.4.8" }
+# Vulkan on plan9 (Mesa's static libvulkan.a, VK_PLAN9_surface): ui on the GPU
+wgpu = { path = "crates/wgpu-28.0.0" }
+wgpu-core = { path = "crates/wgpu-core-28.0.1" }
+wgpu-hal = { path = "crates/wgpu-hal-28.0.1" }
+# present with damage (gfx-rs/wgpu PR #10152, backported): wgpu::Rect is wgpu-types'
+wgpu-types = { path = "crates/wgpu-types-28.0.0" }
+imaging_vello = { path = "crates/imaging_vello-0.0.1" }
+
+# Xilem's crates (git) changed here: xilem/ (README.md)
+[patch."https://github.com/linebender/xilem"]
+masonry_imaging = { path = "xilem/masonry_imaging-0.4.0" }
+masonry_core = { path = "xilem/masonry_core-0.4.0" }
+masonry = { path = "xilem/masonry-0.4.0" }
+
+# optimized as a release (cargo --release: opt-level 3) and across crates
+# (thin LTO, one code unit per crate); the debug information stays for
+# addr2line and gdb, the CD's copies are stripped (stage-dist.sh)
+[profile.release]
+debug = true
+lto = "thin"
+codegen-units = 1

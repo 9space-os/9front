@@ -1,0 +1,154 @@
+#!/bin/rc
+# wbar(1) in wsys, run by wsys -x -i (the modern theme: title bars): wbar's window
+# a bar along the top (no border, above the windows made after it, never
+# current); its windows' places: button 1 makes a window current, hides the
+# current one, brings a hidden one back; a window maximized stays below the
+# bar; Mod4+Tab passes the bar by; the menu (wsys', narrow) runs its command,
+# clicked and held. At scale 2 with title bars, a window of 30 pixels made with
+# -bar (as riostart makes wbar's) is a bar of 30 pixels.
+# Prints ok/FAIL lines and "wbar: all passed".
+fn fail { echo FAIL $*; exit fail }
+fn wait1 { # cmd...: until it succeeds, 10 s at most
+	n=0
+	while(! $* >[2]/dev/null && test $n -lt 100){ sleep 0.1; n=`{echo $n+1 | hoc} }
+	$* >[2]/dev/null
+}
+# mousein keeps the buttons per open file: a press and its release go through one
+fn m { echo A $1 $2 $3; sleep 0.1 }
+fn click { { m $1 $2 0; m $1 $2 1; m $1 $2 0 } >/dev/mousein; sleep 0.7 }
+fn dclick { { m $1 $2 0; m $1 $2 1; m $1 $2 0; m $1 $2 1; m $1 $2 0 } >/dev/mousein; sleep 0.3 }
+fn wctl { # window $1: its wctl's fields
+	dd -if /mnt/wsys/$1/wctl -bs 128 -count 1 -quiet 1
+}
+fn current { # the current window's number
+	for(d in `{ls -p /mnt/wsys | grep '^[0-9]+$'}){
+		w=`{wctl $d}
+		if(~ $w(5) current) echo $d
+	}
+}
+fn items { cat /tmp/wbar.*.items }
+fn spot { # window $1: the middle of its place on the bar
+	s=`{items | awk '$1 == "win" && $2 == "'$1'" {print int(($3+$4)/2)}'}
+	~ $#s 1 || fail no place for window $1: `{items}
+	echo $s
+}
+fn state { items | awk '$1 == "win" && $2 == "'$1'" {print $5}' }
+fn is { # x,y rrggbb...: one of them on the screen there
+	px=`{/tests/uipeek $1 | awk '{print $2}'}
+	~ $px $* || fail at $1: $px, want $*
+}
+fn mod4tab {
+	aux/kbdtype -p f868
+	aux/kbdtype -p 9
+	aux/kbdtype -r 9
+	aux/kbdtype -r f868
+	sleep 0.3
+}
+rm -f /tmp/wbar.*.items /tmp/wbartouched
+m 1020 760 0 >/dev/mousein
+cat /lib/theme/modern >/mnt/wsys/theme || fail writing the theme
+echo 'touch	touch /tmp/wbartouched' >/tmp/wbarmenu
+echo '#!/bin/rc
+WBARDEBUG=items exec /tests/wbar -m /tmp/wbarmenu >/tmp/wbar.err >[2=1]' >/tmp/runwbar
+chmod +x /tmp/runwbar
+
+window -r 0 0 1024 60 /tmp/runwbar
+wait1 test -d /mnt/wsys/1 || fail no window for wbar
+fn haveitems { items | grep -s '^clock' }
+wait1 haveitems || fail no items of wbar: `{cat /tmp/wbar.err}
+b=`{grep '^1 ' /mnt/wsys/stack}
+~ $b(2) 0 && ~ $b(3) 0 && ~ $b(4) 1024 && ~ $b(6) 0 || fail the bar: $b
+h=$b(5)
+test $h -gt 10 && test $h -lt 60 || fail the bar $h high
+echo ok wbar a bar: 0 0 1024 $h, no border
+# before the clock the state of the machine (/dev/sysstat, /dev/swap)
+fn havesys { items | grep -s '^sys [0-9]+ [0-9]+ cpu [0-9]+%  mem [0-9.]+/[0-9.]+G' }
+wait1 havesys || fail no state of the machine on the bar: `{items}
+echo ok the state of the machine: `{items | grep '^sys' | sed 's/^sys [0-9]+ [0-9]+ //'}
+
+window -r 100 100 400 300
+window -r 500 100 900 400
+wait1 test -d /mnt/wsys/3 || fail no windows 2 and 3
+sleep 1 # (their shells label them first)
+echo -n alpha >/mnt/wsys/2/label
+echo -n beta >/mnt/wsys/3/label
+fn twowins { items | grep -s '^win 3 .* beta$' && items | grep -s '^win 2 .* alpha$' }
+wait1 twowins || fail windows not on the bar: `{items}
+~ `{tail -1 /mnt/wsys/stack | awk '{print $1}'} 1 || fail the bar not on top: `{cat /mnt/wsys/stack}
+~ `{current} 3 || fail current `{current}, want 3
+echo ok the windows on the bar, the bar on top of them
+
+y=`{echo 'int('$h'/2)' | hoc}
+x=`{spot 2}
+click $x $y
+~ `{current} 2 || fail a click on alpha: current `{current}
+~ `{state 2} current || fail alpha not lit: `{items}
+click $x $y
+w=`{wctl 2}
+~ $w(6) hidden || fail a click on alpha current: $w
+~ `{state 2} hidden || fail alpha not pale: `{items}
+click $x $y
+w=`{wctl 2}
+~ $w(5) current && ~ $w(6) visible || fail a click on alpha hidden: $w
+echo ok button 1: current, hidden, back
+w=`{wctl 1}
+~ $w(5) notcurrent || fail the bar took the focus: $w
+
+# beta maximized by a double click on its title bar: below the bar
+dclick 700 114
+w=`{wctl 3}
+f=$w(1-4)
+~ $"f '0 '$h' 1024 768' || fail maximized: $f, want 0 $h 1024 768
+echo ok maximized below the bar
+~ `{tail -1 /mnt/wsys/stack | awk '{print $1}'} 1 || fail the bar not on top after: `{cat /mnt/wsys/stack}
+
+# Mod4+Tab: never the bar
+mod4tab
+c=`{current}
+~ $c 2 3 || fail Mod4+Tab: $c
+mod4tab
+c=`{current}
+~ $c 2 3 || fail Mod4+Tab again: $c
+echo ok Mod4+Tab passes the bar by
+
+# the menu (wsys', by wbar's menu file): a click opens it below the bar, only
+# as wide as its items (beta's title bar, maximized, still shows beside it); a
+# click on touch runs it; then held: pressed on menu, let go on touch
+x=`{items | awk '$1 == "menu" {print int(($2+$3)/2)}'}
+click $x $y
+fn open { items | grep -s '^menu .* open$' }
+wait1 open || fail the menu did not open: `{items}
+i=`{echo $h+5 | hoc}
+is 40,$i ffffea
+is 600,$i 2b4c6f a8a49c
+echo ok the menu below the bar, narrow
+click 40 $i
+wait1 test -e /tmp/wbartouched || fail touch did not run: `{items}
+fn shut { items | grep -s '^menu .* shut$' }
+wait1 shut || fail the menu stayed open
+b=`{grep '^1 ' /mnt/wsys/stack}
+~ $b(5) $h || fail the bar not $h high: $b
+echo ok a click on the menu, a click on touch ran it
+rm -f /tmp/wbartouched
+{ m $x $y 0; m $x $y 1; sleep 0.3; m 40 $i 1; m 40 $i 0 } >/dev/mousein
+wait1 test -e /tmp/wbartouched || fail held: touch did not run: `{items}
+wait1 shut || fail held: the menu stayed open
+echo ok held on the menu, let go on touch
+
+# -bar: a bar from the start; at scale 2 with title bars a frame of 30 pixels
+# would not hold one (the X1: no bar at boot), as a bar it is all contents
+echo scale 2 >/mnt/wsys/theme || fail scale 2
+sleep 0.5
+if(window -r 0 0 1024 30 sleep 30 >[2]/dev/null) fail a 30-pixel window with a title bar at scale 2 was made
+n0=`{ls -p /mnt/wsys | grep -c '^[0-9]+$'}
+window -bar -r 0 0 1024 30 sleep 30 || fail window -bar refused
+fn more { test `{ls -p /mnt/wsys | grep -c '^[0-9]+$'} -gt $n0 }
+wait1 more || fail no window from window -bar
+nb=`{ls -p /mnt/wsys | grep '^[0-9]+$' | sort -n | tail -1}
+b=`{grep '^'$nb' ' /mnt/wsys/stack}
+~ $b(2) 0 && ~ $b(3) 0 && ~ $b(4) 1024 && ~ $b(5) 30 && ~ $b(6) 0 || fail the -bar window $nb: $b, windows `{ls -p /mnt/wsys | grep '^[0-9]+$'} n0 $n0, stack `{cat /mnt/wsys/stack}
+grep -s noborder /mnt/wsys/$nb/winname || fail its name: `{cat /mnt/wsys/$nb/winname}
+echo ok window -bar at scale 2: a bar of 30 pixels, no border
+echo delete >/mnt/wsys/$nb/wctl
+echo scale 1 >/mnt/wsys/theme
+echo wbar: all passed

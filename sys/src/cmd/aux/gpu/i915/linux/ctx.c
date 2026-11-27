@@ -1,0 +1,926 @@
+// SPDX-License-Identifier: MIT
+/*
+ * aux/i915: gpu(4)'s contexts on Linux's i915, the Linux side.  A
+ * context is an open DRM file of the render node (drm_open_helper), as a
+ * client's descriptor is on Linux: its own GEM handles, address space
+ * (i915's default context, a full PPGTT) and fences.  The requests of
+ * gpu(4) become i915's ioctls, called through drm_ioctl as the kernel
+ * does for a process:
+ *
+ *	bo size [gpuaddr]	GEM_CREATE (no gpuaddr: the driver chooses
+ *				one; 0: not bound); the pages, pinned, become
+ *				an alias segment (segment(3)) the client
+ *				attaches
+ *	bind id gpuaddr		where the object is softpinned from now on
+ *	submit id offset eng [obj[w]...]
+ *				EXECBUFFER2 of the objects named (w:
+ *				EXEC_OBJECT_WRITE; without them every bound
+ *				one, written), pinned (EXEC_OBJECT_PINNED, no
+ *				relocations), the batch last, with an out
+ *				fence: fence k
+ *	free id			GEM_CLOSE, after the object's segment is revoked
+ *				in every process (segment(3))
+ *	export id		PRIME_HANDLE_TO_FD: the object as a dma-buf,
+ *				named by a token
+ *	import token		PRIME_FD_TO_HANDLE of that dma-buf: the same
+ *				object, an object of this context (not bound);
+ *				one the context has already: its id again
+ *				(one free ends it, as GEM_CLOSE a PRIME handle)
+ */
+#include <linux/kernel.h>
+#include <linux/slab.h>
+#include <linux/file.h>
+#include <linux/sync_file.h>
+#include <linux/dma-fence.h>
+#include <linux/mutex.h>
+#include <linux/pci.h>
+#include <linux/random.h>
+#include <linux/vmalloc.h>
+#include <drm/drm_drv.h>
+#include <drm/drm_file.h>
+#include <drm/drm_ioctl.h>
+#include <drm/i915_drm.h>
+#include "i915_drv.h"
+#include "gem/i915_gem_object.h"
+#include "i915_scatterlist.h"
+#include "gt/intel_gt.h"
+#include "gt/intel_gt_mcr.h"
+#include "gt/intel_engine.h"
+#include "gt/intel_rc6.h"
+#include "gt/intel_rps.h"
+#include "drivers/gpu/drm/drm_internal.h"
+#include <kpi/p9.h>
+#include "../i915.h"
+#include "../../kmsout.h"
+
+struct pci_dev	*kpi_pci_gpu(const char *gdir);
+int	kms_plane(struct file *to, u32 *handle, u32 *w, u32 *h, u32 *stride, u32 *bpp);
+
+enum { Nfence = 64 };
+
+struct bo {
+	bool	used;
+	u32	handle;
+	struct drm_i915_gem_object	*obj;
+	u64	gpu;		/* softpinned there, 0: not bound */
+	u64	size;
+	char	seg[32];	/* "": none (the firmware's plane: stolen memory) */
+	unsigned long	va;
+};
+
+struct gctx {
+	int	id;
+	struct mutex	lock;
+	struct file	*filp;
+	struct drm_file	*file;
+	struct bo	*bo;
+	int	nbo;
+	u64	nfence;
+	u64	next;		/* the next address the driver chooses */
+	struct dma_fence	*fence[Nfence];	/* fence k at k % Nfence */
+	bool	failed;
+};
+
+/* Linux 7.3: drm_open_helper wants the flag DRM's own GEM fops have */
+static const struct file_operations ctx_fops = { .fop_flags = FOP_UNSIGNED_OFFSET };
+static struct bo	*newbo(struct gctx *c);
+static u64	chooseaddr(struct gctx *c, u64 size);
+static bool	placeok(struct gctx *c, struct bo *self, u64 gpu, u64 size);
+static int	bomap(struct gctx *c, struct bo *b);
+static void	unexport(struct gctx *c);
+
+static struct drm_device *
+drmdev(void)
+{
+	struct pci_dev *p = kpi_pci_gpu(NULL);
+	struct drm_i915_private *i915 = p ? pci_get_drvdata(p) : NULL;
+
+	return i915 ? &i915->drm : NULL;
+}
+
+static int
+ioctl(struct gctx *c, unsigned int cmd, void *arg)
+{
+	return drm_ioctl(c->filp, cmd, (unsigned long)arg);
+}
+
+void *
+i915_ctx_new(int *id)
+{
+	struct drm_device *dev = drmdev();
+	struct gctx *c;
+	int r;
+
+	if (!dev || !dev->render)
+		return ERR_PTR(-ENODEV);
+	c = kzalloc(sizeof(*c), GFP_KERNEL);
+	if (!c)
+		return ERR_PTR(-ENOMEM);
+	mutex_init(&c->lock);
+	c->filp = kpi_alloc_file(NULL, &ctx_fops, NULL, O_RDWR);
+	if (IS_ERR(c->filp)) {
+		r = PTR_ERR(c->filp);
+		kfree(c);
+		return ERR_PTR(r);
+	}
+	r = drm_open_helper(c->filp, dev->render);
+	if (r) {
+		fput(c->filp);
+		kfree(c);
+		return ERR_PTR(r);
+	}
+	c->file = c->filp->private_data;
+	c->id = *id;	/* gpufs' lowest free number, back when the context goes */
+	return c;
+}
+
+static struct bo *
+findbo(struct gctx *c, int id)
+{
+	if (id < 1 || id > c->nbo || !c->bo[id - 1].used)
+		return NULL;
+	return &c->bo[id - 1];
+}
+
+/*
+ * 9space: the last objects freed, with why (the X1's soak, 2026-11-19:
+ * a ui server faulted on an object of its own that the driver had
+ * freed); in the status, and a context freed with objects in the log
+ */
+enum { Nfreelog = 32, Freereq = 0, Freectx };
+static struct {
+	char	seg[32];
+	int	why;
+	unsigned long	t;	/* jiffies */
+} freelog[Nfreelog];
+static unsigned long nfreelog, nfreereq, nfreectx;
+static DEFINE_SPINLOCK(freeloglk);
+
+static void
+logfree(struct bo *b, int why)
+{
+	unsigned long i;
+
+	spin_lock(&freeloglk);
+	i = nfreelog++ % Nfreelog;
+	strscpy(freelog[i].seg, b->seg, sizeof(freelog[i].seg));
+	freelog[i].why = why;
+	freelog[i].t = jiffies;
+	if (why == Freectx)
+		nfreectx++;
+	else
+		nfreereq++;
+	spin_unlock(&freeloglk);
+}
+
+static void
+bofree(struct gctx *c, struct bo *b, int why)
+{
+	struct drm_gem_close cl = { .handle = b->handle };
+
+	logfree(b, why);
+
+	/*
+	 * removing the alias segment revokes it (segment(3)): a client that
+	 * still has it attached loses the pages before i915 gets them back
+	 */
+	if (b->seg[0]) {
+		p9_segfree(b->seg, NULL);
+		i915_gem_object_unpin_pages(b->obj);
+		i915_gem_object_put(b->obj);
+	}
+	ioctl(c, DRM_IOCTL_GEM_CLOSE, &cl);
+	memset(b, 0, sizeof(*b));
+}
+
+void
+i915_ctx_free(void *v)
+{
+	struct gctx *c = v;
+	struct drm_device *dev = c->file->minor->dev;
+	int i, n;
+
+	kmsout_scanout(c->filp, 0, 0, 0, 0);	/* its picture off the display */
+	unexport(c);
+	for (i = 0; i < Nfence; i++)
+		if (c->fence[i]) {
+			dma_fence_wait_timeout(c->fence[i], false, 5 * HZ);
+			dma_fence_put(c->fence[i]);
+		}
+	n = 0;
+	for (i = 0; i < c->nbo; i++)
+		if (c->bo[i].used) {
+			bofree(c, &c->bo[i], Freectx);
+			n++;
+		}
+	if (n)
+		pr_info("i915: context %d freed with %d objects\n", c->id, n);
+	kfree(c->bo);
+	/* drm_close_helper */
+	mutex_lock(&dev->filelist_mutex);
+	list_del(&c->file->lhead);
+	mutex_unlock(&dev->filelist_mutex);
+	drm_file_free(c->file);
+	c->filp->private_data = NULL;
+	fput(c->filp);
+	kfree(c);
+}
+
+/*
+ * the object of b->handle, its pages pinned while the client may have
+ * them, as an alias segment (segment(3)); 0 or -errno (then nothing of
+ * it is kept but the handle)
+ */
+static int
+bomap(struct gctx *c, struct bo *b)
+{
+	struct sgt_iter it;
+	struct page **pages, *p;
+	unsigned int n, i;
+	int r;
+
+	b->obj = i915_gem_object_lookup(c->file, b->handle);
+	if (!b->obj)
+		return -ENOENT;
+	b->size = b->obj->base.size;
+	r = i915_gem_object_pin_pages_unlocked(b->obj);
+	if (r)
+		goto put;
+	n = b->size >> PAGE_SHIFT;
+	pages = kvmalloc_array(n, sizeof(*pages), GFP_KERNEL);
+	if (!pages) {
+		r = -ENOMEM;
+		goto unpin;
+	}
+	i = 0;
+	for_each_sgt_page(p, it, b->obj->mm.pages)
+		if (i < n)
+			pages[i++] = p;
+	snprintf(b->seg, sizeof(b->seg), "i915.%d.%d.%u", p9_getpid(), c->id, b->handle);
+	b->va = (unsigned long)kpi_alias_pages(b->seg, pages, i, false);
+	kvfree(pages);
+	if (!b->va || i != n) {
+		r = -ENOMEM;
+		goto unpin;
+	}
+	return 0;
+unpin:
+	i915_gem_object_unpin_pages(b->obj);
+put:
+	i915_gem_object_put(b->obj);
+	b->obj = NULL;
+	b->seg[0] = 0;
+	return r;
+}
+
+/* a new object; its segment's name, address and size for the client */
+int
+i915_bo_new(void *v, u64 size, u64 *gpup, int *id, char *seg, int nseg, u64 *va, u64 *rsize)
+{
+	struct gctx *c = v;
+	struct drm_i915_gem_create cr = { .size = size };
+	struct bo *b;
+	u64 gpu = *gpup;
+	int r;
+
+	mutex_lock(&c->lock);
+	b = newbo(c);
+	if (!b) {
+		r = -ENOMEM;
+		goto out;
+	}
+	r = ioctl(c, DRM_IOCTL_I915_GEM_CREATE, &cr);
+	if (r)
+		goto out;
+	b->handle = cr.handle;
+	r = bomap(c, b);
+	if (r)
+		goto close;
+	b->used = true;
+	if (gpu == ~0ULL)	/* the driver's choice: one after the other */
+		gpu = chooseaddr(c, b->size);
+	else if (gpu && !placeok(c, b, gpu, b->size)) {
+		b->used = false;
+		p9_segfree(b->seg, NULL);
+		r = -EADDRINUSE;
+		goto unpin;
+	}
+	b->gpu = gpu;
+	*gpup = gpu;
+	*id = b - c->bo + 1;
+	strscpy(seg, b->seg, nseg);
+	*va = b->va;
+	*rsize = b->size;
+	mutex_unlock(&c->lock);
+	return 0;
+unpin:
+	i915_gem_object_unpin_pages(b->obj);
+	i915_gem_object_put(b->obj);
+close:
+	{
+		struct drm_gem_close cl = { .handle = b->handle };
+
+		ioctl(c, DRM_IOCTL_GEM_CLOSE, &cl);
+	}
+	memset(b, 0, sizeof(*b));
+out:
+	mutex_unlock(&c->lock);
+	return r;
+}
+
+/*
+ * export and import (gpu(4)'s ctx ctl): an object between contexts, of
+ * any process, as a dma-buf goes between processes on Linux.  Export
+ * makes the client's object a dma-buf (PRIME) and names it by a token,
+ * 128 random bits (the same for each export of it from the context);
+ * import makes it an object of another context (PRIME again: i915's own
+ * dma-buf is the same object).  The table holds a reference to the
+ * dma-buf's file while the exporting context lives; what was imported
+ * stays with the importer.  The descriptors on the way are the server's
+ * and closed at once.  As aux/amdgpu's (linux/ctx.c there).
+ */
+enum { Nexport = 512 };
+static struct export {
+	struct file	*f;	/* nil: free */
+	struct gctx	*from;
+	char	token[33];
+} exports[Nexport];
+static DEFINE_MUTEX(exportlock);
+
+int
+i915_bo_export(void *v, int id, char *token, int ntoken)
+{
+	struct gctx *c = v;
+	struct drm_prime_handle p = { .flags = DRM_CLOEXEC | DRM_RDWR };
+	struct export *x, *slot;
+	struct file *f;
+	struct bo *b;
+	int r, i;
+
+	mutex_lock(&c->lock);
+	b = findbo(c, id);
+	if (!b) {
+		mutex_unlock(&c->lock);
+		return -ENOENT;
+	}
+	p.handle = b->handle;
+	r = ioctl(c, DRM_IOCTL_PRIME_HANDLE_TO_FD, &p);
+	mutex_unlock(&c->lock);
+	if (r)
+		return r;
+	f = fget(p.fd);	/* a reference of ours */
+	close_fd(p.fd);
+	if (f == NULL)
+		return -EBADF;
+	mutex_lock(&exportlock);
+	slot = NULL;
+	for (i = 0; i < Nexport; i++) {
+		x = &exports[i];
+		if (x->f == f && x->from == c) {	/* exported before: the same token */
+			fput(f);
+			strscpy(token, x->token, ntoken);
+			mutex_unlock(&exportlock);
+			return 0;
+		}
+		if (x->f == NULL && slot == NULL)
+			slot = x;
+	}
+	if (slot == NULL) {
+		mutex_unlock(&exportlock);
+		fput(f);
+		return -ENOSPC;
+	}
+	slot->f = f;
+	slot->from = c;
+	snprintf(slot->token, sizeof(slot->token), "%08x%08x%08x%08x",
+		 get_random_u32(), get_random_u32(), get_random_u32(), get_random_u32());
+	strscpy(token, slot->token, ntoken);
+	mutex_unlock(&exportlock);
+	return 0;
+}
+
+/* the object token names as one of this context's, not bound; as i915_bo_new's reply */
+int
+i915_bo_import(void *v, const char *token, int *id, char *seg, int nseg, u64 *va, u64 *rsize)
+{
+	struct gctx *c = v;
+	struct drm_prime_handle p = { };
+	struct export *x;
+	struct bo *b;
+	int r, i, fd;
+
+	mutex_lock(&exportlock);
+	for (i = 0; i < Nexport; i++) {
+		x = &exports[i];
+		if (x->f != NULL && strcmp(x->token, token) == 0)
+			break;
+	}
+	if (i == Nexport) {
+		mutex_unlock(&exportlock);
+		return -ENOENT;
+	}
+	fd = get_unused_fd_flags(O_CLOEXEC);
+	if (fd < 0) {
+		mutex_unlock(&exportlock);
+		return fd;
+	}
+	get_file(x->f);
+	fd_install(fd, x->f);	/* the descriptor has that reference */
+	mutex_unlock(&exportlock);
+
+	mutex_lock(&c->lock);
+	b = newbo(c);
+	if (!b) {
+		mutex_unlock(&c->lock);
+		close_fd(fd);
+		return -ENOMEM;
+	}
+	p.fd = fd;
+	r = ioctl(c, DRM_IOCTL_PRIME_FD_TO_HANDLE, &p);
+	close_fd(fd);
+	if (r)
+		goto out;
+	/*
+	 * 9space: a dma-buf this context has already: PRIME gives the same
+	 * handle (drm_prime's lookup per file), so the same object: its id
+	 * again, not counted, as Linux's handle; one free ends it (the
+	 * client counts, as anv's bo cache does).  Before, a second id
+	 * shared the handle, and freeing either revoked the other's
+	 * segment (the X1's soak, 2026-11-19: a ui server faulted)
+	 */
+	for (i = 0; i < c->nbo; i++) {
+		struct bo *o = &c->bo[i];
+
+		if (o != b && o->used && o->handle == p.handle) {
+			memset(b, 0, sizeof(*b));
+			*id = o - c->bo + 1;
+			strscpy(seg, o->seg, nseg);
+			*va = o->va;
+			*rsize = o->size;
+			mutex_unlock(&c->lock);
+			return 0;
+		}
+	}
+	b->handle = p.handle;
+	r = bomap(c, b);
+	if (r) {
+		struct drm_gem_close cl = { .handle = b->handle };
+
+		ioctl(c, DRM_IOCTL_GEM_CLOSE, &cl);
+		goto out;
+	}
+	b->used = true;
+	b->gpu = 0;
+	*id = b - c->bo + 1;
+	strscpy(seg, b->seg, nseg);
+	*va = b->va;
+	*rsize = b->size;
+	mutex_unlock(&c->lock);
+	return 0;
+out:
+	memset(b, 0, sizeof(*b));
+	mutex_unlock(&c->lock);
+	return r;
+}
+
+/* the context goes: its exports with it */
+static void
+unexport(struct gctx *c)
+{
+	int i;
+
+	mutex_lock(&exportlock);
+	for (i = 0; i < Nexport; i++)
+		if (exports[i].f != NULL && exports[i].from == c) {
+			fput(exports[i].f);
+			memset(&exports[i], 0, sizeof(exports[i]));
+		}
+	mutex_unlock(&exportlock);
+}
+
+int
+i915_bo_bind(void *v, int id, u64 gpu)
+{
+	struct gctx *c = v;
+	struct bo *b;
+	int r = 0;
+
+	mutex_lock(&c->lock);
+	b = findbo(c, id);
+	if (!b)
+		r = -ENOENT;
+	else if (gpu && !placeok(c, b, gpu, b->size))
+		r = -EADDRINUSE;
+	else
+		b->gpu = gpu;
+	mutex_unlock(&c->lock);
+	return r;
+}
+
+int
+i915_bo_free(void *v, int id)
+{
+	struct gctx *c = v;
+	struct bo *b;
+	int r = 0;
+
+	mutex_lock(&c->lock);
+	b = findbo(c, id);
+	if (!b)
+		r = -ENOENT;
+	else
+		bofree(c, b, Freereq);	/* i915 keeps it while the GPU uses it */
+	mutex_unlock(&c->lock);
+	return r;
+}
+
+/* i915's GETPARAM, as the context's file asks it */
+int
+i915_getparam(void *v, int param, int *value)
+{
+	struct gctx *c = v;
+	struct drm_i915_getparam g = { .param = param, .value = value };
+
+	return ioctl(c, DRM_IOCTL_I915_GETPARAM, &g);
+}
+
+/*
+ * a place for an object of size at gpu in the context's address space:
+ * inside its 48 bits and apart from the other bound objects (but self)
+ */
+static bool
+placeok(struct gctx *c, struct bo *self, u64 gpu, u64 size)
+{
+	int i;
+
+	if (gpu & (PAGE_SIZE - 1) || gpu + size > (1ULL << 48) || gpu + size < gpu)
+		return false;
+	for (i = 0; i < c->nbo; i++) {
+		struct bo *b = &c->bo[i];
+
+		if (!b->used || b == self || !b->gpu)
+			continue;
+		if (gpu < b->gpu + b->size && b->gpu < gpu + size)
+			return false;
+	}
+	return true;
+}
+
+/* a free entry of the object table */
+static struct bo *
+newbo(struct gctx *c)
+{
+	struct bo *nb;
+	int i;
+
+	for (i = 0; i < c->nbo; i++)
+		if (!c->bo[i].used)
+			return &c->bo[i];
+	nb = krealloc_array(c->bo, c->nbo + 64, sizeof(*nb), GFP_KERNEL);
+	if (!nb)
+		return NULL;
+	memset(nb + c->nbo, 0, 64 * sizeof(*nb));
+	c->bo = nb;
+	c->nbo += 64;
+	return &c->bo[i];
+}
+
+static u64
+chooseaddr(struct gctx *c, u64 size)
+{
+	u64 a;
+
+	if (!c->next)
+		c->next = 1ULL << 20;
+	a = c->next;
+	c->next = ALIGN(a + size, 1ULL << 16);
+	return a;
+}
+
+int
+i915_scanout(void *v, int id, unsigned int w, unsigned int h, unsigned int stride)
+{
+	struct gctx *c = v;
+	struct bo *b;
+	u32 handle;
+
+	mutex_lock(&c->lock);
+	if (id == 0)
+		handle = 0;
+	else if ((b = findbo(c, id)) != NULL)
+		handle = b->handle;
+	else {
+		mutex_unlock(&c->lock);
+		return -ENOENT;
+	}
+	mutex_unlock(&c->lock);
+	/* returns when the display shows it: a swapchain's FIFO */
+	return kmsout_scanout(c->filp, handle, w, h, stride);
+}
+
+/*
+ * ctl "overlay id x y w h stride": the context's object id (a window's
+ * picture, XRGB8888, linear, stride bytes a row) on an overlay plane
+ * (a sprite plane), at x y of the screen, as it is: in system memory
+ * the display reads it (the WSI's external objects bypass the LLC,
+ * Mesa patch 0042); returns when the display shows it.  id 0: off.
+ */
+int
+i915_overlay(void *v, int id, int x, int y, unsigned int w, unsigned int h, unsigned int stride)
+{
+	struct gctx *c = v;
+	struct bo *b;
+	u32 handle;
+
+	if (id == 0) {
+		kmsout_overlay_off(c->filp);
+		return 0;
+	}
+	mutex_lock(&c->lock);
+	if ((b = findbo(c, id)) == NULL) {
+		mutex_unlock(&c->lock);
+		return -ENOENT;
+	}
+	handle = b->handle;
+	mutex_unlock(&c->lock);
+	return kmsout_overlay_direct(c->filp, handle, w, h, stride, x, y);
+}
+
+/* the firmware's plane in the context: its object, address, geometry */
+int
+i915_map_plane(void *v, int *id, u64 *gpu, unsigned int *w, unsigned int *h, unsigned int *stride, unsigned int *bpp)
+{
+	struct gctx *c = v;
+	struct bo *b;
+	u32 handle;
+	int r;
+
+	r = kms_plane(c->filp, &handle, w, h, stride, bpp);
+	if (r)
+		return r;
+	mutex_lock(&c->lock);
+	b = newbo(c);
+	if (!b) {
+		struct drm_gem_close cl = { .handle = handle };
+
+		ioctl(c, DRM_IOCTL_GEM_CLOSE, &cl);
+		mutex_unlock(&c->lock);
+		return -ENOMEM;
+	}
+	b->used = true;
+	b->handle = handle;
+	b->size = ALIGN((u64)*stride * *h, PAGE_SIZE);
+	b->gpu = chooseaddr(c, b->size);
+	*id = b - c->bo + 1;
+	*gpu = b->gpu;
+	mutex_unlock(&c->lock);
+	return 0;
+}
+
+/* gen 8's virtual addresses are 48 bits, in canonical form for i915 */
+static u64 canonical(u64 a) { return (u64)((s64)(a << 16) >> 16); }
+
+int
+i915_submit(void *v, int id, u32 offset, int engine, int nobj, int *ids, unsigned char *wr, u64 *k)
+{
+	struct gctx *c = v;
+	struct drm_i915_gem_exec_object2 *obj;
+	struct drm_i915_gem_execbuffer2 eb = { };
+	struct dma_fence *f;
+	struct bo *batch;
+	int i, n, r, fd;
+
+	mutex_lock(&c->lock);
+	batch = findbo(c, id);
+	if (!batch || !batch->gpu) {
+		r = batch ? -EINVAL : -ENOENT;
+		goto out;
+	}
+	if (c->nfence >= Nfence && c->fence[(c->nfence + 1) % Nfence] &&
+	    !dma_fence_is_signaled(c->fence[(c->nfence + 1) % Nfence])) {
+		r = -EBUSY;	/* gpu(4): at most 64 outstanding */
+		goto out;
+	}
+	obj = kvmalloc_array((nobj > 0 ? nobj : c->nbo) + 1, sizeof(*obj), GFP_KERNEL | __GFP_ZERO);
+	if (!obj) {
+		r = -ENOMEM;
+		goto out;
+	}
+	n = 0;
+	if (nobj > 0) {
+		/* the ones the client's execbuffer names (Mesa's validation list) */
+		for (i = 0; i < nobj; i++) {
+			struct bo *b = findbo(c, ids[i]);
+
+			if (!b || !b->gpu) {
+				kvfree(obj);
+				r = b ? -EINVAL : -ENOENT;
+				goto out;
+			}
+			if (b == batch)
+				continue;
+			obj[n].handle = b->handle;
+			obj[n].offset = canonical(b->gpu);
+			obj[n].flags = EXEC_OBJECT_PINNED | EXEC_OBJECT_SUPPORTS_48B_ADDRESS | (wr[i] ? EXEC_OBJECT_WRITE : 0);
+			n++;
+		}
+	} else
+		for (i = 0; i < c->nbo; i++)
+			if (c->bo[i].used && c->bo[i].gpu && &c->bo[i] != batch) {
+				obj[n].handle = c->bo[i].handle;
+				obj[n].offset = canonical(c->bo[i].gpu);
+				obj[n].flags = EXEC_OBJECT_PINNED | EXEC_OBJECT_SUPPORTS_48B_ADDRESS | EXEC_OBJECT_WRITE;
+				n++;
+			}
+	obj[n].handle = batch->handle;
+	obj[n].offset = canonical(batch->gpu);
+	obj[n].flags = EXEC_OBJECT_PINNED | EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
+	n++;
+	eb.buffers_ptr = (u64)(uintptr_t)obj;
+	eb.buffer_count = n;
+	eb.batch_start_offset = offset;
+	eb.flags = (engine == 1 ? I915_EXEC_BLT : I915_EXEC_RENDER) | I915_EXEC_NO_RELOC | I915_EXEC_FENCE_OUT;
+	r = ioctl(c, DRM_IOCTL_I915_GEM_EXECBUFFER2_WR, &eb);
+	kvfree(obj);
+	if (r)
+		goto out;
+	fd = eb.rsvd2 >> 32;
+	f = sync_file_get_fence(fd);
+	close_fd(fd);
+	if (!f) {
+		r = -EIO;
+		goto out;
+	}
+	*k = ++c->nfence;
+	dma_fence_put(c->fence[*k % Nfence]);
+	c->fence[*k % Nfence] = f;
+	r = 0;
+out:
+	mutex_unlock(&c->lock);
+	return r;
+}
+
+static struct dma_fence *
+getfence(struct gctx *c, u64 k)
+{
+	struct dma_fence *f = NULL;
+
+	mutex_lock(&c->lock);
+	if (k >= 1 && k <= c->nfence && k + Nfence > c->nfence)
+		f = dma_fence_get(c->fence[k % Nfence]);
+	mutex_unlock(&c->lock);
+	return f;
+}
+
+/* fence k: 1 done, 0 not (query, or not in 5 seconds), <0 no such fence */
+int
+i915_fence_wait(void *v, u64 k, int query)
+{
+	struct gctx *c = v;
+	struct dma_fence *f;
+	long t;
+	int done;
+
+	if (k == 0 || k > c->nfence)
+		return -ENOENT;
+	f = getfence(c, k);
+	if (!f)
+		return 1;	/* old: long done */
+	if (!query) {
+		t = dma_fence_wait_timeout(f, true, 5 * HZ);
+		if (t == 0) {
+			c->failed = true;	/* gpu(4): given up after 5 s */
+			pr_warn("i915: ctx %d fence %llu: not done in 5 s\n", c->id, k);
+		}
+	}
+	done = dma_fence_is_signaled(f);
+	if (done && f->error < 0 && f->error != -ECANCELED)
+		c->failed = true;
+	dma_fence_put(f);
+	return done;
+}
+
+/* fences done in order, those submitted, failed */
+void
+i915_fence_count(void *v, u64 *done, u64 *n, int *failed)
+{
+	struct gctx *c = v;
+	u64 k;
+
+	mutex_lock(&c->lock);
+	for (k = c->nfence > Nfence ? c->nfence - Nfence : 0; k < c->nfence; k++)
+		if (c->fence[(k + 1) % Nfence] && !dma_fence_is_signaled(c->fence[(k + 1) % Nfence]))
+			break;
+	*done = k;
+	*n = c->nfence;
+	*failed = c->failed;
+	mutex_unlock(&c->lock);
+}
+
+/*
+ * the render engine's context workarounds (i915's ctx_wa_list, written
+ * into every context): a line each, "rcs wa reg mask value", for a
+ * client to read them in its own context (inteltest: the registers are
+ * the context's, read through MMIO an idle engine shows another's);
+ * kmalloc'd
+ */
+static char *
+rcs_workarounds(struct intel_gt *gt)
+{
+	struct intel_engine_cs *e = gt->engine[RCS0];
+	const struct i915_wa *wa;
+	char *s, *t;
+	unsigned int i;
+
+	s = kstrdup("", GFP_KERNEL);
+	if (!e || !s)
+		return s;
+	for (i = 0; i < e->ctx_wa_list.count; i++) {
+		wa = &e->ctx_wa_list.list[i];
+		t = kasprintf(GFP_KERNEL, "%srcs wa %x %x %x\n", s, i915_mmio_reg_offset(wa->reg),
+			wa->read, wa->set & wa->read);
+		kfree(s);
+		if (!(s = t))
+			break;
+	}
+	return s;
+}
+
+/* 9space: the status's lines of the objects freed (logfree), after s, which it frees */
+static char *
+freelogstatus(char *s)
+{
+	char *t;
+	unsigned long i, n, k;
+
+	spin_lock(&freeloglk);
+	t = kasprintf(GFP_ATOMIC, "%sfrees: by request %lu, with their context %lu\n", s, nfreereq, nfreectx);
+	n = nfreelog < Nfreelog ? nfreelog : Nfreelog;
+	for (k = 0; t && k < n; k++) {
+		i = (nfreelog - n + k) % Nfreelog;
+		kfree(s);
+		s = t;
+		t = kasprintf(GFP_ATOMIC, "%sfree: %s %s %u ms ago\n", s, freelog[i].seg,
+			freelog[i].why == Freectx ? "context" : "request",
+			jiffies_to_msecs(jiffies - freelog[i].t));
+	}
+	spin_unlock(&freeloglk);
+	if (!t)
+		return s;
+	kfree(s);
+	return t;
+}
+
+/* /shr/gpu/N/status, kmalloc'd (i915_freestr) */
+char *
+i915_status(void)
+{
+	struct drm_device *dev = drmdev();
+	struct drm_i915_private *i915;
+	struct pci_dev *p;
+	const struct sseu_dev_info *s;
+	struct intel_gt *gt;
+	struct intel_rps *rps;
+	intel_wakeref_t wf;
+	char *wa, *r;
+	u64 rc6;
+	u32 act;
+
+	if (!dev)
+		return kstrdup("device none\n", GFP_KERNEL);
+	i915 = to_i915(dev);
+	p = to_pci_dev(dev->dev);
+	gt = to_gt(i915);
+	rps = &gt->rps;
+	s = &gt->info.sseu;
+	wa = rcs_workarounds(gt);
+	rc6 = 0;
+	act = 0;
+	with_intel_runtime_pm(gt->uncore->rpm, wf) {
+		rc6 = intel_rc6_residency_ns(&gt->rc6, INTEL_RC6_RES_RC6);
+		act = intel_rps_read_actual_frequency(rps);
+	}
+	/* the lines as aux/intelgpu has them (inteltest reads them) */
+	r = kasprintf(GFP_KERNEL,
+		"device intel %04x/%04x, gen %d (%s, Linux 7.3's i915 on the LinuxKPI)\n"
+		"pci %u.%u.%u rev %#x subsys %04x/%04x aperture %llu\n"	/* for every client (libdrm9): #G's ctl and #$/pci are the hostowner's */
+		"%s"
+		"sseu slices %#x subslices %#x eus %d\n"
+		"power rc6 %s %llu ms, %u MHz (asked %d, min %d, rp1 %d, max %d)\n"
+		"segments %d open (ORCLOSE; at most 5000 files)\n",
+		p->vendor, p->device, GRAPHICS_VER(i915), intel_platform_name(INTEL_INFO(i915)->platform),
+		p->bus->number, PCI_SLOT(p->devfn), PCI_FUNC(p->devfn), p->revision,
+		p->subsystem_vendor, p->subsystem_device, (unsigned long long)pci_resource_len(p, 2),
+		wa ? wa : "",
+		s->slice_mask, s->subslice_mask.hsw[0], s->eu_total,
+		gt->rc6.enabled ? "on" : "off", (unsigned long long)(rc6 / NSEC_PER_MSEC), act,
+		intel_gpu_freq(rps, rps->cur_freq), intel_gpu_freq(rps, rps->min_freq_softlimit),
+		intel_gpu_freq(rps, rps->rp1_freq), intel_gpu_freq(rps, rps->max_freq_softlimit),
+		p9_segfds());
+	kfree(wa);
+	if (r)
+		r = freelogstatus(r);
+	return r;
+}
+
+void i915_freestr(char *s) { kfree(s); }

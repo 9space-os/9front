@@ -25,13 +25,18 @@ will use
 for the new file descriptor
 (closing any old file associated with
 .IR newfd ).
-File descriptors are allocated dynamically,
-so to prevent unwarranted growth of the file descriptor table,
-.I dup
-requires that
+File descriptors are allocated dynamically;
+a process has at most 5000 of them, and
 .I newfd
-be no greater than 20 more than the highest file descriptor ever used by
-the program.
+must be below that.
+(9front-ng: 9front requires
+.I newfd
+to be no greater than 20 more than the highest file descriptor ever used by
+the program; POSIX's
+.I dup2
+takes any descriptor below
+.BR OPEN_MAX ,
+which is this limit in APE.)
 .PP
 .I Dup
 does not copy the per file descriptor

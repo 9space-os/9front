@@ -2,15 +2,17 @@
  * pANS stdio -- fflush
  */
 #include "iolib.h"
-int fflush(FILE *f){
+static int fflush_l(FILE *f){
 	int error, cnt;
 	if(f==NULL){
 		error=0;
-		for(f=_IO_stream;f!=&_IO_stream[FOPEN_MAX];f++)
+		/* 9front-ng: the heap's streams too (_IO_newfile) */
+		for(f=_IO_nextfile(NULL);f!=NULL;f=_IO_nextfile(f))
 			if(f->state==WR && fflush(f)==EOF)
 				error=EOF;
 		return error;
 	}
+	if(f->flags&MEMSTR) return _IO_memsync(f);	/* 9front-ng: open_memstream */
 	if(f->flags&STRING) return EOF;
 	switch(f->state){
 	default:	/* OPEN RDWR EOF RD */
@@ -29,4 +31,16 @@ int fflush(FILE *f){
 		f->state=RDWR;
 		return 0;
 	}
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+int
+fflush(FILE *f)
+{
+	int r;
+
+	if(f != NULL) _IO_lock(f);
+	r = fflush_l(f);
+	if(f != NULL) _IO_unlock(f);
+	return r;
 }

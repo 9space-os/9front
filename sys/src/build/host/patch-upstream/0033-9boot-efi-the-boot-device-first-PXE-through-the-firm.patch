@@ -1,7 +1,7 @@
-From 16e4f6ad8b2cf15964ded456d897ed14fa22119a Mon Sep 17 00:00:00 2001
+From ad38564253321d393699ba74d94e81804d7054e2 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sat, 14 Nov 2026 22:47:52 +0100
-Subject: [PATCH 33/34] 9boot: efi: the boot device first, PXE through the
+Subject: [PATCH 33/59] 9boot: efi: the boot device first, PXE through the
  firmware's MTFTP
 
 - Look for plan9.ini and the kernel first on the device the loader was

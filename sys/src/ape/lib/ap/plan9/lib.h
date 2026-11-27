@@ -35,6 +35,7 @@ typedef struct Fdinfo{
 	 * the following is used if flags&FD_BUFFERED
 	 */
 	Muxbuf	*buf;	/* holds buffered data and state */
+	unsigned long	gen;	/* 9space: one more at each close: the number held by another file after it */
 } Fdinfo;
 
 /* #define FD_CLOEXEC 1 is in fcntl.h */
@@ -43,8 +44,10 @@ typedef struct Fdinfo{
 #define FD_BUFFERED	0x4
 #define FD_BUFFEREDX	0x8
 #define FD_ISTTY	0x20
+#define FD_EVENTFD	0x40	/* GCC port: an eventfd (gnu/epoll.c): write goes to its pipe's other end */
+#define FD_TIMERFD	0x80	/* GCC port: a timerfd (gnu/epoll.c): read gives the count of expirations */
 
-#define MAXSIG SIGTRAP
+#define MAXSIG SIGWINCH
 
 extern Fdinfo	_fdinfo[];
 
@@ -57,6 +60,7 @@ extern long	_psigblocked;
 extern int	_startbuf(int);
 extern int	_selbuf(int);
 extern void	_closebuf(int);
+extern void	_dupclose(int);
 extern int _readbuf(int, void*, int, int);
 extern void	_detachbuf(void);
 extern void	_finish(int, char *);

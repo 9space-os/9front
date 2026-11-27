@@ -1,0 +1,26 @@
+#!/bin/rc
+# run by wsys -x -i (amdsdl.rc): prog (sdlvk, sdlgl; default sdlvk) in a
+# window of wsys; with overlay, its frames on the overlay plane (not in
+# wsys' screen: -W), the driver's status while it runs
+# usage: amdsdlwin.rc [overlay|-] [prog]
+fn amdg { for(d in /shr/gpu/[0-9]*) if(grep -s '^device amd' $d/status >[2]/dev/null) echo $d }	# the AMD card's entry (gpu(4): named for its #G/n)
+rm -f /tmp/svk.log
+prog=sdlvk
+if(! ~ $#* 0 1)
+	prog=$2
+flag=()
+label=wsys
+frames=60
+if(~ $1 overlay){
+	flag=-W
+	label=overlay
+	frames=180	# 3 s at the display's rate: the status is read while it runs
+}
+window -r 100 100 500 400 'rc -c ''/tests/'$prog' '$"flag' '$frames' >/tmp/svk.log >[2=1]; echo '$prog': exit $status >>/tmp/svk.log'''
+if(~ $1 overlay){
+	sleep 1
+	grep '^overlay' `{amdg}^/status | sed 's/^/during: /'
+}
+n=0
+while(! grep -s '^'$prog': exit' /tmp/svk.log && test $n -lt 600){ sleep 0.1; n=`{echo $n+1 | hoc} }
+sed 's/^/'$label$prog': /' /tmp/svk.log

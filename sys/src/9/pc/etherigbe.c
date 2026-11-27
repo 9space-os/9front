@@ -1413,7 +1413,8 @@ igbemii(Ctlr* ctlr)
 	r = csr32r(ctlr, Status);
 	if(r & Tbimode)
 		return -1;
-	if((ctlr->mii = malloc(sizeof(Mii))) == nil)
+	/* 9space: a reset after resume keeps the Mii and its PHYs */
+	if(ctlr->mii == nil && (ctlr->mii = malloc(sizeof(Mii))) == nil)
 		return -1;
 	ctlr->mii->ctlr = ctlr;
 
@@ -1780,6 +1781,43 @@ igbedetach(Ctlr* ctlr)
 	return 0;
 }
 
+static int igbereset(Ctlr*);
+
+/*
+ * 9space: suspend and resume.  The controller loses its registers in
+ * S3: reset it as at boot, then, if attached, set the rings, the
+ * receiver and the interrupt mask again and let lproc look at the link.
+ */
+static void
+igbepower(Ether* edev, int on)
+{
+	Ctlr *ctlr;
+
+	ctlr = edev->ctlr;
+	if(!on){
+		igbedetach(ctlr);
+		return;
+	}
+	if(igbereset(ctlr)){
+		print("#l%d: igbe: reset after resume failed\n", edev->ctlrno);
+		return;
+	}
+	if(ctlr->alloc == nil)
+		return;
+	ilock(&ctlr->tlock);
+	igbetxinit(ctlr);
+	iunlock(&ctlr->tlock);
+	igberxinit(ctlr);
+	csr32w(ctlr, Rctl, csr32r(ctlr, Rctl)|Ren);
+	if(edev->Netif.prom)
+		igbepromiscuous(edev, 1);
+	ilock(&ctlr->imlock);
+	csr32w(ctlr, Ims, ctlr->im);
+	iunlock(&ctlr->imlock);
+	ctlr->lim = Lsc;
+	wakeup(&ctlr->lrendez);
+}
+
 static void
 igbeshutdown(Ether* ether)
 {
@@ -1836,9 +1874,10 @@ igbereset(Ctlr* ctlr)
 	 * Clear the Multicast Table Array.
 	 * It's a 4096 bit vector accessed as 128 32-bit registers.
 	 */
-	memset(ctlr->mta, 0, sizeof(ctlr->mta));
+	/* 9space: the table as the driver keeps it (zero at the first
+	 * reset), so that a reset after resume keeps the groups */
 	for(i = 0; i < 128; i++)
-		csr32w(ctlr, Mta+i*4, 0);
+		csr32w(ctlr, Mta+i*4, ctlr->mta[i]);
 
 	/*
 	 * Just in case the Eerst didn't load the defaults
@@ -2032,6 +2071,7 @@ igbepnp(Ether* edev)
 	edev->Netif.arg = edev;
 	edev->Netif.promiscuous = igbepromiscuous;
 	edev->shutdown = igbeshutdown;
+	edev->power = igbepower;
 	edev->Netif.multicast = igbemulticast;
 	edev->Netif.ifstat = igbeifstat;
 

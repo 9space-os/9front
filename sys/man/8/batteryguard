@@ -1,0 +1,60 @@
+.TH BATTERYGUARD 8
+.SH NAME
+batteryguard \- power off before the battery is empty
+.SH SYNOPSIS
+.B batteryguard
+[
+.B -c
+.I percent
+]
+[
+.B -g
+.I seconds
+]
+.SH DESCRIPTION
+.I Batteryguard
+reads the first battery of
+.B /dev/battery
+(see
+.IR acpi (8))
+every 30 seconds.
+When its status is
+.B critical
+or its charge has fallen to
+.I percent
+(default 5, or
+.B batterycrit
+from
+.IR plan9.ini (8)),
+and it is neither charging nor idle (no AC), it says so on the console
+and in a window of the newest window system
+.RI ( wsys (4)
+or
+.IR rio (1),
+by their
+.B /srv
+files and
+.IR window (1)),
+waits
+.I seconds
+(default 60) for AC, and then runs
+.IR fshalt (8),
+which halts the file servers and powers the machine off.
+.PP
+.I Termrc
+starts it where there is a battery, unless
+.B batteryguard=off
+is in
+.IR plan9.ini .
+A low battery before that is shown by
+.IR wbar (1).
+.SH SOURCE
+.B /rc/bin/batteryguard
+.SH SEE ALSO
+.IR acpi (8),
+.IR fshalt (8)
+.SH BUGS
+Only the first battery counts.
+There is no suspend to fall back on.
+.PP
+9space: not in 9front.

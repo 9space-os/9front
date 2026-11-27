@@ -133,12 +133,27 @@ type build struct {
 	// musl's in APE (sys/src/ape/lib/musl). Relative to the manifest's
 	// directory, absolute ones re-rooted as the standard ones.
 	IncludePath []string
+	// Compat: the plan9 gcc's own include path first (../9front-gcc's
+	// POSIX compatibility headers: pthreads, C11 threads, C99 math, then
+	// APE), the tree's APE directories after it (-idirafter); for code
+	// that needs the compatibility layer, such as Mesa
+	Compat bool
+	// Noinc: no include path of the tree's (/$ARCH/include, /sys/include,
+	// .): code that brings its own, as the Linux drivers on the LinuxKPI
+	// (sys/src/linux) with its headers in Cflags
+	Noinc bool
 	// Append adds to an existing Library archive instead of starting a
 	// new one (libap: one archive from several directories, like mk's ar)
 	Append bool
 	// Shared: other manifests Append to this one's Library (libap's base
 	// part); -D does not expect the archive to hold its objects only
 	Shared bool
+	// Whole: the Library holds its objects as one relocatable object
+	// (ld -r), so that a program linking any of it gets all of it, as
+	// with meson's link_whole: Mesa's driver tables refer to their entry
+	// points weakly, and a weak reference takes no member out of an
+	// archive
+	Whole bool
 	// Clean names (globs, relative to the manifest's directory) the
 	// files its Pre steps generate: yacc's y.tab.[ch], enam.c, ...
 	// -clean removes them with what the build itself makes there.
@@ -364,6 +379,7 @@ func include(f string, targ string, b *build) {
 		b.Clean = append(b.Clean, build.Clean...)
 		b.Ape = b.Ape || build.Ape
 		b.IncludePath = append(b.IncludePath, build.IncludePath...)
+		b.Noinc = b.Noinc || build.Noinc
 		b.Append = b.Append || build.Append
 		b.Shared = b.Shared || build.Shared
 	}
@@ -488,7 +504,11 @@ func outofdate(b *build) (link, archive bool) {
 			want = asig
 		}
 		deps, sig, ok := readdeps(b, f)
-		return !ok || sig != want || !thisarch(o) || stale(o, append(deps, f))
+		// made from another source of the same name (gcc's x.d names it
+		// first): a manifest's sources moved between parts (sys/src/build/ape/
+		// vendor.py: xkbcommon's two keymap.c), the old object stays
+		other := ok && len(deps) > 0 && path.Clean(deps[0]) != path.Clean(f)
+		return !ok || other || sig != want || !thisarch(o) || stale(o, append(deps, f))
 	}
 	var libs []string
 	for _, l := range b.Libs {
@@ -505,7 +525,12 @@ func outofdate(b *build) (link, archive bool) {
 	b.SourceFiles = srcs
 	if b.Library != "" {
 		lib := path.Join(b.Install, b.Library)
-		archive = len(srcs) > 0 || stale(lib, b.ObjectFiles) || !members(lib, b.ObjectFiles, !b.Append && !b.Shared)
+		if b.Whole {
+			archive = len(srcs) > 0 || stale(lib, b.ObjectFiles) || !members(lib, []string{wholeObject(b)}, true) ||
+				!sameList(wholeObject(b)+".objs", b.ObjectFiles)
+		} else {
+			archive = len(srcs) > 0 || stale(lib, b.ObjectFiles) || !members(lib, b.ObjectFiles, !b.Append && !b.Shared)
+		}
 	}
 	if b.Program != "" {
 		link = len(srcs) > 0 || stale(target(b), append(append([]string{}, b.ObjectFiles...), libs...))
@@ -615,6 +640,19 @@ func compileArgs(b *build) (command string, cArgs, asmArgs []string) {
 			incArgs = append(incArgs, "-I", d)
 		}
 	}
+	if b.Compat {
+		// -I would put the tree's APE before the compatibility headers
+		// where they are not the compiler's own directories (on 9front,
+		// building a copy of the tree)
+		incArgs = []string{
+			"-I", ".",
+			"-idirafter", fromRoot("/$ARCH/include/ape"),
+			"-idirafter", fromRoot("/sys/include/ape"),
+		}
+	}
+	if b.Noinc {
+		incArgs = nil
+	}
 	cArgs = []string{
 		"-std=c11",
 		"-c",
@@ -635,6 +673,11 @@ func compileArgs(b *build) (command string, cArgs, asmArgs []string) {
 	// Pass architecture/model flags that the C compiler would use
 	for _, flag := range b.Cflags {
 		if strings.HasPrefix(flag, "-m") || strings.HasPrefix(flag, "-fzero") || strings.HasPrefix(flag, "-fcommon") || flag == "-fno-pie" {
+			asmArgs = append(asmArgs, flag)
+		}
+		// a ported library's .S (Compat: libffi's) is preprocessed with
+		// the headers and definitions of its C files
+		if b.Compat && (strings.HasPrefix(flag, "-I") || strings.HasPrefix(flag, "-D") || strings.HasPrefix(flag, "-U")) {
 			asmArgs = append(asmArgs, flag)
 		}
 	}
@@ -841,21 +884,25 @@ func presolve(b *build, out string, objs []string) string {
 		}
 	}
 	r := out + ".r.o"
-	// the emulation the final link names (386: -m elf_i386), else ld's
-	// default (x86-64) refuses 32-bit objects
-	var emul []string
-	for i := 0; i+1 < len(b.Oflags); i++ {
-		if b.Oflags[i] == "-m" {
-			emul = []string{"-m", b.Oflags[i+1]}
-		}
-	}
-	run(b, *shellhack, exec.Command(tools["ld"], append(append(emul, "-r", "-d", "-o", r), objs...)...))
+	run(b, *shellhack, exec.Command(tools["ld"], append(append(emulation(b), "-r", "-d", "-o", r), objs...)...))
 	if len(commons) > 0 {
 		w := out + ".weak"
 		fail(os.WriteFile(w, []byte(strings.Join(commons, "\n")+"\n"), 0644))
 		run(b, *shellhack, exec.Command(tools["objcopy"], "--weaken-symbols="+w, r))
 	}
 	return r
+}
+
+// emulation: the one the final link names (386: -m elf_i386), else ld's
+// default (x86-64) refuses 32-bit objects
+func emulation(b *build) []string {
+	var emul []string
+	for i := 0; i+1 < len(b.Oflags); i++ {
+		if b.Oflags[i] == "-m" {
+			emul = []string{"-m", b.Oflags[i+1]}
+		}
+	}
+	return emul
 }
 
 // clean removes what building b makes in its directory, as mk clean
@@ -882,6 +929,9 @@ func clean(b *build) {
 	}
 	if b.Kernel != nil {
 		files = append(files, b.Name+".c", b.Name+".o", "errstr.h", "../port/systab.h")
+	}
+	if b.Whole {
+		files = append(files, wholeObject(b))
 	}
 	files = append(files, generated(b)...)
 	for _, f := range files {
@@ -1043,7 +1093,18 @@ func install(b *build, dolink, doarchive bool) {
 		if !b.Append {
 			_ = os.Remove(libpath)
 		}
-		for _, o := range b.ObjectFiles {
+		objs := b.ObjectFiles
+		if b.Whole {
+			r := wholeObject(b)
+			run(b, *shellhack, exec.Command(tools["ld"], append(append(emulation(b), "-r", "-o", r), objs...)...))
+			// what its objects hide stays inside, as in a shared library
+			// (Mesa's private Wayland protocol code: a program's own
+			// libwayland-client.a has the same names)
+			run(b, *shellhack, exec.Command(tools["objcopy"], "--localize-hidden", r))
+			fail(writefile(r+".objs", []byte(strings.Join(objs, "\n")+"\n")))
+			objs = []string{r}
+		}
+		for _, o := range objs {
 			a, err := filepath.Abs(o)
 			fail(err)
 			pending.objs = append(pending.objs, a)
@@ -1053,6 +1114,23 @@ func install(b *build, dolink, doarchive bool) {
 			pending.lib, pending.b = libpath, &bb
 		}
 	}
+}
+
+// sameList: the file f lists exactly os, one a line (a Whole library's
+// objects when it was made: -D makes it again when the manifest's list
+// changed, a new object older than the archive among them)
+func sameList(f string, objs []string) bool {
+	b, err := os.ReadFile(f)
+	if err != nil {
+		return false
+	}
+	return string(b) == strings.Join(objs, "\n")+"\n"
+}
+
+// wholeObject: the one member of a Whole library, libx.a's libx.o, in
+// the working directory
+func wholeObject(b *build) string {
+	return strings.TrimSuffix(path.Base(b.Library), ".a") + ".o"
 }
 
 // pending: the members of a library not yet archived. A library made of

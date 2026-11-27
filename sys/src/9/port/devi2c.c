@@ -169,37 +169,80 @@ putaddr(I2Cdev *dev, int isread, uchar *pkt, vlong addr)
 	return o;
 }
 
+/*
+ * 9space: a transfer longer than the buffer on the stack in one that
+ * is allocated (an I²C-HID device's report descriptor is hundreds of
+ * bytes, read in one transfer after its register), up to Maxxfer
+ */
+enum {
+	Npkt	= 138,
+	Maxxfer	= 64*1024,
+};
+
+static uchar*
+pktbuf(uchar *buf, int o, int *len)
+{
+	uchar *pkt;
+
+	if(o + *len <= Npkt)
+		return buf;
+	if(up == nil || !islo()){
+		*len = Npkt - o;
+		return buf;
+	}
+	if(*len > Maxxfer)
+		*len = Maxxfer;
+	pkt = smalloc(o + *len);
+	memmove(pkt, buf, o);
+	return pkt;
+}
+
 int
 i2csend(I2Cdev *dev, void *data, int len, vlong addr)
 {
-	uchar pkt[138];
-	int o;
+	uchar buf[Npkt], *pkt;
+	int o, n;
 
-	o = putaddr(dev, 0, pkt, addr);
-	if(o+len > sizeof(pkt))
-		len = sizeof(pkt)-o;
-
+	o = putaddr(dev, 0, buf, addr);
+	if(len < 0)
+		len = 0;
+	pkt = pktbuf(buf, o, &len);
+	if(pkt != buf && waserror()){
+		free(pkt);
+		nexterror();
+	}
 	if(len > 0)
 		memmove(pkt+o, data, len);
-
-	return i2cbusio(dev, pkt, o + len, 0) - o;
+	n = i2cbusio(dev, pkt, o + len, 0) - o;
+	if(pkt != buf){
+		poperror();
+		free(pkt);
+	}
+	return n;
 }
 	
 int
 i2crecv(I2Cdev *dev, void *data, int len, vlong addr)
 {
-	uchar pkt[138];
+	uchar buf[Npkt], *pkt;
 	int o;
 
-	o = putaddr(dev, 1, pkt, addr);
-	if(o+len > sizeof(pkt))
-		len = sizeof(pkt)-o;
-
+	o = putaddr(dev, 1, buf, addr);
+	if(len < 0)
+		len = 0;
+	pkt = pktbuf(buf, o, &len);
+	if(pkt != buf && waserror()){
+		free(pkt);
+		nexterror();
+	}
 	len = i2cbusio(dev, pkt, o, len) - o;
 	if(len > 0)
 		memmove(data, pkt+o, len);
-
-	return  len;
+	if(pkt != buf){
+		poperror();
+		free(pkt);
+	}
+	return len;
 }
 
 int
@@ -442,6 +485,16 @@ i2copen(Chan *c, int mode)
 		c->aux = i2cdev(buses[BUS(c->qid)], DEV(c->qid));
 		if(c->aux == nil)
 			error(Enonexist);
+		/*
+		 * 9space: a data file keeps the configuration of its open
+		 * (sub-address, size): one open per kind of transfer, no
+		 * ctl write between them that another program's would undo
+		 */
+		if(TYPE(c->qid) == Qdata){
+			I2Cdev *d = smalloc(sizeof(I2Cdev));
+			memmove(d, c->aux, sizeof(I2Cdev));
+			c->aux = d;
+		}
 		break;
 	}
 	return c;
@@ -558,8 +611,12 @@ i2cread(Chan *c, void *data, long len, vlong offset)
 }
 
 void
-i2cclose(Chan*)
+i2cclose(Chan *c)
 {
+	if(TYPE(c->qid) == Qdata && (c->flag & COPEN) != 0){
+		free(c->aux);
+		c->aux = nil;
+	}
 }
 
 static Walkqid*

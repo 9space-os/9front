@@ -25,6 +25,10 @@ dev
 	draw		screen vga vgax vgasoft
 	mouse		mouse
 	vga		pci
+	gpu		pci
+	gpio
+	i2c
+	wlan
 
 	sd
 #	floppy		dma
@@ -48,6 +52,9 @@ link
 #	devpccard	pci
 #	devi82365
 	cputemp		pci
+	acpisleep
+	cstate
+	smbios
 #	ether2000	ether8390
 	ether2114x	pci
 #	ether589	etherelnk3
@@ -80,6 +87,7 @@ link
 	etheriwl	pci wifi
 	etherwpi	pci wifi
 	etherrt2860	pci wifi
+	etherwlan	wifi
 	ethervirtio	pci
 	ethervirtio10	pci virtio10pc
 	ethermedium
@@ -96,11 +104,12 @@ link
 	audiohda	pci
 
 	pmmc		pci
+	rtsx		pci
 
 misc
 	pci		pcipc
 	archgeneric	devkbd i8259 i8253
-	archacpi	mp apic squidboy ec hpet
+	archacpi	mp apic squidboy ec hpet i2cdw
 	archmp		mp apic squidboy
 	mtrr
 
@@ -112,7 +121,7 @@ misc
 #	sdodin		pci sdscsi led
 	sdvirtio	pci sdscsi
 	sdvirtio10	pci sdscsi virtio10pc
-	sdmmc		pci pmmc
+	sdmmc		pci pmmc rtsx
 	sdnvme		pci
 	sdloop
 	sdram
@@ -133,6 +142,7 @@ misc
 #	vgageode	+cur
 #	vgahiqvideo	+cur
 #	vgai81x		+cur
+	vgagpu		+cur
 	vgaigfx		+cur
 #	vgamach64xx	+cur
 #	vgamga2164w	+cur

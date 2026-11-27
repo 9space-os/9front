@@ -1,0 +1,50 @@
+/* SPDX-License-Identifier: MIT */
+/*
+ * The draw(3) side of Mesa's plan9 WSI (lib/plan9win.c, APE's libdraw):
+ * plain C types, so Mesa's code needs no Plan 9 headers.
+ * name: NULL: the process's window (/dev/winname), or the screen when
+ * there is none; a path: a window's directory of wsys(4) (/dev/wsys/n, a
+ * program's other windows: its winname, ctl and event there); else a
+ * window image's name.
+ */
+#ifndef _MESA_PLAN9WIN_H
+#define _MESA_PLAN9WIN_H
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* the size of the window's drawable area; -1 if there is none */
+extern int plan9win_size(const char *name, int *w, int *h);
+
+/* 1 if the window is the screen itself (no rio): nobody else's
+ * windows on it, the frames can go to the display directly */
+extern int plan9win_isscreen(const char *name);
+
+/* copy w×h pixels (B,G,R,X bytes, rows stride bytes apart) to the
+ * window's drawable area, clipped; -1 on error */
+extern int plan9win_put(const char *name, const void *pixels, int w, int h, int stride);
+
+/*
+ * wsys(4): the window's ctl file when the window is one of the process's
+ * windows of wsys (/dev/ctl, or ctl in its directory), else -1.  Then the frames can go to wsys
+ * as GPU buffers it reads itself (ctl gpubuffer, present)
+ */
+extern int plan9win_wsys(const char *name);
+extern int plan9win_inwsys(const char *name);	/* plan9win_wsys's answer, no descriptor kept (asked each frame) */
+/* the window's wsys gone: the window in the next one (waits for it), draw(3) anew: 0; -1 not gone; -2 none came */
+extern int plan9win_again(void);
+
+/* a request to wsys' ctl; -1 if refused (plan9win_err says why) */
+extern int plan9win_wsysctl(int fd, const char *msg);
+/* the error of the last plan9win_wsysctl or plan9win_put that failed (the system's
+ * error string: wsys' reason for a refusal, draw(3)'s for a copy) */
+extern const char *plan9win_err(void);
+extern int plan9win_wsysevents(const char *name);	/* the window's event file in wsys (overlay 0|1, b n) */
+/* the system's descriptors of these two, not APE's */
+extern int plan9win_wsysread(int fd, char *buf, int n);
+extern void plan9win_wsysclose(int fd);
+
+#ifdef __cplusplus
+}
+#endif
+#endif

@@ -4,6 +4,8 @@ truetypefs \- TrueType font file system
 .SH SYNOPSIS
 .B truetypefs
 [
+.B -k
+] [
 .B -F
 .I fontpath
 ]
@@ -19,6 +21,16 @@ By default, fonts are loaded from
 The
 .B -F
 flag may be used to set the path TrueType fonts are loaded from.
+The
+.B -k
+flag has the pager pass the server over when memory runs out
+.RB ( nokill ,
+.IR proc (3)):
+.IR wsys (4)
+starts it so, as its own font server, which every window's name space
+mounts and a new server would not reach.
+9front's has no
+.BR -k .
 
 .I Truetypefs
 generates subfonts when they are accessed.
@@ -29,6 +41,13 @@ For example,
 is a
 .IR font (6)
 file generated for GNU Unifont at a size of 16.
+A size followed by
+.B a
+.RB ( /n/ttf/unifont.ttf.16a/font )
+gives antialiased subfonts (grey,
+.BR k8 :
+each glyph rasterised at four times the size, a pixel the share of its
+4×4 pixels there that are set); without it they are one bit deep.
 
 .SH EXAMPLES
 Use size 16 GNU Unifont for

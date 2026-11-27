@@ -5,11 +5,16 @@ arch \- architecture-specific information and control
 .nf
 .B bind -a #P /dev
 .sp 0.3v
+.B /dev/acpiev
+.B /dev/acpisleep
+.br
 .B /dev/acpitbls
 .B /dev/archctl
 .B /dev/cputype
 .B /dev/cputemp
 .B /dev/ec
+.br
+.B /dev/ecquery
 .B /dev/ioalloc
 .B /dev/iob
 .B /dev/iol
@@ -17,6 +22,7 @@ arch \- architecture-specific information and control
 .B /dev/irqalloc
 .B /dev/msr
 .B /dev/realmodemem
+.B /dev/smbios
 .SH DESCRIPTION
 This device presents textual information about PC hardware and allows
 user-level control of the I/O ports on x86-class machines.
@@ -154,12 +160,89 @@ Reads and writes to
 transfer bytes from and to the embedded controller.
 .PP
 Reads from
+.I ecquery
+return the number of the embedded controller's pending event
+(its query command), 0 when none is pending.
+.PP
+.I Acpiev
+hands the firmware's events to
+.IR aux/acpi
+.RI ( acpi (8)):
+the SCI masks each general-purpose event and PM1 event that is both
+set and enabled, and a read returns them,
+.BI "gpe " n
+or
+.BI "pm1 0x" bits ,
+a line each, blocking until there is one.
+Writes
+.BI "gpe " "n op"
+and
+.BI "pm1 0x" "bits op"
+enable, disable, clear (the status) or
+.B ack
+(clear, then enable) them.
+On its first open every GPE is disabled and cleared.
+It is not there with
+.BR *noacpiev= ,
+or where the firmware has no event blocks.
+.PP
+A write of
+.BI "sleep " "slptypa slptypb"
+.RI [ wakegpe " ...]"
+to
+.I acpisleep
+suspends the machine to RAM (ACPI S3): the values for the
+PM1a and PM1b control registers' SLP_TYP field, as the firmware's
+.B _S3
+object gives them.
+While it sleeps only the GPEs named are enabled (the PM1 events keep
+theirs); after the wake every enable is as before, the machine is
+in ACPI mode again, and the status of the power or sleep button that
+woke it is cleared, not reported.
+The kernel stops the other processors (each saves its state and
+halts), saves the first one's state and the PCI configuration,
+calls each device driver's power function to turn it off,
+points the FACS's waking vector at a trampoline below 1 MB and
+sets SLP_EN.
+When the machine wakes, it restores the processor, the interrupt
+controllers, the clocks, the PCI interrupt routing and configuration,
+starts the other processors again (INIT and STARTUP, as at boot,
+back to their saved state), powers the devices on again, and the
+write returns.
+The write fails with an error when the machine did not sleep
+or a processor did not stop.
+The AML part of a suspend
+.RB ( _PTS ,
+.BR _WAK )
+is the caller's:
+.IR aux/acpi 's
+.B suspend
+.RI ( acpi (8)).
+Only the host owner may write it; it is there only where the FADT
+names a FACS and a PM1a control register.
+.PP
+Reads from
 .I acpitbls
 return a concatenation of system ACPI tables. Each table
 is prefixed with a fixed size header that gives the name
 signature and size of the table (see section
 .IR "5.2.6 System Description Table Header"
 in the ACPI specification).
+.PP
+Reads from
+.I smbios
+return the firmware's SMBIOS (DMI) tables, as copied at boot:
+the entry point structure
+.RB ( _SM_
+or
+.BR _SM3_ ),
+followed by the structure table it points to (see the DMTF's
+SMBIOS specification).  The entry point is the one the EFI loader
+passed
+.RB ( *smbios= ,
+see
+.IR plan9.ini (8))
+or found in the BIOS area.  Only the host owner may read it.
 .SH EXAMPLE
 The following code reads from an x86 byte I/O port.
 .IP
@@ -180,3 +263,9 @@ inportb(unsigned port)
 .EE
 .SH SOURCE
 .B /sys/src/9/pc/devarch.c
+.br
+.B /sys/src/9/pc/archacpi.c
+.br
+.B /sys/src/9/pc64/acpisleep.c
+.br
+.B /sys/src/9/pc/smbios.c

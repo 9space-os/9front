@@ -412,7 +412,7 @@ static Walkqid*
 mntwalk(Chan *c, Chan *nc, char **name, int nname)
 {
 	int i;
-	volatile int alloc;
+	volatile int alloc;	/* GCC port: set after waserror, read in its handler: volatile, else gcc's register copy is back at 0 after error()'s longjmp and every failed walk leaks its clone (C11 7.13.2.1) */
 	Mnt *m;
 	Mntrpc *r;
 	Walkqid *wq;

@@ -1,0 +1,9 @@
+# the crates sys/src/build/rust/crates.sh copies from toolchain/rust's crates (RUST_DIR; name-version)
+raw-window-handle-0.6.2
+winit-0.30.13
+softbuffer-0.4.8
+wgpu-28.0.0
+wgpu-types-28.0.0
+wgpu-core-28.0.1
+wgpu-hal-28.0.1
+imaging_vello-0.0.1

@@ -1,0 +1,33 @@
+From 77766140d800ecc1a847c1163efcb5328db44a91 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Wed, 18 Nov 2026 08:11:54 +0100
+Subject: [PATCH 46/59] nusb/cam: format WxHxBPP-FOURCC in ctl: skip the '-'
+ before the fourcc
+
+Writing back what ctl reads, "format 640x480x16-YUY2", failed with
+"invalid argument": after the bits per pixel p was left on the '-', so
+strlen(p) was 5, not 4, and the fourcc compared against "-YUY". Only the
+short form "format WxH" worked. Seen on a ThinkPad X1 Carbon's
+integrated camera (04ca:7049).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/cmd/nusb/cam/ctl.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sys/src/cmd/nusb/cam/ctl.c b/sys/src/cmd/nusb/cam/ctl.c
+index b5023ca77..841c3ad59 100644
+--- a/sys/src/cmd/nusb/cam/ctl.c
++++ b/sys/src/cmd/nusb/cam/ctl.c
+@@ -311,7 +311,7 @@ pformatwrite(Cam *c, int, Param *, char **args, int nargs)
+ 	}else{
+ 		if(*p != 'x' || *++p == '-') return -1;
+ 		bpp = strtol(p, &p, 0);
+-		if(*p != '-') return -1;
++		if(*p++ != '-') return -1;
+ 		if(strlen(p) != 4) return -1;
+ 		i = -1;
+ 		for(j = 0; j < c->nformat; j++){
+-- 
+2.56.0
+

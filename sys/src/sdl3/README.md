@@ -1,0 +1,41 @@
+# SDL3 on 9front
+
+SDL 3.4.20 (zlib, `vendor/LICENSE.txt`) with drivers of its own for 9front,
+../9front-ui PLAN §6.1 (stage 4b): `libSDL3.a` in `/$objtype/lib.gcc/ape`,
+the headers in `/sys/include/ape/SDL3`. Programs are APE programs:
+
+    x86_64-pc-plan9-gcc -o prog prog.c -lSDL3 -ldraw -l9 -lfmt -lutf -lm
+
+- `plan9/video`: the video driver `plan9`, in SDL's slot for drivers outside its
+  tree (`SDL_VIDEO_DRIVER_PRIVATE`): the process's window of wsys or rio (the screen
+  without either) through draw(3) (`p9draw.c`, APE's libdraw), the window
+  framebuffer loaded into it; mouse `/dev/mouse` (`r`: resized), keyboard
+  `/dev/kbd` (kbd(3): key down and up, text from `c`), title `/dev/label`,
+  clipboard `/dev/snarf`, size `/dev/wctl`; cursors `/dev/cursor` (`SDL_plan9mouse.c`:
+  16x16 of two bits, a program's scaled down and made dark or light, the system
+  cursors drawn there), the pointer warped by `m x y` to `/dev/mouse`. One window
+  a process. Vulkan:
+  `VK_PLAN9_surface`, the static libvulkan.a by a weak reference (a program with
+  SDL's Vulkan links `-Wl,-u,vkGetInstanceProcAddr -lSDL3 -lvulkan -lz`); then SDL's
+  Vulkan renderer is there too (`sys/src/build/host/tests/sdl/sdlvk.c`, on the card `sys/src/build/host/tests/gpu/amdsdl.rc`).
+  OpenGL and OpenGL ES (`SDL_GL_*`, SDL's GL and GLES2 renderers): EGL's plan9
+  platform (zink), the native window `""` the process's window, by weak references
+  in `SDL_plan9opengl.c` (SDL's `SDL_egl.c` loads libEGL by name: not used); a program
+  links `-Wl,-u,eglGetDisplay -lSDL3 -lvulkan -lz` (`sys/src/build/host/tests/sdl/sdlgl.c`).
+- `plan9/audio`: the audio driver `plan9` (`SDL_AUDIO_DRIVER_PRIVATE`): `/dev/audio`,
+  16-bit stereo at 44100 Hz.
+- `plan9/include/build_config/SDL_build_config.h`: what SDL's CMake found for APE
+  (a unix without X11, `SDL_UNIX_CONSOLE_BUILD`), changed where it says "9front:".
+- `overlay`: SDL's files changed for 9front (marked "9front:"): `SDL.c` (no GTK),
+  `time/unix/SDL_systime.c` (no langinfo.h, no tm_gmtoff), `thread/pthread/SDL_systhread.c`
+  (no SIGWINCH, no POSIX scheduling), `render/vulkan/SDL_render_vulkan.c` (a new
+  swapchain after VK_SUBOPTIMAL_KHR: wsys' overlay plane shows the renderer's own images).
+- `vendor`: SDL's files that `SOURCES` names and the headers they include, made by
+  `sys/src/build/sdl3/vendor.sh` from the release (`VERSION`; its tarball in
+  ../9front-ui/src) with the overlay over it; `build.json` too.
+
+SDL's GPU API (`SDL_gpu`, its Vulkan backend: `SDL_GPU_VULKAN` in the build config,
+`src/gpu` in `SOURCES`) over the same Vulkan: `sys/src/build/host/tests/sdl/sdlgpu.c` (a render pass
+clearing the window), in sys/src/build/host/tests/gpu on venus.
+
+Not yet: joysticks, more than one window.

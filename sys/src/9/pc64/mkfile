@@ -120,6 +120,7 @@ $VGA mouse.$O:			screen.h /sys/include/memdraw.h
 vgavesa.$O:			/386/include/ureg.h
 
 mp.$O:				mp.h apbootstrap.i
+acpisleep.$O:			mp.h apbootstrap.i
 apic.$O squidboy.$O:		mp.h
 archmp.$O archacpi.$O:		mp.h
 

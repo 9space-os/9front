@@ -1,0 +1,57 @@
+#!/bin/rc
+# intelrun: the Intel GPU driver, its test and Vulkan (vulkaninfo,
+# vktri, vkcube: hasvk), their output into a log
+# on the ESP (FAT) of the USB stick the system booted from, as gpu.log:
+# to be read on another machine instead of photographed.  The log is
+# written there as it grows (dossrv writes every write through), so
+# that it survives a hang of the machine.
+#	intelrun [driver flags]
+rfork e
+if(ps | grep -s ' (i915|intelgpu)$'){
+	echo intelrun: a GPU driver runs already (aux/i915 or aux/intelgpu): reboot first
+	exit running
+}
+log=/tmp/gpu.log
+for(d in '#σ/usb'/sdU*/esp)
+	if(~ $log /tmp/gpu.log && test -r $d){
+		dossrv -f $d intelrun.esp >/dev/null >[2=1]
+		if(mount -c /srv/intelrun.esp /n/esp){
+			log=/n/esp/gpu.log
+			echo intelrun: log on $d as gpu.log
+		}
+		rm -f /srv/intelrun.esp
+	}
+if(~ $log /tmp/gpu.log)
+	echo intelrun: no USB stick with an ESP: the log is $log
+{echo '# intelrun' `{date}; cat /dev/osversion; echo} >$log
+echo '## aux/intelgpu' $* >>$log
+aux/intelgpu $* >>$log >[2=1]
+echo '## aux/inteltest' >>$log
+aux/inteltest >>$log >[2=1]
+# Vulkan through hasvk (libdrm over gpu(4)); in a rio window; libdrm
+# says why a call fails
+DRM9DEBUG=1
+if(test -d /$objtype/vk)
+	bind -a /$objtype/vk /bin
+# speed (WSI_PLAN9_STATS: where a frame's time goes): vkcube in this
+# window (a copy through draw(3)), then on the whole screen (the kernel's
+# draw device, not rio's window): copied, and shown by the display
+# plane itself (scanout, no copy); afterwards the plane is rio's again
+for(c in 'vulkaninfo --summary' 'vktri 3' \
+	'WSI_PLAN9_STATS=1 vkcube --c 600' \
+	'@{rfork en; bind -b ''#i'' /dev; WSI_PLAN9_STATS=1 WSI_PLAN9_COPY=1 vkcube --c 300}' \
+	'@{rfork en; bind -b ''#i'' /dev; WSI_PLAN9_STATS=1 vkcube --c 600}' \
+	'grep scanout /shr/gpu/0/status' \
+	'@{rfork en; bind -b ''#i'' /dev; drawspeed}' \
+	'cat ''#v/vgactl''' \
+	'grep -i mtrr ''#P/archctl'''){
+	echo '##' $c >>$log
+	eval $c >>$log >[2=1]
+	echo '## status' $status >>$log
+}
+echo '## #G/0/ctl' >>$log
+cat '#G/0/ctl' >>$log
+echo '## /shr/gpu/0/status' >>$log
+cat /shr/gpu/0/status >>$log
+echo '## end' >>$log
+cat $log

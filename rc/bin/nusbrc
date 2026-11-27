@@ -34,6 +34,13 @@ if(! bind -a '#u' /dev)
 				# nusb/disk $id
 			case 010106
 				nusb/ptp $id
+			case *0e
+				nusb/cam $id
+			case *ef
+				# 9space: a composite device (interface association,
+				# class 0xEF): a laptop's camera, a headset; cam exits
+				# if it has no video stream
+				nusb/cam $id >[2]/dev/null || nusb/audio $id
 			}
 		}
 	}

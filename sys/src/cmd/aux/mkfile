@@ -6,6 +6,7 @@ TARG=\
 	accupoint\
 	acidleak\
 	acpi\
+	acpikeys\
 	aout2efi\
 	aout2uimage\
 	apm\
@@ -23,6 +24,7 @@ TARG=\
 	getflags\
 	icanhasmsi\
 	icanhasvmx\
+	kbdtype\
 	lines\
 	listen\
 	listen1\
@@ -33,7 +35,9 @@ TARG=\
 	nfsmount\
 	olefs\
 	pcmcia\
+	power\
 	portmap\
+	pstate\
 	rdwr\
 	reboot\
 	searchfs\
@@ -63,6 +67,8 @@ DIRS=\
 	mnihongo\
 	flashfs\
 	gps\
+	gpu\
+	i2chid\
 	kbdfs\
 	na\
 	vga\

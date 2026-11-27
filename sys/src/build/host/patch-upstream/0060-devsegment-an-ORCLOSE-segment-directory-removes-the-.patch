@@ -1,0 +1,99 @@
+From ccc1e37571c9f8b57fec1bebbde2474a2aebab1e Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 19 Nov 2026 15:25:07 +0100
+Subject: [PATCH] devsegment: an ORCLOSE segment directory removes the segment
+ it made, not whatever is in its slot
+
+segmentclose removed the segment by its slot number (SEG(c)) on a
+chan created with ORCLOSE. If the segment had been removed by name
+meanwhile and another created in the same slot, the close removed
+that other segment. The chan now keeps a reference to the segment it
+made and removes it only if the slot still holds it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/9/port/devsegment.c | 43 ++++++++++++++++++++++++++++---------
+ 1 file changed, 33 insertions(+), 10 deletions(-)
+
+diff --git a/sys/src/9/port/devsegment.c b/sys/src/9/port/devsegment.c
+index 210f901da..e8297feb8 100644
+--- a/sys/src/9/port/devsegment.c
++++ b/sys/src/9/port/devsegment.c
+@@ -206,25 +206,36 @@ segmentopen(Chan *c, int omode)
+ 	return c;
+ }
+ 
++/*
++ * take segment x out; want: only if it is still that one (the
++ * ORCLOSE chan's own: the slot may hold another by now)
++ */
+ static void
+-segmentremove(Chan *c)
++removegseg(int x, Globalseg *want)
+ {
+ 	Globalseg *g;
+-	int x;
+ 
+-	if(TYPE(c) != Qsegdir)
+-		error(Eperm);
+ 	lock(&globalseglock);
+-	x = SEG(c);
+ 	g = globalseg[x];
+-	if(g != nil && strcmp(g->uid, up->user) && !iseve()){
++	if(g == nil || want != nil && g != want){
++		unlock(&globalseglock);
++		return;
++	}
++	if(want == nil && strcmp(g->uid, up->user) && !iseve()){
+ 		unlock(&globalseglock);
+ 		error(Eperm);
+ 	}
+ 	globalseg[x] = nil;
+ 	unlock(&globalseglock);
+-	if(g != nil)
+-		putgseg(g);
++	putgseg(g);
++}
++
++static void
++segmentremove(Chan *c)
++{
++	if(TYPE(c) != Qsegdir)
++		error(Eperm);
++	removegseg(SEG(c), nil);
+ }
+ 
+ static void
+@@ -233,8 +244,17 @@ segmentclose(Chan *c)
+ 	if(c->flag & COPEN){
+ 		switch(TYPE(c)){
+ 		case Qsegdir:
+-			if(c->flag & CRCLOSE)
+-				segmentremove(c);
++			/*
++			 * the segment the chan made (segmentcreate), not
++			 * whatever is in its slot now: one removed by name
++			 * meanwhile and the slot taken by another
++			 */
++			if(c->aux != nil){
++				if(c->flag & CRCLOSE)
++					removegseg(SEG(c), c->aux);
++				putgseg(c->aux);
++				c->aux = nil;
++			}
+ 			break;
+ 		case Qctl:
+ 		case Qdata:
+@@ -292,6 +312,9 @@ segmentcreate(Chan *c, char *name, int omode, ulong perm)
+ 	unlock(&globalseglock);
+ 	poperror();
+ 
++	/* the chan keeps its segment (segmentclose: ORCLOSE) */
++	incref(g);
++	c->aux = g;
+ 	c->qid.path = PATH(xfree, Qsegdir);
+ 	c->qid.type = QTDIR;
+ 	c->qid.vers = 0;
+-- 
+2.56.0
+

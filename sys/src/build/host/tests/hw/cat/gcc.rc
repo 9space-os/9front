@@ -1,5 +1,5 @@
 #!/bin/rc
-# gcc: the native gcc (../9front-gcc), if the stick has it: gccmk builds
+# gcc: the native gcc (toolchain/gcc), if the stick has it: gccmk builds
 # a program from a 9front mkfile, which then runs
 fn ok { echo ok $* }
 fn fail { echo FAIL $* }

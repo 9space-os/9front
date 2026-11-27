@@ -36,6 +36,7 @@ sysrfork(uchar *list)
 	ulong pid, flag;
 	int n, i;
 	Proc *p;
+	Mgrp *g;
 
 	flag = ARG(list, ulong);
 	/* Check flags before we commit */
@@ -151,6 +152,7 @@ sysrfork(uchar *list)
 	p->procmode = up->procmode;
 	p->privatemem = up->privatemem;
 	p->noswap = up->noswap;
+	p->nokill = up->nokill;
 	p->hang = up->hang;
 	if(up->procctl == Proc_tracesyscall)
 		p->procctl = Proc_tracesyscall;
@@ -187,19 +189,45 @@ sysrfork(uchar *list)
 		nexterror();
 	}
 
-	/* Make a new set of memory segments */
+	/*
+	 * Make a new set of memory segments.  9front-ng: with RFMEM the
+	 * child joins the parent's memory image (Mgrp, segment.c), made
+	 * now if the parent had none; the image's lock keeps the other
+	 * members from changing the parent's table while it is copied
+	 */
 	n = flag & RFMEM;
+	if(n && up->mgrp == nil){
+		g = malloc(sizeof(Mgrp));
+		if(g == nil)
+			error(Enomem);
+		g->Ref.ref = 1;
+		g->procs = up;
+		up->mnext = nil;
+		up->mgrp = g;
+	}
+	g = mgrplock();
 	qlock(&p->seglock);
 	if(waserror()){
 		qunlock(&p->seglock);
+		mgrpunlock(g);
 		nexterror();
 	}
-	for(i = 0; i < NSEG; i++) {
+	segreserve(p, up->nseg);	/* 9front-ng: the parent's table may have grown */
+	for(i = 0; i < up->nseg; i++) {
 		Segment *s = dupseg(i, n);
 		if(s != nil)
 			attachseg(p, i, s);
 	}
+	if(n){
+		incref(&g->Ref);
+		p->mgrp = g;
+		p->mnext = g->procs;
+		g->procs = p;
+		if(g->dying)
+			p->procctl = Proc_exitme;	/* 9front-ng: a member died of a trap (proc.c: mgrpkill) */
+	}
 	qunlock(&p->seglock);
+	mgrpunlock(g);
 	poperror();
 
 	/* File descriptors */
@@ -310,6 +338,7 @@ sysexec(uchar *list)
 	ulong magic, ssize, nbytes;
 	uintptr entry, text, data, bss, adata, abss, ebss, tstk, align;
 	Segment *s, *ts;
+	Mgrp *g;
 	Image *img;
 	Tos *tos;
 	Chan *tc;
@@ -330,9 +359,11 @@ sysexec(uchar *list)
 		/* Disaster after commit */
 		if(up->seg[SSEG] == nil)
 			pexit(up->errstr, 1);
+		g = mgrplock();	/* 9front-ng: the others look at ESEG (segment.c: groupoverlap) */
 		qlock(&up->seglock);
 		s = detachseg(up, ESEG);
 		qunlock(&up->seglock);
+		mgrpunlock(g);
 		if(s != nil) {
 			putseg(s);
 			flushmmu();
@@ -363,10 +394,15 @@ sysexec(uchar *list)
 		nexterror();
 	}
 
-	/* Attach new stack segment, place it below current stack */
+	/*
+	 * Attach new stack segment, place it below current stack.
+	 * 9front-ng: under the memory image's lock (segment.c: groupoverlap)
+	 */
+	g = mgrplock();
 	qlock(&up->seglock);
 	if(waserror()){
 		qunlock(&up->seglock);
+		mgrpunlock(g);
 		nexterror();
 	}
 	s = up->seg[SSEG];
@@ -377,6 +413,7 @@ sysexec(uchar *list)
 	} while((s = isoverlap(tstk-USTKSIZE, USTKSIZE)) != nil);
 	attachseg(up, ESEG, newseg(SG_STACK | SG_NOEXEC, tstk-USTKSIZE, USTKSIZE/BY2PG));
 	qunlock(&up->seglock);
+	mgrpunlock(g);
 	poperror();	/* up->seglock */
 
 	/* Setup TOS; paged in on demand */
@@ -622,14 +659,16 @@ sysexec(uchar *list)
 		 * Committed.
 		 * Free old memory. (in reverse order)
 		 * Special segments are maintained across exec
+		 * 9front-ng: a new memory image of its own (segment.c)
 		 */
+		mgrpleave();
 		qlock(&up->seglock);
 		if(waserror()){
 			qunlock(&up->seglock);
 			nexterror();
 		}
 
-		for(i = NSEG-1; i > ESEG; i--) {
+		for(i = up->nseg-1; i > ESEG; i--) {
 			s = up->seg[i];
 			if(s != nil && (s->type&SG_CEXEC) != 0)
 				putseg(detachseg(up, i));
@@ -708,14 +747,16 @@ sysexec(uchar *list)
 	 * Committed.
 	 * Free old memory. (in reverse order)
 	 * Special segments are maintained across exec
+	 * 9front-ng: a new memory image of its own (segment.c)
 	 */
+	mgrpleave();
 	qlock(&up->seglock);
 	if(waserror()){
 		qunlock(&up->seglock);
 		nexterror();
 	}
 
-	for(i = NSEG-1; i > ESEG; i--) {
+	for(i = up->nseg-1; i > ESEG; i--) {
 		s = up->seg[i];
 		if(s != nil && (s->type&SG_CEXEC) != 0)
 			putseg(detachseg(up, i));
@@ -782,6 +823,7 @@ sysexec(uchar *list)
 	up->noteureg = nil;
 	up->privatemem = 0;
 	up->noswap = 0;
+	up->nokill = 0;
 	up->pcycles = -up->kentry;
 	procsetup(up);
 	qunlock(&up->debug);
@@ -1076,29 +1118,56 @@ sysnoted(uchar *list)
 	return 0;
 }
 
+/*
+ * 9front-ng: brk under the memory image's lock and up->seglock: a
+ * segment that grows must not run into one another member attaches
+ * meanwhile, and the segment found stays (segment.c)
+ */
+static uintptr
+lockedbrk(uintptr addr, int sn, uintptr newtop)
+{
+	Mgrp *g;
+	Segment *s;
+	uintptr r;
+
+	g = mgrplock();
+	qlock(&up->seglock);
+	if(waserror()){
+		qunlock(&up->seglock);
+		mgrpunlock(g);
+		nexterror();
+	}
+	if(sn < 0){
+		s = seg(up, addr, 0);
+		if(s == nil)
+			error(Ebadarg);
+
+		switch(s->type&SG_TYPE) {
+		default:
+			error(Ebadarg);
+		case SG_BSS:
+		case SG_SHARED:
+			break;
+		}
+
+		sn = segno(up, s);
+		if(sn < 0)
+			error(Ebadarg);
+	}
+	r = ibrk(sn, newtop);
+	qunlock(&up->seglock);
+	mgrpunlock(g);
+	poperror();
+	return r;
+}
+
 uintptr
 syssegbrk(uchar *list)
 {
-	int i;
-	Segment *s;
+	uintptr addr;
 
-	s = seg(up, ARG(list, uintptr), 0);
-	if(s == nil)
-		error(Ebadarg);
-
-	switch(s->type&SG_TYPE) {
-	default:
-		error(Ebadarg);
-	case SG_BSS:
-	case SG_SHARED:
-		break;
-	}
-
-	i = segno(up, s);
-	if(i < 0)
-		error(Ebadarg);
-
-	return ibrk(i, ARG(list, uintptr));
+	addr = ARG(list, uintptr);
+	return lockedbrk(addr, -1, ARG(list, uintptr));
 }
 
 uintptr
@@ -1106,13 +1175,13 @@ syssegattach(uchar *list)
 {
 	int attr;
 	char *name;
-	uintptr va;
-	ulong len;
+	uintptr va, len;
 
 	attr = ARG(list, int);
 	name = ARG(list, char*);
 	va = ARG(list, uintptr);
-	len = ARG(list, ulong);
+	/* 9space: the length is a usize (libc.h), 4 GB and more on amd64 (an APU's video memory) */
+	len = ARG(list, uintptr);
 	validaddr((uintptr)name, 1, 0);
 	name = validnamedup(name, 1);
 	if(waserror()){
@@ -1128,12 +1197,16 @@ syssegattach(uchar *list)
 uintptr
 syssegdetach(uchar *list)
 {
-	int i;
+	int i, n;
 	Segment *s;
+	Mgrp *g;
+	Proc *p;
 
+	g = mgrplock();
 	qlock(&up->seglock);
 	if(waserror()){
 		qunlock(&up->seglock);
+		mgrpunlock(g);
 		nexterror();
 	}
 
@@ -1149,13 +1222,34 @@ syssegdetach(uchar *list)
 		error(Ebadarg);
 
 	s = detachseg(up, i);
+
+	/*
+	 * 9front-ng: and from the others of the memory image (segment.c);
+	 * their references go once their TLBs are flushed
+	 */
+	n = 1;
+	if(g != nil)
+		for(p = g->procs; p != nil; p = p->mnext){
+			if(p == up)
+				continue;
+			qlock(&p->seglock);
+			i = segno(p, s);
+			if(i >= 0 && i != SSEG && i != ESEG && detachseg(p, i) == s)
+				n++;
+			qunlock(&p->seglock);
+		}
 	qunlock(&up->seglock);
 	poperror();
 
-	putseg(s);
-
 	/* Ensure we flush any entries from the lost segment */
+	if(g != nil){
+		if(n > 1)
+			mgrpflush(g);
+		mgrpunlock(g);
+	}
 	flushmmu();
+	while(n-- > 0)
+		putseg(s);
 	return 0;
 }
 
@@ -1166,7 +1260,7 @@ syssegflush(uchar *list)
 	void *va;
 
 	va = ARG(list, void*);
-	len = ARG(list, ulong);
+	len = ARG(list, uintptr);
 	return segflush(va, len);
 }
 
@@ -1177,7 +1271,7 @@ syssegfree(uchar *list)
 	void *va;
 
 	va = ARG(list, void*);
-	len = ARG(list, ulong);
+	len = ARG(list, uintptr);
 	return segfree(va, len);
 }
 
@@ -1185,7 +1279,7 @@ syssegfree(uchar *list)
 uintptr
 sysbrk_(uchar *list)
 {
-	return ibrk(BSEG, ARG(list, uintptr));
+	return lockedbrk(0, BSEG, ARG(list, uintptr));
 }
 
 uintptr
@@ -1472,18 +1566,28 @@ syssemacquire(uchar *list)
 	int block;
 	s32int *addr;
 	Segment *s;
+	uintptr r;
 
 	addr = ARG(list, s32int*);
 	block = ARG(list, int);
 	evenaddr((uintptr)addr);
-	s = seg(up, (uintptr)addr, 0);
+	/* 9front-ng: kept (segref), as another of the memory image may detach it while we sleep (segment.c) */
+	s = segref((uintptr)addr, 0);
 	if(s == nil || (s->type&SG_RONLY) != 0 || (uintptr)addr+sizeof(s32int) > s->top){
+		segunref(s);
 		validaddr((uintptr)addr, sizeof(s32int), 1);
 		error(Ebadarg);
 	}
+	if(waserror()){
+		segunref(s);
+		nexterror();
+	}
 	if(*addr < 0)
 		error(Ebadarg);
-	return (uintptr)semacquire(s, addr, block);
+	r = (uintptr)semacquire(s, addr, block);
+	poperror();
+	segunref(s);
+	return r;
 }
 
 uintptr
@@ -1492,18 +1596,28 @@ systsemacquire(uchar *list)
 	s32int *addr;
 	ulong ms;
 	Segment *s;
+	uintptr r;
 
 	addr = ARG(list, s32int*);
 	ms = ARG(list, ulong);
 	evenaddr((uintptr)addr);
-	s = seg(up, (uintptr)addr, 0);
+	/* 9front-ng: kept (segref), as another of the memory image may detach it while we sleep (segment.c) */
+	s = segref((uintptr)addr, 0);
 	if(s == nil || (s->type&SG_RONLY) != 0 || (uintptr)addr+sizeof(s32int) > s->top){
+		segunref(s);
 		validaddr((uintptr)addr, sizeof(s32int), 1);
 		error(Ebadarg);
 	}
+	if(waserror()){
+		segunref(s);
+		nexterror();
+	}
 	if(*addr < 0)
 		error(Ebadarg);
-	return (uintptr)tsemacquire(s, addr, ms);
+	r = (uintptr)tsemacquire(s, addr, ms);
+	poperror();
+	segunref(s);
+	return r;
 }
 
 uintptr
@@ -1511,19 +1625,29 @@ syssemrelease(uchar *list)
 {
 	s32int *addr, delta;
 	Segment *s;
+	uintptr r;
 
 	addr = ARG(list, s32int*);
 	delta = ARG(list, s32int);	/* GCC port: 6c long, see ARG */
 	evenaddr((uintptr)addr);
-	s = seg(up, (uintptr)addr, 0);
+	/* 9front-ng: kept (segref), as another of the memory image may detach it while we sleep (segment.c) */
+	s = segref((uintptr)addr, 0);
 	if(s == nil || (s->type&SG_RONLY) != 0 || (uintptr)addr+sizeof(s32int) > s->top){
+		segunref(s);
 		validaddr((uintptr)addr, sizeof(s32int), 1);
 		error(Ebadarg);
+	}
+	if(waserror()){
+		segunref(s);
+		nexterror();
 	}
 	/* delta == 0 is a no-op, not a release */
 	if(delta < 0 || *addr < 0)
 		error(Ebadarg);
-	return (uintptr)semrelease(s, addr, delta);
+	r = (uintptr)semrelease(s, addr, delta);
+	poperror();
+	segunref(s);
+	return r;
 }
 
 /* For binary compatibility */

@@ -1,0 +1,94 @@
+.TH I2CHID 8
+.SH NAME
+i2chid \- HID devices on I²C: touchpads, touchscreens, keyboards
+.SH SYNOPSIS
+.B aux/i2chid
+[
+.B -dn
+]
+.SH DESCRIPTION
+.I I2chid
+drives the HID devices of a laptop that are no USB devices but
+on an I²C bus (Microsoft's HID over I²C, version 1.0).
+The firmware's ACPI names them: devices with the id
+.B PNP0C50
+(their
+.B _HID
+or
+.BR _CID ),
+present by
+.BR _STA ,
+their bus and address from
+.B _CRS
+.RB ( I2cSerialBus ),
+their interrupt, a GPIO pin
+.RB ( GpioInt ,
+see
+.IR gpio (3);
+without one they are polled),
+the register of the HID descriptor from
+.BR _DSM .
+.I I2chid
+asks
+.IR acpi (8)'s
+interpreter
+.RB ( /dev/aml ,
+or
+.B /srv/acpi
+mounted there).
+It powers each device on, resets it, reads its report descriptor and
+then an input report each time its pin signals,
+through
+.IR i2c (3)
+.RB ( #J/ bus / i2c. addr .data ).
+The reports become what
+.IR nusb (4)'s
+.I kb
+makes of a USB device's: mouse events on
+.B /dev/mousein
+and scan codes on
+.B /dev/kbin
+(no repeat yet).
+.PP
+A precision touchpad (Microsoft's: an Input Mode feature) is put into its
+touchpad mode and reports its fingers; then
+one finger moves the pointer (faster the faster it moves),
+two fingers moved up or down scroll (buttons 8 and 16 of
+.IR mouse (3)),
+the pad pressed with one, two or three fingers on it is button 1, 3 or 2
+(a thumb resting in the pad's bottom fifth not counted: pressed with it
+while another finger drags is button 1),
+and a short tap with as many fingers clicks the same buttons;
+a touch right after a one-finger tap drags with button 1 held until the
+finger goes.
+A contact the pad takes for a palm counts for nothing.
+Other touchpads stay in their mouse mode.
+.PP
+.B -d
+prints the devices found and, repeated, every report.
+.B -n
+scrolls as on a phone: the fingers move the page.
+.SH FILES
+.TF /dev/mousein
+.TP
+.B /dev/aml
+.TP
+.B #γ/gpio/event
+.TP
+.B /dev/mousein
+.TP
+.B /dev/kbin
+.SH SOURCE
+.B /sys/src/cmd/aux/i2chid
+.br
+.B /sys/src/cmd/nusb/kb/hid.c
+.SH SEE ALSO
+.IR acpi (8),
+.IR gpio (3),
+.IR i2c (3),
+.IR nusb (4)
+.SH HISTORY
+Written for 9space; the protocol's steps as OpenBSD's
+.IR ihidev (4),
+the touchpad's mode and reports as its
+.IR imt (4).

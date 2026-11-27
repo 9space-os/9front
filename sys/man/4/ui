@@ -1,0 +1,514 @@
+.TH UI 4
+.SH NAME
+ui \- a window of widgets, described through files
+.SH SYNOPSIS
+.B ui
+[
+.B -c
+.I lifeline
+] [
+.B -p
+] [
+.B -s
+.I srvname
+]
+.PP
+.B mount /srv/ui.\fIuser\fP.\fIpid\fP /mnt/ui
+.SH DESCRIPTION
+.I Ui
+runs in a window of
+.IR wsys (4)
+or
+.IR rio (1)
+and shows there what a client describes: a tree of widgets (rows, columns,
+labels, buttons, text boxes, check boxes, switches, menus, progress bars,
+sliders, spinners, dividers, images, grids, long lists, scrolled and sized
+boxes).
+The client writes the tree and reads what the user did; the widgets, their
+state (focus, the text being edited, scrolling) and their layout stay in
+.IR ui ,
+as an
+.IR acme (4)
+window's text stays in acme.
+The files are 9P: a client on another machine mounts them as well
+.RI ( import (4));
+what goes over the network is the tree and the events, not pixels (for the
+whole desktop far away, see
+.IR wsys (4)).
+.PP
+.I Ui
+posts its files in
+.BI /srv/ srvname
+(default
+.BI ui. user . pid\fR,
+printed on standard output); the entry goes with
+.IR ui .
+.B -c
+makes
+.I ui
+the program's that started it:
+.I ui
+opens
+.BI /srv/ lifelineR,
+one end of a pipe the program posted (with
+.BR ORCLOSE ,
+.IR open (2)),
+and ends when it reads end of file there: when the program closed the
+other end, which it holds close-on-exec, or ended, however it ended (a
+note, a kill), wherever its name space and its mounts of
+.I ui
+are; when
+.BI /srv/ lifeline
+is gone already,
+.I ui
+ends at once. The libraries' calls that start
+.I ui
+in a new window
+.RI ( ui (2)'s
+.IR uinew ,
+uigo's
+.IR New ,
+uiview's
+.IR Ui::new )
+make the lifeline
+.BI /srv/ srvname .life
+and give it; closing the
+.I Ui
+.RI ( uiclose ,
+.IR Close ,
+the end of its Rust value) ends
+.I ui
+too. Without
+.BR -c ,
+.I ui
+stays until its window is deleted.
+Its widgets are Masonry's (linebender), drawn by vello on the GPU (wgpu's
+Vulkan:
+.IR gpu (4)
+and Mesa) or, without one, by the processor (vello_cpu): no GPU is needed.
+.B -p
+draws on the processor also with a GPU.
+It takes its fonts from
+.BR /lib/font/ttf ,
+the theme's
+.B uifont
+first, and its colours from the desktop's theme
+.RB ( /dev/theme ,
+.IR wsys (4):
+the window's background and text, its accent for what is on and what has
+the focus, its surface inside text boxes, greys between them for the rest;
+the palette its mode chooses, light or dark; again when it changes;
+without
+.I wsys
+the classic one).
+A node's own look (below) goes over the theme's.
+A click of button 3 on a label or a text box plumbs its text, as in
+.IR acme (1),
+from ui's directory (all of the text: Masonry tells no word or selection in it).
+.SS Files
+.TF nodes/id/children
+.TP
+.B ctl
+Written: a transaction, the lines of one write applied all or none (an error
+names the line); read: where the window's contents are on the screen,
+.IR "x y width height" .
+.TP
+.B event
+Read: what the user did, a line each, from the open on:
+.BI click " id" ,
+.BI text " id text"
+(a text box or textarea changed; a textarea's lines quoted, as in
+.BR set ),
+.BI enter " id text" ,
+.BI check " id " 0 \fR|\fP 1
+(a check box, a switch),
+.BI slide " id value" ,
+.BI select " id index option" ,
+.BI radio " id
+(that radio turned on),
+.BI step " id value
+(a stepper),
+.BI page " id page
+(pages),
+.B close
+(the user closes ui's window: it ends),
+.BI close " id
+(the user closes the window of window node
+.IR id :
+the client deletes the node, or keeps it, a dialog asking first).
+A read waits for one; a flush (an interrupt) ends the wait.
+.TP
+.B tree
+The tree in
+.BR ctl 's
+language: written to
+.B ctl
+it makes the same scene.
+.TP
+.B renderer
+What draws the window:
+.BI gpu " adapter"
+or
+.BR cpu .
+.TP
+.B frames
+How many frames it has drawn (for tests: the pace of what moves).
+.TP
+.B layers
+What opens over the window (a select's list of options, a tooltip), as the
+last frame had it: a line
+.I n kind x0 y0 x1 y1
+for each
+.RB ( select ,
+.BR tooltip ),
+then
+.I n
+.B item
+.I i x0 y0 x1 y1
+for each of its items (a list's options), in the window's pixels as
+.BI nodes/ id /rectR.
+.TP
+.BI nodes/ id /kind
+The node's kind.
+.TP
+.BI nodes/ id /props
+Its properties,
+.I key value
+a line; written:
+.B set
+for each line.
+.TP
+.BI nodes/ id /children
+.TP
+.BI nodes/ id /rect
+Where it is in the window,
+.I x0 y0 x1 y1
+(as the last frame had it; empty without a widget, as a long list's children
+not shown).
+.TP
+.BI nodes/ id /image
+An image node's picture: written, PNG or
+.IR image (6)
+(compressed or not, any channels), shown when the file is closed (a picture
+it cannot read: the close's error); read, its width and height.
+.PD
+.SS Ctl's language
+.TF "move id parent [index]"
+.TP
+.BI new " id kind \fR[\fPparent \fR[\fPindex\fR]]"
+A node of a kind:
+.BR column ,
+.BR row ,
+.BR label ,
+.BR button ,
+.BR textbox ,
+.BR checkbox ,
+.BR progress ,
+.BR slider ,
+.B scroll
+(one child),
+.B box
+(one child or none),
+.B list
+(any number of children in a column that scrolls; only those it shows have
+widgets, so a list of thousands costs what a screenful does; the others have
+no
+.BR rect ),
+.B grid
+(its children row by row in
+.B columns
+columns, default 2: a table),
+.B image
+(its picture written to
+.IB nodes/ id /image ),
+.B select
+(a menu:
+.B options
+separated by
+.BR | ,
+the
+.B selected
+one's index),
+.BR switch ,
+.B divider
+(across a column;
+.B axis
+.B vertical
+in a row),
+.BR spinner ,
+.B align
+(its child where
+.B align
+says:
+.BR center ,
+.BR left ,
+.BR right ,
+.BR top ,
+.BR bottom ,
+.BR topleft ,
+.BR topright ,
+.BR bottomleft ,
+.BR bottomright ),
+.B zstack
+(its children over each other, aligned as
+.BR align ),
+.B stack
+(one of its children shown, the
+.B active
+one's index: tabs),
+.B split
+(two children and a bar between them:
+.B axis
+.B horizontal
+or
+.BR vertical ,
+.B fraction
+0 to 1 for the first,
+.B draggable
+0 or 1),
+.B badge
+(a small mark:
+.BR text ,
+or
+.BR count ),
+.B badged
+(its child with a badge of
+.B badge
+at
+.BR placement :
+.BR topleft ,
+.B topright
+.RB "" ( default ), " bottomleft" ,
+.BR bottomright ),
+.B collapse
+(its child under a header,
+.BR text ,
+that folds it away:
+.B collapsed
+0 or 1),
+.B prose
+(text to select and copy, not to edit),
+.B radio
+(text, checked),
+.B radiogroup
+(one child holding radios: a click turns one on and the others of the group off),
+.B stepper
+(a number with buttons and the arrow keys:
+.BR value ,
+.BR step ,
+.BR min ,
+.B max
+(0 1 0 100 unless said),
+.B wrap
+0 or 1),
+.B svg
+(its picture, SVG, written to
+.IB nodes/ id /image ),
+.B textarea
+(lines of text: Enter makes a new one;
+.BR text ,
+.BR placeholder ),
+.B varlabel
+(a label of a weight,
+.B weight
+100 to 900, moving there over
+.B animate
+milliseconds),
+.B pages
+(buttons for pages:
+.BR count ,
+the
+.B page
+shown from 0),
+.B window
+(a window of its own under
+.IR wsys (4),
+a child of the root only, its one child its contents:
+.B title
+(else its id),
+.B width
+and
+.B height
+(its contents', logical pixels; 400 by 300; changed, the window is
+resized to them),
+.B x
+and
+.B y
+(where on the screen),
+.B role
+.RB ( window :
+one of its own;
+.BR dialog :
+a dialog of ui's window, above it, moving and hidden with it;
+.BR popup :
+a dialog without a border, a menu's or a tooltip's), and
+.B modal
+1 (a dialog that takes ui's window's clicks while it is there); made when
+the node is, gone with it; under
+.IR rio
+none: the node shows nothing);
+in
+.I parent
+(default
+.BR root ,
+a column; its
+.B width
+and
+.B height
+size ui's window, as a window node's do: the window system's size until
+they are set; the program asks for what its contents need, ui does not fit
+the window to them) at
+.I index
+(default: the end).
+Ids are letters, digits and
+.BR _-. .
+.TP
+.BI set " id key value"
+A property; the value is the rest of the line (in rc's quotes if it starts or
+ends with blanks; inside the quotes
+.B \\n
+is a new line and
+.B \\\\
+a backslash, as the tree, props and events give a textarea's lines):
+.B text
+(label, button, text box, check box),
+.B placeholder
+(text box),
+.B checked
+(0 or 1),
+.B value
+(progress: 0 to 1 or
+.BR none ;
+slider),
+.BR min ,
+.BR max ,
+.B step
+(slider),
+.BR width ,
+.B height
+(box, in pixels),
+.B flex
+(a child's share of its row or column),
+.B gap
+(between a row's or column's children, in pixels; else the theme's)
+and
+.B align
+.RB ( start ,
+.BR center ,
+.BR end ,
+.BR stretch :
+across a row or column; stretch makes each child as wide as a column, as
+high as a row, so that a child's flex children have its room).
+.IP
+And for a node of any kind its look (else the theme's):
+.B background
+and
+.B border
+(colours,
+.BI # rrggbb
+or
+.BI # rrggbbaa\fR),
+.BR borderwidth ,
+.B radius
+(of the corners) and
+.B padding
+(pixels),
+.B color
+(a label's text, a divider's line).
+.B animate
+.I ms
+makes a progress bar's or slider's
+.BR value ,
+a box's
+.B width
+and
+.B height
+go to a new one in
+.I ms
+milliseconds, slow at both ends, a frame at a time in
+.I ui
+(the client writes the new value once, also over the network; the tree has it at once).
+.TP
+.BI del " id
+The node and what is under it.
+.TP
+.BI move " id parent \fR[\fPindex\fR]
+.TP
+.BI title " text
+.TP
+.B clear
+All but the root.
+.PD
+.PP
+What moves (an animation, Masonry's own, a scroll) is drawn a frame at a time,
+not more often than 60 times a second (through
+.IR draw (3)
+nothing else paces it).
+A step of the wheel scrolls 120 pixels, given out over a few frames, quickly first.
+.PP
+All sizes are logical pixels: at the window system's scale
+.RI ( wsys (4)'s
+.BR scale ,
+winit's scale factor) the window draws as many times as big, and is told
+when it changes;
+.BI nodes/ id /rect
+gives the window's pixels.
+The widget with the keyboard's focus has a ring of the theme's accent around it.
+.PP
+The user's changes go into the tree as well: a text box's
+.BR text ,
+a check box's
+.BR checked ,
+a slider's
+.BR value .
+.SH EXAMPLES
+A window with a button, from rc:
+.IP
+.EX
+window 'ui -s hello'
+mount /srv/hello /mnt/ui
+echo 'new b button
+set b text press me' >/mnt/ui/ctl
+cat /mnt/ui/event	# click b, when it is pressed
+.EE
+.SH ENVIRONMENT
+.TF UIDEBUG
+.TP
+.B UIDEBUG
+The window's events, Masonry's signals and what wgpu logs, on standard error.
+.PD
+.SH SOURCE
+.B /sys/src/cmd/ui
+(Rust; Masonry, winit, softbuffer and wgpu with their plan9 backends:
+.BR /sys/src/rust )
+.SH SEE ALSO
+.IR ui (2)
+(the files from C),
+.IR uiview (2)
+(from Rust, views of a program's state),
+.IR uigo (2)
+(from Go),
+.IR wsys (4),
+.IR rio (4),
+.IR acme (4)
+.SH BUGS
+A window node's
+.BR x ,
+.B y
+and
+.B role
+count when it is made only.
+.BI nodes/ id /rect
+of a node in a window node is in that window's pixels;
+.B ctl
+and
+.B layers
+are ui's window's.
+Deleting ui's window ends
+.I ui
+with a note: the clients' reads of
+.B event
+end without
+.BR close .
+A node moved is made again in its new place (its widgets' state, such
+as the focus, goes).

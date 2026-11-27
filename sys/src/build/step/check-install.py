@@ -8,6 +8,14 @@ ape, /acme -- programs where their install rules put them, and the
 files those rules install, sys/src/build/step/mkinstall.py) and the kernel.
 
   missing  expected, not in the tree (or in the staged distribution)
+  norust   a Rust crate's program (sys/src/build/gen/rustcrates.py) not built: no Rust
+           toolchain (sys/src/build/step/cargo.sh skips them)
+  nocross  a program of APE's parts (sys/src/build/gen/apeprogs.py: wlsys, foot,
+           cxxwidgets) not built: no cross compiler of toolchain/gcc (GCC_DIR
+           in paths.env; sys/src/build/step/ape.sh skips them)
+  hostlib  386's libgcc.a is the host's -m32 one (sys/src/build/step/prep-objtype.sh:
+           no i686-pc-plan9 libgcc.a of GCC_DIR yet): its 64-bit division
+           needs SSE2 and cmov
   stale    in /$objtype/bin or /acme/bin/$objtype, but nothing installs
            it there (left from an older build: telnet before it moved
            from /amd64/bin/ip to /amd64/bin, as ip/mkfile installs it)
@@ -15,11 +23,14 @@ files those rules install, sys/src/build/step/mkinstall.py) and the kernel.
 $objtype (sys/src/build/gen/arch.py) selects the architecture.
 Targets in sys/src/build/gen/cmds-broken.txt (.386.txt, ...) are reported as broken, not missing.
 
-usage: sys/src/build/step/check-install.py [-r] [-d dist] [-i iso]
+usage: sys/src/build/step/check-install.py [-r] [-d dist [-x omitted]] [-i iso]
        sys/src/build/step/check-install.py -l	list the expected files
 	-r	remove stale files
 	-d	also check the distribution tree staged by sys/src/build/host/guest/stage-dist.sh
 		(all but the programs' local archives, /sys/src/.../lib*.a6)
+	-x	paths the profile leaves out (sys/src/build/host/guest/profiles; stage-dist.sh
+		and dist/bin/build-profile write them, a directory stands for all
+		in it): not missing, in the tree's build or the distribution
 	-i	also check the files of a CD image (sys/src/build/host/guest/mkiso.sh; xorriso
 		lists them)
 exit status 1 if anything is missing (or stale without -r)
@@ -33,12 +44,18 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'gen'))
 import gencmds as g
+import apeprogs
+import rustcrates
 from arch import OBJTYPE as A
 
 # the kernel mk install puts in /$objtype, and the ELF the build keeps
 # beside the programs for boot-cli.sh's multiboot / QEMU -kernel
 KERNELS = {'amd64': ['9pc64'], '386': ['9pc'], 'arm64': ['9qemu', '9qemu.u'],
 	'riscv64': ['9virt', '9virt.bin', '9pf', '9pf.bin', '9um', '9um.bin', '9vf', '9vf.bin']}[A]
+
+# the LinuxKPI's manifests (build.amd64.json's step linux, sys/src/build/gen/genbuild.py)
+LINUX = {'amd64': ['sys/src/linux/build.json', 'sys/src/cmd/aux/gpu/i915/build.json', 'sys/src/cmd/aux/gpu/amdgpu/build.json',
+	'sys/src/cmd/aux/rtw89/build.json']}
 
 def expected():
 	"""{9front path: target name}"""
@@ -67,7 +84,28 @@ def expected():
 			else:
 				p = e['Install'] + (e.get('program') or os.path.basename(name))
 			out[p.replace('/$ARCH', '/' + A)] = name
+	# Linux's DRM drivers on the LinuxKPI: not from mkfiles, their
+	# manifests from sys/src/build/linux/genbuild.py (amd64 only)
+	for m in LINUX.get(A, []):
+		for b in json.load(open(os.path.join(g.SRC, '..', '..', m))):
+			if 'Library' in b:
+				out[b['Install'].replace('/$ARCH', '/' + A) + b['Library']] = m
+			elif 'Program' in b:
+				out[b['Install'].replace('/$ARCH', '/' + A) + b['Program']] = m
 	return out
+
+def apeprogs_():
+	"""{path: source} of the programs sys/src/build/step/ape.sh installs"""
+	if A not in apeprogs.OBJTYPES:
+		return {}
+	return {'/%s/bin/%s' % (A, p): d for p, d in apeprogs.PROGS.items()}
+
+def rustprogs():
+	"""{path: crate} of the Rust crates' programs (sys/src/build/gen/rustcrates.py):
+	built only where there is a Rust toolchain"""
+	if A not in rustcrates.OBJTYPES:
+		return {}
+	return {'/%s/bin/%s' % (A, p): d for d, progs in rustcrates.crates() for p in progs}
 
 def isofiles(iso):
 	r = subprocess.run(['xorriso', '-indev', iso, '-find', '/'],
@@ -77,17 +115,32 @@ def isofiles(iso):
 def main():
 	args = sys.argv[1:]
 	if args == ['-l']:
-		print('\n'.join(sorted(expected())))
+		# the Rust and APE programs marked ?: check-install.rc does not miss them without Rust or gcc
+		print('\n'.join(sorted(expected()) + sorted('?' + p for p in rustprogs()) + sorted('?' + p for p in apeprogs_())))
 		return
 	remove = '-r' in args
 	dist = args[args.index('-d') + 1] if '-d' in args else None
 	iso = isofiles(args[args.index('-i') + 1]) if '-i' in args else None
+	omitted = []
+	if '-x' in args:
+		with open(args[args.index('-x') + 1]) as f:
+			omitted = [l.strip().rstrip('/') for l in f if l.strip()]
+	def left_out(p):
+		return any(p == o or p.startswith(o + '/') for o in omitted)
+	nomit = 0
 	exp = expected()
+	rust = rustprogs()
+	haverust = rustcrates.rustc()
 	broken = g.loadbroken()
 	bad = 0
 	for p, name in sorted(exp.items()):
 		# program-local archives are intermediates (the release's mk clean)
 		local = p.startswith('/sys/src/')
+		# left out by the profile: not needed in the tree's build either
+		# (dist/bin/build-profile builds only the profile's groups)
+		if left_out(p):
+			nomit += 1
+			continue
 		where = [('tree', g.ROOT)] + ([('dist', dist)] if dist and not local else [])
 		if iso is not None and not local:
 			where.append(('iso', None))
@@ -99,6 +152,31 @@ def main():
 					print('missing %s %s (%s)' % (what, p, name))
 					bad = 1
 				break
+	for p, name in sorted(rust.items()):
+		if left_out(p):
+			nomit += 1
+		elif not os.path.exists(g.ROOT + p):
+			if haverust:
+				print('missing tree %s (%s)' % (p, name))
+				bad = 1
+			else:
+				print('norust  %s (%s: no Rust toolchain, RUST_DIR: toolchain/rust)' % (p, name))
+	exp.update(rust)
+	ape = apeprogs_()
+	havecross = apeprogs.cross(A)
+	for p, name in sorted(ape.items()):
+		if left_out(p):
+			nomit += 1
+		elif not os.path.exists(g.ROOT + p):
+			if havecross:
+				print('missing tree %s (%s)' % (p, name))
+				bad = 1
+			else:
+				print('nocross %s (%s: no cross compiler, GCC_DIR: toolchain/gcc)' % (p, name))
+	exp.update(ape)
+	host = g.ROOT + '/%s/lib.gcc/libgcc.a.host' % A
+	if os.path.exists(host):
+		print('hostlib /%s/lib.gcc/libgcc.a (%s: needs SSE2 and cmov; GCC_DIR: toolchain/gcc)' % (A, open(host).read().strip()))
 	# stale: what no rule installs in the program directories (the kernel
 	# build's ELF amd64/bin/9pc64 is for boot-cli.sh's multiboot)
 	keep = {'/%s/bin/%s' % (A, k) for k in KERNELS if '.' not in k}
@@ -115,6 +193,8 @@ def main():
 					print('stale   %s' % p)
 					bad = 1
 	n = len(exp)
+	if omitted:
+		print('%d of them left out by the profile' % nomit)
 	print('%d files expected%s' % (n, ', ok' if not bad else ''))
 	sys.exit(bad)
 

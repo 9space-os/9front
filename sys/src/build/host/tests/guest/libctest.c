@@ -261,7 +261,7 @@ testnotifynil(void)
 }
 
 /*
- * nfront: notify(2)'s handler is the process's own: one that shares the
+ * 9space: notify(2)'s handler is the process's own: one that shares the
  * memory (RFMEM: libthread's, rio's) and calls notify(nil) does not take
  * it away (the gcc port's trampoline kept one handler for them all: the
  * other died at pc 0); and it is entered as a System V function: the
@@ -311,8 +311,13 @@ testliterals(void)
 {
 	char *s;
 
-	/* 8l keeps string literals in the data segment (amd64/plan9.ld) */
-	s = "literal";
+	/* 8l keeps string literals in the data segment (amd64/plan9.ld). Through
+	 * a volatile pointer: gcc -O2 folds a literal's bytes it read back in
+	 * the same function to their old values (ISO C: writing one is undefined) */
+	{
+		char *volatile v = "literal";
+		s = v;
+	}
 	s[0] = 'L';
 	check("string literals are writable", s[0] == 'L', nil);
 }

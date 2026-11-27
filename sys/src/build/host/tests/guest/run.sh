@@ -1,6 +1,7 @@
 #!/bin/bash
-# guest: libc/libthread unit tests built with the port toolchain, run
-# inside 9front under QEMU via sys/src/build/host/guest/boot-cli.sh. The same tests can
+# guest: unit tests (sys/src/build/host/tests/guest/*.c: libc, libthread, libmp, auth, pak,
+# segments, APE) built with the port toolchain, run inside 9front under
+# QEMU via sys/src/build/host/guest/boot-cli.sh. The same tests can
 # be started by hand in a running system: /tests/run [test...]
 . "$(dirname "$0")/../lib.sh"
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -26,5 +27,5 @@ while read -r st name; do
 	FAIL)	fail "guest: $name" ;;
 	esac
 done < <(grep -E '^(ok|FAIL) ' "$TMPD/log")
-grep -q '^tests: all passed' "$TMPD/log" || { fail "guest: /tests/run summary"; grep -E '^(tests|libctest|threadtest|authtest|passtokey|mptest|authpak_hash|paktest|apetest|apegnutest):' "$TMPD/log" | sed 's/^/       /'; }
+grep -q '^tests: all passed' "$TMPD/log" || { fail "guest: /tests/run summary"; grep -E '^(tests|libctest|threadtest|authtest|passtokey|mptest|authpak_hash|paktest|segtest|segpager|segshared|segmgrp|apetest|ape9test|apegnutest):' "$TMPD/log" | sed 's/^/       /'; }
 done_tests

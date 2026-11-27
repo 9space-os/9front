@@ -21,6 +21,7 @@ device holds a text block giving memory usage statistics:
 \fIa\fP/\fIn\fP/\fIm\fP kernel malloc
 \fIa\fP/\fIn\fP/\fIm\fP kernel draw
 \fIa\fP/\fIn\fP/\fIm\fP kernel secret
+\fIf\fP/\fIh\fP/\fIr\fP free
 .EE
 .PP
 These are total memory (bytes), system page size (bytes),
@@ -37,6 +38,38 @@ available.
 For kernel malloc and kernel draw,
 .IR a
 indicates the current allocation in bytes.
+.PP
+9space:
+.B free
+gives the free user pages
+.IR f ,
+the pager's high water mark
+.I h
+(at or below it, a process that needs a page waits for the pager, which
+swaps out or, without swap, kills the biggest process it may: not the
+host owner's
+.B noswap
+and
+.B nokill
+processes,
+.IR proc (3):
+the file servers, the GPU drivers,
+.IR gpu (4),
+.IR wsys (4)
+and the system's servers
+.RI ( dontkill ,
+.IR kill (1));
+when only those are left it waits for pages instead and says so once;
+only
+.B noswap
+processes may take pages below
+.IR h )
+and its headroom
+.I r
+(the pager runs until that many are free).
+A program that keeps memory it could give back (the LinuxKPI's page pool
+of the GPU drivers) watches it and gives back before the pager runs.
+9front has no such line.
 These numbers are not blank padded.
 .PP
 To turn on swapping, write to

@@ -288,9 +288,13 @@ fmt3(char *f)
 {
 	int i;
 	unsigned long long v;
+	/*
+	 * GCC port: uchar promotes to int under gcc (unsigned with kencc): a
+	 * half with its top bit set was negative and spread into the other
+	 */
 	for(i=0; i<ndata; i+=sizeof(unsigned long long)){
 		if(le){
-			v = (u32int)((data[i+3+4]<<24)|(data[i+2+4]<<16)|(data[i+1+4]<<8)|data[i+4]);	/* GCC port: through u32int, as kencc promotes uchar (unsigned): no sign extension into 64 bits */
+			v = (u32int)((data[i+3+4]<<24)|(data[i+2+4]<<16)|(data[i+1+4]<<8)|data[i+4]);
 			v <<= 32;
 			v |= (u32int)((data[i+3]<<24)|(data[i+2]<<16)|(data[i+1]<<8)|data[i]);
 		}else{

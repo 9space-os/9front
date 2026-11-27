@@ -23,8 +23,19 @@ fn ask {
 if(test -f /dev/vgactl || bind -a '#v' /dev >[2] /dev/null){
 	ask vgasize ' is (text, 640x480x8, 1024x768x16, ...)' 1024x768x16
 	if(! ~ $"vgasize '' text none){
-		ask monitor ' is (vesa, xga, lcd, ...)' vesa
-		if(! ~ $"monitor ''){
+		# 9space: a GPU driver of gpu(4) makes the screen itself (gpustart); a
+		# system without the GPU stack (the CD's profiles minimal, ui) has VESA
+		if(test -x /bin/aux/i915)
+			ask monitor ' is (vesa, xga, lcd, i915, amdgpu, virtiogpu, ...)' vesa
+		if not
+			ask monitor ' is (vesa, xga, lcd, ...)' vesa
+		if(~ $monitor i915 amdgpu virtiogpu && ! test -x /bin/aux/$monitor){
+			echo screenrc: no aux/$monitor on this system, vesa >[1=2]
+			monitor=vesa
+		}
+		if(~ $monitor i915 amdgpu virtiogpu)
+			gpustart $monitor
+		if not if(! ~ $"monitor ''){
 			@{
 				rfork n
 				if(~ $monitor vesa)
@@ -42,12 +53,16 @@ if(! test -f /dev/mouse)
 	bind -a '#m' /dev
 
 if(test -f /dev/mousectl && test -f /dev/winname){
-	ask mouseport ' is (ps2, ps2intellimouse, 0, 1, 2)' ps2
+	ask mouseport ' is (ps2, ps2intellimouse, synaptic, ps2plain, 0, 1, 2)' ps2
 	switch($mouseport){
-	case ps2 ps2intellimouse 0 1 2
+	case ps2 ps2intellimouse synaptic ps2plain 0 1 2
 		aux/mouse $mouseport
 		if(~ $accupoint 1)
 			pipefile -dr /bin/aux/accupoint /dev/mouse
+		# 9space: midscroll=on in plan9.ini: the middle button and
+		# motion scroll (a TrackPoint's; mouse(3))
+		if(~ $midscroll on)
+			echo midscroll on >/dev/mousectl
 	}
 }
 

@@ -31,31 +31,41 @@ growfd(Fgrp *f, int fd)	/* fd is always >= 0 */
 	nfd = f->nfd;
 	if(fd < nfd)
 		return 0;
-	if(fd >= nfd+DELTAFD)
-		return -1;	/* out of range */
 	/*
 	 * Unbounded allocation is unwise; besides, there are only 16 bits
 	 * of fid in 9P
 	 */
-	if(nfd >= 5000){
+	if(fd >= MAXNFD){
+		if(fd > nfd)
+			return -1;	/* out of range: dup's newfd */
     Exhausted:
 		print("no free file descriptors\n");
 		return -1;
 	}
+	/*
+	 * 9front-ng: as far as fd, in steps of DELTAFD (was one step: dup's
+	 * newfd at most 20 past the table; POSIX's dup2 takes any fd below
+	 * OPEN_MAX, APE's is MAXNFD)
+	 */
+	nfd = (fd/DELTAFD + 1)*DELTAFD;
+	if(nfd > MAXNFD)
+		nfd = MAXNFD;
 	oldfd = f->fd;
 	oldflag = f->flag;
-	newfd = malloc((nfd+DELTAFD)*sizeof(newfd[0]));
-	newflag = malloc((nfd+DELTAFD)*sizeof(newflag[0]));
+	newfd = malloc(nfd*sizeof(newfd[0]));
+	newflag = malloc(nfd*sizeof(newflag[0]));
 	if(newfd == nil || newflag == nil){
 		free(newflag);
 		free(newfd);
 		goto Exhausted;
 	}
-	memmove(newfd, oldfd, nfd*sizeof(newfd[0]));
-	memmove(newflag, oldflag, nfd*sizeof(newflag[0]));
+	memmove(newfd, oldfd, f->nfd*sizeof(newfd[0]));
+	memmove(newflag, oldflag, f->nfd*sizeof(newflag[0]));
+	memset(newfd+f->nfd, 0, (nfd-f->nfd)*sizeof(newfd[0]));
+	memset(newflag+f->nfd, 0, (nfd-f->nfd)*sizeof(newflag[0]));
 	f->fd = newfd;
 	f->flag = newflag;
-	f->nfd = nfd+DELTAFD;
+	f->nfd = nfd;
 	if(fd > f->maxfd){
 		if(fd/100 > f->maxfd/100)
 			f->exceed = (fd/100)*100;

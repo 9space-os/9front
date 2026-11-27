@@ -95,11 +95,35 @@ yuy2convert(Format *, VSUncompressedFrame *g, uchar *in, VFrame *out)
 	out->n = op - out->d;
 }
 
+/*
+ * 9space: 8 bits of grey a pixel (an infrared camera's: Windows Hello's
+ * D3DFMT_L8), each value as red, green and blue
+ */
+void
+greyconvert(Format *, VSUncompressedFrame *g, uchar *in, VFrame *out)
+{
+	int i, n;
+	uchar *op;
+
+	n = GET2(g->wWidth) * GET2(g->wHeight);
+	op = out->d + out->n;
+	for(i = 0; i < n; i++){
+		*op++ = in[i];
+		*op++ = in[i];
+		*op++ = in[i];
+	}
+	out->n = op - out->d;
+}
+
 struct Converter {
 	uchar guid[16];
 	void (*fn)(Format *, VSUncompressedFrame *, uchar *, VFrame *);
 } converters[] = {
 	{{0x59,0x55,0x59,0x32, 0x00,0x00,0x10,0x00, 0x80,0x00,0x00,0xAA, 0x00,0x38,0x9B,0x71}, yuy2convert},
+	/* 9space: the grey ones: D3DFMT_L8, Y800, Y8 */
+	{{0x32,0x00,0x00,0x00, 0x02,0x00,0x10,0x00, 0x80,0x00,0x00,0xAA, 0x00,0x38,0x9B,0x71}, greyconvert},
+	{{0x59,0x38,0x30,0x30, 0x00,0x00,0x10,0x00, 0x80,0x00,0x00,0xAA, 0x00,0x38,0x9B,0x71}, greyconvert},
+	{{0x59,0x38,0x20,0x20, 0x00,0x00,0x10,0x00, 0x80,0x00,0x00,0xAA, 0x00,0x38,0x9B,0x71}, greyconvert},
 };
 
 struct Converter *
@@ -162,7 +186,9 @@ cvtproc(void *v)
 		if(c->abort || rc < 0) break;
 		if(rc == 0) continue;
 		if((ob ^ buf[1]) & 1){
-			if(bufn == frsz){
+			if(bufn == frsz && c->skip > 0)
+				c->skip--;
+			else if(bufn == frsz){
 				of = grabframe(c);
 				cvt->fn(f, g, fbuf, of);
 				pushframe(c, of);
@@ -287,6 +313,16 @@ err:
 	mkframes(c);
 	c->active = 1;
 	c->framemode = fr;
+	/*
+	 * 9space: frame's picture after a second of them: a sensor just
+	 * started gives black ones while its exposure settles (a laptop's,
+	 * 30c9:00c2: all black at first, its pictures after some)
+	 */
+	c->skip = 0;
+	if(fr && GET4(c->pc.dwFrameInterval) > 0)
+		c->skip = 10000000 / GET4(c->pc.dwFrameInterval);
+	if(c->skip > 60)
+		c->skip = 60;
 	qunlock(&c->qulock);
 	c->cvtid = proccreate(cvtproc, c, 16384);
 	return 0;

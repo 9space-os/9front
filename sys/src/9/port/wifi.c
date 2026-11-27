@@ -43,7 +43,74 @@ static uchar basicrates[] = {
 	0
 };
 
+/*
+ * 9space: the channels wifsproc scans (wifi->scan), in order.  The 2.4
+ * GHz ones as before, 1, 6 and 11 first; the 5 GHz ones (20 MHz) between
+ * them, so that the common channels come round about as often as they
+ * did: 36-48 and 149-165 after 1, 6, 11 and 3, 8, 13, then the channels
+ * with radar detection (DFS, 52-144), 1, 6 and 11 again in their middle.
+ */
+uchar wifiscan2g[] = {
+	1, 6, 11, 3, 8, 13, 5, 10, 2, 7, 12, 4, 9,
+	0
+};
+
+uchar wifiscan5g[] = {
+	1, 6, 11,
+	36, 40, 44, 48,
+	3, 8, 13,
+	149, 153, 157, 161, 165,
+	5, 10, 2, 7, 12, 4, 9,
+	52, 56, 60, 64,
+	1, 6, 11,
+	100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144,
+	0
+};
+
+/*
+ * 9space: channels with radar detection (DFS): a station may only listen
+ * there until it has heard an access point, so the scan sends no probe
+ * requests on them.  wifi.c has no regulatory domain otherwise (it
+ * probes on 12 and 13 too).
+ */
+static int
+passivechan(int channel)
+{
+	return channel >= 52 && channel <= 144;
+}
+
+/* 9space: the rates of wifi->rates valid on a channel: no 802.11b (DSSS) rates on 5 GHz */
+static ulong
+chanrates(Wifi *wifi, int channel)
+{
+	ulong valid;
+	int i, r;
+
+	valid = 0;
+	if(wifi->rates == nil)
+		return 0;
+	for(i = 0; i < 32 && wifi->rates[i] != 0; i++){
+		r = wifi->rates[i] & 0x7f;
+		if(channel > 14 && (r == 2 || r == 4 || r == 11 || r == 22))
+			continue;
+		valid |= 1UL<<i;
+	}
+	return valid;
+}
+
+/* 9space: the driver's transmit, noting the channel it tunes to */
+static void
+radiotx(Wifi *wifi, Wnode *wn, Block *b)
+{
+	if(wn->channel != 0)
+		wifi->channel = wn->channel;
+	(*wifi->transmit)(wifi, wn, b);
+}
+
 static Block* wifidecrypt(Wifi *, Wnode *, Block *);
+static void wifirecv(Wifi*, Block*);	/* 9space */
+static void wifitx(Wifi*, Wnode*, Block*);
+static void amsdu(Wifi*, Block*);
 static Block* wifiencrypt(Wifi *, Wnode *, Block *);
 static void freewifikeys(Wifi *, Wnode *);
 
@@ -94,8 +161,19 @@ getts(uchar *d)
 		(uvlong)d[7]<<56;
 }
 
-void
-wifiiq(Wifi *wifi, Block *b)
+/*
+ * 9space: a frame for wifiproc, woken for it: it may wait with a
+ * timeout (the block ack reorder's, batick), so not in qbread
+ */
+static void
+iqpass(Wifi *wifi, Block *b)
+{
+	qpass(wifi->iq, b);
+	wakeup(&wifi->iqr);
+}
+
+static void
+wifirecv(Wifi *wifi, Block *b)
 {
 	SNAP s;
 	Wifipkt h, *w;
@@ -114,14 +192,14 @@ wifiiq(Wifi *wifi, Block *b)
 		goto drop;
 	if(w->fc[1] & 0x40){
 		/* encrypted */
-		qpass(wifi->iq, b);
+		iqpass(wifi, b);
 		return;
 	}
 	switch(w->fc[0] & 0x0c){
 	case 0x00:	/* management */
 		if((w->fc[1] & 3) != 0x00)	/* STA->STA */
 			break;
-		qpass(wifi->iq, b);
+		iqpass(wifi, b);
 		return;
 	case 0x04:	/* control */
 		break;
@@ -134,6 +212,11 @@ wifiiq(Wifi *wifi, Block *b)
 		case 0x80:	/* QOS */
 		case 0x00:
 			break;
+		}
+		/* 9space: an A-MSDU (QoS control bit 7): its subframes */
+		if((w->fc[0] & 0x80) != 0 && (((uchar*)w)[hdrlen-2] & 0x80) != 0){
+			amsdu(wifi, b);
+			return;
 		}
 		if(BLEN(b) < SNAPHDRSIZE)
 			break;
@@ -155,6 +238,521 @@ drop:
 	freeb(b);
 }
 
+/*
+ * 9space: an A-MSDU's subframes, each an ethernet frame (802.11-2020
+ * 9.3.2.2.2: DA, SA, length, the MSDU with its LLC/SNAP, padded to 4)
+ */
+static void
+amsdu(Wifi *wifi, Block *b)
+{
+	Etherpkt *e;
+	Block *nb;
+	SNAP s;
+	int n;
+
+	while(BLEN(b) >= 14){
+		n = b->rp[12]<<8 | b->rp[13];
+		if(n < SNAPHDRSIZE || 14 + n > BLEN(b))
+			break;
+		memmove(&s, b->rp+14, SNAPHDRSIZE);
+		if(s.dsap == 0xAA && s.ssap == 0xAA && s.control == 3
+		&& s.orgcode[0] == 0 && s.orgcode[1] == 0 && s.orgcode[2] == 0){
+			/* 9space: iallocb: wifirecv runs in the driver's interrupt too (wifiiq) */
+			if((nb = iallocb(ETHERHDRSIZE + n - SNAPHDRSIZE)) == nil)
+				break;
+			e = (Etherpkt*)nb->wp;
+			memmove(e->d, b->rp, Eaddrlen);
+			memmove(e->s, b->rp+6, Eaddrlen);
+			memmove(e->type, s.type, 2);
+			memmove(nb->wp + ETHERHDRSIZE, b->rp + 14 + SNAPHDRSIZE, n - SNAPHDRSIZE);
+			nb->wp += ETHERHDRSIZE + n - SNAPHDRSIZE;
+			etheriq(wifi->ether, nb);
+		}
+		n = 14 + n;
+		if(n < BLEN(b))
+			n = (n + 3) & ~3;
+		if(n > BLEN(b))
+			break;
+		b->rp += n;
+	}
+	freeb(b);
+}
+
+/*
+ * 9space: the receive side of A-MPDU, as mac80211's reorder buffer does
+ * it (ieee80211_sta_manage_reorder_buf): QoS data of a TID with a block
+ * ack agreement waits until the frames before it are there, or the wait
+ * is over (Batimeout), so that wifi.c (and CCMP's replay check) sees
+ * them in order of their sequence numbers.
+ */
+enum {
+	Batimeout = 100,	/* ms */
+	Bamaxmiss = 8,		/* old frames in a row before the window moves (OpenBSD's IEEE80211_BA_MAX_WINMISS) */
+};
+
+static int
+seqdiff(int a, int b)
+{
+	return (a - b) & 0xfff;
+}
+
+/* the frames from the head on, up to the first missing one, to *l */
+/*
+ * 9space: the TID of a frame the reorder is for, else -1: QoS data with
+ * data (not a QoS null: its numbers are none of the window's), to us
+ * (not group addressed, our address: not one the radio passes on from
+ * others), from the access point, not a fragment, acknowledged normally
+ * or by block ack (not "no ack"), as OpenBSD's ieee80211_input goes to
+ * ieee80211_input_ba
+ */
+static int
+batid(Wifi *wifi, Block *b)
+{
+	Wifipkt *w;
+	Wnode *wn;
+	int hdrlen, q;
+
+	w = (Wifipkt*)b->rp;
+	if((w->fc[0] & 0x8c) != 0x88 || (w->fc[0] & 0x40) != 0 || (w->fc[1] & 3) != 0x02)
+		return -1;
+	if((w->a1[0] & 1) != 0 || memcmp(w->a1, wifi->ether->ea, Eaddrlen) != 0)
+		return -1;
+	hdrlen = wifihdrlen(w);
+	if(BLEN(b) < hdrlen || (wn = wifi->bss) == nil || memcmp(w->a2, wn->bssid, Eaddrlen) != 0)
+		return -1;
+	if((w->seq[0] & 0xf) != 0)
+		return -1;	/* a fragment */
+	q = b->rp[hdrlen-2];
+	if((q>>5 & 3) == 1 || (q>>5 & 3) == 2)
+		return -1;	/* no ack, no explicit ack */
+	return q & 15;
+}
+
+/* 9space: the first few frames the window dropped or moved for, to the log */
+static void
+balog(Wifi *wifi, Wba *ba, Block *b, int seq, char *why)
+{
+	Wifipkt *w;
+
+	if(ba->logged >= 8)
+		return;
+	ba->logged++;
+	w = (Wifipkt*)b->rp;
+	print("#l%d: ba: %s seq %d head %d win %d fc %.2ux%.2ux a1 %E a2 %E len %ld\n",
+		wifi->ether->ctlrno, why, seq, ba->head, ba->win, w->fc[0], w->fc[1],
+		w->a1, w->a2, BLEN(b));
+}
+
+static Block**
+bainorder(Wba *ba, Block **l)
+{
+	Block *b;
+
+	while((b = ba->buf[ba->head % Nba]) != nil){
+		ba->buf[ba->head % Nba] = nil;
+		ba->n--;
+		*l = b;
+		l = &b->next;
+		ba->head = (ba->head + 1) & 0xfff;
+	}
+	ba->since = ba->n > 0 ? MACHP(0)->PMach.ticks : 0;
+	return l;
+}
+
+/* the head n on, the frames before it to *l, held ones in order */
+static Block**
+baadvance(Wba *ba, int n, Block **l)
+{
+	Block *b;
+
+	for(; n > 0; n--){
+		if((b = ba->buf[ba->head % Nba]) != nil){
+			ba->buf[ba->head % Nba] = nil;
+			ba->n--;
+			*l = b;
+			l = &b->next;
+		}
+		ba->head = (ba->head + 1) & 0xfff;
+	}
+	return l;
+}
+
+static void	inorder(Wifi*, Block*);
+
+/* the frames in order on (in wifiproc) */
+static void
+barelease(Wifi *wifi, Block *b)
+{
+	Block *next;
+
+	for(; b != nil; b = next){
+		next = b->next;
+		b->next = nil;
+		inorder(wifi, b);
+	}
+}
+
+/*
+ * an agreement over: the frames held, in order (release), or dropped
+ * (the association is over: not in wifiproc, the keys gone)
+ */
+static void
+baoff(Wifi *wifi, int tid, int release)
+{
+	Block *out, **l;
+	Wba *ba;
+
+	ba = &wifi->rxba[tid];
+	out = nil;
+	l = &out;
+	lock(&wifi->balock);
+	if(ba->on){
+		l = baadvance(ba, Nba, l);
+		ba->on = 0;
+		ba->n = 0;
+		ba->since = 0;
+	}
+	*l = nil;
+	unlock(&wifi->balock);
+	if(release)
+		barelease(wifi, out);
+	else
+		freeblist(out);
+}
+
+/* held too long: the missing ones are given up */
+static void
+batick(Wifi *wifi)
+{
+	Block *out, **l;
+	Wba *ba;
+	int i;
+
+	for(i = 0; i < Ntid; i++){
+		ba = &wifi->rxba[i];
+		out = nil;
+		l = &out;
+		lock(&wifi->balock);
+		if(ba->on && ba->n > 0 && ba->since != 0
+		&& TK2MS(MACHP(0)->PMach.ticks - ba->since) >= Batimeout){
+			while(ba->buf[ba->head % Nba] == nil){
+				ba->head = (ba->head + 1) & 0xfff;
+				ba->expired++;
+			}
+			l = bainorder(ba, l);
+		}
+		*l = nil;
+		unlock(&wifi->balock);
+		barelease(wifi, out);
+	}
+}
+
+/* some agreement holds frames: wifiproc waits for batick at most 20 ms */
+static int
+baheld(Wifi *wifi)
+{
+	int i;
+
+	for(i = 0; i < Ntid; i++)
+		if(wifi->rxba[i].on && wifi->rxba[i].n > 0)
+			return 1;
+	return 0;
+}
+
+/*
+ * a frame from the radio: QoS data of the access point's under a block
+ * ack agreement to its window, the rest on (wifirecv)
+ */
+static void
+bareorder(Wifi *wifi, Block *b)
+{
+	Block *out, **l;
+	Wifipkt *w;
+	Wnode *wn;
+	Wba *ba;
+	int tid, seq, d;
+
+	if(!wifi->ba || BLEN(b) < WIFIHDRSIZE)
+		goto pass;
+	w = (Wifipkt*)b->rp;
+	/*
+	 * a block ack request (control, subtype 8; 802.11-2020 9.3.1.7):
+	 * the window of its TID moves to its starting sequence number,
+	 * the frames before go on (as net80211's ieee80211_recv_bar)
+	 */
+	if(w->fc[0] == 0x84){
+		if(BLEN(b) >= 20 && (wn = wifi->bss) != nil && memcmp(w->a2, wn->bssid, Eaddrlen) == 0){
+			tid = b->rp[17]>>4 & 15;
+			seq = (b->rp[18] | b->rp[19]<<8) >> 4;
+			ba = &wifi->rxba[tid];
+			out = nil;
+			l = &out;
+			lock(&wifi->balock);
+			if(ba->on && (d = seqdiff(seq, ba->head)) < 2048){
+				l = baadvance(ba, d, l);
+				l = bainorder(ba, l);
+			}
+			*l = nil;
+			unlock(&wifi->balock);
+			barelease(wifi, out);
+		}
+		freeb(b);
+		return;
+	}
+	if((tid = batid(wifi, b)) < 0)
+		goto pass;
+	ba = &wifi->rxba[tid];
+	if(!ba->on)
+		goto pass;
+	seq = (w->seq[0] | w->seq[1]<<8) >> 4;
+	out = nil;
+	l = &out;
+	lock(&wifi->balock);
+	if(!ba->on){
+		unlock(&wifi->balock);
+		goto pass;
+	}
+	d = seqdiff(seq, ba->head);
+	if(d >= 2048){
+		/*
+		 * before the window: had or given up (retries of frames
+		 * passed on already, whole aggregates of them: the ThinkBook,
+		 * 2026-11-19, runs of consecutive ones), dropped, as both
+		 * BSDs do (OpenBSD's ba_winmiss is for frames past the end)
+		 */
+		ba->old++;
+		balog(wifi, ba, b, seq, "old");
+		unlock(&wifi->balock);
+		freeb(b);
+		return;
+	}
+	if(d >= ba->win){
+		/*
+		 * past the window's end.  By up to a window: it slides (802.11
+		 * 10.24.7.6.2 b).  Further: only when the peer goes on from
+		 * there, Bamaxmiss frames one after the other, as OpenBSD's
+		 * ieee80211_input_ba (ba_winmiss); a lone frame with a wild
+		 * number (2026-11-19: rtw89 on the ThinkBook, the window
+		 * ran away and every later frame was "before" it) is dropped
+		 */
+		if(d - ba->win + 1 > ba->win){
+			ba->far++;
+			balog(wifi, ba, b, seq, "far");
+			if(ba->nfar > 0 && seq == ((ba->farseq + 1) & 0xfff))
+				ba->nfar++;
+			else
+				ba->nfar = 1;
+			ba->farseq = seq;
+			if(ba->nfar < Bamaxmiss){
+				unlock(&wifi->balock);
+				freeb(b);
+				return;
+			}
+			ba->nfar = 0;
+			ba->jumps++;
+		} else
+			ba->nfar = 0;
+		l = baadvance(ba, d - ba->win + 1, l);
+	} else
+		ba->nfar = 0;
+	if(ba->buf[seq % Nba] != nil){
+		/* a retry of one held */
+		*l = nil;
+		unlock(&wifi->balock);
+		barelease(wifi, out);
+		freeb(b);
+		return;
+	}
+	ba->buf[seq % Nba] = b;
+	ba->n++;
+	if(seq != ba->head)
+		ba->held++;
+	l = bainorder(ba, l);
+	*l = nil;
+	unlock(&wifi->balock);
+	barelease(wifi, out);
+	return;
+pass:
+	inorder(wifi, b);
+}
+/*
+ * 9space: QoS data under a block ack agreement and block ack requests
+ * from the access point: the reorder's (wifiproc)
+ */
+static int
+baframe(Wifi *wifi, Block *b)
+{
+	Wifipkt *w;
+	Wnode *wn;
+	int tid;
+
+	if(!wifi->ba || BLEN(b) < WIFIHDRSIZE)
+		return 0;
+	w = (Wifipkt*)b->rp;
+	if(w->fc[0] == 0x84)
+		return BLEN(b) >= 20 && (wn = wifi->bss) != nil && memcmp(w->a2, wn->bssid, Eaddrlen) == 0;
+	if((tid = batid(wifi, b)) < 0)
+		return 0;
+	return wifi->rxba[tid].on;
+}
+
+/*
+ * a frame from the radio, in the driver's interrupt: what the block
+ * ack reorder holds goes to wifiproc, which reorders, decrypts and
+ * passes on in one proc (the CCMP replay check sees them in order);
+ * the rest as 9front's wifiiq (wifirecv)
+ */
+void
+wifiiq(Wifi *wifi, Block *b)
+{
+	if(baframe(wifi, b)){
+		iqpass(wifi, b);
+		return;
+	}
+	wifirecv(wifi, b);
+}
+
+
+/* 9space: a block ack action frame (category 3) to the access point */
+static void
+sendba(Wifi *wifi, Wnode *wn, uchar *body, int n)
+{
+	Wifipkt *w;
+	Block *b;
+
+	b = allocb(WIFIHDRSIZE + n);
+	w = (Wifipkt*)b->wp;
+	w->fc[0] = 0xd0;	/* action */
+	w->fc[1] = 0x00;
+	memmove(w->a1, wn->bssid, Eaddrlen);
+	memmove(w->a2, wifi->ether->ea, Eaddrlen);
+	memmove(w->a3, wn->bssid, Eaddrlen);
+	b->wp += WIFIHDRSIZE;
+	memmove(b->wp, body, n);
+	b->wp += n;
+	wifitx(wifi, wn, b);
+}
+
+/*
+ * 9space: the block ack action frames (802.11-2020 9.6.4): an ADDBA
+ * request is agreed to where the radio answers aggregates (wifi->ba;
+ * buffer size at most Nba, no A-MSDU in them), declined (37) where not;
+ * an ADDBA response to ours, a DELBA end one
+ */
+static void
+recvba(Wifi *wifi, Wnode *wn, uchar *d, int len)
+{
+	uchar r[9];
+	int param, tid, size, st;
+	Wba *ba;
+
+	if(len < 2 || d[0] != 3 || wn != wifi->bss)
+		return;
+	switch(d[1]){
+	case 0:	/* ADDBA request */
+		if(len < 9)
+			return;
+		param = d[3] | d[4]<<8;
+		tid = param>>2 & 15;
+		size = param>>6;
+		if(size == 0 || size > Nba)
+			size = Nba;
+		st = wifi->ba && wn->qos && (param & 2) != 0 ? 0 : 37;
+		/* 9space: the driver's radio answers with block acks (etheriwl) */
+		if(st == 0 && wifi->baagree != nil && (*wifi->baagree)(wifi, tid, (d[7] | d[8]<<8) >> 4, size, 1) < 0)
+			st = 37;
+		if(st == 0){
+			ba = &wifi->rxba[tid];
+			baoff(wifi, tid, 1);
+			lock(&wifi->balock);
+			ba->head = (d[7] | d[8]<<8) >> 4;
+			ba->win = size;
+			ba->n = 0;
+			ba->since = 0;
+			ba->held = ba->expired = 0;
+			ba->old = ba->far = ba->jumps = 0;
+			ba->nfar = ba->logged = 0;
+			ba->on = 1;
+			unlock(&wifi->balock);
+		}
+		r[0] = 3;
+		r[1] = 1;	/* ADDBA response */
+		r[2] = d[2];	/* dialog token */
+		r[3] = st;
+		r[4] = st>>8;
+		param = (param & 2) | tid<<2 | size<<6;	/* no A-MSDU */
+		r[5] = param;
+		r[6] = param>>8;
+		r[7] = d[5];	/* timeout */
+		r[8] = d[6];
+		sendba(wifi, wn, r, 9);
+		if(wifi->debug)
+			print("#l%d: addba from %E: tid %d size %d: %s\n", wifi->ether->ctlrno,
+				wn->bssid, tid, size, st == 0 ? "agreed" : "declined");
+		break;
+	case 1:	/* ADDBA response */
+		if(len < 9 || d[2] != wn->batoken)
+			return;
+		param = d[5] | d[6]<<8;
+		tid = param>>2 & 15;
+		if((d[3] | d[4]<<8) == 0){
+			/* 9space: the driver's radio aggregates from the TID's next sequence number */
+			if(wifi->batxagree != nil){
+				int ssn, n;
+
+				ssn = wn->qseq[tid] & 0xfff;
+				if((n = (*wifi->batxagree)(wifi, tid, ssn, 1)) < 0)
+					break;
+				if(n != ssn && (wn->qseq[tid] & 0xfff) == ssn)
+					wn->qseq[tid] = n;	/* the radio skips one (its scheduler's bug) */
+			}
+			wn->txba |= 1<<tid;
+		}
+		break;
+	case 2:	/* DELBA */
+		if(len < 6)
+			return;
+		param = d[2] | d[3]<<8;
+		tid = param>>12 & 15;
+		if(param & (1<<11)){
+			baoff(wifi, tid, 1);	/* the access point's, our receiving */
+			if(wifi->baagree != nil)
+				(*wifi->baagree)(wifi, tid, 0, 0, 0);
+		} else {
+			if((wn->txba & 1<<tid) && wifi->batxagree != nil)
+				(*wifi->batxagree)(wifi, tid, 0, 0);
+			wn->txba &= ~(1<<tid);
+		}
+		break;
+	}
+}
+
+/*
+ * 9space: our ADDBA request for TID 0 (best effort), once associated with
+ * WMM and HT where the radio aggregates: buffer size 64, immediate block
+ * ack, no A-MSDU, starting at the TID's next sequence number
+ */
+static void
+sendaddba(Wifi *wifi, Wnode *wn)
+{
+	uchar r[9];
+	int param;
+
+	if(!wifi->ba || !wifi->batx || !wn->qos || !wn->ht)
+		return;
+	r[0] = 3;
+	r[1] = 0;	/* ADDBA request */
+	r[2] = ++wn->batoken;
+	param = 2 | 0<<2 | Nba<<6;
+	r[3] = param;
+	r[4] = param>>8;
+	r[5] = 0;	/* no timeout */
+	r[6] = 0;
+	r[7] = wn->qseq[0]<<4;
+	r[8] = wn->qseq[0]>>4;
+	sendba(wifi, wn, r, 9);
+}
+
 static void
 wifitx(Wifi *wifi, Wnode *wn, Block *b)
 {
@@ -163,10 +761,14 @@ wifitx(Wifi *wifi, Wnode *wn, Block *b)
 
 	wn->lastsend = MACHP(0)->PMach.ticks;
 
-	seq = incref(&wifi->txseq);
+	w = (Wifipkt*)b->rp;
+	/* 9space: QoS data numbered per TID (802.11 10.3.2.14), the rest as before */
+	if((w->fc[0] & 0x8c) == 0x88)
+		seq = wn->qseq[((uchar*)w)[wifihdrlen(w)-2] & 15]++;
+	else
+		seq = incref(&wifi->txseq);
 	seq <<= 4;
 
-	w = (Wifipkt*)b->rp;
 	w->dur[0] = 1;
 	w->dur[1] = 0;
 	w->seq[0] = seq;
@@ -188,7 +790,7 @@ wifitx(Wifi *wifi, Wnode *wn, Block *b)
 		wn->actrate = a;
 	}
 
-	(*wifi->transmit)(wifi, wn, b);
+	radiotx(wifi, wn, b);
 }
 
 static Wnode*
@@ -248,55 +850,37 @@ wifitxfail(Wifi *wifi, Block *b)
 static uchar*
 putrates(uchar *p, uchar *rates, ulong valid, ulong basic)
 {
-	int n, i, j;
+	uchar r[32];
+	int n, i, m;
 
+	/*
+	 * 9space: the basic rates first, the first 8 in the supported
+	 * rates element, the others in the extended supported rates
+	 * element (9front repeated all of them there)
+	 */
 	valid |= basic;
-
-	for(i = n = 0; i < 32 && rates[i] != 0; i++)
-		if(valid & (1UL<<i))
-			n++;
-
-	valid &= ~basic;
+	n = 0;
+	for(i = 0; i < 32 && rates[i] != 0; i++)
+		if(basic & (1UL<<i))
+			r[n++] = rates[i] | 0x80;
+	for(i = 0; i < 32 && rates[i] != 0; i++)
+		if((valid & ~basic) & (1UL<<i))
+			r[n++] = rates[i] & 0x7f;
 
 	if(n > 0){
 		/* supported rates */
+		m = n > 8 ? 8 : n;
 		*p++ = 1;
-		*p++ = n;
-		for(i = j = 0; i < 32 && j < n; i++){
-			if(basic & (1UL<<i)){
-				*p++ = rates[i] | 0x80;
-				j++;
-			}
-		}
-		for(i = 0; i < 32 && j < n; i++){
-			if(valid & (1UL<<i)){
-				*p++ = rates[i] & 0x7f;
-				j++;
-			}
-		}
+		*p++ = m;
+		memmove(p, r, m);
+		p += m;
 	}
-
 	if(n > 8){
-		/* truncate supported rates element */
-		p -= n;
-		p[-1] = 8;
-		p += 8;
-
 		/* extended supported rates */
 		*p++ = 50;
-		*p++ = n;
-		for(i = j = 0; i < 32 && j < n; i++){
-			if(basic & (1UL<<i)){
-				*p++ = rates[i] | 0x80;
-				j++;
-			}
-		}
-		for(i = 0; i < 32 && j < n; i++){
-			if(valid & (1UL<<i)){
-				*p++ = rates[i] & 0x7f;
-				j++;
-			}
-		}
+		*p++ = n - 8;
+		memmove(p, r + 8, n - 8);
+		p += n - 8;
 	}
 
 	return p;
@@ -313,7 +897,7 @@ wifiprobe(Wifi *wifi, Wnode *wn)
 	n = strlen(wifi->essid);
 	if(n == 0){
 		/* no specific essid, just tell driver to tune channel */
-		(*wifi->transmit)(wifi, wn, nil);
+		radiotx(wifi, wn, nil);
 		return;
 	}
 
@@ -335,9 +919,11 @@ wifiprobe(Wifi *wifi, Wnode *wn)
 
 	p = putrates(p, wifi->rates, wn->validrates, wn->basicrates);
 
-	*p++ = 3;	/* ds parameter set */
-	*p++ = 1;
-	*p++ = wn->channel;
+	if(wn->channel <= 14){	/* 9space: the 2.4 GHz (DSSS) band's only */
+		*p++ = 3;	/* ds parameter set */
+		*p++ = 1;
+		*p++ = wn->channel;
+	}
 
 	b->wp = p;
 	wifitx(wifi, wn, b);
@@ -370,6 +956,57 @@ sendauth(Wifi *wifi, Wnode *bss)
 	bss->aid = 0;
 
 	wifitx(wifi, bss, b);
+}
+
+/*
+ * 9space: the radio's capability elements the access point offers too
+ * (HT, VHT, HE), then WMM's information element where it has WMM and
+ * the radio sends QoS data (wifi->wmm): QoS data from then on (bss->qos).  As OpenBSD's ieee80211_get_assoc_req
+ * adds them (ieee80211_add_htcaps, ieee80211_add_wme_info); the radio
+ * says what it has, wifi.c only what the access point offers.
+ */
+static uchar*
+putcaps(Wifi *wifi, Wnode *bss, uchar *p)
+{
+	uchar *c, *e;
+	int ok;
+
+	bss->qos = 0;
+	c = wifi->caps;
+	e = c + wifi->ncaps;
+	for(; c+2 <= e && c+2+c[1] <= e; c += 2+c[1]){
+		switch(c[0]){
+		case 45:
+			ok = bss->ht;
+			break;
+		case 191:
+			ok = bss->vht && bss->channel > 14;
+			break;
+		case 255:
+			ok = bss->he && c[1] > 0 && c[2] == 35;
+			break;
+		default:
+			ok = 0;
+		}
+		if(ok){
+			memmove(p, c, 2+c[1]);
+			p += 2+c[1];
+		}
+	}
+	if(bss->wmm && wifi->wmm){
+		/* WMM information element, version 1, no U-APSD */
+		*p++ = 221;
+		*p++ = 7;
+		*p++ = 0x00;
+		*p++ = 0x50;
+		*p++ = 0xf2;
+		*p++ = 0x02;
+		*p++ = 0x00;	/* subtype: information */
+		*p++ = 0x01;	/* version */
+		*p++ = 0x00;	/* QoS info */
+		bss->qos = 1;
+	}
+	return p;
 }
 
 static void
@@ -416,6 +1053,8 @@ sendassoc(Wifi *wifi, Wnode *bss)
 		p += n;
 	}
 
+	p = putcaps(wifi, bss, p);
+
 	b->wp = p;
 	wifitx(wifi, bss, b);
 }
@@ -427,6 +1066,16 @@ setstatus(Wifi *wifi, Wnode *wn, char *new)
 
 	old = wn->status;
 	wn->status = new;
+	/*
+	 * 9space: the link is up once the access point is ours, not at
+	 * wifsproc's next round (up to 500 ms later): what is sent in
+	 * between was dropped (devether's oq while the link is down)
+	 */
+	if(wn == wifi->bss && (new == Sassoc || new == Sblocked))
+		ethersetlink(wifi->ether, 1);
+	/* 9space: our block ack agreement, once the port is open */
+	if(wn == wifi->bss && new == Sassoc && old != Sassoc)
+		sendaddba(wifi, wn);
 	if(wifi->debug && new != old)
 		print("#l%d: status %E: %.12ld %.12ld: %s -> %s (from pc=%#p)\n",
 			wifi->ether->ctlrno, 
@@ -465,8 +1114,9 @@ static void
 recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 {
 	static uchar wpa1oui[4] = { 0x00, 0x50, 0xf2, 0x01 };
+	static uchar wmmoui[4] = { 0x00, 0x50, 0xf2, 0x02 };	/* 9space */
 	uchar *e, *x, *p, t;
-	int rsnset;
+	int rsnset, dschan, htchan;
 
 	len -= 8+2+2;
 	if(len < 0)
@@ -482,8 +1132,12 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 
 	wn->dtimcount = 0;
 	wn->dtimperiod = 1;
+	wn->wmm = wn->ht = wn->vht = wn->he = 0;	/* 9space: as this beacon says */
+	wn->htcap = wn->htprot = wn->htampdu = 0;
+	wn->htrxmcs[0] = wn->htrxmcs[1] = 0;
 
 	rsnset = 0;
+	dschan = htchan = 0;
 	for(e = d + len; d+2 <= e; d = x){
 		d += 2;
 		x = d + d[-1];
@@ -527,7 +1181,29 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			break;
 		case 3:		/* DSPARAMS */
 			if(d != x)
-				wn->channel = d[0];
+				dschan = d[0];
+			break;
+		case 61:	/* 9space: HT operation: primary channel, info 1, info 2 (protection in its low bits) */
+			if(d != x)
+				htchan = d[0];
+			if(x - d >= 3)
+				wn->htprot = d[2] & 3;
+			break;
+		case 45:	/* 9space: HT capabilities */
+			wn->ht = 1;
+			if(x - d >= 5){	/* info (2), A-MPDU parameters (1), MCS set (16) */
+				wn->htcap = d[0] | d[1]<<8;
+				wn->htampdu = d[2];
+				wn->htrxmcs[0] = d[3];
+				wn->htrxmcs[1] = d[4];
+			}
+			break;
+		case 191:	/* 9space: VHT capabilities */
+			wn->vht = 1;
+			break;
+		case 255:	/* 9space: an extension: 35 HE capabilities */
+			if(d != x && d[0] == 35)
+				wn->he = 1;
 			break;
 		case 5:
 			if(x - d < 2)
@@ -538,6 +1214,11 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			break;
 		case 221:	/* vendor specific */
 			len = x - d;
+			/* 9space: WMM's information or parameter element (Wi-Fi Alliance) */
+			if(len >= 5 && memcmp(d, wmmoui, sizeof(wmmoui)) == 0 && (d[4] == 0 || d[4] == 1)){
+				wn->wmm = 1;
+				break;
+			}
 			if(rsnset || len < sizeof(wpa1oui) || memcmp(d, wpa1oui, sizeof(wpa1oui)) != 0)
 				break;
 			/* no break */
@@ -549,6 +1230,18 @@ recvbeacon(Wifi *wifi, Wnode *wn, uchar *d, int len)
 			break;
 		}
 	}
+
+	/*
+	 * 9space: on 5 GHz the DS parameter set is optional; then the HT
+	 * operation element's primary channel, else the channel the radio
+	 * is tuned to
+	 */
+	if(dschan != 0)
+		wn->channel = dschan;
+	else if(htchan != 0)
+		wn->channel = htchan;
+	else if(wn->channel == 0)
+		wn->channel = wifi->channel;
 }
 
 static void
@@ -583,8 +1276,13 @@ wifideauth(Wifi *wifi, Wnode *wn)
 	if(wn != wifi->bss)
 		return;
 
+	/* 9space: the block ack agreements are over */
+	for(i = 0; i < Ntid; i++)
+		baoff(wifi, i, 0);
+	wn->txba = 0;
+
 	/* notify driver about node aid association */
-	(*wifi->transmit)(wifi, wn, nil);
+	radiotx(wifi, wn, nil);
 
 	/* notify aux/wpa with a zero length packet that we got deassociated from the ap */
 	ether = wifi->ether;
@@ -597,6 +1295,21 @@ wifideauth(Wifi *wifi, Wnode *wn)
 		poperror();
 	}
 	qflush(ether->oq);
+}
+
+/*
+ * 9space: the radio went away (etherwlan: its data file closed) with its
+ * state: the association is over, the scan starts again for the next one
+ */
+void
+wifiradiogone(Wifi *wifi)
+{
+	Wnode *wn;
+
+	if((wn = wifi->bss) != nil){
+		wifideauth(wifi, wn);
+		wifi->bss = nil;
+	}
 }
 
 /* check if a node qualifies as our bss matching bssid and essid */
@@ -613,6 +1326,199 @@ goodbss(Wifi *wifi, Wnode *wn)
 	if(wifi->essid[0] != 0 && strcmp(wifi->essid, wn->ssid) != 0)
 		return 0;	/* essid doesnt match */
 	return 1;
+}
+
+/*
+ * 9space: the node to join, where the driver gives the signal: none
+ * before the scan went once over all its channels since the first that
+ * matches was heard (candstep), then the strongest that matches, heard
+ * in that pass (a mesh's access point rather than its far repeater; by
+ * steps, not time: a pass over 2.4 and 5 GHz takes some 7 s), as
+ * OpenBSD's ieee80211_node_choose_bss picks it: the strongest on 5 GHz
+ * where its signal reaches IEEE80211_RSSI_THRES_5GHZ (-70 dBm), even if
+ * one on 2.4 GHz is stronger (the 5 GHz band is less crowded, its
+ * channels wider), else the strongest on either; without the signal wn,
+ * the first that matches, as before.  None while the one chosen may
+ * still answer (a second chosen meanwhile, a beacon of the node passed
+ * over, would race it: the first authentication answered wins)
+ */
+enum {
+	Rssithres5 = -70,	/* dBm, OpenBSD's IEEE80211_RSSI_THRES_5GHZ */
+};
+
+static Wnode*
+bestbss(Wifi *wifi, Wnode *wn)
+{
+	Wnode *n, *best, *best5;
+	ulong now;
+
+	if(!wifi->sigs)
+		return wn;
+	if(!wifi->hascand){
+		wifi->candstep = wifi->scanstep;
+		wifi->hascand = 1;
+	}
+	if(wifi->scanstep - wifi->candstep < wifi->scanlen)
+		return nil;	/* not yet on every channel since */
+	now = MACHP(0)->PMach.ticks;
+	if(TK2MS(now - wifi->lastauth) <= 1000)
+		return nil;	/* the chosen one's answer to come: no second (its auth would win if first) */
+	best = best5 = nil;
+	for(n = wifi->node; n != &wifi->node[nelem(wifi->node)]; n++){
+		if(!n->hasrssi || n->seenstep - wifi->candstep > wifi->scanstep - wifi->candstep
+		|| !goodbss(wifi, n))
+			continue;
+		if(TK2MS(now - n->lastsend) <= 1000)
+			continue;	/* tried just now */
+		if(best == nil || n->rssi > best->rssi)
+			best = n;
+		if(n->channel > 14 && (best5 == nil || n->rssi > best5->rssi))
+			best5 = n;
+	}
+	if(best5 != nil && (best5->rssi >= Rssithres5 || best5->rssi >= best->rssi))
+		best = best5;
+	if(best != nil && wifi->debug)
+		print("#l%d: the strongest: %E %d dBm\n", wifi->ether->ctlrno, best->bssid, best->rssi);
+	return best;
+}
+
+/*
+ * 9space: roaming (Wifi.roam): the associated node's signal below the
+ * threshold for 5 s, doubled for each time the scan chose the same
+ * node again (at most 5 min); the scan that follows chooses the
+ * strongest (bestbss). OpenBSD scans in the background instead
+ * (ieee80211_bgscan), which needs the firmware's scan.
+ */
+enum {
+	Roamdefault	= -75,	/* dBm: below it a scan costs less than the link (OpenBSD scans in the background below -60/-70) */
+	Roamwait	= 5,	/* s */
+	Roammaxfail	= 64,
+};
+
+static int
+roamweak(Wifi *wifi, Wnode *wn, ulong now)
+{
+	if(!wifi->sigs || wifi->roam == 0 || wn->status != Sassoc || !wn->hasrssi
+	|| memcmp(wifi->bssid, wifi->ether->Netif.bcast, Eaddrlen) != 0){
+		wifi->weaksince = 0;
+		return 0;	/* off, not associated, or a bssid asked for */
+	}
+	if(wn->rssi >= wifi->roam){
+		wifi->weaksince = 0;
+		return 0;
+	}
+	if(wifi->weaksince == 0){
+		wifi->weaksince = now;
+		return 0;
+	}
+	if(TK2SEC(now - wifi->weaksince) < Roamwait*(1+wifi->roamfail))
+		return 0;
+	wifi->weaksince = 0;
+	return 1;
+}
+
+enum {
+	Bgscanmax	= 15,	/* s: a background scan's end, at the latest */
+	Roamhyst	= 8,	/* dB: how much stronger another node must be */
+};
+
+/*
+ * 9space: the strongest node of the network heard during the background
+ * scan, if it is Roamhyst stronger than ours (on 5 GHz where it reaches
+ * Rssithres5, as bestbss); nil if none
+ */
+static Wnode*
+roambetter(Wifi *wifi, Wnode *cur)
+{
+	Wnode *n, *best, *best5;
+
+	best = best5 = nil;
+	for(n = wifi->node; n != &wifi->node[nelem(wifi->node)]; n++){
+		if(n == cur || !n->hasrssi || n->channel == 0 || !goodbss(wifi, n))
+			continue;
+		if((s32int)(n->lastseen - wifi->bgscanstart) < 0)	/* GCC port: 32 bits, as the ticks */
+			continue;	/* not heard in this scan */
+		if(best == nil || n->rssi > best->rssi)
+			best = n;
+		if(n->channel > 14 && (best5 == nil || n->rssi > best5->rssi))
+			best5 = n;
+	}
+	if(best5 != nil && (best5->rssi >= Rssithres5 || best5->rssi >= best->rssi))
+		best = best5;
+	if(best == nil || best->rssi < cur->rssi + Roamhyst)
+		return nil;
+	return best;
+}
+
+/* 9space: the driver's background scan ended (from its interrupt) */
+void
+wifibgscandone(Wifi *wifi)
+{
+	wifi->bgscanning = 0;
+}
+
+/* 9space: after a roaming scan: the same node again waits longer */
+static void
+roamchose(Wifi *wifi, Wnode *wn)
+{
+	static uchar zeros[Eaddrlen];
+
+	if(memcmp(wifi->roamfrom, zeros, Eaddrlen) == 0)
+		return;
+	if(memcmp(wifi->roamfrom, wn->bssid, Eaddrlen) == 0){
+		if(wifi->roamfail < Roammaxfail)
+			wifi->roamfail = wifi->roamfail? 2*wifi->roamfail: 1;
+	} else
+		wifi->roamfail = 0;
+	memset(wifi->roamfrom, 0, Eaddrlen);
+	if(wifi->debug)
+		print("#l%d: roamed to %E (wait now %d s)\n", wifi->ether->ctlrno, wn->bssid, Roamwait*(1+wifi->roamfail));
+}
+
+static int
+iqready(void *a)
+{
+	Wifi *wifi;
+
+	wifi = a;
+	return qcanread(wifi->iq) || qisclosed(wifi->iq);
+}
+
+/* an encrypted frame, decrypted and on (wifiproc's) */
+static void
+decryptrecv(Wifi *wifi, Block *b)
+{
+	Wifipkt *w;
+	Wnode *wn;
+
+	w = (Wifipkt*)b->rp;
+	if((wn = nodelookup(wifi, w->a2, 0)) == nil){
+		freeb(b);
+		return;
+	}
+	wn->lastseen = MACHP(0)->PMach.ticks;
+	if((b->flag & Bsignal) && wn == wifi->bss && wn->hasrssi)
+		wn->rssi = (7*wn->rssi + (schar)b->rp[-9]) / 8;	/* 9space: its data's signal too (roaming) */
+	if((b = wifidecrypt(wifi, wn, b)) == nil)
+		return;
+	w = (Wifipkt*)b->rp;
+	if(w->fc[1] & 0x40){
+		freeb(b);
+		return;
+	}
+	b->flag &= ~Btimestamp;
+	wifirecv(wifi, b);
+}
+
+/* 9space: a frame the block ack reorder lets go, in wifiproc */
+static void
+inorder(Wifi *wifi, Block *b)
+{
+	if(BLEN(b) >= WIFIHDRSIZE && (((Wifipkt*)b->rp)->fc[1] & 0x40)){
+		decryptrecv(wifi, b);
+		return;
+	}
+	wifirecv(wifi, b);
 }
 
 static void
@@ -633,22 +1539,34 @@ wifiproc(void *arg)
 			b = nil;
 			continue;
 		}
+		/*
+		 * 9space: frames held for the block ack reorder wait at most
+		 * Batimeout (batick): then no longer than 20 ms for the queue
+		 */
+		if(!iqready(wifi)){
+			if(baheld(wifi))
+				tsleep(&wifi->iqr, iqready, wifi, 20);
+			else
+				sleep(&wifi->iqr, iqready, wifi);
+		}
+		batick(wifi);
+		if(!qcanread(wifi->iq)){
+			if(qisclosed(wifi->iq))
+				break;
+			continue;
+		}
 		if((b = qbread(wifi->iq, 100000)) == nil)
 			break;
+		if(baframe(wifi, b)){
+			bareorder(wifi, b);
+			b = nil;
+			continue;
+		}
 		w = (Wifipkt*)b->rp;
 		if(w->fc[1] & 0x40){
 			/* encrypted */
-			if((wn = nodelookup(wifi, w->a2, 0)) == nil)
-				continue;
-			wn->lastseen = MACHP(0)->PMach.ticks;
-			if((b = wifidecrypt(wifi, wn, b)) != nil){
-				w = (Wifipkt*)b->rp;
-				if(w->fc[1] & 0x40)
-					continue;
-				b->flag &= ~Btimestamp;
-				wifiiq(wifi, b);
-				b = nil;
-			}
+			decryptrecv(wifi, b);
+			b = nil;
 			continue;
 		}
 		/* management */
@@ -666,12 +1584,22 @@ wifiproc(void *arg)
 			wn->lastseen = MACHP(0)->PMach.ticks;
 			if(b->flag & Btimestamp)
 				wn->rs = getts(b->rp - 8);
+			if(b->flag & Bsignal){
+				/* 9space: the signal, smoothed (3/4 the old) */
+				if(wn->hasrssi)
+					wn->rssi = (3*wn->rssi + (schar)b->rp[-9]) / 4;
+				else
+					wn->rssi = (schar)b->rp[-9];
+				wn->hasrssi = 1;
+				wn->seenstep = wifi->scanstep;
+			}
 			b->rp += wifihdrlen(w);
 			recvbeacon(wifi, wn, b->rp, BLEN(b));
 
 			if(wifi->bss == nil
 			&& TK2MS(MACHP(0)->PMach.ticks - wn->lastsend) > 1000
-			&& goodbss(wifi, wn)){
+			&& goodbss(wifi, wn)
+			&& (wn = bestbss(wifi, wn)) != nil){
 				setstatus(wifi, wn, Sconn);
 				sendauth(wifi, wn);
 				wifi->lastauth = wn->lastsend;
@@ -693,7 +1621,7 @@ wifiproc(void *arg)
 			recvassoc(wifi, wn, b->rp, BLEN(b));
 			/* notify driver about node aid association */
 			if(wn == wifi->bss)
-				(*wifi->transmit)(wifi, wn, nil);
+				radiotx(wifi, wn, nil);
 			break;
 		case 0xb0:	/* auth */
 			if(wifi->debug)
@@ -704,6 +1632,7 @@ wifiproc(void *arg)
 				setstatus(wifi, wn, Sauth);
 			if(wifi->bss == nil && goodbss(wifi, wn)){
 				wifi->bss = wn;
+				roamchose(wifi, wn);	/* 9space */
 				if(wn->status == Sauth)
 					sendassoc(wifi, wn);
 			}
@@ -712,6 +1641,10 @@ wifiproc(void *arg)
 			if(wifi->debug)
 				print("#l%d: got deauth from %E\n", wifi->ether->ctlrno, wn->bssid);
 			wifideauth(wifi, wn);
+			break;
+		case 0xd0:	/* 9space: action */
+			b->rp += wifihdrlen(w);
+			recvba(wifi, wn, b->rp, BLEN(b));
 			break;
 		}
 	}
@@ -741,7 +1674,7 @@ wifietheroq(Wifi *wifi, Block *b)
 	} else if(wn->status != Sassoc)
 		goto drop;
 
-	h.fc[0] = 0x08;	/* data */
+	h.fc[0] = wn->qos ? 0x88 : 0x08;	/* data; 9space: QoS data with WMM */
 	memmove(h.a1, wn->bssid, Eaddrlen);
 	if(memcmp(e.s, wifi->ether->ea, Eaddrlen) == 0) {
 		h.fc[1] = 0x01;	/* STA->AP */
@@ -755,6 +1688,11 @@ wifietheroq(Wifi *wifi, Block *b)
 	hdrlen = wifihdrlen(&h);
 	b = padblock(b, hdrlen + SNAPHDRSIZE);
 	memmove(b->rp, &h, hdrlen);
+	if(wn->qos){
+		/* 9space: QoS control after the header: TID 0 (best effort), normal ack */
+		b->rp[hdrlen-2] = 0;
+		b->rp[hdrlen-1] = 0;
+	}
 	s = (SNAP*)(b->rp + hdrlen);
 	s->dsap = s->ssap = 0xAA;
 	s->control = 0x03;
@@ -793,7 +1731,8 @@ wifsproc(void *arg)
 	Wnode wnscan;
 	Wnode *wn;
 	ulong now, tmout;
-	uchar *rate;
+	uchar *rate, *scan, *list;
+	int dwell, i;
 
 	wifi = arg;
 	ether = wifi->ether;
@@ -802,16 +1741,50 @@ wifsproc(void *arg)
 	memset(wn, 0, sizeof(*wn));
 	memmove(wn->bssid, ether->Netif.bcast, Eaddrlen);
 
+	scan = nil;
+	i = 0;
 	while(waserror())
 		;
 Scan:
-	/* scan for access point */
+	wifi->hascand = 0;	/* 9space: a new choice after a full pass (bestbss) */
+	scan = nil;
+	/*
+	 * scan for access point
+	 * 9space: the channels of wifi->scan; on channels with radar
+	 * detection only listen (a beacon, 100 TU, in 200 ms); a probe
+	 * response comes fast: 100 ms on the others on 5 GHz
+	 */
 	while(wifi->bss == nil){
+		/*
+		 * 9space: an authentication just sent (roaming to a node
+		 * chosen after a background scan): its answer comes on that
+		 * node's channel, the radio stays there for a second
+		 */
+		if(TK2MS(MACHP(0)->PMach.ticks - wifi->lastauth) < 1000){
+			tsleep(&up->sleep, return0, 0, 100);
+			continue;
+		}
 		ethersetlink(ether, 0);
-		wnscan.channel = 1 + ((wnscan.channel+4) % 13);
-		wifiprobe(wifi, &wnscan);
+		list = wifi->scan != nil ? wifi->scan : wifiscan2g;
+		if(list != scan || list[i] == 0){
+			scan = list;	/* the driver may set it after wifiattach */
+			i = 0;
+			for(wifi->scanlen = 0; scan[wifi->scanlen] != 0; wifi->scanlen++)
+				;
+		}
+		wifi->scanstep++;	/* 9space: the channels tuned to (bestbss) */
+		wnscan.channel = scan[i++];
+		wnscan.validrates = chanrates(wifi, wnscan.channel);
+		dwell = 200;
+		if(passivechan(wnscan.channel))
+			radiotx(wifi, &wnscan, nil);
+		else {
+			wifiprobe(wifi, &wnscan);
+			if(wnscan.channel > 14 && wifi->essid[0] != 0)
+				dwell = 100;
+		}
 		do {
-			tsleep(&up->sleep, return0, 0, 200);
+			tsleep(&up->sleep, return0, 0, dwell);
 			now = MACHP(0)->PMach.ticks;
 		} while(TK2MS(now-wifi->lastauth) < 1000);
 	}
@@ -830,6 +1803,58 @@ Scan:
 			wifideauth(wifi, wn);
 			wifi->bss = nil;
 			break;
+		}
+		/*
+		 * 9space: with the driver's background scan the weak signal
+		 * starts one; after it the strongest node heard then, if
+		 * clearly better, is joined directly (roambetter); without
+		 * one the node is left and the scan below chooses again
+		 */
+		if(wifi->bgscanning && TK2SEC(now - wifi->bgscanstart) > Bgscanmax)
+			wifi->bgscanning = 0;	/* no word of its end: given up */
+		if(wifi->bgscanstart != 0 && !wifi->bgscanning){
+			Wnode *nn;
+
+			nn = roambetter(wifi, wn);
+			wifi->bgscanstart = 0;
+			if(nn == nil){
+				if(wifi->roamfail < Roammaxfail)
+					wifi->roamfail = wifi->roamfail? 2*wifi->roamfail: 1;
+				if(wifi->debug)
+					print("#l%d: background scan: none better (wait now %d s)\n",
+						wifi->ether->ctlrno, Roamwait*(1+wifi->roamfail));
+			} else {
+				if(wifi->debug)
+					print("#l%d: roaming: %E %d dBm to %E %d dBm channel %d\n", wifi->ether->ctlrno,
+						wn->bssid, wn->rssi, nn->bssid, nn->rssi, nn->channel);
+				memmove(wifi->roamfrom, wn->bssid, Eaddrlen);
+				wifideauth(wifi, wn);
+				wifi->bss = nil;
+				setstatus(wifi, nn, Sconn);
+				sendauth(wifi, nn);
+				wifi->lastauth = nn->lastsend;
+				break;
+			}
+		}
+		if(roamweak(wifi, wn, now)){
+			if(wifi->bgscan != nil){
+				if(!wifi->bgscanning && wifi->bgscanstart == 0){
+					wifi->bgscanstart = now;
+					wifi->bgscanning = 1;
+					if((*wifi->bgscan)(wifi) < 0){
+						wifi->bgscanning = 0;
+						wifi->bgscanstart = 0;
+					} else if(wifi->debug)
+						print("#l%d: background scan: %E at %d dBm\n", wifi->ether->ctlrno, wn->bssid, wn->rssi);
+				}
+			} else {
+				if(wifi->debug)
+					print("#l%d: roaming: %E at %d dBm\n", wifi->ether->ctlrno, wn->bssid, wn->rssi);
+				memmove(wifi->roamfrom, wn->bssid, Eaddrlen);
+				wifideauth(wifi, wn);
+				wifi->bss = nil;
+				break;
+			}
 		}
 		if(TK2MS(now - wn->lastsend) > 1000){
 			if((wn->status == Sauth || wn->status == Sblocked) && (++tmout & 7) == 0)
@@ -869,6 +1894,7 @@ wifiattach(Ether *ether, void (*transmit)(Wifi*, Wnode*, Block*))
 	memmove(wifi->bssid, ether->Netif.bcast, Eaddrlen);
 
 	wifi->lastauth = MACHP(0)->PMach.ticks;
+	wifi->roam = Roamdefault;	/* 9space: only where the driver gives the signal (sigs) */
 
 	snprint(name, sizeof(name), "#l%dwifi", ether->ctlrno);
 	kproc(name, wifiproc, wifi);
@@ -970,11 +1996,13 @@ enum {
 	CMrxkey3,
 	CMrxkey4,
 	CMtxkey0,
+	CMroam,		/* 9space */
 };
 
 static Cmdtab wifictlmsg[] =
 {
 	CMdebug,	"debug",	0,
+	CMroam,		"roam",		2,	/* 9space: roam dBm (0: never) */
 	CMessid,	"essid",	0,
 	CMauth,		"auth",		0,
 	CMbssid,	"bssid",	0,
@@ -1022,6 +2050,11 @@ wifictl(Wifi *wifi, void *buf, long n)
 			error("missing node");
 	}
 	switch(ct->index){
+	case CMroam:
+		wifi->roam = atoi(cb->f[1]);
+		wifi->weaksince = 0;
+		wifi->roamfail = 0;
+		break;
 	case CMdebug:
 		if(cb->f[1] != nil)
 			wifi->debug = atoi(cb->f[1]);
@@ -1044,6 +2077,15 @@ wifictl(Wifi *wifi, void *buf, long n)
 		wifi->bss = nil;
 		if(wifi->essid[0] == 0 && memcmp(wifi->bssid, wifi->ether->Netif.bcast, Eaddrlen) == 0)
 			break;
+		if(wifi->sigs){
+			/*
+			 * 9space: the radio gives the signal: the beacons choose
+			 * (bestbss) after a full pass, not the first of the nodes
+			 * known from before to answer
+			 */
+			wifi->hascand = 0;
+			break;
+		}
 		for(wn = wifi->node; wn != &wifi->node[nelem(wifi->node)]; wn++)
 			if(goodbss(wifi, wn)){
 				setstatus(wifi, wn, Sconn);
@@ -1111,6 +2153,22 @@ wifistat(Wifi *wifi, char *p, char *e)
 		p = seprint(p, e, "bssid: %E\n", wn->bssid);
 		p = seprint(p, e, "status: %s\n", wn->status);
 		p = seprint(p, e, "channel: %.2d\n", wn->channel);
+		/* 9space: what the access point offers, and whether our data is QoS (WMM) */
+		p = seprint(p, e, "offers:%s%s%s%s\n", wn->wmm ? " wmm" : "", wn->ht ? " ht" : "",
+			wn->vht ? " vht" : "", wn->he ? " he" : "");
+		p = seprint(p, e, "qos: %s\n", wn->qos ? "wmm" : "none");
+		if(wn->hasrssi)
+			p = seprint(p, e, "signal: %d dBm\n", wn->rssi);
+		/* 9space: the block ack agreements, the frames CCMP dropped as replays */
+		for(i = 0; i < Ntid; i++){
+			Wba *ba = &wifi->rxba[i];
+			if(ba->on)
+				p = seprint(p, e, "rxba: tid %d win %d held %lud expired %lud old %lud far %lud jumps %lud head %d\n",
+					i, ba->win, ba->held, ba->expired, ba->old, ba->far, ba->jumps, ba->head);
+		}
+		if(wn->txba)
+			p = seprint(p, e, "txba: %#ux\n", wn->txba);
+		p = seprint(p, e, "replays: %lud\n", wifi->replays);
 
 		/* only print key ciphers and key length */
 		rlock(&wifi->crypt);
@@ -1143,8 +2201,10 @@ wifistat(Wifi *wifi, char *p, char *e)
 			continue;
 		strncpy(essid, wn->ssid, Essidlen);
 		essid[Essidlen] = 0;
-		p = seprint(p, e, "node: %E %.4x %-11ld %.2d %s\n",
-			wn->bssid, wn->cap, TK2MS(now - wn->lastseen), wn->channel, essid);
+		/* 9space: the signal (dBm, 0: none), before the essid */
+		p = seprint(p, e, "node: %E %.4x %-11ld %.2d %4d %s\n",
+			wn->bssid, wn->cap, TK2MS(now - wn->lastseen), wn->channel,
+			wn->hasrssi ? wn->rssi : 0, essid);
 	}
 	return p;
 }
@@ -1249,8 +2309,10 @@ wifidecrypt(Wifi *wifi, Wnode *wn, Block *b)
 			(uvlong)b->rp[0]<<8 |
 			(uvlong)b->rp[2];
 		b->rp += 8;
-		if(tsc <= k->tsc)
+		if(tsc <= k->tsc){
+			wifi->replays++;	/* 9space */
 			goto drop;
+		}
 		if(tkipdecrypt(k, w, b, tsc) != 0)
 			goto drop;
 		break;
@@ -1262,8 +2324,10 @@ wifidecrypt(Wifi *wifi, Wnode *wn, Block *b)
 			(uvlong)b->rp[1]<<8 |
 			(uvlong)b->rp[0];
 		b->rp += 8;
-		if(tsc <= k->tsc)
+		if(tsc <= k->tsc){
+			wifi->replays++;	/* 9space */
 			goto drop;
+		}
 		if(ccmpdecrypt(k, w, b, tsc) != 0)
 			goto drop;
 		break;
@@ -1706,9 +2770,21 @@ aesCCMdecrypt(int L, int M, uchar *N /* N[15-L] */,
 static int
 setupCCMP(Wifipkt *w, uvlong tsc, uchar nonce[13], uchar auth[32])
 {
-	uchar *p;
+	uchar *p, *qc;
+	int qos;
 
+	/*
+	 * 9space: QoS data as OpenBSD's ieee80211_ccmp_phase1 (802.11-2012
+	 * 11.4.3.3): its TID in the nonce and after the AAD, the subtype's
+	 * QoS bit kept, the order bit masked; 9front masked the whole
+	 * subtype and left the QoS control out, which only non-QoS frames
+	 * survive
+	 */
+	qos = (w->fc[0] & 0x8c) == 0x88;
+	qc = (uchar*)w + wifihdrlen(w) - 2;
 	nonce[0] = ((w->fc[0] & 0x0c) == 0x00) << 4;
+	if(qos)
+		nonce[0] |= qc[0] & 0x0f;
 	memmove(&nonce[1], w->a2, Eaddrlen);
 	nonce[7]  = tsc >> 40;
 	nonce[8]  = tsc >> 32;
@@ -1718,8 +2794,8 @@ setupCCMP(Wifipkt *w, uvlong tsc, uchar nonce[13], uchar auth[32])
 	nonce[12] = tsc;
 
 	p = auth;
-	*p++ = (w->fc[0] & (((w->fc[0] & 0x0c) == 0x08) ? 0x0f : 0xff));
-	*p++ = (w->fc[1] & ~0x38) | 0x40;
+	*p++ = (w->fc[0] & (((w->fc[0] & 0x0c) == 0x08) ? 0x8f : 0xff));
+	*p++ = (w->fc[1] & (qos ? ~0xb8 : ~0x38)) | 0x40;
 	memmove(p, w->a1, Eaddrlen); p += Eaddrlen;
 	memmove(p, w->a2, Eaddrlen); p += Eaddrlen;
 	memmove(p, w->a3, Eaddrlen); p += Eaddrlen;
@@ -1728,6 +2804,10 @@ setupCCMP(Wifipkt *w, uvlong tsc, uchar nonce[13], uchar auth[32])
 	if((w->fc[1] & 3) == 0x03) {
 		memmove(p, w->a4, Eaddrlen);
 		p += Eaddrlen;
+	}
+	if(qos){
+		*p++ = qc[0] & 0x0f;
+		*p++ = 0;
 	}
 
 	return p - auth;

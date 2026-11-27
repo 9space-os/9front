@@ -1,7 +1,8 @@
 #!/bin/bash
-# Boot the gcc-built pc64 kernel (objtype=386: pc) in QEMU into the system, with the root
-# file system served by the build host: an rc on the serial console
-# (service=cpu) or rio (service=terminal, see KARGS).
+# Boot the gcc-built pc64 kernel (objtype=386: pc; objtype=arm64: qemu,
+# by u-boot) in QEMU into the system, with the root file system served by
+# the build host: an rc on the serial console (service=cpu) or rio
+# (service=terminal, see KARGS).
 #
 # Guest boot path, 9front's own: initcode -> /boot/boot -> bootrc with
 # nobootprompt=tcp: ipconfig (QEMU's DHCP), srv tcp!fs!564 -- QEMU
@@ -9,16 +10,25 @@
 # init -> newns(/lib/namespace) -> cpurc or termrc.
 #
 # Host side: builds the root tree (sys/src/build/host/guest/gen-ufs-root.sh) and a GRUB
-# multiboot ISO in $CLI_DIR, starts Harvey's ufs on :5640, runs QEMU.
+# multiboot ISO (arm64: a FAT image for u-boot) in $CLI_DIR, starts ufs
+# (sys/src/build/host/hw/ufs: Harvey's, without TCP keepalive) on :$UFS_PORT, runs QEMU.
 #
 # usage: sys/src/build/host/guest/boot-cli.sh               interactive (Ctrl-A x quits)
 #        sys/src/build/host/guest/boot-cli.sh cmd [cmd ...]  type each argument as one line
 #                                          at the rc prompt, print the
 #                                          console log, quit
-#   env:  CLI_DIR     work dir (default: CLI_DIR of dist/paths.env, 9space/cache/cli)
-#         UFS         ufs binary (default: ufs in PATH, else ~/go/bin/ufs)
+#   env:  objtype     amd64 (default), 386 or arm64
+#         CLI_DIR     work dir (default: CLI_DIR of dist/paths.env, 9space/cache/cli)
+#         UFS_PORT    host port of the root's ufs (5640; another boot-cli may run)
+#         SRC9_PORT   host port of SRC9's ufs (5641)
+#         UFS         ufs binary (default: $CLI_DIR/ufs, built from sys/src/build/host/hw/ufs)
 #         SERVICE     cpu (default: cpurc, console rc) or terminal
 #         SCREENSHOT  PNG file: screen dump after the commands (QMP)
+#         VNC         1: QEMU serves VNC on $CLI_DIR/vnc.sock and SCREENSHOT
+#                     comes from there (sys/src/build/host/debug/vncshot.py): what
+#                     the host shows, also with a GL display, where QMP
+#                     has no surface; SHOTPOINTS "x,y ..." writes their
+#                     colours to the PNG's name with .txt
 #         SRC9        a directory the guest can mount: a second ufs serves
 #                     it as tcp!10.0.2.101!5641 (srv tcp!10.0.2.101!5641 src9)
 #         DISK        raw disk image attached as the first IDE disk (sdC0)
@@ -27,7 +37,7 @@
 #         BOOTDISK    boot this disk image instead (sys/src/build/host/guest/mkdisk.sh): no
 #                     host root, the image's boot loader, kernel and hjfs
 #         BOOTISO     boot this CD image instead (sys/src/build/host/guest/mkiso.sh)
-#         UEFI        1: UEFI firmware (OVMF, $OVMF_CODE) instead of the BIOS
+#         UEFI        1: UEFI firmware (OVMF: OVMF_CODE, OVMF_VARS of paths.env) instead of the BIOS
 #         KVM         0: no KVM acceleration; otherwise x86 guests need /dev/kvm
 #                     (an arm64 guest on an x86 host is always emulated)
 #         KARGS       more kernel parameters (plan9.ini variables), e.g.
@@ -37,6 +47,7 @@
 #                     (pmu=on; +perfctr-core: AMD's 6 core counters); qemu64
 #                     has none by default. arm64 (TCG) always has PMUv3
 #         SMP         QEMU processors (QEMU's default: 1; sys/src/build/host/tests/lib.sh sets 4)
+#         CPU         QEMU CPU model (amd64: qemu64,+rdrand; e.g. host with KVM)
 #         QEMU_EXTRA  extra QEMU flags (e.g. "-s -S" for gdb)
 #         MACHINE     riscv64: virt (default), pf (qemu's PolarFire Icicle
 #                     Kit, the kernel 9pf; needs dtc, cpp) or um (qemu's
@@ -58,7 +69,12 @@
 #                     secstore key and the p9sk1 default
 #         CMDWAIT     seconds at most per line: until rc prompts after its
 #                     output (60; input typed into a rio window gets no prompt
-#                     on the serial line, there it is the pause)
+#                     on the serial line, there it is the pause). With
+#                     SERVICE=cpu a line rc does not prompt after by then is a
+#                     failure: the lines are all typed, the script ends with
+#                     1 and names them (a hung command looked like one that
+#                     printed nothing); so is a guest that ends before every
+#                     line is typed, and a WAITFOR that never comes
 #         HOLD        1: after the commands keep the guest running (until
 #                     this script is killed); sys/src/build/host/guest/guest-cmd.sh types
 #                     further lines into it
@@ -68,10 +84,10 @@ ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 . "$ROOT/sys/src/build/lib/paths.sh"	# CLI_DIR, CACHE (dist/paths.env: 9space/cache/cli)
 # objtype: the system to boot, amd64 (pc64) or 386 (pc)
 case ${objtype:=amd64} in
-amd64)	KNAME=9pc64 QEMU=qemu-system-x86_64 CPU=qemu64,+rdrand ;;
-386)	KNAME=9pc QEMU=qemu-system-i386 CPU=qemu32,+rdrand ;;
-arm64)	KNAME=9qemu QEMU=qemu-system-aarch64 CPU=cortex-a72 ;;
-riscv64)	KNAME=9virt.bin QEMU=qemu-system-riscv64 CPU=rv64 ;;
+amd64)	KNAME=9pc64 QEMU=qemu-system-x86_64 CPU=${CPU:-qemu64,+rdrand} ;;
+386)	KNAME=9pc QEMU=qemu-system-i386 CPU=${CPU:-qemu32,+rdrand} ;;
+arm64)	KNAME=9qemu QEMU=qemu-system-aarch64 CPU=${CPU:-cortex-a72} ;;
+riscv64)	KNAME=9virt.bin QEMU=qemu-system-riscv64 CPU=${CPU:-rv64} ;;
 *)	echo "boot-cli: objtype=$objtype: no kernel" >&2; exit 1 ;;
 esac
 [ "${PMU:-0}" = 0 ] || [ $objtype = arm64 ] || CPU=$CPU,pmu=on,+perfctr-core	# pmc(3) tests (sys/src/build/host/tests/pmc)
@@ -80,7 +96,7 @@ KERNEL=${BOOTKERNEL:-$ROOT/$objtype/bin/$KNAME}
 # riscv64: the raw image beside the a.out the install step makes (elf2aout.py, jl -H1)
 # riscv64 MACHINE: virt (default), pf (qemu's microchip-icicle-kit), um (sifive_u)
 [ $objtype = riscv64 ] && KERNEL=${BOOTKERNEL:-$ROOT/riscv64/9${MACHINE:-virt}.bin}
-UFS=${UFS:-$(command -v ufs 2>/dev/null || echo "$HOME/go/bin/ufs")}
+UFS=${UFS:-$("$ROOT/sys/src/build/host/hw/ufs/build.sh" "$CLI_DIR/ufs")}	# ours: no TCP keepalive (sys/src/build/host/hw/ufs)
 UFS_PORT=${UFS_PORT:-5640}	# host ports of the ufs servers (another boot-cli may run)
 SERVICE=${SERVICE:-cpu}
 MEM=${MEM:-256}
@@ -105,14 +121,30 @@ cmds=("$@")
 command -v $QEMU >/dev/null || die "$QEMU missing"
 mkdir -p "$CLI_DIR"
 pids=()
-cleanup(){ [ ${#pids[@]} -gt 0 ] && kill "${pids[@]}" 2>/dev/null; wait 2>/dev/null; rm -f /tmp/boot-cli.$$.qmp; return 0; }
+# QEMU with an EGL display (-display egl-headless: sys/src/build/host/tests/gpu, sys/src/build/host/tests/wayland)
+# crashes whenever it ends normally, up to 11.1.3: egl_cleanup closes the
+# render node and only then unbinds the context (SIGSEGV in the host's
+# Mesa; fixed upstream by baca2517 "ui/egl: fix render node cleanup
+# order"). Each crash dumps the whole guest into systemd-coredump, and
+# those dumps' IO held the next QEMU before its serial line past 30 s
+# ("no QEMU serial pty" in the venus boots, back to back in the suite).
+# Such a QEMU runs in a session of its own, out of reach of a kill of
+# our process group, and goes by SIGKILL, which skips qemu_cleanup; it
+# has no disk to lose writes on.
+egl=
+case " $QEMU_EXTRA " in *" egl-headless"*) egl=1;; esac
+# (|| true: set -e, and QEMU may be gone already)
+stopqemu(){ [ -z "$qemupid" ] || kill ${egl:+-KILL} $qemupid 2>/dev/null || true; }
+cleanup(){ stopqemu; [ ${#pids[@]} -gt 0 ] && kill "${pids[@]}" 2>/dev/null; wait 2>/dev/null; rm -f /tmp/boot-cli.$$.qmp; return 0; }
 trap cleanup EXIT
+# bash runs the EXIT trap on these only when they are trapped
+trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
 
 fw=()
 if [ "${UEFI:-0}" != 0 ]; then
-	OVMF_CODE=${OVMF_CODE:-/usr/share/edk2/x64/OVMF_CODE.4m.fd}
-	[ -f "$OVMF_CODE" ] || die "no OVMF firmware ($OVMF_CODE)"
-	cp "${OVMF_CODE%CODE*}VARS${OVMF_CODE##*CODE}" "$CLI_DIR/ovmf_vars.fd" || die "no OVMF variable store"
+	# the host's OVMF, where paths.env says (OVMF_CODE, OVMF_VARS)
+	[ -f "$OVMF_CODE" ] || die "no OVMF firmware (OVMF_CODE: $OVMF_CODE)"
+	cp "$OVMF_VARS" "$CLI_DIR/ovmf_vars.fd" || die "no OVMF variable store (OVMF_VARS: $OVMF_VARS)"
 	fw=(-drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
 		-drive "if=pflash,format=raw,file=$CLI_DIR/ovmf_vars.fd")
 fi
@@ -145,13 +177,12 @@ if [ -n "$BOOTDISK$BOOTISO" ]; then
 	fi
 else
 [ $objtype = arm64 ] || [ $objtype = riscv64 ] || command -v grub-mkrescue >/dev/null || die "grub-mkrescue missing"
-[ -x "$UFS" ] || die "ufs missing (go install github.com/Harvey-OS/ninep/cmd/ufs@latest, or set UFS)"
+[ -x "$UFS" ] || die "ufs missing (sys/src/build/host/hw/ufs/build.sh needs go; or set UFS)"
 # a ufs left over from an earlier run would serve a stale root
 port_open && die "port $UFS_PORT is in use (old ufs still running?)"
 
 # root file system
-bash "$ROOT/sys/src/build/host/guest/gen-ufs-root.sh" "$CLI_DIR/ufsroot" > /dev/null
-[ -z "$UFS_EXTRA" ] || cp -r "$UFS_EXTRA"/. "$CLI_DIR/ufsroot/"
+bash "$ROOT/sys/src/build/host/guest/gen-ufs-root.sh" "$CLI_DIR/ufsroot" ${UFS_EXTRA:+"$UFS_EXTRA"} > /dev/null
 
 # riscv64 BOOT=uboot: the disk's way instead of -kernel (u-boot runs
 # sys/src/boot/virt's boot.scr from the FAT partition, as on arm64)
@@ -305,15 +336,64 @@ qsock=$CLI_DIR/qmp.sock
 [ ${#qsock} -lt 100 ] || qsock=/tmp/boot-cli.$$.qmp
 rm -f "$qsock"
 qmp=(-S -qmp "unix:$qsock,server,nowait")
-"${qemu[@]}" -serial pty "${qmp[@]}" $QEMU_EXTRA > "$CLI_DIR/qemu.log" 2>&1 &
+[ "$VNC" != 1 ] || { rm -f "$CLI_DIR/vnc.sock"; qmp+=(-vnc "unix:$CLI_DIR/vnc.sock"); }
+# the serial line also to serial.log, written by QEMU itself: a console
+# that stays empty here (seen now and then right after another guest)
+# shows there whether the guest said nothing or the pty lost it (QEMU's
+# pty drops what it writes while it takes the other side as closed)
+${egl:+setsid} "${qemu[@]}" -chardev pty,id=ser0,logfile="$CLI_DIR/serial.log",logappend=off -serial chardev:ser0 "${qmp[@]}" $QEMU_EXTRA > "$CLI_DIR/qemu.log" 2>&1 &
 pids+=($!)
-for _ in $(seq 50); do
+qemupid=$!
+# the guest powered itself off (fshalt, scram): nothing more to wait for
+running(){ kill -0 $qemupid 2>/dev/null; }
+# up to 30 s: with VFIO, QEMU pins all of the guest's memory first (slow
+# when the host must drop its page cache for it)
+for _ in $(seq 300); do
 	pts=$(grep -oE "/dev/pts/[0-9]+" "$CLI_DIR/qemu.log" | head -1)
 	[ -n "$pts" ] && break
+	running || break
 	sleep 0.1
 done
-[ -n "$pts" ] || die "no QEMU serial pty (log: $CLI_DIR/qemu.log)"
-stty -F "$pts" raw -echo
+if [ -z "$pts" ]; then
+	# keep what QEMU said (the next boot overwrites qemu.log) and why it stopped
+	cp "$CLI_DIR/qemu.log" "$CLI_DIR/qemu-nopty.log"
+	if running; then
+		why="still running after 30 s"
+		# where it hangs: each thread's name, state and kernel wait channel, its
+		# open files (/proc; gdb cannot attach with yama's ptrace_scope 1)
+		{
+			echo "== boot-cli: QEMU $qemupid hangs before its serial line"
+			for t in /proc/$qemupid/task/*; do
+				echo "thread ${t##*/} $(cat "$t/comm" 2>/dev/null) state $(awk '{print $3}' "$t/stat" 2>/dev/null) wchan $(cat "$t/wchan" 2>/dev/null)"
+			done
+			ls -l /proc/$qemupid/fd 2>/dev/null | awk 'NR > 1 {print "fd", $(NF-2), $NF}'
+			pgrep -a qemu-system | grep -v "^$qemupid " | sed 's/^/other QEMU: /'
+			pgrep -a virgl_render | sed 's/^/render server: /'
+		} >> "$CLI_DIR/qemu-nopty.log" 2>&1
+	else wait $qemupid; why="exited with status $?"; fi
+	tail -5 "$CLI_DIR/qemu-nopty.log" | sed 's/^/boot-cli: qemu: /' >&2
+	die "no QEMU serial pty: QEMU $why (log: $CLI_DIR/qemu-nopty.log)"
+fi
+# QEMU gone at once (seen now and then right after another guest): how
+sleep 0.2
+# the pty right after QEMU named it: stty failed now and then (it worked a
+# moment later), so a few tries; never wait for a QEMU that still runs
+ttyok=0
+for _ in $(seq 30); do
+	running || break
+	stty -F "$pts" raw -echo 2>/dev/null && { ttyok=1; break; }
+	sleep 0.1
+done
+if [ $ttyok = 0 ]; then
+	running && { echo "boot-cli: stty on $pts failed: QEMU stopped" >&2; stopqemu; }
+	wait $qemupid 2>/dev/null
+	st=$?
+	echo "boot-cli: QEMU ended at the start (status $st); its log:" >&2
+	cat "$CLI_DIR/qemu.log" >&2
+	echo "boot-cli: QEMUs still running:" >&2
+	ps -eo pid,etime,args | grep '[q]emu-system' >&2
+	die "QEMU did not start"
+fi
 # empty now, not in the background job: the prompt checks below must
 # not see the previous boot's log
 : > "$CLI_DIR/console.log"
@@ -346,14 +426,14 @@ prompted(){
 	esac
 	return 1
 }
-# rc prompted since the console log had $1 bytes, after a newline (the
-# echoed input line)
+# rc prompted since the console log had $1 bytes: its prompt $2 begins a
+# line after the echoed input line. Anywhere, not only at the end: a
+# command in the background (cmd &) may write after the prompt.
 replied(){
 	local out
 	out=$(tail -c +$(($1 + 1)) "$CLI_DIR/console.log" | tr -d '\r')
-	[ "$out" != "${out%%$'\n'*}" ] || return 1
-	case ${out##*$'\n'} in
-	*'% '|*'# ')	return 0 ;;
+	case $out in
+	*$'\n'"$2"*)	return 0 ;;
 	esac
 	return 1
 }
@@ -390,15 +470,30 @@ noprompt=
 if [ "$SERVICE" = cpu ] && ! prompted; then
 	noprompt=$CLI_DIR/noprompt.$(date +%Y%m%d-%H%M%S)
 	mkdir -p "$noprompt"
-	cp "$CLI_DIR/console.log" "$CLI_DIR/qemu.log" "$noprompt/" 2>/dev/null || true
+	cp "$CLI_DIR/console.log" "$CLI_DIR/qemu.log" "$CLI_DIR/serial.log" "$noprompt/" 2>/dev/null || true
 	echo "boot-cli: no rc prompt after ${BOOTWAIT:-300} s, logs in $noprompt" >&2
 	cmds=() WAITFOR=
 fi
+ready=0	# rc prompted after the last line (replied)
+prompt=
+failed=()	# what went wrong with the lines: the script ends with 1
+n=0
 for c in "${cmds[@]}"; do
+	n=$((n+1))
 	end=$((SECONDS + ${PROMPTWAIT:-300}))
-	until prompted || [ $SECONDS -ge $end ]; do
+	until [ $ready = 1 ] || prompted || [ $SECONDS -ge $end ] || ! running; do
 		sleep 1
 	done
+	if ! running; then
+		failed+=("the guest ended before line $n of ${#cmds[@]} was typed: $c")
+		break
+	fi
+	# rc's prompt as it stands at the end of the log (it may change)
+	if [ $ready = 0 ] && prompted; then
+		prompt=$(tr -d '\r' < "$CLI_DIR/console.log")
+		prompt=${prompt##*$'\n'}
+	fi
+	ready=0
 	# in pieces: the serial input buffer drops what exceeds about 128
 	# bytes at once (the rest of a long line, its newline with it)
 	start=$(stat -c %s "$CLI_DIR/console.log")
@@ -409,20 +504,37 @@ for c in "${cmds[@]}"; do
 		sleep 0.2
 	done
 	end=$((SECONDS + ${CMDWAIT:-60}))
-	until replied $start || [ $SECONDS -ge $end ]; do
+	until replied $start "$prompt" || [ $SECONDS -ge $end ] || ! running; do
 		sleep 0.5
 	done
+	if replied $start "$prompt"; then
+		ready=1
+	elif [ "$SERVICE" = cpu ] && running && ! { [ $n = ${#cmds[@]} ] && [ -n "$WAITFOR" ]; }; then
+		# no prompt after it (the last line before a WAITFOR may run on:
+		# the WAITFOR says); a line that ends the guest (fshalt) is no failure
+		failed+=("no rc prompt ${CMDWAIT:-60} s after line $n: $c")
+	fi
 done
-if [ -n "$WAITFOR" ]; then
+if [ -n "$WAITFOR" ] && [ -z "$noprompt" ]; then
 	end=$((SECONDS + ${WAITMAX:-3600}))
-	until tr -d '\r' < "$CLI_DIR/console.log" | grep -qE "$WAITFOR" || [ $SECONDS -ge $end ]; do
+	until tr -d '\r' < "$CLI_DIR/console.log" | grep -qE "$WAITFOR" || [ $SECONDS -ge $end ] || ! running; do
 		sleep 2
 	done
+	tr -d '\r' < "$CLI_DIR/console.log" | grep -qE "$WAITFOR" ||
+		failed+=("no $WAITFOR on the console after ${WAITMAX:-3600} s")
 fi
+running || echo "boot-cli: the guest powered off" >> "$CLI_DIR/console.log"
 sleep 1
-if [ -n "$SCREENSHOT" ]; then	# QMP screendump (PPM), stored as PNG
+if [ -n "$SCREENSHOT" ] && [ "$VNC" = 1 ]; then
+	python3 "$ROOT/sys/src/build/host/debug/vncshot.py" "$CLI_DIR/vnc.sock" "$SCREENSHOT" $SHOTPOINTS \
+		> "${SCREENSHOT%.png}.txt" || exit 1
+elif [ -n "$SCREENSHOT" ]; then	# QMP screendump (PPM), stored as PNG
 	python3 - "$qsock" "$CLI_DIR/screen.ppm" "$SCREENSHOT" <<'PY'
-import json, socket, struct, sys, zlib
+import json, os, socket, struct, sys, time, zlib
+# no stale picture: the dump is new or there is none. With a GL display
+# (egl-headless, virtio-gpu-gl) QEMU writes it asynchronously: wait for it.
+if os.path.exists(sys.argv[2]):
+	os.remove(sys.argv[2])
 s = socket.socket(socket.AF_UNIX)
 s.connect(sys.argv[1])
 f = s.makefile('rw')
@@ -431,8 +543,26 @@ for cmd in ({'execute': 'qmp_capabilities'},
 		{'execute': 'screendump', 'arguments': {'filename': sys.argv[2]}}):
 	f.write(json.dumps(cmd) + '\n')
 	f.flush()
-	f.readline()
-d = open(sys.argv[2], 'rb').read()
+	while True:	# the reply, past asynchronous events
+		r = json.loads(f.readline())
+		if 'return' in r or 'error' in r:
+			break
+	if 'error' in r:
+		sys.exit('screendump: %s' % r['error'].get('desc', r['error']))
+def complete(path):
+	try:
+		d = open(path, 'rb').read()
+		magic, w, h, mx, px = d.split(maxsplit=4)
+		return d if len(px) >= int(w)*int(h)*3 else None
+	except (OSError, ValueError):
+		return None
+for i in range(150):
+	d = complete(sys.argv[2])
+	if d is not None:
+		break
+	time.sleep(0.1)
+else:
+	sys.exit('screendump: no picture in %s' % sys.argv[2])
 magic, w, h, mx, px = d.split(maxsplit=4)
 w, h = int(w), int(h)
 raw = b''.join(b'\0' + px[y*w*3:(y+1)*w*3] for y in range(h))
@@ -450,4 +580,7 @@ fi
 cleanup
 pids=()
 tr -d '\r' < "$CLI_DIR/console.log"
-[ -z "$noprompt" ] || exit 1
+for f in "${failed[@]}"; do
+	echo "boot-cli: $f" >&2
+done
+[ -z "$noprompt" ] && [ ${#failed[@]} = 0 ] || exit 1

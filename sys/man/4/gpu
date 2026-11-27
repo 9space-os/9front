@@ -1,0 +1,1432 @@
+.TH GPU 4
+.SH NAME
+gpu, virtiogpu, intelgpu, i915, amdgpu \- graphics device file system
+.SH SYNOPSIS
+.B aux/virtiogpu
+[
+.B -dp
+] [
+.B -m
+.I width\fLx\fPheight
+]
+.PP
+.B aux/intelgpu
+[
+.B -3dpCGPRU
+] [
+.B -g
+.I gdir
+]
+.PP
+.B aux/i915
+[
+.B -DLMSTnv
+] [
+.B -d
+.I drmdebug
+] [
+.B -f
+.I filter
+] [
+.B -p
+.IB name = value
+] ... [
+.B -g
+.I gdir
+]
+.PP
+.B aux/amdgpu
+[
+.B -nX
+] [
+.B -W
+.I secs
+] [
+.B -d
+.I drmdebug
+] [
+.B -l
+.I loglevel
+] [
+.B -p
+.IB name = value
+] ... [
+.B -g
+.I gdir
+]
+.PP
+.nf
+.B /shr/gpu/0/ctl
+.B /shr/gpu/0/status
+.BI /shr/gpu/0/outputs/ conn /modes
+.BI /shr/gpu/0/outputs/ conn /mode
+.BI /shr/gpu/0/outputs/ conn /edid
+.BI /shr/gpu/0/outputs/ conn /backlight
+.BI /shr/gpu/0/caps/ id
+.B /shr/gpu/0/clone
+.BI /shr/gpu/0/ctx/ n /ctl
+.BI /shr/gpu/0/ctx/ n /submit
+.BI /shr/gpu/0/ctx/ n /fence
+.fi
+.SH DESCRIPTION
+.PP
+A graphics driver is a user-space file server on the hardware
+that
+.IR gpu (3)
+hands out.
+It puts itself into
+.IR shr (3)'s
+share
+.B gpu
+as entry
+.I n
+(the
+.I n
+of the
+.BI #G/ n
+it drives, the top directory of its tree), as
+.IR nusb (4)'s
+drivers do into share
+.BR usb :
+its files are
+.BI /shr/gpu/ n
+in every name space at once, also in those made before it started.
+The first driver makes the share, the hostowner's (mode 0700); it stays
+when that driver ends, and only the entry goes with a driver
+.RB ( ORCLOSE ),
+so another GPU's driver keeps its entry.
+A driver whose GPU has an entry already (another driver serves it)
+refuses to start, before it arms its reset at exit
+.RI ( gpu (3)
+.BR onexit ).
+Control is text; data moves through shared segments, never through
+the file server.
+Every driver serves the same tree; what a family does not have is
+missing.
+.PP
+When a driver dies, every view of an object it gave a client (a
+segment: alias, phys or pager) goes with it and is lost
+.RI ( segment (3)):
+its pages map a zeroed page of their own in every process, so a client
+writing there goes on until its next request says the device is lost,
+and nothing it writes reaches memory the next driver hands out.
+This holds whether or not the driver could arm its reset at exit;
+only the segments that own pages wait for that.
+A driver killed and started again is in the share at once: a program
+that lost its device (VK_ERROR_DEVICE_LOST: Mesa's venus reports it as
+other drivers do, its
+.B VN_DEBUG=lost
+the default on 9front) finds the driver again with its next Vulkan
+instance, and the window system
+.RI ( wsys (4))
+goes back to composing on the GPU.
+The clients (libdrm9 and venus through
+.BR sys/src/mesa/plan9/lib/gpudir.c ,
+.IR wsys ,
+.IR wlsys )
+look for GPU
+.I n
+in
+.BI /shr/gpu. user / n
+when the user has a share of their own (below), else in
+.BI /shr/gpu/ n\fR.
+9space's: 9front has no GPU drivers.
+.PP
+When memory runs out the pager never kills a driver: each sets
+.B nokill
+.RI ( proc (3))
+first thing in its main, so all its procs have it, however it was
+started.
+The pager kills the biggest of the other processes instead: i915 and
+amdgpu are big (the LinuxKPI's page pool, the pages behind their
+clients' segments), the first it would choose; a client may go, as
+any other process.
+.B Nokill
+protects only processes of the host owner; the drivers run as the
+user who started them, the host owner on a terminal.
+Unlike
+.B noswap
+it gives a driver no claim on the last free pages: it waits for pages as
+any process, and the LinuxKPI's pool gives memory back before the pager
+acts (below).
+.PP
+.I Virtiogpu
+drives virtio-gpu (QEMU's
+.BR virtio-gpu-pci ,
+.BR virtio-gpu-gl-pci ).
+It finds the device's registers in the configuration space, keeps
+its virtqueue in a fixed
+.IR segment (3),
+makes the screen the framebuffer of
+.IR gpu (3)
+and copies what changes to the host.
+.B -p
+polls instead of using the interrupt,
+.B -m
+sets the first mode (default: what the host asks for),
+.B -d
+writes debugging output to standard error (not to the console:
+that draws on the screen, which makes more output).
+.SS Display
+.TF outputs/conn/modes
+.TP
+.B ctl
+reads the current mode;
+.BI "mode " w x h
+sets it.
+.TP
+.B status
+the device, its features, the queue, the mode, the framebuffer,
+the host visible memory, a context's resource on the display
+.RB ( scanout
+below) and every context with its fences.
+.TP
+.BI outputs/ conn /modes
+the modes, one
+.IB w x h
+per line, the preferred first.
+.TP
+.BI outputs/ conn /mode
+reads or sets the mode of the output; the screen
+.RI ( vga (3)
+type
+.BR gpu )
+follows it.
+.TP
+.BI outputs/ conn /edid
+the output's EDID, binary.
+.PD
+.SS Rendering
+Present when the device can render (virgl or context init).
+.TF caps/id
+.TP
+.BI caps/ id
+the capability set
+.I id
+(1 virgl, 2 virgl2, 4 venus, ...) as the device describes it,
+binary, latest version.
+.TP
+.B clone
+opening it creates a context and returns its
+.B ctl
+file, as with
+.IR ip (3)'s
+clone files.
+The context lives while any of its files is open.
+.PD
+.PP
+Reading a context's
+.B ctl
+returns the reply to the last request, first
+.IP
+.BI ctx " n " seg " name va size"
+.PP
+the segment that holds the context's command buffers: the client
+.IR segattach es
+.I name
+and writes commands into it.
+Requests:
+.TF "blob \fImem flags id size\fP"
+.TP
+.BI "init " "capset \fR[\fPname\fR]"
+create the context on the device for capability set
+.I capset
+(0: the device's default, virgl);
+reply
+.BI ctx " n " capset " capset" .
+.TP
+.BI blob " mem flags id size
+create a blob resource:
+.I mem
+is 1 for guest memory, 2 for host memory, 3 for both,
+.I flags
+1 mappable, 2 shareable, 4 cross device,
+.I id
+the renderer's object (0: plain shared memory).
+Reply
+.BI res " r size"
+and, for guest memory,
+.BI seg " name va" ,
+the segment holding it.
+.TP
+.BI map " r
+map host memory into the device's host visible bar; reply
+.BI map " r seg va size info" :
+attach
+.I seg
+.RI ( size
+bytes), a segment of just this resource's part of the bar
+.RB ( phys ,
+.IR segment (3)),
+with the attributes of the bar's segment that maps it as the host does.
+.I Info
+is how the host maps the memory (virtio-gpu's map_info: 1 cached, 2
+uncached, 3 write-combining).
+The segment is revoked when the memory is unmapped (the resource's last
+.B unmap
+or
+.BR unref ),
+and lost when the driver dies: a client still writing there writes into
+a page of its own until its next request says that the device is lost.
+A client sees only the resources it maps, not the whole bar, and one that
+outlives a driver cannot write into what the next driver gives others at
+the same place.
+9space's: before, the reply named the whole bar's segment and an offset.
+.TP
+.BI unmap " r
+.TP
+.BI unref " r
+.TP
+.BI attach " r
+.TP
+.BI detach " r
+unmap, release, attach to or detach from the context.
+.TP
+.BI export " r
+give blob
+.I r
+a name other contexts can import it by; reply
+.BI export " token" ,
+128 random bits in hex, the same for every export of
+.IR r .
+Whoever knows the token can import the blob: pass it only to the
+process meant to have it.
+.TP
+.BI import " token
+the exported blob in this context, of any process (the context must
+be initialized); reply
+.BI res " r size"
+as for
+.BR blob .
+The blob lives until the last context holding it releases it
+.RB ( unref
+or closing the context); the token goes with it.
+Mesa's venus driver uses them for Vulkan's external memory (dma-buf
+handles, VK_KHR_external_memory_fd): in a process a token takes the shape
+of a file descriptor (plan9/lib/dmabuf.c: a pipe holding the line
+.BI dmabuf " token" ,
+which another process that gets the descriptor reads once, as
+.IR wlsys (4)
+does), between processes it goes as text.
+.TP
+.BI scanout " r w h stride
+show host blob
+.I r
+on the display instead of the
+.IR draw (3)
+screen: linear x8r8g8b8 pixels,
+.I stride
+bytes a row,
+.IR w × h
+the mode's size; again for every new picture.
+.B "scanout 0" ,
+a mode change, releasing
+.I r
+or closing the context shows the screen again.
+One context at a time.
+.PD
+.PP
+Writing
+.IB "offset length " \fR[\fPring\fR]\fP
+to
+.B submit
+submits that part of the command segment on a timeline
+.RI ( ring ,
+0 to 63; 0 is the context's CPU timeline); the
+.IR k th
+submission of a context completes fence
+.IR k .
+The client must not overwrite it before.
+Rings complete in any order; fences of one ring in order.
+.PP
+Reading
+.B fence
+returns
+.IB "done submitted" :
+all fences up to
+.I done
+are complete.
+After writing
+.BI "wait " k
+(or just
+.IR k ),
+reads block until fence
+.I k
+is complete and return
+.IB k " done" ;
+after
+.BI "query " k
+they return at once,
+.IB k " done"
+or
+.IB k " busy" .
+.B failed
+follows if the device rejected a submission.
+At most 64 fences of a context can be outstanding.
+.SS "Words every driver takes"
+A context's requests are text in every driver; where drivers do the same
+they take the same word (older words stay as synonyms):
+.TF "\fLexport\fP, \fLimport\fP"
+.TP
+.B close
+lets go of an object (virtiogpu's
+.BR unref ,
+i915's and intelgpu's
+.BR free ,
+amdgpu's GEM objects)
+.TP
+.BR map ", " unmap
+the processor's view of an object, a segment (virtiogpu, amdgpu; i915
+and intelgpu give it when the object is made)
+.TP
+.B scanout
+a context's picture on the display, 0 the screen again
+.TP
+.BR export ", " import
+an object between contexts by token (virtiogpu, amdgpu, i915)
+.TP
+.B submit
+the file a context's work goes to;
+.B fence
+the file its fences are waited for and asked about
+.RB ( wait ,
+.BR query )
+.PD
+.PP
+Besides, each driver has its own: virtiogpu
+.BR init ,
+.BR blob ,
+.BR attach ;
+i915 and intelgpu
+.BR bo ,
+.BR bind ,
+.BR getparam ;
+amdgpu
+.BR bo ,
+.BR bind ,
+.BR syncexport ,
+.BR syncimport ,
+.BR syncfile ,
+.BR syncmerge ,
+.BR syncin ,
+.BR syncclose ,
+.BR overlay
+and amdgpu's own ioctls as words
+.RB ( gem ,
+.BR va ,
+.BR cs ,
+\&...).
+.SS Intel
+.I Intelgpu
+drives an Intel GPU of generation 8 (Broadwell) through
+.IR gpu (3).
+It leaves the display as the firmware or
+.IR vga (8)
+set it up;
+.B ctl
+reads the visible plane,
+.IP
+.BI plane " p gpuaddr stride bpp w h"
+.PP
+and the context files are those above with other requests.
+Each context has an address space of its own, 48 bits (gen 8's
+four-level PPGTT; with
+.B -3
+4 GB in three levels); with
+.B -G
+all share the global GTT, without isolation.
+A buffer object is a segment of pinned pages
+.RB ( sticky ,
+see
+.IR segment (3);
+not contiguous) mapped
+into it;
+.TF "\fLbo\fP \fIsize"
+.TP
+.BI bo " size \fR[\fPgpuaddr\fR]
+creates one, reply
+.BI bo " id seg va size gpuaddr" :
+the client
+.IR segattach es
+.I seg
+and writes the GPU addresses of its objects into its batches itself.
+The driver chooses the address, or the client does
+.RI ( gpuaddr ,
+page aligned and free;
+0 maps the object nowhere), as Mesa's drivers do with softpin.
+.TP
+.BI bind " id gpuaddr
+moves the object to another address (0: nowhere), once the context's
+work is done.
+.TP
+.B map plane
+maps the visible plane into the context (uncached, for the display),
+reply
+.BI plane " id gpuaddr stride bpp w h" ;
+.B free
+unmaps it.
+.TP
+.BI free " id
+frees it once the context's work is done.
+.PD
+.PP
+Writing
+.IB "bo offset " \fR[\fPrcs\fR|\fPbcs\fR]\fP
+to
+.B submit
+starts the batch buffer at
+.I offset
+in object
+.I bo
+on the render (default) or blitter engine; it ends with
+.BR MI_BATCH_BUFFER_END .
+The fences are as above; one that has not completed after 5
+seconds is given up and the context marked
+.BR failed .
+The engines run through execlists, as Linux's i915 has it on gen 8:
+each context has a logical ring context (an image of its engine
+registers, its page directories among them) and a ring on each
+engine; an engine runs one context at a time, the others wait in its
+queue, and the context status buffer says when one is done.
+Before a context's first batch on the render engine the driver
+writes the gen 8 workaround registers into it and runs i915's null
+render state, which puts the 3D pipeline into a known state;
+.B status
+shows how many of those registers hold their value
+.RB ( "rcs workarounds" ).
+Unused entries of the address spaces point to a scratch page, as in
+i915, so that stray accesses of the GPU land there.
+.B -R
+leaves the workarounds and the render state out,
+.B -C
+the clock gating workarounds at start (both to find what hangs a
+machine).
+.PP
+The GT sleeps when idle (RC6) and its frequency follows the load (RPS,
+from the GT's busy-time interrupts), as i915 has it on Broadwell; the
+driver takes forcewake only around its register accesses.
+.B status
+shows it:
+.IP
+.BI "power rc6 on " ms ", " mhz " MHz (asked " mhz ", min " mhz ", rp1 " mhz ", max " mhz )
+.PP
+with the time spent in RC6 and the frequency running.
+.B -P
+leaves the power management off (forcewake held, the frequency the
+firmware set).
+.PP
+The LinuxKPI's pages (aux/i915, aux/amdgpu) come from a pool of 8 MB
+chunks, sticky
+.BR #g
+segments
+.RB ( kpi. pid . n ),
+physically contiguous where the kernel has such a run, else scattered.
+.B status
+shows it:
+.IP
+.BI "pool chunks " n " (contiguous " c ", scattered " s "), " mb " MB, pages free " f ", chunks wholly free " w ", released " r ", deferred " d ", memory short " m " times, " s " s"
+.PP
+.I released
+counts chunks given back to the system,
+.I deferred
+those whose bookkeeping still waits for the lookups under way to end.
+A contiguous chunk that becomes wholly free is given back a second
+later, as long as the pool keeps its reserve free (2 chunks or an eighth
+of the pool, the more); scattered chunks stay.
+Once a second the pool compares the kernel's free pages with the
+pager's headroom
+.RI ( swap (3)'s
+.B free
+line); below twice the headroom, before the pager swaps or kills, the
+drivers' shrinkers give back the objects nobody uses and every chunk
+wholly free goes back, the reserve too;
+.I m
+counts the times memory ran short and
+.I s
+its seconds in all.
+The threshold may need tuning once a soak under memory pressure has
+shown how it behaves.
+.PP
+The display is read as the firmware or aux/vga set it up (not changed
+yet): every output of the DDI ports, with Linux's names
+.RB ( eDP-1 ,
+.BR DP-1 ,
+.BR HDMI-A-1 ,
+\&...), under
+.BI outputs/ conn :
+.B edid
+(over the DP AUX channel or GMBUS),
+.B modes
+(from the EDID, the preferred first,
+.IB w x h
+and the refresh rate in Hz),
+.B mode
+(what it shows, or
+.BR off ).
+.B status
+lists them with their pipes and transcoders.
+.PP
+A context's
+.B ctl
+also takes
+.BI scanout " id w h stride" :
+object
+.I id
+(linear x8r8g8b8, the mode's size,
+.I stride
+bytes a row, a multiple of 64) becomes what the display shows, a new
+picture with each request, taken at the next vertical blank; the
+request returns once the display shows it (the picture before is then
+free: a swapchain's FIFO, at the display's rate), until
+.BR "scanout 0" ,
+the object's free or the context's end; the plane is then as aux/vga
+left it.
+The object is mapped write-through from then on: the display reads
+memory, not the shared cache.
+Fences come from sequence numbers in each context's status page and
+the user and context switch interrupts (MSI where the device has it,
+.B -p
+polls).
+An engine that runs one context for 5 seconds is reset, as
+.B reset
+written to
+.B ctl
+does it.
+Objects are mapped write-back in the shared last level cache, so
+that processor and GPU see each other's writes;
+.B -U
+maps them uncached.
+Batches run in their context's address space; still, the driver is
+for the host owner.
+.IR Intelprobe (8)
+and
+.B aux/inteltest
+check the hardware and the driver.
+.SS i915
+.I I915
+is Linux 7.3's i915 driver, nearly unchanged, on a layer of Linux's
+kernel interfaces over 9front's
+.RB ( /sys/src/linux ),
+as a library of this file server: every Intel generation i915 drives.
+It serves the files above as
+.I intelgpu
+does (so that
+.I libdrm9
+and Mesa need no change); a context is an open DRM file of the render
+node, its objects GEM objects whose pages are an alias segment
+.RI ( segment (3))
+the client attaches, revoked in every process when the object is
+freed;
+.B submit
+is i915's execbuffer2 of the objects the request names after the
+engine,
+.IB id " " ... ,
+each with a
+.B w
+if the batch writes it (as Linux's EXEC_OBJECT_WRITE: implicit sync
+with other contexts and processes), softpinned; without them, of every
+bound object, written.
+The request is one write: Mesa sends the list of its execbuffer when it
+fits one 9P message (7000 bytes), else none.
+The display goes through KMS on the primary node:
+.B outputs
+with EDID, the probed modes and the mode shown;
+.B scanout
+shows an object (PRIME, a framebuffer, a page flip at the next
+vertical blank);
+.B map plane
+gives the screen's object to a context.
+.B error
+is i915's error state (as Linux's
+.BR /sys/class/drm/card0/error ):
+what i915 captured when the GPU hung, the text Mesa's
+.I aubinator_error_decode
+reads; writing it clears it.
+A context's
+.B ctl
+also takes
+.BI getparam " n" ,
+i915's GETPARAM;
+.BI export " id"
+(reply
+.BI export " token" ,
+the object a dma-buf, PRIME, named by 128 random bits, the same for each
+export from the context; good while the context lives) and
+.BI import " token"
+(reply
+.BI import " id seg va size" ,
+the object as one of this context's, not bound, its pages a segment of
+its own), as amdgpu's: so Mesa's dma-bufs go between processes
+(libdrm9's PRIME: the token as a descriptor).
+An object the context has already (imported before, or its own) is the
+same id again, not counted, as Linux's PRIME gives the same handle: one
+.B free
+ends it, and the client counts its own references (9space: before, a
+second id shared the object, and freeing either took the other's pages).
+.B Status
+also counts the objects freed, by request and with their context, and
+lists the last 32
+.RB ( "free: " "segment request|context ms" " ago" );
+a context freed with objects says so in the kernel's log.
+.B Status
+has the lines of
+.IR intelgpu :
+.B "rcs workarounds"
+(i915's context workarounds of the render engine that hold, checked as
+i915 verifies them) and
+.B "power rc6"
+(i915's RC6 residency and RPS frequencies).
+.PP
+.B -D
+leaves the display to 9front (i915.disable_display),
+.B -S
+leaves draw(3)'s screen where it was (the firmware's plane),
+.B -d
+sets DRM's debug categories,
+.B -v
+prints debug messages,
+.B -n
+starts no file server.
+.B -T
+runs the layer's own checks (among them the machine's DMI strings and
+the GPU's ACPI node) and Linux's dma-buf selftests,
+.B -M
+i915's mock selftests (no hardware; as
+.BR i915.mock_selftests=-1 ,
+.B -f
+as
+.BR i915.st_filter ),
+.B -L
+its live selftests on the GPU (as
+.BR i915.live_selftests=-1 :
+the probe runs them, then lets go of the device),
+and exits.
+.B -p
+sets one of Linux's module parameters, as
+.BI i915. name = value
+on Linux's command line does (a bool without
+.I value
+is set): those of i915
+.RB ( enable_guc ,
+.BR enable_hangcheck ,
+\&...), of the selftests
+.RB ( st_filter ,
+.BR st_timeout ,
+.BI live_ group
+to run only the named groups) and of DRM.
+.I I915live
+runs the live selftests with
+.BR "aux/i915 -L" :
+as in Linux a run stops at the first group that fails, and the next
+run starts after it; a run without output for 300 seconds hangs and is
+killed.  Its log is on the boot stick
+.RB ( i915live.log );
+groups whose tests are not ported fail.
+.SS amdgpu
+.I Amdgpu
+is Linux 7.3's amdgpu driver on the same layer as
+.IR i915 :
+the Radeons of the GCN 1.2 and later families amdgpu drives (tried on
+a Navi 33, RX 7600 XT, GFX 11).
+It takes the first AMD device of
+.IR gpu (3)
+.RB ( -g
+another), loads the card's firmware from
+.BR /lib/firmware/amdgpu
+(the files of
+.BR linux-firmware ,
+unpacked; amdgpu picks them by the card's IP blocks) and reads the
+video BIOS from the card's ROM.
+A context is an open DRM file of the render node, with a GPU address
+space of its own and one amdgpu context in it; the requests are
+amdgpu's ioctls, as libdrm_amdgpu makes them:
+.TF "\fLbo\fP \fIsize"
+.TP
+.BI bo " size \fR[\fPgpuaddr\fR] [\fPvram\fR]
+creates an object.
+By default in GTT, system memory the GPU reaches; its pages are an
+alias segment
+.RI ( segment (3)),
+reply
+.BI bo " id seg va size gpuaddr" ,
+revoked in every process when the object is freed.
+With
+.B vram
+in the card's memory, in one piece in the part the processor sees
+through BAR 0 (the first 256 MB without a resized BAR), the reply the
+same:
+.I seg
+then shows that part of BAR 0's write-combining segment
+.RI ( gpu (3)),
+the object only
+.RB ( phys
+in
+.IR segment (3)),
+revoked as well when it is freed.
+As for
+.IR intelgpu ,
+the driver chooses the GPU address, or the client does (page aligned,
+above 2 MB, below 2\u47\d; 0 maps the object nowhere).
+.TP
+.BI bind " id gpuaddr
+.TP
+.BI free " id
+as above.
+.PD
+.PP
+Writing
+.IB "bo offset ndw " \fR[\fPgfx\fR|\fPcompute\fR|\fPsdma\fR]\fP
+to
+.B submit
+runs
+.I ndw
+dwords at
+.I offset
+in object
+.I bo
+as one IB (PM4 packets on gfx and compute, SDMA packets on sdma); the
+fences are as above.
+.PP
+A context also takes, as text, what a process asks of amdgpu on Linux
+through its ioctls (libdrm_amdgpu; Mesa's RADV through
+.BR /sys/src/mesa/plan9/drm/amdgpu9.c ):
+a request is words written to the context's
+.B ctl
+.RB ( cs
+to its
+.BR submit ),
+numbers as in C, domains and flags as names joined by commas or as
+numbers; the reply is read back on the same fid, from offset 0 or from
+where the request ended (a read after the write in
+.IR rc (1)).
+A request is at most one message (32 KB); the driver builds amdgpu's
+structures itself, so nothing of the client's memory is read while
+amdgpu works on it.
+Errors are named
+.RB ( "bad request" ,
+.BR "no such object" ,
+.BR "timer expired" ,
+.BR canceled ,
+\&...).
+Timeouts are absolute nanoseconds of the monotonic clock, as amdgpu's.
+.TF "\fLwaitfences\fP"
+.TP
+.BI gem " size align domains flags
+creates an object (GEM_CREATE: domains
+.BR cpu ,
+.BR gtt ,
+.BR vram ,
+\&...; flags
+.BR cpuaccess ,
+.BR nocpuaccess ,
+.BR uswc ,
+.BR cleared ,
+.BR contiguous ,
+.BR local ,
+\&...), reply
+.BI gem " handle" ;
+.BI geminfo " handle
+replies
+.BI geminfo " handle size align domains flags" ;
+.BI place " handle domains
+moves it;
+.BI meta " handle
+and
+.BI meta " handle flags tiling hex
+read and set the metadata of a shared object.
+.TP
+.BI va " op handle addr offset size flags \fR[\fPout \fIsync point\fR] [\fPin \fIsync ...\fR]
+maps
+.RB ( map ,
+.BR unmap ,
+.BR clear ,
+.BR replace )
+an object in the context's GPU address space; flags
+.BR r ,
+.BR w ,
+.BR x ,
+.BR prt .
+.BI idle " handle timeout
+replies
+.B idle done
+or
+.B busy
+and the domain.
+.TP
+.BI "hwctx new" " priority flags
+an amdgpu context of the context, reply
+.BI hwctx " id" ;
+.BI "hwctx free" " id" ,
+.BI "hwctx state" " id
+(its reset state),
+.BI pstate " id \fR[\fPvalue\fR]" ;
+.B vmid reserve
+and
+.BR unreserve .
+.TP
+.BI cs " hwctx flags items
+(to
+.BR submit )
+a submission, reply
+.BI cs " seq" ;
+the items are
+.BI ib " ip instance ring va bytes flags" ,
+.BI fence " handle offset" ,
+.BI in " sync" ,
+.BI out " sync" ,
+.BI twait " sync point flags" ,
+.BI tsignal " sync point flags
+and
+.BI bo " handle priority
+(the objects that are not
+.BR local ).
+.TP
+.BI waitcs " hwctx ip instance ring seq timeout
+replies
+.B waitcs done
+or
+.BR busy ;
+.BI waitfences " all\fR|\fPany timeout \fR(\fPhwctx ip instance ring seq\fR) ...
+replies the status and the first signalled;
+.BI fromfence " hwctx ip instance ring seq
+a syncobj of the fence.
+.TP
+.BI syncnew " \fR[\fPsignaled\fR]
+a syncobj, reply
+.BI syncnew " sync" ;
+.BI syncfree ,
+.BI syncwait " flags timeout sync ...
+(flags
+.BR all ,
+.BR submit ,
+.BR available ;
+reply the first signalled),
+.BI synctwait " flags timeout \fR(\fPsync point\fR) ...\fP" ,
+.BI syncreset ,
+.BI syncsignal ,
+.BI synctsignal " \fR(\fPsync point\fR) ...\fP" ,
+.BI syncquery " flags sync ...
+(reply the points) and
+.BI synctransfer " src point dst point flags" :
+amdgpu's syncobjs.
+.TP
+.BI info " query \fR[\fPargs\fR]
+what the device is:
+.B device
+(each field of amdgpu's device information as
+.IB "name value" ,
+a line each),
+.BI hwip " type instance" ,
+.BI hwipcount " type" ,
+.BI fw " type instance index" ,
+.BR vramgtt ,
+.BR memory ,
+.BI video " type" ,
+.B vmfault
+the same way;
+.BR accel ,
+.BR timestamp ,
+.BR moved ,
+.BR evictions ,
+.BR vramfaults ,
+.BR vramusage ,
+.BR visvramusage ,
+.BR gttusage ,
+.BI sensor " type" ,
+.B maxibs
+and
+.BI mmr " offset count instance flags
+(registers) as numbers.
+.TP
+.BI cap " n
+DRM's capability
+.I n
+(GET_CAP), reply
+.BI cap " n value" .
+.TP
+.B version
+DRM's version, then the driver's name, date and description a line each.
+.PD
+.PP
+.BI map " handle
+replies the processor's view of an object the client made,
+.BI map " handle seg va size" :
+an alias segment of its pages (GTT) or, for an object in VRAM, a pager
+segment (segment(3)) of BAR 0: page by page as Linux maps it, the
+object moved into the part BAR 0 shows when a page of it is touched
+(or its pages in memory, if it stays in GTT), not pinned, its pages
+taken back when the driver moves it; refused
+.RB ( EPERM )
+for an object made without a processor's view
+.RB ( nocpuaccess ,
+a display's image);
+.BI unmap " handle
+ends it, revoking the segment in every process.
+There are no requests with file descriptors (PRIME, syncobj fds):
+objects go between contexts by token instead:
+.BI export " handle
+replies
+.BI export " token"
+(128 random bits, the same for every export of the object from the
+context), and
+.BI import " token
+in another context, of any process, replies
+.BI import " handle size" ,
+the object as one of that context's own (a dma-buf between, as PRIME
+on Linux).
+The token is good while the exporting context lives; an imported object
+stays with the importer.
+.BI close " handle
+lets go of an object the client made through ioctls or imported (GEM_CLOSE,
+its view unmapped first).
+.BI overlay " handle x y w h stride
+(aux/amdgpu, aux/i915; on i915
+.I handle
+is the object's id, the object in system memory shown as it is, on a
+sprite plane)
+shows the client's object (XRGB8888,
+.I w
+by
+.IR h ,
+.I stride
+bytes a row, a multiple of 256) at
+.I x y
+of the screen on an overlay plane of the output that has that part of
+the screen wholly, above the screen.
+An object in VRAM the plane shows as it is (the display's own
+framebuffer of it, kept for a swapchain's few images); one in GTT the
+GPU copies into an object of the display's in VRAM, and it stays where
+the processor reads it.
+Returns when the display shows it (its next vblank); refused when no
+output has the window wholly or a context's picture in a mode of its own
+is on that output
+.RB ( scanout );
+over a picture of the screen's size (laid out as the screen: a window
+system composing on the GPU) the plane shows the window as over the screen.
+One client at a time;
+.B overlay off
+ends it, as does the end of the context or a new layout of the outputs.
+.BI readback " handle
+(aux/amdgpu) copies the object, by the GPU's copy engine, into a new
+object in GTT and replies
+.BI readback " handle size" :
+a copy the processor maps
+.RB ( map ),
+of an object it cannot see itself (the images in VRAM the overlay plane
+shows); close lets go of it.
+.BI syncexport " handle
+and
+.BI syncimport " token
+do the same for a syncobj (replies
+.BI syncexport " token
+and
+.BI syncimport " handle" ):
+the importer's handle is the same syncobj, whose fences both contexts
+wait for and signal (Vulkan's external semaphores and fences, opaque).
+Mesa's RADV exports and imports its dma-bufs so (libdrm9: the token as a
+descriptor, plan9/lib/dmabuf.c).
+.PP
+Sync files (a fence in a file of its own, as Linux's
+.B SYNCOBJ_HANDLE_TO_FD
+makes with
+.BR EXPORT_SYNC_FILE )
+stay in the context, named by numbers:
+.BI syncfile " handle
+takes the fence a syncobj has now (reply
+.BI syncfile " n" ),
+.BI syncmerge " a b
+makes one of two, signalled when both are (reply
+.BI syncmerge " n" ),
+.BI syncin " handle n
+puts one into a syncobj, and
+.BI syncclose " n ...
+lets them go.
+libdrm9 makes descriptors of them (a pipe each, known by its qid, so
+also when duplicated), merges them for
+.B SYNC_IOC_MERGE
+and gives back those whose descriptors are all closed;
+RADV makes its submissions that only wait and signal of them.
+.PP
+.B Status
+names the chip, its memory, temperatures, power and clocks, the
+interrupt ring, each ring's fences (emitted, signalled, as the ring
+wrote them) and the state of each IP block.
+Writing
+.B "ih process"
+to the driver's
+.B ctl
+processes the interrupt ring once;
+.B waves
+writes the shader waves the GPU has (where they are, their state and
+trap status) and the GPU's last page fault to the log: for hangs.
+.PP
+A client sees its own objects only, each through a segment the
+driver revokes when the object goes.
+The bars themselves (BAR 0 with all the visible VRAM and the driver's
+own data, the register bar) only the hostowner may attach
+.RI ( gpu (3));
+the GPU's own address spaces are per context.
+A client's requests have a superuser's rights (Linux's
+.BR CAP_SYS_ADMIN ,
+.B DRM_ROOT_ONLY
+ioctls) only if it is the hostowner.
+.PP
+At a critical temperature amdgpu powers the machine off, as on Linux
+(orderly_poweroff): the layer runs
+.IR fshalt (8)
+(the file servers halted, then
+.BR scram ),
+and the driver keeps running the card, its fans and clocks, until the
+power is off.
+.B -X
+does that once the driver has started, to try it.
+.SS "Outputs and the screen (i915, amdgpu)"
+.I I915
+and
+.I amdgpu
+make draw(3)'s screen as
+.I virtiogpu
+does
+.RI ( vga (3)
+type
+.BR gpu ,
+the changes copied into an object the display shows: amdgpu's in
+VRAM through BAR 0, i915's in the GTT through the aperture), over
+every output that is on, as one desktop: each output shows its part
+of the screen, the screen is as big as they are together.
+At the start every connected output is on, in its preferred mode,
+side by side in the order of
+.BR outputs .
+Writing
+.IP
+.IB w x h " \fR[\fPhz\fR] [\fPat \fIx y\fR]\fP"
+.PP
+to an output's
+.B mode
+gives it one of its
+.B modes
+(the preferred one of that size, or the fastest, without
+.IR hz )
+and its place on the screen (without one where it was, or right of
+the others);
+.B off
+turns it off.
+Two outputs at the same place in the same mode show the same.
+The screen changes size with them, and
+.IR rio (1)
+with it, up to what the display engine takes.
+The framebuffer of
+.IR gpu (3)
+devdraw draws in is as big as the screen: at the start the connected
+monitors side by side in their preferred modes; a bigger layout makes
+a bigger one and the screen goes onto it (the old one freed), a
+smaller one gives memory back (when 8 MB or more are spare).
+A monitor connected later goes on in its preferred mode right of the
+others, one disconnected goes off (not the last one); one turned off
+by hand stays off until it is disconnected.
+When the memory for a bigger framebuffer is not there the new monitor
+comes on in the biggest of its modes that fits, and the log says so.
+Reading
+.B mode
+gives
+.IB w x h " hz " at " x y" ,
+or
+.BR off .
+A panel (eDP, LVDS) has a
+.BR backlight :
+reading it gives the brightness and its maximum, writing
+.I n
+or
+.IB n %
+sets it.
+A context's picture
+.RB ( scanout )
+as big as the screen goes to every output (a page flip each), one as
+big as a mode of an output to the first such output (in that mode),
+other sizes are refused (the client copies).
+When the layout changes (a monitor plugged in or out, a
+.B mode
+written) the picture goes off the display, the screen shows again in
+its new size, and the client's next scanout, of the old size, is
+refused: Mesa's WSI then says
+.B VK_ERROR_OUT_OF_DATE_KHR
+and the client (wsys(4)) makes a swapchain of the new size.
+.B -S
+leaves draw(3)'s screen where it was; then there is no layout and no
+scanout.
+At boot
+.BR monitor=i915 ,
+.B monitor=amdgpu
+or
+.B monitor=virtiogpu
+in
+.IR plan9.ini (8)
+(or the answer to its question) starts the driver as the screen
+.RI ( screenrc ,
+.BR /rc/bin/gpustart ;
+.B gpuflags
+are its flags), its log on the boot stick's ESP as
+.IB driver boot.log ;
+VESA's if it makes none within 60 seconds.
+.SS "Users (i915, amdgpu)"
+A request is the user's whose share it came through, whatever name its
+attach carries (anyone who reaches a service may send any; nothing
+proves one here).
+The share
+.B gpu
+is the hostowner's (0700).
+The hostowner writes
+.BI user " name
+to the driver's
+.B ctl
+to grant the user the GPU: the driver makes the empty share
+.BI gpu.grant. name\fR,
+the hostowner's, as the record of the grant, and the share
+.BI gpu. name\fR,
+whose entry
+.I n
+is its files for that user (every fid of an attach through it is that
+user's); then it gives
+.BI gpu. name
+to the user (0700): the user's files are
+.BI /shr/gpu. name / n\fR,
+theirs alone.
+The shares outlive the driver: a driver started again puts every
+granted user's entry back, for each
+.BI gpu.grant. name
+the hostowner owns, so a grant lasts until
+.BI user " name " off
+(the user's entry, share and grant removed: their opens fail from then
+on) or the reboot.
+A share
+.BI gpu. name
+proves nothing (any user but
+.B none
+may make a share, and it is theirs): a grant or a restart takes over
+one it finds, someone else's entries and itself removed and made anew,
+so another user's share of that name serves nothing of theirs to the
+user; a
+.BI gpu.grant. name
+that is not the hostowner's grants nothing.
+.PP
+A context is its creator's: its files are the creator's alone (0600),
+and so are the segments the driver makes for it (objects,
+maps: their owner the creator, mode 0600).
+.I Virtiogpu
+has no share per user, but its contexts' files are their creator's
+(0600) too.
+The display is the hostowner's: only it may write the driver's
+.BR ctl ,
+an output's
+.B mode
+and
+.BR backlight ,
+and show a picture
+.RB ( scanout ,
+.BR "map plane" ).
+.PP
+The Linux drivers learn about the machine from its firmware as on
+Linux: DMI from the SMBIOS tables
+.RB ( #P/smbios ,
+.IR arch (3)),
+for their per-model quirks, and ACPI methods of their devices
+.RB ( _DSM ,
+AMD's ATIF and ATCS,
+.BR _ATRM ,
+.BR _DDC )
+through the machine's one AML interpreter,
+.IR acpi (8)'s
+.B aml
+file
+.RB ( /srv/acpi ;
+the driver starts
+.I aux/acpi
+at the first use if it does not run; a later
+.I aux/acpi
+mounts that one).  ACPI notifications do not
+reach them.
+.SH EXAMPLES
+Switch the screen to 1024x768:
+.EX
+	echo 1024x768 >/shr/gpu/0/outputs/Virtual-1/mode
+.EE
+.PP
+An external monitor right of the laptop's panel, then above it, the
+panel at half brightness:
+.EX
+	echo 1920x1080 at 1920 0 >/shr/gpu/0/outputs/HDMI-A-1/mode
+	echo 1920x1080 at 0 0 >/shr/gpu/0/outputs/HDMI-A-1/mode
+	echo 1920x1080 at 0 1080 >/shr/gpu/0/outputs/eDP-1/mode
+	echo 50% >/shr/gpu/0/outputs/eDP-1/backlight
+.EE
+.PP
+A context, one submission, wait for it, in C (the source tree's
+.B sys/src/build/host/tests/gpu/gpuctxtest.c
+does more):
+.EX
+	fd = open("/shr/gpu/0/clone", ORDWR);
+	read(fd, buf, sizeof buf);	/* ctx 1 seg gpu0ctx1 0x40000000 0x100000 */
+	cmd = segattach(0, "gpu0ctx1", nil, 0);
+	fprint(fd, "init 2");
+	/* commands at cmd[0..len) */
+	fprint(sfd, "0 %d", len);	/* ctx/1/submit */
+	fprint(ffd, "1");		/* ctx/1/fence */
+	read(ffd, buf, sizeof buf);	/* 1 1 */
+.EE
+.SS Vulkan
+Mesa's venus driver
+.RB ( /sys/src/mesa ,
+built by the source tree's
+.BR sys/src/build/mesa )
+uses this interface as its renderer: one context with capability
+set 4, its command streams through
+.BR submit ,
+Vulkan memory as host blobs mapped through the host visible bar,
+and its timeline syncs on the fences.
+.PP
+Mesa's RADV drives
+.IR amdgpu
+through its contexts' ioctls (above), with libdrm_amdgpu's interface
+over them; it is in
+.B /$objtype/lib.gcc/ape/libvulkan.a
+with venus and hasvk, the loader taking the first driver that finds a
+device (or the one
+.B $VK_DRIVER
+names:
+.BR radeon ).
+.PP
+Vulkan programs present to a window with the instance extension
+.BR VK_PLAN9_surface :
+.B vkCreatePlan9SurfacePLAN9
+takes a
+.B VkPlan9SurfaceCreateInfoPLAN9
+whose
+.B pWindowName
+names the window's image; nil means the process's window
+.RB ( /dev/winname ),
+or the screen without
+.IR rio (1).
+The swapchain's images are the device's; at every present they are
+copied into host visible memory and from there into the window through
+a
+.IR draw (3)
+connection of the driver's own.
+On the screen without
+.IR rio ,
+the host visible copy itself goes to the display
+.RB ( scanout ),
+no copy by the processor, one image more in the swapchain for the one
+shown; the
+.I draw
+screen is not drawn meanwhile.
+.B WSI_PLAN9_COPY=1
+in the environment always copies.
+The window's size is the surface's; when it changes, presents return
+.BR VK_ERROR_OUT_OF_DATE_KHR .
+.PP
+There are no shared libraries: programs link
+.BR /$objtype/lib.gcc/ape/libvulkan.a ,
+built from
+.B /sys/src/mesa
+.RB ( build.json ,
+the Vulkan headers in
+.BR /sys/include/ape/vulkan ),
+the driver with a static loader in front of it, and APE's
+.IR draw (2)
+libraries
+.RB ( -lvulkan " " -ldraw " " -l9 " " -lfmt " " -lutf ).
+Mesa's Wayland platform (VK_KHR_wayland_surface, EGL's) refers to
+libwayland-client weakly: a program that speaks Wayland links
+.B -lwayland-client " " -lffi
+after
+.BR -lvulkan .
+Its buffers are blitted into host visible linear memory, waited for,
+and handed to the compositor as dma-bufs
+.RI ( wlsys (4)).
+What the library hides stays inside it (its symbols are local), as in a
+shared library.
+The loader keeps its dispatch tables in the first word of the
+dispatchable objects, as Khronos' loader does, and has no layers.
+Its functions are
+.BR vkl_CreateInstance ,
+etc.; the
+.B vk
+names are weak aliases of them, so a program that keeps its own
+function pointers under those names (where it would
+.I dlopen
+.BR libvulkan.so.1 )
+starts from
+.B vkl_GetInstanceProcAddr
+instead.
+Khronos'
+.I vkcube
+and
+.I vulkaninfo
+are ported this way.
+.SH SOURCE
+.B /sys/src/cmd/aux/gpu/gpufs.c
+(the file server's part every driver shares),
+.B gpukms.c
+(i915's and amdgpu's: outputs, display, users),
+.B /sys/src/cmd/aux/nokill.c
+(every driver's)
+.br
+.B /sys/src/cmd/aux/gpu/i915
+.br
+.B /sys/src/cmd/aux/gpu/amdgpu
+.br
+.B /sys/src/linux
+.br
+.B /sys/src/cmd/aux/gpu/intel
+.br
+.B /sys/src/cmd/aux/gpu
+.br
+.B /sys/src/mesa/overlay/src/virtio/vulkan/vn_renderer_plan9.c
+.br
+.B /sys/src/mesa/overlay/src/vulkan/wsi/wsi_common_plan9.c
+.br
+.B /sys/src/mesa/overlay/include/vulkan/vulkan_plan9.h
+.br
+.B /sys/src/mesa/plan9/loader
+.SH "SEE ALSO"
+.IR gpu (3),
+.IR proc (3),
+.IR segment (3),
+.IR vga (3),
+.IR vga (8)
+.SH BUGS
+A client's touch of a mapped object in VRAM waits for the driver (its
+pager proc, one for all faults): with the driver busy or hung the client
+stands still, in state
+.B Fault
+.RI ( ps (1)),
+and the console says
+.B "pager ... waiting 5 s"
+after five seconds; with the driver gone the touch faults.
+.br
+One output, one framebuffer; no cursor plane, no hotplug yet.
+.br
+Command buffers are limited to the context's segment (1 MB).
+.br
+The host visible bar is mapped uncached.
+.br
+Sync files (a fence as a file of its own) only on
+.IR amdgpu ,
+within a context (not between processes); on
+.I virtiogpu
+no sharing of fences between processes yet.
+.IR I915 :
+no sharing of syncobjs between processes yet (objects: export and import).
+.br
+A dma-buf descriptor of Mesa's (plan9/lib/dmabuf.c: a pipe holding its
+token) tells the token only to the first other process that reads it;
+handed on to a second one, it is no dma-buf there (its import fails with
+an error).
+Between more processes the token goes as text.
+.br
+.IR Amdgpu :
+no display yet (outputs, scanout); a freed VRAM object stays visible
+through BAR 0.
+.br
+Presenting copies every frame twice (device to host memory, host to
+draw(3)); the kernel's console draws over the screen without rio.

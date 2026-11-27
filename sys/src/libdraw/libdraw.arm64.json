@@ -69,6 +69,8 @@
 			"writecolmap.c",
 			"writeimage.c",
 			"writesubfont.c",
+			"wsysagain.c",
+			"wsysopen.c",
 			"warp.c",
 			"mkwarp.c"
 		]

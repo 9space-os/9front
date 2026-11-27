@@ -6,7 +6,7 @@ host: the stick boots 9front, runs the tests by itself and writes the
 logs to its own 9fat partition, which any machine can read.
 
 Target so far: Lenovo ThinkPad X1 Carbon (2015, amd64). The internal disks
-are only read.
+are only read. Machines booted from the host by PXE instead: below.
 
 ## The stick
 
@@ -67,6 +67,27 @@ IDE disk (`disk` only reads it: its checksum is compared afterwards)
 and an e1000. `STICK=image` uses an
 existing image.
 
+## A machine booted by PXE
+
+A machine whose disks are not to be touched at all (another system on
+them) boots from the build host instead: `sys/src/build/host/hw/pxe.sh mac [machine]`
+gives it 9boot, the kernel and its `plan9.ini` by TFTP (dnsmasq as proxy
+DHCP, the router keeps giving the addresses; the one command run as root
+is printed) and serves the root by ufs, as for the QEMU guests. The root
+has the MCP server (`9front-mcp`, its token in `$CLI_DIR/pxe/mcptoken`):
+started on the machine, `sys/src/build/host/guest/mcp.py` runs commands there, and
+what it writes under `/usr/glenda` and `/sys/log` is in
+`$CLI_DIR/pxe/ufsroot` on the host. `QEMU=1` rehearses the same in QEMU.
+
+`machines/<machine>`: the plan9.ini lines the machine always gets
+(`*nonvme=1`: the kernel never touches NVMe) and `firmware pattern`
+lines, the host's `/usr/lib/firmware/pattern` unpacked into the root.
+Without a stick, `gpustart` logs the GPU driver to `/sys/log/<driver>boot`.
+
+Machines: `thinkbook16g7` (Lenovo ThinkBook 16 G7 ARP, Radeon 680M).
+The stick's `hwtest` run is not done this way yet (its `disk` step must
+never run there).
+
 ## Categories
 
 | step | what |
@@ -80,3 +101,22 @@ existing image.
 | stress | all processors a minute on the same floating point sum (one result), a ramfs copy compared, temperatures (`#P/cputemp`), the clock idle and under load (`hwfreq`: APERF/MPERF) |
 | gcc | the native gcc: `gccmk` builds a program from a 9front mkfile, it runs (SKIP without `/$objtype/gnu`) |
 | hangme | hangs (dry run only) |
+| extmon | by hand, not in a configuration: an external monitor plugged in while it waits (hotplug turns it on, EDID, modes, the screen grows) and pulled out (off, the screen as before); over MCP on a PXE machine: `rc /sys/lib/hwtest/cat/extmon.rc [seconds]` |
+
+## The soak test (a working day)
+
+`sys/src/build/host/hw/soak.py` runs `sys/src/build/host/tests/hw/soak.rc` on a machine booted by PXE
+(1.0 criterion 1, "a working day on the laptop without a crash"): for
+`-m` minutes (default 480) rounds of `-r` seconds (default 120), each
+with uitick and uiwidgets (ui), vkcube (Vulkan), juggle and paint
+(draw(3)), term and foot (Wayland) in windows of the running wsys at
+once; all must live to the round's end, then they are killed and the
+round checks that none is left, no process is Broken, wsys and aux/i915
+live and aux/i915 goes idle; the kernel's new messages, memory, battery,
+temperatures and clock go into the log. The host pings the machine
+(`-H` its Ethernet address, required; `-w` its WLAN address, if any),
+moves 50 MB each way over the WLAN address per round and calls it a
+hang when the log stops growing and the machine stops answering. The
+machine writes to `/usr/glenda/soak` (in `$CLI_DIR/pxe/ufsroot`), the
+host to `$CLI_DIR/soak/<date>/` (`summary.txt`). It kills programs by
+those names on the machine: nothing else of theirs should run there.

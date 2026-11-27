@@ -1,0 +1,89 @@
+#!/bin/bash
+# SDL3 on 9front (sys/src/sdl3): sdltest in a window of wsys on a VESA screen
+# without a GPU driver, in a guest of sys/src/build/host/guest/mcp-guest.sh; the host
+# types into it through QEMU (QMP) while sdltest -e logs the events. Then
+# sdlagain.rc: an SDL window that outlives its wsys, killed twice.
+# usage: sys/src/build/host/tests/sdl/run.sh   (needs libSDL3.a built: sys/src/build/sdl3/vendor.sh, build.exe)
+set -e
+HERE=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(cd "$HERE/../../../../../.." && pwd)
+. "$ROOT/sys/src/build/host/tests/lib.sh"	# objtype, skipall, atexit (the guest's cleanup)
+[ "$objtype" = amd64 ] || skipall sdl "amd64 only"
+. "$ROOT/sys/src/build/mesa/common.sh"	# CROSS, TRIPLE
+[ -x "$CROSS/$TRIPLE-gcc" ] || skipall sdl "no cross compiler $TRIPLE-gcc (toolchain/gcc, GCC_DIR)"
+[ -e "$ROOT/amd64/lib.gcc/ape/libSDL3.a" ] || skipall sdl "no libSDL3.a (sys/src/build/sdl3/vendor.sh, build.exe)"
+[ -x "$ROOT/amd64/bin/wsys" ] || skipall sdl "no amd64/bin/wsys (a build)"
+mkdir -p "$HERE/root/tests"
+"$CROSS/$TRIPLE-gcc" -std=gnu11 -O2 -Wall -o "$HERE/root/tests/sdltest" "$HERE/sdltest.c" -lSDL3 -ldraw -l9 -lfmt -lutf -lm
+"$CROSS/$TRIPLE-gcc" -std=gnu11 -O2 -Wall -o "$HERE/root/tests/sdlagain" "$HERE/sdlagain.c" -lSDL3 -ldraw -l9 -lfmt -lutf -lm
+cp "$HERE/sdlagain.rc" "$HERE/root/tests/sdlagain.rc"
+chmod +x "$HERE/root/tests/sdlagain.rc"
+cp "$ROOT/amd64/bin/wsys" "$HERE/root/tests/wsys"
+cp "$HERE/sdl.rc" "$HERE/root/tests/sdl"
+chmod +x "$HERE/root/tests/sdl"
+
+# a sound card whose output QEMU writes to a WAV file: what SDL played
+wav=$CLI_DIR/sdlaudio.wav
+rm -f "$wav"
+UFS_EXTRA=$HERE/root MEM=1024 KARGS="vgasize=1024x768x32 monitor=vesa mouseport=ps2" \
+	QEMU_EXTRA="-audiodev wav,id=snd,path=$wav -device intel-hda -device hda-output,audiodev=snd" \
+	deskguest "$CLI_DIR/sdlguest.log" 'aux/realemu' 'aux/vga -m vesa -l 1024x768x32' \
+	"bind -a '#i' /dev" "bind -a '#m' /dev" "bind -a '#A' /dev" || { echo "FAIL no guest ($CLI_DIR/sdlguest.log)"; exit 1; }
+M="python3 $ROOT/sys/src/build/host/guest/mcp.py"
+$M wait 600 >/dev/null
+$M rc '/tests/wsys -x -i /tests/sdl >/tmp/wsys.log >[2=1] </dev/null' 180 >"$CLI_DIR/sdl.out" &
+run=$!
+# the keys, once sdltest -e waits for them
+for i in $(seq 300); do $M rc 'test -e /tmp/sdle.ready' 10 >/dev/null 2>&1 && break; sleep 0.2; done
+python3 - "$QMP" <<'PY'
+import json, socket, sys, time
+s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); f = s.makefile('rw'); f.readline()
+def cmd(c):
+    f.write(json.dumps(c) + '\n'); f.flush()
+    while True:
+        r = json.loads(f.readline())
+        if 'return' in r or 'error' in r: return r
+cmd({'execute': 'qmp_capabilities'})
+for keys in (['a'], ['shift', 'b'], ['ret']):
+    cmd({'execute': 'send-key', 'arguments': {'keys': [{'type': 'qcode', 'data': k} for k in keys]}})
+    time.sleep(0.2)
+PY
+wait $run || true
+$M rc 'cat /tmp/wsys.log' 10 | grep -v -e '/srv/wsys' -e '^event' -e '^ok' -e '^sdl' || true
+# (rc: ^ joins words, the pattern quoted)
+out=$(cat "$CLI_DIR/sdl.out"; printf '%s\n' 'cat /tmp/sdl.log' "grep '^event' /tmp/sdle.log" | $M rc - 10) || true
+echo "$out" | grep -E '^(ok|FAIL|sdltest)'
+[ -n "$SDLDEBUG" ] && echo "$out"
+fail=0
+check() { if echo "$out" | grep -q -- "$2"; then echo "ok $1"; else echo "FAIL $1 (no \"$2\")"; fail=1; fi; }
+check "sdltest" '^sdltest: all passed'
+check "sdltest ended cleanly (no abort: APE's setvbuf, the heap)" '^sdl: exit $'
+check "mouse: motion in window coordinates" '^event motion 196,146'
+check "mouse: button 1" '^event button 1 down at 196,146'
+check "mouse: button 3" '^event button 3 down at 216,156'
+check "mouse: the wheel" '^event wheel 1'
+check "keyboard: a down" '^event key down A'
+check "keyboard: text a" '^event text a'
+check "keyboard: shift" '^event key down Left Shift'
+check "keyboard: text B" '^event text B'
+check "keyboard: return up" '^event key up Return'
+check "audio through /dev/audio" '^ok audio: 0.2 s through plan9'
+# an SDL window that outlives its wsys (libdraw's wsysagain): sdlagain.rc from
+# the console, wsys killed twice
+ag=$($M rc '/tests/sdlagain.rc' 200 2>&1) || true
+echo "$ag" | grep -E '^(ok|FAIL|event|signal|sdl plan9|log: )' | sed 's/^/  /'
+if echo "$ag" | grep -q '^sdlagain.rc: all passed'; then echo "ok an SDL window outlives its wsys (twice)"; else echo "FAIL an SDL window outlives its wsys"; fail=1; fi
+# the guest's end writes the WAV file whole: what it played, not silence
+deskguest_stop end	# QEMU writes the WAV file whole when it ends
+if python3 - "$wav" <<'PY'
+import struct, sys
+# QEMU's wav backend fills in the header's sizes only when it closes the file: the samples after it
+d = open(sys.argv[1], 'rb').read()[44:]
+v = struct.unpack('<%dh' % (len(d) // 2), d[:len(d) // 2 * 2])
+peak = max((abs(x) for x in v), default=0)
+print('wav: %d samples, peak %d' % (len(v), peak))
+sys.exit(0 if peak > 1000 else 1)
+PY
+then echo "ok audio: the host heard it"; else echo "FAIL audio: silence on the host"; fail=1; fi
+[ $fail = 0 ] && echo "sdl: all passed" || echo "sdl: failed"
+exit $fail

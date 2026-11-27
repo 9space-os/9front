@@ -16,6 +16,11 @@ execve(const char *name, const char *argv[], const char *envp[])
 	unsigned long flags;
 	char buf[1024];
 
+	{
+		extern void _winchexec(void);
+
+		_winchexec();	/* 9space: no SIGWINCH for the program after (signal.c) */
+	}
 	_RFORK(RFCENVG);
 	/*
 	 * To pass _fdinfo[] across exec, put lines like
@@ -130,6 +135,11 @@ execve(const char *name, const char *argv[], const char *envp[])
 				_CLOSE(f);
 			}
 		}
+	}
+	{	/* GCC port: SIGCHLD's watcher is the old program's (gnu/sigchld.c) */
+		extern void __sigchld_exec(void);
+
+		__sigchld_exec();
 	}
 	n = _EXEC(name, argv);
 	_syserrno();

@@ -14,6 +14,9 @@
 #      are the ISO
 #
 # usage: [objtype=386] sys/src/build/host/guest/mkiso.sh [iso]	(default $CLI_DIR/9front.$objtype.iso).
+#        PLAN9INI: lines name=value for the CD's plan9.ini, each in place of
+#        the CD's own line of that name (sys/lib/dist/cfg/plan9.ini), e.g.
+#        PLAN9INI='monitor=i915' boots with i915 as the screen (gpustart).
 #        Needs the build (CC=gcc ARCH=$objtype sys/src/cmd/build/build.exe)
 #        and sys/src/build/host/guest/build-boot.sh.
 set -e
@@ -35,13 +38,18 @@ echo "make the CD in the guest"
 DSK=$CLI_DIR/mkiso.raw
 rm -f "$DSK"
 # the guest writes the CD here (sparse: only what it writes takes room);
-# 4 GB: with Rust and Go (DEV) it is past 2 GB
+# 4 GB: with GPU programs (wsys, ui: libvulkan.a) it is past 2 GB
 truncate -s 4G "$DSK"
 mkdir -p "$TMP/extra/rc/bin"
 cp "$ROOT/sys/src/build/host/guest/boot/mkiso.rc" "$TMP/extra/rc/bin/mkiso"
-# MEM: the guest holds the whole image in its ramfs (mkiso.rc) besides the system: with
-# Rust and Go the amd64 CD is past 2 GB (2048 MB: "Bwrite: no memory"); the 386 CD is
-# smaller, and 9pc uses at most 4 GB
+if [ -n "$PLAN9INI" ]; then
+	printf '%s\n' "$PLAN9INI" | grep -v '^[ 	]*$' > "$TMP/extra/mkiso.ini"
+	grep -qv '^[A-Za-z0-9_*.]*=' "$TMP/extra/mkiso.ini" && die "PLAN9INI: lines name=value"
+	echo "plan9.ini:"; sed 's/^/	/' "$TMP/extra/mkiso.ini"
+fi
+# MEM: the guest holds the whole image in its ramfs (mkiso.rc) besides the system: the
+# amd64 CD is past 2 GB since wsys links libvulkan.a (2048 MB: "ramfs: Insufficient
+# physical memory"); the 386 CD is smaller, and 9pc uses at most 4 GB
 [ "$objtype" = 386 ] && mem=3072 || mem=6144
 SRC9=$CLI_DIR/src9 DISK=$DSK UFS_EXTRA=$TMP/extra MEM=${MEM:-$mem} \
 WAITFOR='mkiso: (done|failed)' WAITMAX=${WAITMAX:-7200} CMDWAIT=5 \

@@ -50,6 +50,7 @@
 			"/sys/src/libstdio/libstdio.json",
 			"/sys/src/libsunrpc/libsunrpc.json",
 			"/sys/src/libttf/libttf.json",
+			"/sys/src/libui/libui.json",
 			"/sys/src/libventi/libventi.json",
 			"/sys/src/libdtracy/libdtracy.json"
 		]
@@ -86,9 +87,12 @@
 			"/sys/src/ape/lib/bio/cmds.json",
 			"/sys/src/ape/lib/bsd/cmds.json",
 			"/sys/src/ape/lib/bz2/cmds.json",
+			"/sys/src/ape/lib/devdraw/cmds.json",
 			"/sys/src/ape/lib/draw/cmds.json",
 			"/sys/src/ape/lib/fmt/cmds.json",
 			"/sys/src/ape/lib/l/cmds.json",
+			"/sys/src/ape/lib/memdraw/cmds.json",
+			"/sys/src/ape/lib/memlayer/cmds.json",
 			"/sys/src/ape/lib/mp/port/cmds.json",
 			"/sys/src/ape/lib/net/cmds.json",
 			"/sys/src/ape/lib/plumb/cmds.json",
@@ -116,6 +120,7 @@
 			"/sys/src/ape/cmd/expr/cmds.json",
 			"/sys/src/ape/cmd/make/cmds.json",
 			"/sys/src/ape/cmd/pdksh/cmds.json",
+			"/sys/src/ape/cmd/ptyfs/cmds.json",
 			"/sys/src/ape/cmd/sed/cmds.json",
 			"/acme/bin/source/cmds.json",
 			"/acme/bin/source/win/cmds.json",
@@ -173,6 +178,9 @@
 			"/sys/src/cmd/aux/mnihongo/cmds.json",
 			"/sys/src/cmd/aux/flashfs/cmds.json",
 			"/sys/src/cmd/aux/gps/cmds.json",
+			"/sys/src/cmd/aux/gpu/virtio/cmds.json",
+			"/sys/src/cmd/aux/gpu/intel/cmds.json",
+			"/sys/src/cmd/aux/i2chid/cmds.json",
 			"/sys/src/cmd/aux/kbdfs/cmds.json",
 			"/sys/src/cmd/aux/na/cmds.json",
 			"/sys/src/cmd/aux/vga/cmds.json",
@@ -208,6 +216,7 @@
 			"/sys/src/cmd/disk/smart/cmds.json",
 			"/sys/src/cmd/disk/vblade/cmds.json",
 			"/sys/src/cmd/dossrv/cmds.json",
+			"/sys/src/cmd/drawfs/cmds.json",
 			"/sys/src/cmd/dtracy/cmds.json",
 			"/sys/src/cmd/eqn/cmds.json",
 			"/sys/src/cmd/execnet/cmds.json",
@@ -362,6 +371,33 @@
 			"/sys/src/games/swar/cmds.json",
 			"/sys/src/games/timmy/cmds.json",
 			"/sys/src/games/v8e/cmds.json"
+		]
+	},
+	{
+		"Name": "linux",
+		"Projects": [
+			"/sys/src/linux/build.json",
+			"/sys/src/cmd/aux/gpu/i915/build.json",
+			"/sys/src/cmd/aux/gpu/amdgpu/build.json",
+			"/sys/src/cmd/aux/rtw89/build.json"
+		]
+	},
+	{
+		"Name": "ape",
+		"Pre": [
+			"bash /sys/src/build/step/ape.sh"
+		]
+	},
+	{
+		"Name": "rust",
+		"Pre": [
+			"bash /sys/src/build/step/cargo.sh sys/src/cmd/files files",
+			"bash /sys/src/build/step/cargo.sh sys/src/cmd/term term",
+			"bash /sys/src/build/step/cargo.sh sys/src/cmd/ui ui",
+			"bash /sys/src/build/step/cargo.sh sys/src/cmd/uidemo uicount uitodo uitick uiwidgets",
+			"bash /sys/src/build/step/cargo.sh sys/src/cmd/wbar wbar",
+			"bash /sys/src/build/step/cargo.sh sys/src/cmd/wdock wdock",
+			"bash /sys/src/build/step/cargo.sh sys/src/cmd/wsys wsys"
 		]
 	},
 	{

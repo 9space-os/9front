@@ -43,8 +43,16 @@ typedef int sigjmp_buf[10];
 extern "C" {
 #endif
 
+/*
+ * 9space: longjmp does not return (C11), as libc.h's says; C++'s
+ * [[noreturn]] must come first in the declaration, before extern
+ */
 extern int setjmp(jmp_buf);
-extern void longjmp(jmp_buf, int);
+#ifdef __cplusplus
+[[noreturn]] extern void longjmp(jmp_buf, int);
+#else
+extern _Noreturn void longjmp(jmp_buf, int);
+#endif
 
 #ifdef _POSIX_SOURCE
 extern int sigsetjmp(sigjmp_buf, int);

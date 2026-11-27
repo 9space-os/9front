@@ -145,6 +145,13 @@ file
 the amount of memory used by the process in units of 1024 bytes
 .IP \-
 the base and current scheduling priority, each 11 character numbers
+.IP \-
+9space: the protection from the pager,
+.BR noswap ,
+.B nokill
+or
+.B -
+(see the control messages below), 6 characters; 9front has no such field
 .PP
 The
 .B args
@@ -349,6 +356,37 @@ This property is inherited on
 cleared on
 .IR exec (2),
 and is not otherwise resettable.
+.TP 10n
+.B nokill
+9space: don't let the pager kill this process or page it out when
+memory runs out, as
+.B noswap
+does, but without
+.BR noswap 's
+claim on the last free pages: the process waits for pages as any
+other.
+For processes the system needs but that free no memory themselves:
+the GPU drivers
+.RI ( gpu (4)),
+the window system
+.RI ( wsys (4)),
+the name and authentication servers
+.RI ( dontkill ,
+.IR kill (1)).
+.B Noswap
+stays for those that free memory: the file servers and what serves the
+swap device.
+The property is inherited on
+.IR fork (2),
+cleared on
+.IR exec (2),
+and is not otherwise resettable.
+Both protect only the host owner's processes.
+When only protected processes are left the pager kills none and waits
+for pages, as FreeBSD's does for the processes its protect(1)
+protects; it says so once on the console, naming the biggest.
+9front has no
+.BR nokill .
 .TP 10n
 .B kill
 Kill the process the next time it crosses the user/kernel boundary.

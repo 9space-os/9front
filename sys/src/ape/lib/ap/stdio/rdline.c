@@ -5,7 +5,7 @@
 #include "iolib.h"
 #include <string.h>
 
-char *rdline(FILE *f, char **ep){
+static char *rdline_l(FILE *f, char **ep){
 	int cnt;
 	char *nlp, *vp;
 	switch(f->state){
@@ -65,4 +65,16 @@ char *rdline(FILE *f, char **ep){
 		if(ep) *ep=nlp;
 		return vp;
 	}
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+char *
+rdline(FILE *f, char **ep)
+{
+	char * r;
+
+	_IO_lock(f);
+	r = rdline_l(f, ep);
+	_IO_unlock(f);
+	return r;
 }

@@ -129,7 +129,18 @@ kickpager(void)
 	wakeup(&swapalloc.r);
 }
 
-static void
+/*
+ * kill the biggest process that may be killed: Killed when one goes,
+ * Exiting when one killed before has not ended yet (it may wait for a
+ * server that waits for pages: a mount's flush), else Nokill
+ */
+enum { Nokill, Killed, Exiting };
+
+/* 9space: the biggest protected process killbig passed over last */
+static ulong protmax, protpid;
+static char protname[KNAMELEN];
+
+static int
 killbig(void)
 {
 	int i;
@@ -139,13 +150,22 @@ killbig(void)
 
 	max = 0;
 	kp = nil;
+	protmax = 0;
 	for(i = 0; (p = proctab(i)) != nil; i++) {
 		if(p->state <= New || p->kp || p->parentpid == 0)
 			continue;
 		if(p->procctl == Proc_exitbig)
-			return;	/* try later when done exiting */
-		if((p->noswap || (p->procmode & 0222) == 0) && strcmp(eve, p->user) == 0)
+			return Exiting;	/* try later when done exiting */
+		if((p->noswap || p->nokill || (p->procmode & 0222) == 0) && strcmp(eve, p->user) == 0){
+			/* 9space: the biggest passed over, for the pager's message */
+			l = procpagecount(p);
+			if(l > protmax){
+				protmax = l;
+				protpid = p->pid;
+				kstrcpy(protname, p->text, sizeof protname);
+			}
 			continue;
+		}
 		l = procpagecount(p);
 		if(l > max){
 			kp = p;
@@ -153,17 +173,17 @@ killbig(void)
 		}
 	}
 	if(kp == nil)
-		return;
+		return Nokill;
 	if(!canqlock(&kp->debug))
-		return;
+		return Exiting;
 	if(!canqlock(&kp->seglock)){
 		qunlock(&kp->debug);
-		return;
+		return Exiting;
 	}
 	if(!needpages(nil)){
 		qunlock(&kp->seglock);
 		qunlock(&kp->debug);
-		return;
+		return Killed;
 	}
 	s = kp->seg[BSEG];
 	killproc(kp, Proc_exitbig);
@@ -177,6 +197,7 @@ killbig(void)
 		}
 	}
 	qunlock(&kp->seglock);
+	return Killed;
 }
 
 static int
@@ -203,15 +224,17 @@ pager(void*)
 {
 	Proc *p;
 	Segment *s;
-	int x, i;
+	int x, i, stuck;
 
 	while(waserror())
 		;
 
 	x = 0;
+	stuck = 0;
 	for(;;){
 		up->psstate = "Reclaim";
 		if(reclaim()){
+			stuck = 0;
 			up->psstate = "Idle";
 			sleep(&swapalloc.r, needpages, nil);
 			continue;
@@ -219,9 +242,37 @@ pager(void*)
 
 		if(swapimage == nil || swapimage->c == nil || swapalloc.free == 0){
 		Killbig:
-			if(!freebroken())
-				killbig();
-			sched();
+			/*
+			 * 9space: when nothing is freed and nobody killed,
+			 * wait before the next pass, as FreeBSD's pagedaemon
+			 * does when vm_pageout_oom finds no process: spinning
+			 * here (sched, reclaim, killbig at once again) took a
+			 * processor for good and freed nothing.  Nokill: only
+			 * the host owner's noswap and nokill processes are left.
+			 * Exiting: the one killed is stuck on its way out (a
+			 * mount's flush to a server that waits for pages).
+			 */
+			if(freebroken()){
+				sched();
+				continue;
+			}
+			switch(killbig()){
+			case Killed:
+				sched();
+				break;
+			case Exiting:
+				up->psstate = "Exitbig";
+				tsleep(&up->sleep, return0, nil, 100);
+				break;
+			case Nokill:
+				if(!stuck)
+					print("pager: out of memory, only protected processes left (the biggest: %s %lud, %lud KB)\n",
+						protname, protpid, protmax*(BY2PG/1024));
+				stuck = 1;
+				up->psstate = "Nomem";
+				tsleep(&up->sleep, return0, nil, 1000);
+				break;
+			}
 			continue;
 		}
 
@@ -232,11 +283,11 @@ pager(void*)
 					goto Killbig;
 				x = 0;
 			}
-		} while(p->state <= New || p->noswap || !canqlock(&p->seglock));
+		} while(p->state <= New || p->noswap || p->nokill || !canqlock(&p->seglock));
 		up->psstate = "Pageout";
 
 		/* pageout segments in reverse order */
-		for(i = NSEG-1; i >= 0; i--) {
+		for(i = p->nseg-1; i >= 0; i--) {
 			s = p->seg[i];
 			if(s == nil)
 				continue;
@@ -545,7 +596,7 @@ swapclose(Chan *c)
 static long
 swapread(Chan *c, void *va, long n, vlong off)
 {
-	char tmp[256];		/* must be >= 18*NUMSIZE (Qswap) */
+	char tmp[320];		/* must be >= 21*NUMSIZE (Qswap) */
 	ulong reclaim;
 
 	switch((ulong)c->qid.path){
@@ -566,7 +617,8 @@ swapread(Chan *c, void *va, long n, vlong off)
 			"%lud/%lud reclaim\n"
 			"%llud/%llud/%llud kernel malloc\n"
 			"%llud/%llud/%llud kernel draw\n"
-			"%llud/%llud/%llud kernel secret\n",
+			"%llud/%llud/%llud kernel secret\n"
+			"%lud/%lud/%lud free\n",	/* 9space: the pager's thresholds */
 			(uvlong)conf.npage*BY2PG,
 			(uvlong)BY2PG,
 			conf.npage-conf.upages,
@@ -581,7 +633,8 @@ swapread(Chan *c, void *va, long n, vlong off)
 			(uvlong)imagmem->maxsize,
 			(uvlong)secrmem->curalloc,
 			(uvlong)secrmem->cursize,
-			(uvlong)secrmem->maxsize);
+			(uvlong)secrmem->maxsize,
+			palloc.freecount, swapalloc.highwater, swapalloc.headroom);
 		return readstr((ulong)off, va, n, tmp);
 	case Qswapfile:
 		if(n != BY2PG)

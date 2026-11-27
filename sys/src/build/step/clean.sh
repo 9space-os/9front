@@ -10,8 +10,8 @@
 # -i also removes what the build installs (like a fresh checkout): every
 # file sys/src/build/step/check-install.py expects (programs, scripts, gcc archives
 # in /$objtype/lib.gcc, amd64/9pc64), the ELF kernel amd64/bin/9pc64,
-# amd64/init and the boot loaders of 9bootproto (sys/src/build/host/guest/build-boot.sh).
-# Files the repository tracks are never removed.
+# amd64/init, the boot loaders of 9bootproto (sys/src/build/host/guest/build-boot.sh)
+# and arm64/bootaa64.efi. Files the repository tracks are never removed.
 #
 # usage: sys/src/build/step/clean.sh [-i]
 #   env:  CLI_DIR   where the log goes
@@ -42,17 +42,20 @@ echo "$(grep -c '^rm ' "$log") files removed from the source directories"
 
 if [ -n "$installed" ]; then
 	n=0
-	expected=$(python3 sys/src/build/step/check-install.py -l) || die "check-install.py -l failed"
-	for f in $expected amd64/bin/9pc64 amd64/init \
-		$(awk '/^386/ { s = 1; next } /^[^\t]/ { s = 0 } s && NF == 2 { print "386/" $1 }' \
-			sys/lib/sysconfig/proto/9bootproto) \
-		arm64/bootaa64.efi; do
+	# amd64's, as the clean above (check-install.py takes objtype from the
+	# environment); a line "?/path" is a Rust or APE program: installed too
+	expected=$(objtype=amd64 python3 sys/src/build/step/check-install.py -l) || die "check-install.py -l failed"
+	while read -r f; do
+		f=${f#\?}
 		f=${f#/}
-		[ -f "$f" ] || continue
+		[ -n "$f" ] && [ -f "$f" ] || continue
 		git ls-files --error-unmatch "$f" > /dev/null 2>&1 && continue
 		rm -f "$f"
 		n=$((n + 1))
-	done
+	done < <(printf '%s\n' "$expected" amd64/bin/9pc64 amd64/init \
+		$(awk '/^386/ { s = 1; next } /^[^\t]/ { s = 0 } s && NF == 2 { print "386/" $1 }' \
+			sys/lib/sysconfig/proto/9bootproto) \
+		arm64/bootaa64.efi)
 	# directories left empty below the install roots
 	for d in amd64/bin amd64/lib.gcc acme/bin/amd64 rc/bin; do
 		[ -d "$d" ] && find "$d" -mindepth 1 -type d -empty -delete

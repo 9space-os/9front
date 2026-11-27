@@ -1,0 +1,240 @@
+#!/bin/bash
+# Cross-build Mesa's Vulkan drivers for 9front with toolchain/gcc (GCC_DIR): venus
+# (virtio-gpu), hasvk (Intel gen 7-8) and RADV (AMD, libdrm_amdgpu over
+# gpu(4): plan9/drm/amdgpu9.c); and OpenGL (ES) on them: zink, EGL (the
+# plan9 platform: draw(3) windows; and surfaceless), libGLESv2's entry points, in the same objects
+# (one copy of Mesa's common code for both). libmesaplan9.a (sys/src/mesa/
+# plan9: what APE lacks), libdrm.a (plan9/drm: libdrm's interface over
+# gpu(4), for hasvk and, as libdrm_amdgpu, RADV, found by pkg-config), a
+# meson cross file, meson setup (once) and ninja in $BUILD; the Intel shaders need mesa_clc on
+# the build machine (clc.sh). 9front has no shared libraries: instead
+# of the ICDs (libvulkan_virtio.so, libvulkan_intel_hasvk.so,
+# libvulkan_radeon.so) and of libEGL, libGL9 and libgallium the
+# objects and static libraries they would link become one relocatable
+# object (each driver's vk_icdGetInstanceProcAddr has a name of its own
+# on 9front, the rest of Mesa is there once).
+# The SDK in $BUILD/sdk is what Vulkan programs build with: the headers
+# and libvulkan.a, the static loader (sys/src/mesa/plan9/loader) with
+# the drivers and libmesaplan9 in it; programs link -lvulkan -lz -ldraw -l9
+# -lfmt -lutf.
+# Extra arguments go to ninja.
+# A release build (b_ndebug=true: NDEBUG, Mesa's asserts off), as
+# distributions build Mesa; MESA_ASSERTS=1 builds with the asserts (a
+# developer's build: b_ndebug=false), the next run without it goes back.
+set -e
+. "$(dirname "$0")/common.sh"
+[ -d "$SRC/.git" ] || "$(dirname "$0")/prepare.sh"
+{ [ -x "$WORK/clc/bin/mesa_clc" ] && ! moved "$WORK/build-native-clc"; } || "$(dirname "$0")/clc.sh"	# (another release: again)
+export PATH=$WORK/clc/bin:$VENV/bin:$PATH
+mkdir -p "$BUILD/plan9"
+P9=$MESA/plan9
+
+# the platform library; plan9win.c is Plan 9 C over APE's libdraw
+# (programs link -ldraw -l9 -lfmt -lutf with it, what #pragma lib names)
+objs=
+for c in "$P9"/lib/*.c; do
+	o=$BUILD/plan9/$(basename "$c" .c).o
+	case $c in
+	*/plan9win.c|*/gpudir.c)	flags="-D_PLAN9_SOURCE -I$ROOT/sys/src/ape/lib/9 -I$P9/include" ;;
+	*)		flags="-I$P9/include" ;;
+	esac
+	"$CROSS/$TRIPLE-gcc" -std=c11 -O2 -Wall $flags -c -o "$o" "$c"
+	objs="$objs $o"
+done
+rm -f "$BUILD/plan9/libmesaplan9.a"
+"$CROSS/$TRIPLE-ar" rcs "$BUILD/plan9/libmesaplan9.a" $objs
+
+# libdrm for 9front, with Mesa's uAPI headers, and its pkg-config file
+# and libdrm_amdgpu's, for RADV (drm9.c: Intel's and the descriptors;
+# amdgpu9.c: libdrm_amdgpu and AMD's ioctls)
+for c in drm9 amdgpu9; do
+	"$CROSS/$TRIPLE-gcc" -std=c11 -O2 -Wall -I"$P9/drm/include" -I"$P9/include" -I"$SRC/include" \
+		-c -o "$BUILD/plan9/$c.o" "$P9/drm/$c.c"
+done
+rm -f "$BUILD/plan9/libdrm.a"
+"$CROSS/$TRIPLE-ar" rcs "$BUILD/plan9/libdrm.a" "$BUILD/plan9/drm9.o" "$BUILD/plan9/amdgpu9.o"
+mkdir -p "$BUILD/plan9/pkgconfig"
+cat > "$BUILD/plan9/pkgconfig/libdrm.pc" <<EOC
+Name: libdrm
+Description: libdrm's interface over gpu(4), 9front (sys/src/mesa/plan9/drm)
+Version: 2.4.124
+Cflags: -I$P9/drm/include
+Libs: -L$BUILD/plan9 -ldrm
+EOC
+cat > "$BUILD/plan9/pkgconfig/libdrm_amdgpu.pc" <<EOC
+Name: libdrm_amdgpu
+Description: libdrm_amdgpu's interface over gpu(4), 9front (sys/src/mesa/plan9/drm)
+Version: 2.4.134
+Requires: libdrm
+Cflags: -I$P9/drm/include
+Libs: -L$BUILD/plan9 -ldrm
+EOC
+
+# libwayland and libffi as the tree builds them (sys/src/build/wayland/build.sh: in
+# /$objtype/lib.gcc/ape, headers in /sys/include/ape), for the Wayland
+# platform (Vulkan's WSI, EGL); wayland-protocols' XML from its release
+# (sys/src/wayland/VERSION), checked
+WL=$ROOT/sys/src/wayland
+wlv(){ awk -v k="$1" '$1 == k { print $2 }' "$WL/VERSION"; }
+[ $objtype != amd64 ] ||	# (Mesa's Wayland platform: amd64's only, below)
+for l in libffi.a libwayland-client.a libwayland-server.a libwayland-egl.a; do
+	[ -f "$ROOT/$objtype/lib.gcc/ape/$l" ] || bash "$ROOT/sys/src/build/wayland/build.sh" "$BUILD/wayland"
+done
+WP=$BUILD/wayland-protocols-$(wlv protocols)
+if [ ! -d "$WP" ]; then
+	t=$(wlv protocols-tar)	# $DISTFILES/x (the distribution's archives), else a path in the tree
+	case $t in
+	'$DISTFILES/'*)	t=$DISTFILES/${t#\$DISTFILES/} ;;
+	*)	t=$ROOT/$t ;;
+	esac
+	echo "$(wlv protocols-sha256)  $t" | sha256sum -c --quiet
+	tar xJf "$t" -C "$BUILD"
+fi
+pc(){ # name version libs [requires]
+	printf 'Name: %s\nDescription: %s as the tree builds it (in /$objtype/lib.gcc/ape, headers in /sys/include/ape)\nVersion: %s\nRequires: %s\nCflags:\nLibs: %s\n' \
+		"$1" "$1" "$2" "$4" "$3" > "$BUILD/plan9/pkgconfig/$1.pc"
+}
+pc libffi "$(awk '$1 == "version" { print $2 }' "$ROOT/sys/src/libffi/VERSION")" -lffi
+pc wayland-client "$(wlv version)" -lwayland-client libffi
+pc wayland-server "$(wlv version)" -lwayland-server libffi
+pc wayland-egl "18.1.0" -lwayland-egl wayland-client
+pc wayland-egl-backend 3 ""
+# zlib as the tree has it (sys/src/cmd/gs/zlib, APE's libz.a): Mesa's dependency
+# on it found here, not its subproject's copy, which libvulkan.a carried (a
+# program that linked libz.a too had two zlibs); libvulkan.a's users link -lz
+pc zlib "$(awk '$1 == "version" { print $2 }' "$ROOT/sys/src/cmd/gs/zlib/VERSION")" -lz
+cat > "$BUILD/plan9/pkgconfig/wayland-protocols.pc" <<EOC
+pkgdatadir=$WP
+Name: wayland-protocols
+Description: Wayland's protocols (XML), release $(wlv protocols)
+Version: $(wlv protocols)
+EOC
+
+q(){ printf "'%s', " "$@"; }
+# -fno-strict-aliasing: Vulkan's pNext chains are read through
+# VkBaseInStructure; with gcc 16's inlining the venus encoder read a
+# struct before its initialisation (vkGetDeviceQueue2: 64 bytes sized,
+# 80 encoded, vn_cs.h assertion)
+# plan9_wlweak.h: libwayland-client weakly (a program without Wayland links none)
+args="$(q "-I$P9/include" -DHAVE_ENDIAN_H -DNO_REGEX -fno-strict-aliasing -include "$P9/include/plan9_wlweak.h")"
+links="$(q "-L$BUILD/plan9" -lmesaplan9)"
+cat > "$BUILD/cross.ini" <<EOC
+[binaries]
+c = '$CROSS/$TRIPLE-gcc'
+cpp = '$CROSS/$TRIPLE-g++'
+ar = '$CROSS/$TRIPLE-ar'
+strip = '$CROSS/$TRIPLE-strip'
+pkg-config = 'pkg-config'
+
+[host_machine]
+system = 'plan9'
+cpu_family = '$CPU'
+cpu = '$CPU'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+pkg_config_libdir = ['$BUILD/plan9/pkgconfig']
+
+[built-in options]
+c_args = [${args%, }]
+cpp_args = [${args%, }]
+c_link_args = [${links%, }]
+cpp_link_args = [${links%, }]
+EOC
+
+DRIVERS=virtio,intel_hasvk,amd
+# Wayland only where the tree has libwayland and libffi (sys/src/build/wayland/build.sh:
+# amd64); 386's Mesa is plan9's alone, as before Wayland came (2026-11)
+case $objtype in
+amd64)	PLATFORMS=plan9,wayland ;;
+*)	PLATFORMS=plan9 ;;
+esac
+GL="-Dgallium-drivers=zink -Dopengl=true -Degl=enabled -Dgles2=enabled"
+# meson reads the cross file when it sets up the build: another one (other
+# flags; the compilers of $CROSS, this tree as sysroot) wants a new setup; so
+# does a build that took zlib's subproject (before zlib.pc, 2026-11), and one
+# set up elsewhere (common.sh's moved)
+if [ -f "$BUILD/mesa/build.ninja" ] && { ! cmp -s "$BUILD/cross.ini" "$BUILD/mesa/cross.ini.setup" || ls -d "$BUILD"/mesa/subprojects/zlib-* >/dev/null 2>&1 || moved "$BUILD/mesa"; }; then
+	meson setup --wipe "$BUILD/mesa" "$SRC" --cross-file "$BUILD/cross.ini"
+	cp "$BUILD/cross.ini" "$BUILD/mesa/cross.ini.setup"
+fi
+# NDEBUG (Mesa's asserts off) unless MESA_ASSERTS=1
+NDEBUG=true
+[ "${MESA_ASSERTS:-}" = 1 ] && NDEBUG=false
+if [ ! -f "$BUILD/mesa/build.ninja" ]; then
+	meson setup "$BUILD/mesa" "$SRC" --cross-file "$BUILD/cross.ini" \
+		-Dplatforms=$PLATFORMS -Dvulkan-drivers=$DRIVERS $GL \
+		-Dglx=disabled -Dgbm=disabled -Dgles1=disabled \
+		-Dllvm=disabled -Dmesa-clc=system -Dzstd=disabled -Dexpat=disabled -Dxmlconfig=disabled \
+		-Dvalgrind=disabled -Dlibunwind=disabled -Dbuild-tests=false -Dtools= \
+		-Dvulkan-layers= -Ddefault_library=static -Dshader-cache=disabled \
+		-Db_ndebug=$NDEBUG
+	cp "$BUILD/cross.ini" "$BUILD/mesa/cross.ini.setup"
+elif [ "$(python3 -c 'import json, sys; print(",".join(*[o["value"] for o in json.load(open(sys.argv[1])) if o["name"] == "vulkan-drivers"]))' "$BUILD/mesa/meson-info/intro-buildoptions.json")" != $DRIVERS ]; then
+	# a build made before a driver was added (RADV: 2026-11)
+	meson configure "$BUILD/mesa" -Dvulkan-drivers=$DRIVERS
+fi
+if [ "$(python3 -c 'import json, sys; print(*[o["value"] for o in json.load(open(sys.argv[1])) if o["name"] == "b_ndebug"])' "$BUILD/mesa/meson-info/intro-buildoptions.json")" != $NDEBUG ]; then
+	# a build with the other choice (or from before b_ndebug was set: if-release, asserts on)
+	meson configure "$BUILD/mesa" -Db_ndebug=$NDEBUG
+fi
+if [ "$(python3 -c 'import json, sys; print(",".join(*[o["value"] for o in json.load(open(sys.argv[1])) if o["name"] == "gallium-drivers"]))' "$BUILD/mesa/meson-info/intro-buildoptions.json")" != zink ]; then
+	# a build made before zink (2026-11)
+	meson configure "$BUILD/mesa" $GL
+fi
+if [ "$(python3 -c 'import json, sys; print(",".join(*[o["value"] for o in json.load(open(sys.argv[1])) if o["name"] == "platforms"]))' "$BUILD/mesa/meson-info/intro-buildoptions.json")" != $PLATFORMS ]; then
+	# a build made before EGL's plan9 platform, or Wayland's (2026-11)
+	meson configure "$BUILD/mesa" -Dplatforms=$PLATFORMS
+fi
+if [ "$(python3 -c 'import json, sys; print(*[o["value"] for o in json.load(open(sys.argv[1])) if o["name"] == "mesa-clc"])' "$BUILD/mesa/meson-info/intro-buildoptions.json")" != system ]; then
+	# a build set up before mesa_clc came from the build machine (386's)
+	meson configure "$BUILD/mesa" -Dmesa-clc=system
+fi
+# everything the ICDs are made of, without linking them (build.ninja
+# first: meson regenerates it when a meson.build changed): their
+# objects, each once (members.py), in one archive
+# hasvk first, then RADV: their objects stand for venus' equal ones (members.py)
+SOS="src/intel/vulkan_hasvk/libvulkan_intel_hasvk.so src/amd/vulkan/libvulkan_radeon.so src/virtio/vulkan/libvulkan_virtio.so"
+# OpenGL: EGL, every gl* entry point (desktop GL and GLES: gl9api, Mesa's
+# patch for 9front; libGLESv2's would be a part of it), gallium with zink
+# and the GL core
+SOS="$SOS src/egl/libEGL.so.1.0.0 src/mesa/glapi/gl9api/libGL9.so.1.0.0 src/gallium/targets/dri/libgallium-$MESA_VERSION.so"
+ninja -C "$BUILD/mesa" build.ninja
+for so in $SOS; do
+	link=$(ninja -C "$BUILD/mesa" -t commands $so | tail -1)
+	ninja -C "$BUILD/mesa" $(echo "$link" | tr ' ' '\n' | grep '\.[oa]$' | grep -v '^/') "$@"
+done
+objs=$(python3 "$(dirname "$0")/members.py" "$BUILD/mesa" "$CROSS/$TRIPLE-nm" $SOS)
+rm -f "$BUILD/libvulkan_mesa.a"
+(cd "$BUILD/mesa" && "$CROSS/$TRIPLE-ar" rcS "$BUILD/libvulkan_mesa.a" $objs && "$CROSS/$TRIPLE-ranlib" "$BUILD/libvulkan_mesa.a")
+
+# the SDK: the loader's trampolines from Mesa's (patched) vk.xml; the
+# drivers as one relocatable object, so that the loader's reference to
+# vk_icdNegotiateLoaderICDInterfaceVersion brings all of it (the
+# drivers' entry points are weak references, which do not take members
+# out of an archive)
+SDK=$BUILD/sdk
+L=$BUILD/loader
+mkdir -p "$L" "$SDK/lib" "$SDK/include"
+python3 "$MESA/plan9/loader/genloader.py" "$SRC/src/vulkan/registry/vk.xml" "$L/vkcmds.c"
+for c in "$L/vkcmds.c" "$MESA/plan9/loader/vkloader.c"; do
+	"$CROSS/$TRIPLE-gcc" -std=c11 -O2 -Wall -ffunction-sections -I"$SRC/include" \
+		-I"$L" -I"$MESA/plan9/loader" -c -o "$L/$(basename "$c" .c).o" "$c"
+done
+# (ld, not gcc -r: gcc adds plan9.ld, which would merge the sections
+# of all functions into one .text that --gc-sections cannot thin)
+"$CROSS/$TRIPLE-ld" -r --no-warn-execstack -o "$L/mesa.o" \
+	--whole-archive "$BUILD/libvulkan_mesa.a" --no-whole-archive
+# what Mesa hides stays inside, as in the ICDs (its Wayland protocol code:
+# a program's libwayland-client.a has the same names)
+"$CROSS/$TRIPLE-objcopy" --localize-hidden "$L/mesa.o"
+# libwayland-client only weakly (plan9_wlweak.h names what Mesa uses)
+strong=$("$CROSS/$TRIPLE-nm" -u "$L/mesa.o" | awk '$1 == "U" && $2 ~ /^wl_/ { print $2 }')
+[ -z "$strong" ] || { echo "build: Mesa refers to libwayland strongly (plan9_wlweak.h lacks them): $strong" >&2; exit 1; }
+rm -f "$SDK/lib/libvulkan.a"
+"$CROSS/$TRIPLE-ar" rcs "$SDK/lib/libvulkan.a" "$L/vkloader.o" "$L/vkcmds.o" "$L/mesa.o" \
+	"$BUILD"/plan9/*.o
+rm -rf "$SDK/include"/*
+cp -r "$SRC/include/vulkan" "$SRC/include/vk_video" "$SRC/include/EGL" "$SRC/include/GL" "$SRC/include/GLES2" "$SRC/include/GLES3" "$SRC/include/KHR" "$SDK/include/"
+echo "build: $BUILD/libvulkan_mesa.a $BUILD/plan9/libmesaplan9.a $SDK"

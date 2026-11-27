@@ -1,0 +1,103 @@
+#!/bin/rc
+# gpuoutputs [dev]: gpu(4)'s outputs and draw(3)'s screen over them
+# (aux/i915, aux/amdgpu), step by step, 3 s each: the layout; with two
+# outputs on the last one off and on again, at the first's place (a
+# mirror), back; with one another mode and back, and it cannot go off;
+# a mode none has; a panel's backlight dimmed and back.
+# A line "passed" or "FAIL" each step: look at the monitors too.
+rfork e
+dev=/shr/gpu/0
+if(! ~ $#* 0)
+	dev=$1
+o=$dev/outputs
+fn show {
+	for(d in $o/*)
+		echo '	'`{basename $d} `{cat $d/mode}
+	grep size /dev/vgactl
+}
+grep '^output' $dev/status
+show
+on=()
+for(d in $o/*)
+	if(! ~ `{cat $d/mode} off)
+		on=($on `{basename $d})
+echo on: $on
+if(~ $#on 0)
+	echo FAIL no output on
+if(~ $#on 1){
+	# one output: another mode (the screen follows), back; the last one stays on
+	f=$on(1)
+	m=`{cat $o/$f/mode}
+	c=$m(1)
+	n=`{grep -v '^'$c' ' $o/$f/modes | sed 1q}
+	if(! ~ $#n 0){
+		n=$n(1)
+		if(echo $n >$o/$f/mode)
+			echo passed $f in $n
+		if not
+			echo FAIL $f in $n
+		show
+		sleep 3
+		if(echo $m(1) $m(2) >$o/$f/mode)
+			echo passed $f back in $m(1)
+		if not
+			echo FAIL $f back in $m(1)
+		show
+	}
+	if(echo off >$o/$f/mode >[2]/dev/null)
+		echo FAIL the last output off
+	if not
+		echo passed the last output stays on
+}
+if not if(! ~ $#on 0){
+	last=$on($#on)
+	first=$on(1)
+	m=`{cat $o/$last/mode}
+	fm=`{cat $o/$first/mode}
+	if(echo off >$o/$last/mode)
+		echo passed $last off
+	if not
+		echo FAIL $last off
+	show
+	sleep 3
+	if(echo $m(1) $m(2) >$o/$last/mode)
+		echo passed $last on again
+	if not
+		echo FAIL $last on again
+	show
+	sleep 3
+	if(echo $fm(1) $fm(2) at 0 0 >$o/$last/mode)
+		echo passed $last mirrors $first
+	if not
+		echo 'no mirror ('$last' has no '$fm(1)' mode?)'
+	show
+	sleep 3
+	if(echo $m(1) $m(2) at $m(4) $m(5) >$o/$last/mode)
+		echo passed $last back at $m(4) $m(5)
+	if not
+		echo FAIL $last back
+	show
+}
+if(! ~ $#on 0){
+	f=$on(1)
+	if(echo 1x1 >$o/$f/mode >[2]/dev/null)
+		echo FAIL a mode it has not
+	if not
+		echo passed no mode 1x1
+}
+for(d in $o/*){
+	if(test -e $d/backlight){
+		b=`{cat $d/backlight}
+		echo backlight `{basename $d}: $b
+		if(echo 30% >$d/backlight){
+			echo passed `{basename $d} at 30%: `{cat $d/backlight}
+			sleep 3
+		}
+		if not
+			echo FAIL `{basename $d} at 30%
+		if(echo $b(1) >$d/backlight)
+			echo passed `{basename $d} back: `{cat $d/backlight}
+		if not
+			echo FAIL `{basename $d} back to $b(1)
+	}
+}

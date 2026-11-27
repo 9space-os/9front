@@ -1,12 +1,18 @@
 </$objtype/mkfile
 
-DIRS=`{echo */}
+# GCC port: only directories with a mkfile (musl has none: the tree's build
+# makes it from its manifest), as cmd/mkfile picks them
+DIRS=`{echo */mkfile | sed 's,mkfile *,\n,g'}
+# GCC port: devdraw (drawfs' core, gcc's builtins) only where gcc builds the
+# mkfiles (APEGNU, set by gccmk's /$objtype/mkfile and the tree's build)
+GCCONLY=devdraw/
 
 none:V:
 	echo mk all, install, installall, clean, or nuke
 
 all clean nuke install installall:V:
 	for (i in $DIRS) @{
+		if(~ $i $GCCONLY && ~ $#APEGNU 0) exit	# gcc-only, under kencc
 		cd $i
 		mk $target
 	}

@@ -20,6 +20,10 @@ BIN=/$objtype/bin/aux
 
 </sys/src/cmd/mkone
 
+# 9space: built against APE's headers: linked by pcc, with APE's libraries, not only by its headers'
+# #pragma lib (gcc and gccmk do not take it)
+LD=pcc
+
 main_u.$O: version.h
 postscript.$O: version.h
 pdf.$O: version.h

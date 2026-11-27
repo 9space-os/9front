@@ -1,0 +1,125 @@
+From c0b19cd9a33738485e01ffaff23852e823f4e397 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 19 Nov 2026 11:15:36 +0100
+Subject: [PATCH 57/59] reform/shortcuts: volume and mute under audio(3) as
+ well
+
+shortcuts assumed reform's audio driver. Under audio(3) "master +3"
+sets the volume to 3%, not 3 more, and there is no "master toggle".
+Volume up and down now try "mix" first and otherwise set master from
+what /dev/volume says, kept between 0 and 100; mute remembers the
+volume and restores it where the device has no toggle.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/cmd/reform/shortcuts.c | 74 +++++++++++++++++++++++++++++-----
+ 1 file changed, 65 insertions(+), 9 deletions(-)
+
+diff --git a/sys/src/cmd/reform/shortcuts.c b/sys/src/cmd/reform/shortcuts.c
+index 871413627..e447eea35 100644
+--- a/sys/src/cmd/reform/shortcuts.c
++++ b/sys/src/cmd/reform/shortcuts.c
+@@ -5,6 +5,62 @@
+ 
+ static int lightstep = 5, volstep = 3;
+ static int light, vol, actl;
++static int muted = -1;	/* the master volume before a mute here, -1 not muted */
++
++/* the master volume as /dev/volume says ("master l [r]"), -1 if it does not */
++static int
++mastervol(void)
++{
++	char b[1024], *l, *f[4];
++	int n;
++
++	if((n = pread(vol, b, sizeof(b)-1, 0)) <= 0)
++		return -1;
++	b[n] = 0;
++	for(l = strtok(b, "\n"); l != nil; l = strtok(nil, "\n"))
++		if(tokenize(l, f, nelem(f)) >= 2 && strcmp(f[0], "master") == 0)
++			return atoi(f[1]);
++	return -1;
++}
++
++/*
++ * the volume up or down by d: the mixer's, else master's from what it is
++ * (audio(3) takes "master +3" as 3, not as 3 more)
++ */
++static void
++volume(int d)
++{
++	int v;
++
++	if(fprint(vol, "mix %+d", d) >= 0)
++		return;
++	if((v = mastervol()) < 0)
++		return;
++	v += d;
++	if(v < 0)
++		v = 0;
++	if(v > 100)
++		v = 100;
++	fprint(vol, "master %d", v);
++	muted = -1;
++}
++
++/* (un)mute: the audio device's toggle, else master to 0 and back */
++static void
++mute(void)
++{
++	int v;
++
++	if(fprint(actl, "master toggle") >= 0)
++		return;
++	if(muted >= 0){
++		fprint(vol, "master %d", muted);
++		muted = -1;
++	}else if((v = mastervol()) > 0){
++		fprint(vol, "master 0");
++		muted = v;
++	}
++}
+ 
+ static void
+ aplumb(char *s)
+@@ -43,20 +99,18 @@ process(char *s)
+ 			else if(r == Kbrtup)
+ 				fprint(light, "lcd %+d", lightstep);
+ 			else if(r == Kmute)
+-				fprint(actl, "master toggle");
++				mute();
+ 			else if(r == Ksbwd)
+ 				aplumb("key <");
+ 			else if(r == Ksfwd)
+ 				aplumb("key >");
+ 			else if(r == Kpause)
+ 				aplumb("key p");
+-			else if(r == Kvoldn){
+-				if(fprint(vol, "mix %+d", -volstep) < 0)
+-					fprint(vol, "master %+d", -volstep);
+-			}else if(r == Kvolup){
+-				if(fprint(vol, "mix %+d", volstep) < 0)
+-					fprint(vol, "master %+d", volstep);
+-			}else{
++			else if(r == Kvoldn)
++				volume(-volstep);
++			else if(r == Kvolup)
++				volume(volstep);
++			else{
+ 				skip = 0;
+ 			}
+ 		}
+@@ -101,7 +155,9 @@ main(int argc, char **argv)
+ 	}ARGEND
+ 
+ 	light = open("/dev/light", OWRITE);
+-	vol = open("/dev/volume", OWRITE);
++	/* read too: the master volume to step from (mastervol) */
++	if((vol = open("/dev/volume", ORDWR)) < 0)
++		vol = open("/dev/volume", OWRITE);
+ 	actl = open("/dev/audioctl", OWRITE);
+ 	for(i = 0;;){
+ 		if((n = read(0, b+i, sizeof(b)-i)) <= 0)
+-- 
+2.56.0
+

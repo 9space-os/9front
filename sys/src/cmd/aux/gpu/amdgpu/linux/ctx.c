@@ -1,0 +1,1652 @@
+// SPDX-License-Identifier: MIT
+/*
+ * aux/amdgpu: gpu(4)'s contexts on Linux's amdgpu, the Linux side.  A
+ * context is an open DRM file of the render node (drm_open_helper), as a
+ * client's descriptor is on Linux: amdgpu gives it a GPU address space of
+ * its own (amdgpu_driver_open_kms: the file's VM), and the context holds
+ * one amdgpu context (AMDGPU_CTX) on it.  The requests of gpu(4) become
+ * amdgpu's ioctls, called through drm_ioctl as the kernel does for a
+ * process (as libdrm_amdgpu calls them):
+ *
+ *	bo size [gpuaddr] [vram]
+ *				GEM_CREATE in GTT (system memory the processor
+ *				reaches), always valid in the file's VM; its
+ *				pages, pinned, become an alias segment
+ *				(segment(3)) the client attaches; GEM_VA maps
+ *				it at gpuaddr (none given: the driver chooses;
+ *				0: not mapped).  vram: in the card's memory,
+ *				contiguous and pinned where the processor sees
+ *				it through the aperture (a card's BAR 0: the
+ *				first 256 MB without a resized BAR; an APU's
+ *				video memory, gpu(3)'s vram, all of it); the
+ *				client attaches a segment of that part of the
+ *				aperture's write-combining one (segment(3)'s
+ *				phys), not all of it.  Not always valid in
+ *				the VM, so that it can go to the display (amdgpu
+ *				exports no such object): each CS lists it
+ *	bind id gpuaddr		GEM_VA: unmapped, mapped there instead
+ *	submit id offset ndw ip	CS of one IB, ndw dwords at offset in the
+ *				object, on ip (0 gfx, 1 compute, 2 sdma),
+ *				with a syncobj for its fence: fence k
+ *	free id			GEM_VA unmap, GEM_CLOSE, after the object's
+ *				segment is revoked in every process
+ *	scanout id w h stride	the object (VRAM) on the display (kms.c)
+ *	scanoutgem handle w h stride	a GEM object of the client's (VRAM) there
+ *
+ * And what a process asks of amdgpu through its ioctls on Linux
+ * (libdrm_amdgpu, Mesa's RADV), as text: req.c, which builds the ioctl's
+ * structures in memory of the server's own.
+ *
+ *	map handle		the processor's view of an object the client
+ *				made: GTT pinned, an alias segment; VRAM a
+ *				pager segment of the aperture (below)
+ *	unmap handle
+ */
+#include <linux/kernel.h>
+#include <linux/slab.h>
+#include <linux/file.h>
+#include <linux/dma-fence.h>
+#include <linux/dma-buf.h>
+#include <linux/dma-fence-unwrap.h>
+#include <linux/sync_file.h>
+#include <linux/random.h>
+#include <linux/mutex.h>
+#include <linux/pci.h>
+#include <linux/vmalloc.h>
+#include <drm/drm_drv.h>
+#include <drm/drm_file.h>
+#include <drm/drm_ioctl.h>
+#include <drm/drm_syncobj.h>
+#include <drm/amdgpu_drm.h>
+#include <drm/ttm/ttm_tt.h>
+#include "amdgpu.h"
+#include "amdgpu_object.h"
+#include "amdgpu_gem.h"
+#include "amdgpu_vm.h"
+#include "amdgpu_ttm.h"
+#include "amdgpu_res_cursor.h"
+#include "drivers/gpu/drm/drm_internal.h"
+#include <kpi/p9.h>
+#include "../amdgpu.h"
+#include "../../kmsout.h"
+
+struct pci_dev	*kpi_pci_gpu(const char *gdir);
+
+enum { Nfence = 64 };
+
+/* where the driver puts objects for which the client names no address */
+#define VASTART		(1ULL << 32)
+#define VAEND		(1ULL << 47)	/* below the hole of the 48-bit space (AMDGPU_GMC_HOLE_START) */
+#define VAFLAGS		(AMDGPU_VM_PAGE_READABLE | AMDGPU_VM_PAGE_WRITEABLE | AMDGPU_VM_PAGE_EXECUTABLE)
+
+struct bo {
+	bool	used;
+	u32	handle;
+	struct amdgpu_bo	*abo;	/* pinned: a reference of ours */
+	u64	gpu;		/* mapped there, 0: not mapped */
+	u64	size;
+	bool	vram;		/* in VRAM: at baroff in the aperture, seg shows that part */
+	u64	baroff;
+	char	seg[32];
+	unsigned long	va;
+};
+
+enum { Nsyncfile = 256 };
+
+struct gctx {
+	int	id;
+	struct mutex	lock;
+	struct file	*filp;
+	struct drm_file	*file;
+	u32	ctxid;		/* the amdgpu context */
+	u32	syncobj;	/* the out fence of each submission */
+	struct bo	*bo;
+	int	nbo;
+	u64	nfence;
+	u64	next;		/* the next address the driver chooses */
+	struct dma_fence	*fence[Nfence];	/* fence k at k % Nfence */
+	ktime_t	tsub[Nfence], tcs[Nfence];	/* -t: before the CS, after it */
+	bool	failed;
+	struct list_head	maps;	/* the client's objects it maps (struct map) */
+	struct file	*syncfile[Nsyncfile];	/* its sync files (amdgpu_syncfile), by number */
+};
+
+/* an object of the client's (made by its ioctls) that it has a view of */
+struct map {
+	struct list_head	node;
+	u32	handle;
+	struct amdgpu_bo	*abo;	/* a GEM reference of ours; GTT: pinned */
+	bool	vram;
+	char	seg[32];
+	/* VRAM: a pager segment (below), in pmaps; the object's mmap offset */
+	struct list_head	pnode;
+	u64	mmoff, mmlen;
+};
+
+/*
+ * 9front-ng: VRAM shown to the processor page by page, as Linux maps
+ * it: the client's segment is a pager segment of the aperture (BAR 0,
+ * an APU's video memory: kmsout_aperture; segment(3)) without pages;
+ * its first touch is a fault the pager proc serves as Linux's fault
+ * handler does, the object moved into the part the aperture shows
+ * (amdgpu_bo_fault_reserve_notify) and its pages given, not
+ * pinned and not in one piece; before TTM moves it again it takes the
+ * pages back (ttm_bo_unmap_virtual -> unmap_mapping_range -> pagerunmap),
+ * the next touch faults again.  pmaplock: the maps of every context,
+ * held briefly, never while waiting for an object's reservation
+ */
+static DEFINE_MUTEX(pmaplock);
+static LIST_HEAD(pmaps);
+static char pagerq[48];
+static int pagerstarted;
+static atomic64_t npfault, npunmap, npnopage;
+
+
+/* Linux 7.3: drm_open_helper wants the flag DRM's own GEM fops have */
+static const struct file_operations ctx_fops = { .fop_flags = FOP_UNSIGNED_OFFSET };
+static struct bo	*newbo(struct gctx *c);
+int	amdgpu_fencetrace;	/* -t: where a fence's time goes */
+
+static struct drm_device *
+drmdev(void)
+{
+	struct pci_dev *p = kpi_pci_gpu(NULL);
+
+	return p ? pci_get_drvdata(p) : NULL;
+}
+
+static int
+ioctl(struct gctx *c, unsigned int cmd, void *arg)
+{
+	return drm_ioctl(c->filp, cmd, (unsigned long)arg);
+}
+
+static void
+closefile(struct gctx *c)
+{
+	struct drm_device *dev = c->file->minor->dev;
+
+	/* drm_close_helper */
+	mutex_lock(&dev->filelist_mutex);
+	list_del(&c->file->lhead);
+	mutex_unlock(&dev->filelist_mutex);
+	drm_file_free(c->file);
+	c->filp->private_data = NULL;
+	fput(c->filp);
+}
+
+void *
+amdgpu_ctx_new(int *id)
+{
+	struct drm_device *dev = drmdev();
+	union drm_amdgpu_ctx ctx = { .in.op = AMDGPU_CTX_OP_ALLOC_CTX };
+	struct drm_syncobj_create sc = { };
+	struct gctx *c;
+	int r;
+
+	if (!dev || !dev->render)
+		return ERR_PTR(-ENODEV);
+	c = kzalloc(sizeof(*c), GFP_KERNEL);
+	if (!c)
+		return ERR_PTR(-ENOMEM);
+	mutex_init(&c->lock);
+	INIT_LIST_HEAD(&c->maps);
+	c->filp = kpi_alloc_file(NULL, &ctx_fops, NULL, O_RDWR);
+	if (IS_ERR(c->filp)) {
+		r = PTR_ERR(c->filp);
+		kfree(c);
+		return ERR_PTR(r);
+	}
+	r = drm_open_helper(c->filp, dev->render);
+	if (r) {
+		fput(c->filp);
+		kfree(c);
+		return ERR_PTR(r);
+	}
+	c->file = c->filp->private_data;
+	r = ioctl(c, DRM_IOCTL_AMDGPU_CTX, &ctx);
+	if (r)
+		goto bad;
+	c->ctxid = ctx.out.alloc.ctx_id;
+	r = ioctl(c, DRM_IOCTL_SYNCOBJ_CREATE, &sc);
+	if (r)
+		goto bad;
+	c->syncobj = sc.handle;
+	c->id = *id;	/* gpufs' lowest free number, back when the context goes */
+	return c;
+bad:
+	closefile(c);	/* the file's release frees its amdgpu context and VM */
+	kfree(c);
+	return ERR_PTR(r);
+}
+
+static struct bo *
+findbo(struct gctx *c, int id)
+{
+	if (id < 1 || id > c->nbo || !c->bo[id - 1].used)
+		return NULL;
+	return &c->bo[id - 1];
+}
+
+static int
+vamap(struct gctx *c, struct bo *b, u64 gpu, u32 op)
+{
+	struct drm_amdgpu_gem_va va = {
+		.handle = b->handle,
+		.operation = op,
+		.flags = op == AMDGPU_VA_OP_MAP ? VAFLAGS : 0,
+		.va_address = gpu,
+		.offset_in_bo = 0,
+		.map_size = b->size,
+	};
+
+	return ioctl(c, DRM_IOCTL_AMDGPU_GEM_VA, &va);
+}
+
+static void
+unpin(struct amdgpu_bo *abo)
+{
+	if (amdgpu_bo_reserve(abo, true) == 0) {
+		amdgpu_bo_unpin(abo);
+		amdgpu_bo_unreserve(abo);
+	}
+	drm_gem_object_put(&abo->tbo.base);	/* drm_gem_object_lookup's: a GEM reference, not TTM's */
+}
+
+static void
+bofree(struct gctx *c, struct bo *b)
+{
+	struct drm_gem_close cl = { .handle = b->handle };
+
+	/*
+	 * removing the object's segment revokes it (segment(3)): a client
+	 * that still has it attached loses it before amdgpu gets the memory
+	 * back (GTT: the alias of its pages; VRAM: its part of the aperture)
+	 */
+	if (b->seg[0])
+		p9_segfree(b->seg, NULL);
+	if (b->gpu)
+		vamap(c, b, b->gpu, AMDGPU_VA_OP_UNMAP);
+	if (b->abo)
+		unpin(b->abo);
+	ioctl(c, DRM_IOCTL_GEM_CLOSE, &cl);
+	memset(b, 0, sizeof(*b));
+}
+
+static void unmap(struct gctx *c, struct map *m);
+static void unexport(struct gctx *c);
+
+void
+amdgpu_ctx_free(void *v)
+{
+	struct gctx *c = v;
+	int i;
+
+	unexport(c);	/* its tokens name nothing any more */
+	for (i = 0; i < Nsyncfile; i++)
+		if (c->syncfile[i])
+			fput(c->syncfile[i]);
+	kmsout_scanout(c->filp, 0, 0, 0, 0);	/* its picture off the display */
+	kmsout_overlay_off(c->filp);
+	for (i = 0; i < Nfence; i++)
+		if (c->fence[i]) {
+			dma_fence_wait_timeout(c->fence[i], false, 5 * HZ);
+			dma_fence_put(c->fence[i]);
+		}
+	for (i = 0; i < c->nbo; i++)
+		if (c->bo[i].used)
+			bofree(c, &c->bo[i]);
+	kfree(c->bo);
+	while (!list_empty(&c->maps))
+		unmap(c, list_first_entry(&c->maps, struct map, node));
+	closefile(c);	/* amdgpu_driver_postclose_kms: the contexts, the VM, the syncobjs */
+	kfree(c);
+}
+
+/*
+ * a place for an object of size at gpu in the context's address space:
+ * page aligned, past amdgpu's reserved start, below the hole, apart from
+ * the other mapped objects (but self)
+ */
+static bool
+placeok(struct gctx *c, struct bo *self, u64 gpu, u64 size)
+{
+	int i;
+
+	/* Linux 7.3: reserved at the bottom and, for CSA, seq64 and the trap handler, at the top */
+	if (gpu & (AMDGPU_GPU_PAGE_SIZE - 1) || gpu < AMDGPU_VA_RESERVED_BOTTOM ||
+	    gpu + size > VAEND - AMDGPU_VA_RESERVED_TOP || gpu + size < gpu)
+		return false;
+	for (i = 0; i < c->nbo; i++) {
+		struct bo *b = &c->bo[i];
+
+		if (!b->used || b == self || !b->gpu)
+			continue;
+		if (gpu < b->gpu + b->size && b->gpu < gpu + size)
+			return false;
+	}
+	return true;
+}
+
+static u64
+chooseaddr(struct gctx *c, u64 size)
+{
+	u64 a;
+
+	if (!c->next)
+		c->next = VASTART;
+	a = c->next;
+	c->next = ALIGN(a + size, 1ULL << 16);
+	return a;
+}
+
+/* a new object; its segment's name, address and size for the client */
+int
+amdgpu_bo_new(void *v, u64 size, u64 *gpup, int vram, int *id, char *seg, int nseg, u64 *va, u64 *rsize)
+{
+	struct gctx *c = v;
+	union drm_amdgpu_gem_create cr = {
+		.in.bo_size = PAGE_ALIGN(size),
+		.in.alignment = PAGE_SIZE,
+		.in.domains = vram ? AMDGPU_GEM_DOMAIN_VRAM : AMDGPU_GEM_DOMAIN_GTT,
+		.in.domain_flags = AMDGPU_GEM_CREATE_CPU_ACCESS_REQUIRED |
+		    (vram ? 0 : AMDGPU_GEM_CREATE_VM_ALWAYS_VALID),
+	};
+	struct amdgpu_device *adev;
+	struct drm_gem_object *gobj;
+	struct ttm_tt *tt;
+	struct bo *b;
+	u64 gpu = *gpup;
+	unsigned int n;
+	int r;
+
+	if (size == 0)
+		return -EINVAL;
+	mutex_lock(&c->lock);
+	b = newbo(c);
+	if (!b) {
+		r = -ENOMEM;
+		goto out;
+	}
+	if (vram) {
+		/*
+		 * in VRAM in one piece from the start, so that it is one range
+		 * of the aperture: VRAM_CONTIGUOUS is the kernel's flag (GEM_CREATE does
+		 * not take it), so as amdgpu makes such objects itself; the
+		 * handle's open puts it in the file's VM as GEM_CREATE does
+		 */
+		struct drm_gem_object *nobj;
+
+		adev = drm_to_adev(c->file->minor->dev);
+		r = amdgpu_gem_object_create(adev, cr.in.bo_size, PAGE_SIZE, AMDGPU_GEM_DOMAIN_VRAM,
+		    AMDGPU_GEM_CREATE_CPU_ACCESS_REQUIRED | AMDGPU_GEM_CREATE_VRAM_CONTIGUOUS,
+		    ttm_bo_type_device, NULL, &nobj, 0);
+		if (r == 0) {
+			r = drm_gem_handle_create(c->file, nobj, &cr.out.handle);
+			drm_gem_object_put(nobj);	/* the handle holds it */
+		}
+	} else
+		r = ioctl(c, DRM_IOCTL_AMDGPU_GEM_CREATE, &cr);
+	if (r) {
+		pr_warn("amdgpu: ctx %d: bo of %llu bytes: GEM_CREATE: error %d\n", c->id, size, r);
+		goto out;
+	}
+	b->handle = cr.out.handle;
+	b->size = PAGE_ALIGN(size);	/* not cr.in: the union holds the reply now */
+	gobj = drm_gem_object_lookup(c->file, b->handle);
+	if (!gobj) {
+		r = -ENOENT;
+		goto close;
+	}
+	b->abo = gem_to_amdgpu_bo(gobj);	/* the lookup's reference is ours now */
+	/* its memory, pinned while the client may have it */
+	r = amdgpu_bo_reserve(b->abo, false);
+	if (r)
+		goto put;
+	r = amdgpu_bo_pin(b->abo, vram ? AMDGPU_GEM_DOMAIN_VRAM : AMDGPU_GEM_DOMAIN_GTT);
+	amdgpu_bo_unreserve(b->abo);
+	if (r) {
+		pr_warn("amdgpu: ctx %d: bo %u: pin in %s: error %d\n", c->id, b->handle, vram ? "VRAM" : "GTT", r);
+		goto put;
+	}
+	if (vram) {
+		char bar[32];
+
+		struct amdgpu_res_cursor cur;
+
+		/*
+		 * where in VRAM, so where in the aperture (CPU_ACCESS_REQUIRED keeps it
+		 * in the visible part): the resource's first range, which must
+		 * be all of it
+		 */
+		u64 next;
+
+		b->vram = true;
+		/* its blocks (a contiguous allocation is trimmed into several) one after the other */
+		amdgpu_res_first(b->abo->tbo.resource, 0, b->size, &cur);
+		b->baroff = cur.start;
+		for (next = cur.start; cur.remaining; amdgpu_res_next(&cur, cur.size)) {
+			if (cur.start != next)
+				break;
+			next = cur.start + cur.size;
+		}
+		if (cur.remaining) {
+			pr_warn("amdgpu: ctx %d: bo %u: not in one piece of VRAM (%#llx of %#llx at %#llx)\n",
+			    c->id, b->handle, next - b->baroff, b->size, b->baroff);
+			r = -ENOSPC;
+			goto unpin;
+		}
+		if (b->baroff + b->size > adev->gmc.visible_vram_size ||
+		    p9_apseg(adev->gmc.aper_base, 1, bar, sizeof(bar)) < 0) {
+			pr_warn("amdgpu: ctx %d: bo %u: not in the aperture (%#llx)\n", c->id, b->handle, b->baroff);
+			r = -ENOSPC;
+			goto unpin;
+		}
+		/* the client sees this object only, not all of the aperture */
+		snprintf(b->seg, sizeof(b->seg), "amdgpu.%d.%d.%u", p9_getpid(), c->id, b->handle);
+		b->va = (unsigned long)p9_segphys(b->seg, bar, b->baroff, b->size);
+		if (!b->va) {
+			b->seg[0] = 0;
+			r = -ENOMEM;
+			goto unpin;
+		}
+		goto mapped;
+	}
+	tt = b->abo->tbo.ttm;
+	n = b->size >> PAGE_SHIFT;
+	if (!tt || !tt->pages || tt->num_pages < n) {
+		pr_warn("amdgpu: ctx %d: bo %u: no pages in GTT\n", c->id, b->handle);
+		r = -EIO;
+		goto unpin;
+	}
+	snprintf(b->seg, sizeof(b->seg), "amdgpu.%d.%d.%u", p9_getpid(), c->id, b->handle);
+	b->va = (unsigned long)kpi_alias_pages(b->seg, tt->pages, n, false);
+	if (!b->va) {
+		pr_warn("amdgpu: ctx %d: bo %u: no alias segment %s\n", c->id, b->handle, b->seg);
+		b->seg[0] = 0;
+		r = -ENOMEM;
+		goto unpin;
+	}
+mapped:
+	b->used = true;
+	if (gpu == ~0ULL)	/* the driver's choice: one after the other */
+		gpu = chooseaddr(c, b->size);
+	else if (gpu && !placeok(c, b, gpu, b->size)) {
+		r = -EADDRINUSE;
+		goto unseg;
+	}
+	if (gpu) {
+		r = vamap(c, b, gpu, AMDGPU_VA_OP_MAP);
+		if (r)
+			goto unseg;
+	}
+	b->gpu = gpu;
+	*gpup = gpu;
+	*id = b - c->bo + 1;
+	strscpy(seg, b->seg, nseg);
+	*va = b->va;
+	*rsize = b->size;
+	mutex_unlock(&c->lock);
+	return 0;
+unseg:
+	b->used = false;
+	p9_segfree(b->seg, NULL);
+unpin:
+	unpin(b->abo);
+	b->abo = NULL;
+	goto close;
+put:
+	drm_gem_object_put(&b->abo->tbo.base);
+	b->abo = NULL;
+close:
+	{
+		struct drm_gem_close cl = { .handle = b->handle };
+
+		ioctl(c, DRM_IOCTL_GEM_CLOSE, &cl);
+	}
+	memset(b, 0, sizeof(*b));
+out:
+	mutex_unlock(&c->lock);
+	return r;
+}
+
+int
+amdgpu_bo_bind(void *v, int id, u64 gpu)
+{
+	struct gctx *c = v;
+	struct bo *b;
+	int r = 0;
+
+	mutex_lock(&c->lock);
+	b = findbo(c, id);
+	if (!b)
+		r = -ENOENT;
+	else if (gpu && !placeok(c, b, gpu, b->size))
+		r = -EADDRINUSE;
+	else {
+		/* amdgpu keeps the old mapping until the work before is done */
+		if (b->gpu)
+			r = vamap(c, b, b->gpu, AMDGPU_VA_OP_UNMAP);
+		b->gpu = 0;
+		if (r == 0 && gpu && (r = vamap(c, b, gpu, AMDGPU_VA_OP_MAP)) == 0)
+			b->gpu = gpu;
+	}
+	mutex_unlock(&c->lock);
+	return r;
+}
+
+int
+amdgpu_bo_free(void *v, int id)
+{
+	struct gctx *c = v;
+	struct bo *b;
+	int r = 0;
+
+	mutex_lock(&c->lock);
+	b = findbo(c, id);
+	if (!b)
+		r = -ENOENT;
+	else
+		bofree(c, b);	/* amdgpu keeps it while the GPU uses it */
+	mutex_unlock(&c->lock);
+	return r;
+}
+
+int
+amdgpu_scanout(void *v, int id, unsigned int w, unsigned int h, unsigned int stride)
+{
+	struct gctx *c = v;
+	struct bo *b;
+	u32 handle;
+
+	mutex_lock(&c->lock);
+	if (id == 0)
+		handle = 0;
+	else if ((b = findbo(c, id)) != NULL && b->vram)
+		handle = b->handle;
+	else {
+		mutex_unlock(&c->lock);
+		return b ? -EINVAL : -ENOENT;	/* the display scans out VRAM only */
+	}
+	mutex_unlock(&c->lock);
+	/* returns when the display shows it: a swapchain's FIFO */
+	return kmsout_scanout(c->filp, handle, w, h, stride);
+}
+
+/*
+ * ctl "scanoutgem handle w h stride": an object the client made with its
+ * own ioctls (RADV's swapchain images) on the display; kms.c exports it
+ * (PRIME, so not one always valid in the client's VM), amdgpu pins it in
+ * VRAM for the display.  0: off, as scanout 0.
+ */
+int
+amdgpu_scanout_gem(void *v, u32 handle, unsigned int w, unsigned int h, unsigned int stride)
+{
+	struct gctx *c = v;
+	struct drm_gem_object *gobj;
+	int vram;
+
+	if (handle != 0) {
+		if ((gobj = drm_gem_object_lookup(c->file, handle)) == NULL)
+			return -ENOENT;
+		vram = gem_to_amdgpu_bo(gobj)->preferred_domains & AMDGPU_GEM_DOMAIN_VRAM;
+		drm_gem_object_put(gobj);
+		if (!vram)
+			return -EINVAL;	/* the display scans out VRAM only */
+	}
+	return kmsout_scanout(c->filp, handle, w, h, stride);
+}
+
+/*
+ * an object pinned where it is now and its address for the copy engine; in
+ * GTT through the GART
+ */
+static int
+pincopy(struct amdgpu_bo *bo, u64 *addr)
+{
+	int r;
+
+	r = amdgpu_bo_reserve(bo, false);
+	if (r)
+		return r;
+	r = amdgpu_bo_pin(bo, amdgpu_mem_type_to_domain(bo->tbo.resource->mem_type));
+	if (r == 0 && bo->tbo.resource->mem_type == TTM_PL_TT) {
+		r = amdgpu_ttm_alloc_gart(&bo->tbo);
+		if (r)
+			amdgpu_bo_unpin(bo);
+	}
+	if (r == 0)
+		*addr = amdgpu_bo_gpu_offset(bo);
+	amdgpu_bo_unreserve(bo);
+	return r;
+}
+
+static void
+unpincopy(struct amdgpu_bo *bo)
+{
+	if (amdgpu_bo_reserve(bo, true) == 0) {
+		amdgpu_bo_unpin(bo);
+		amdgpu_bo_unreserve(bo);
+	}
+}
+
+/* size bytes of src to dst by the GPU's copy engine (amdgpu's TTM buffer functions, SDMA), waited for */
+static int
+gpucopy(struct amdgpu_bo *src, struct amdgpu_bo *dst, u64 size)
+{
+	struct amdgpu_device *adev = amdgpu_ttm_adev(src->tbo.bdev);
+	struct dma_fence *fence = NULL;
+	u64 saddr, daddr;
+	int r;
+
+	if ((r = pincopy(src, &saddr)) != 0)
+		return r;
+	if ((r = pincopy(dst, &daddr)) != 0) {
+		unpincopy(src);
+		return r;
+	}
+	/* as amdgpu_benchmark: the default entity's lock around the copy */
+	mutex_lock(&adev->mman.default_entity.lock);
+	r = amdgpu_copy_buffer(adev, &adev->mman.default_entity, saddr, daddr, size,
+	    NULL, &fence, false, 0);
+	mutex_unlock(&adev->mman.default_entity.lock);
+	if (r == 0) {
+		dma_fence_wait(fence, false);
+		dma_fence_put(fence);
+	}
+	unpincopy(dst);
+	unpincopy(src);
+	return r;
+}
+
+/*
+ * ctl "overlay handle x y w h stride": the client's object (its window's
+ * picture, XRGB8888, stride bytes a row, the window at x y on the screen)
+ * on an overlay plane.  In VRAM (variant b) the plane shows it as it is;
+ * else (GTT, where wsys reads it: variant a) the GPU's copy engine copies
+ * it into an object of the display's in VRAM, which the plane then shows
+ * (kmsout.c).  Returns when the display shows it.  handle 0: off.
+ */
+int
+amdgpu_overlay(void *v, u32 handle, int x, int y, u32 w, u32 h, u32 stride)
+{
+	struct gctx *c = v;
+	struct drm_gem_object *sobj, *dobj;
+	struct file *kmsf;
+	u32 dh;
+	int r;
+
+	if (handle == 0) {
+		kmsout_overlay_off(c->filp);
+		return 0;
+	}
+	/* in VRAM already (variant b, the WSI's images for the plane): shown as it is */
+	if ((sobj = drm_gem_object_lookup(c->file, handle)) == NULL)
+		return -ENOENT;
+	r = gem_to_amdgpu_bo(sobj)->tbo.resource && gem_to_amdgpu_bo(sobj)->tbo.resource->mem_type == TTM_PL_VRAM &&
+	    (gem_to_amdgpu_bo(sobj)->preferred_domains & AMDGPU_GEM_DOMAIN_VRAM);
+	drm_gem_object_put(sobj);
+	if (r)
+		return kmsout_overlay_direct(c->filp, handle, w, h, stride, x, y);
+	r = kmsout_overlay_back(c->filp, w, h, stride, &kmsf, &dh);
+	if (r)
+		return r;
+	if ((sobj = drm_gem_object_lookup(c->file, handle)) == NULL)
+		return -ENOENT;
+	if ((dobj = drm_gem_object_lookup(kmsf->private_data, dh)) == NULL) {
+		drm_gem_object_put(sobj);
+		return -ENOENT;
+	}
+	if (sobj->size < (u64)stride * h || dobj->size < (u64)stride * h)
+		r = -EINVAL;
+	else
+		r = gpucopy(gem_to_amdgpu_bo(sobj), gem_to_amdgpu_bo(dobj), (u64)stride * h);
+	if (r == 0)
+		r = kmsout_overlay_show(c->filp, x, y);
+	drm_gem_object_put(dobj);
+	drm_gem_object_put(sobj);
+	return r;
+}
+
+/*
+ * ctl "readback handle": a copy of the object made now, by the copy
+ * engine, in a new object in GTT the processor maps (map); for objects it
+ * cannot see itself (NO_CPU_ACCESS: the WSI's images in VRAM for the
+ * overlay plane), so that wsys' screen has what the plane shows.  The new
+ * handle and its size; close lets go of it.
+ */
+int
+amdgpu_readback(void *v, u32 handle, u32 *nh, u64 *size)
+{
+	struct gctx *c = v;
+	struct drm_gem_object *sobj, *dobj;
+	struct amdgpu_device *adev;
+	int r;
+
+	if ((sobj = drm_gem_object_lookup(c->file, handle)) == NULL)
+		return -ENOENT;
+	adev = amdgpu_ttm_adev(gem_to_amdgpu_bo(sobj)->tbo.bdev);
+	*size = amdgpu_bo_size(gem_to_amdgpu_bo(sobj));
+	r = amdgpu_gem_object_create(adev, *size, PAGE_SIZE, AMDGPU_GEM_DOMAIN_GTT, 0,
+	    ttm_bo_type_device, NULL, &dobj, 0);
+	if (r) {
+		drm_gem_object_put(sobj);
+		return r;
+	}
+	r = gpucopy(gem_to_amdgpu_bo(sobj), gem_to_amdgpu_bo(dobj), *size);
+	if (r == 0)
+		r = drm_gem_handle_create(c->file, dobj, nh);
+	drm_gem_object_put(dobj);	/* the handle holds it */
+	drm_gem_object_put(sobj);
+	return r;
+}
+
+/* a free entry of the object table */
+static struct bo *
+newbo(struct gctx *c)
+{
+	struct bo *nb;
+	int i;
+
+	for (i = 0; i < c->nbo; i++)
+		if (!c->bo[i].used)
+			return &c->bo[i];
+	nb = krealloc_array(c->bo, c->nbo + 64, sizeof(*nb), GFP_KERNEL);
+	if (!nb)
+		return NULL;
+	memset(nb + c->nbo, 0, 64 * sizeof(*nb));
+	c->bo = nb;
+	c->nbo += 64;
+	return &c->bo[i];
+}
+
+/* one IB: ndw dwords at offset in object id, on ip (AMDGPU_HW_IP_*); fence k */
+int
+amdgpu_submit(void *v, int id, u32 offset, u32 ndw, int ip, u64 *k)
+{
+	struct gctx *c = v;
+	struct drm_amdgpu_cs_chunk_ib ib = { };
+	struct drm_amdgpu_cs_chunk_sem out = { };
+	struct drm_amdgpu_bo_list_in list = { };
+	struct drm_amdgpu_bo_list_entry *ent = NULL;
+	struct drm_amdgpu_cs_chunk chunk[3];
+	u64 chunkp[3];
+	union drm_amdgpu_cs cs = { };
+	struct dma_fence *f;
+	struct bo *b;
+	int i, n, r;
+
+	if (ip != AMDGPU_HW_IP_GFX && ip != AMDGPU_HW_IP_COMPUTE && ip != AMDGPU_HW_IP_DMA)
+		return -EINVAL;
+	mutex_lock(&c->lock);
+	b = findbo(c, id);
+	if (!b || !b->gpu) {
+		r = b ? -EINVAL : -ENOENT;
+		goto out;
+	}
+	if (ndw == 0 || offset & 3 || (u64)offset + (u64)ndw * 4 > b->size) {
+		r = -EINVAL;
+		goto out;
+	}
+	if (c->nfence >= Nfence && c->fence[(c->nfence + 1) % Nfence] &&
+	    !dma_fence_is_signaled(c->fence[(c->nfence + 1) % Nfence])) {
+		r = -EBUSY;	/* gpu(4): at most 64 outstanding */
+		goto out;
+	}
+	ib.va_start = b->gpu + offset;
+	ib.ib_bytes = ndw * 4;
+	ib.ip_type = ip;
+	out.handle = c->syncobj;
+	chunk[0].chunk_id = AMDGPU_CHUNK_ID_IB;
+	chunk[0].length_dw = sizeof(ib) / 4;
+	chunk[0].chunk_data = (u64)(uintptr_t)&ib;
+	chunk[1].chunk_id = AMDGPU_CHUNK_ID_SYNCOBJ_OUT;
+	chunk[1].length_dw = sizeof(out) / 4;
+	chunk[1].chunk_data = (u64)(uintptr_t)&out;
+	chunkp[0] = (u64)(uintptr_t)&chunk[0];
+	chunkp[1] = (u64)(uintptr_t)&chunk[1];
+	cs.in.ctx_id = c->ctxid;
+	cs.in.num_chunks = 2;
+	cs.in.chunks = (u64)(uintptr_t)chunkp;
+	/* the objects not always valid in the VM (VRAM ones), as Mesa lists them */
+	for (i = n = 0; i < c->nbo; i++)
+		if (c->bo[i].used && c->bo[i].vram && c->bo[i].gpu)
+			n++;
+	if (n) {
+		ent = kcalloc(n, sizeof(*ent), GFP_KERNEL);
+		if (!ent) {
+			r = -ENOMEM;
+			goto out;
+		}
+		for (i = n = 0; i < c->nbo; i++)
+			if (c->bo[i].used && c->bo[i].vram && c->bo[i].gpu)
+				ent[n++].bo_handle = c->bo[i].handle;
+		list.bo_number = n;
+		list.bo_info_size = sizeof(*ent);
+		list.bo_info_ptr = (u64)(uintptr_t)ent;
+		chunk[2].chunk_id = AMDGPU_CHUNK_ID_BO_HANDLES;
+		chunk[2].length_dw = sizeof(list) / 4;
+		chunk[2].chunk_data = (u64)(uintptr_t)&list;
+		chunkp[2] = (u64)(uintptr_t)&chunk[2];
+		cs.in.num_chunks = 3;
+	}
+	c->tsub[(c->nfence + 1) % Nfence] = ktime_get();
+	r = ioctl(c, DRM_IOCTL_AMDGPU_CS, &cs);
+	c->tcs[(c->nfence + 1) % Nfence] = ktime_get();
+	kfree(ent);
+	if (r)
+		goto out;
+	/* the syncobj holds the submission's fence now */
+	r = drm_syncobj_find_fence(c->file, c->syncobj, 0, 0, &f);
+	if (r)
+		goto out;
+	*k = ++c->nfence;
+	dma_fence_put(c->fence[*k % Nfence]);
+	c->fence[*k % Nfence] = f;
+out:
+	mutex_unlock(&c->lock);
+	return r;
+}
+
+static struct dma_fence *
+getfence(struct gctx *c, u64 k)
+{
+	struct dma_fence *f = NULL;
+
+	mutex_lock(&c->lock);
+	if (k >= 1 && k <= c->nfence && k + Nfence > c->nfence)
+		f = dma_fence_get(c->fence[k % Nfence]);
+	mutex_unlock(&c->lock);
+	return f;
+}
+
+/* fence k: 1 done, 0 not (query, or not in 5 seconds), <0 no such fence */
+int
+amdgpu_fence_wait(void *v, u64 k, int query)
+{
+	struct gctx *c = v;
+	struct dma_fence *f;
+	long t;
+	int done;
+
+	if (k == 0 || k > c->nfence)
+		return -ENOENT;
+	f = getfence(c, k);
+	if (!f)
+		return 1;	/* old: long done */
+	if (!query) {
+		t = dma_fence_wait_timeout(f, true, 5 * HZ);
+		if (t == 0) {
+			c->failed = true;	/* gpu(4): given up after 5 s */
+			pr_warn("amdgpu: ctx %d fence %llu: not done in 5 s\n", c->id, k);
+		}
+	}
+	done = dma_fence_is_signaled(f);
+	/*
+	 * an error: the job failed, or it was cancelled (a GPU reset: amdgpu
+	 * marks the guilty job -ETIME, drm_sched_start makes that -ECANCELED;
+	 * a cancelled job did not run)
+	 */
+	if (done && f->error < 0)
+		c->failed = true;
+	if (amdgpu_fencetrace && done && !query) {
+		ktime_t now = ktime_get(), t0 = c->tsub[k % Nfence];
+
+		pr_info("amdgpu: ctx %d fence %llu: cs %lld us, signalled +%lld us, woken +%lld us\n", c->id, k,
+		    ktime_us_delta(c->tcs[k % Nfence], t0),
+		    test_bit(DMA_FENCE_FLAG_TIMESTAMP_BIT, &f->flags) ? ktime_us_delta(f->timestamp, t0) : -1LL,
+		    ktime_us_delta(now, t0));
+	}
+	dma_fence_put(f);
+	return done;
+}
+
+/* fences done in order, those submitted, failed */
+void
+amdgpu_fence_count(void *v, u64 *done, u64 *n, int *failed)
+{
+	struct gctx *c = v;
+	u64 k;
+
+	mutex_lock(&c->lock);
+	for (k = c->nfence > Nfence ? c->nfence - Nfence : 0; k < c->nfence; k++)
+		if (c->fence[(k + 1) % Nfence] && !dma_fence_is_signaled(c->fence[(k + 1) % Nfence]))
+			break;
+	*done = k;
+	*n = c->nfence;
+	*failed = c->failed;
+	mutex_unlock(&c->lock);
+}
+
+/* the context's DRM file (req.c: its requests as text) */
+struct file *
+amdgpu_ctx_filp(void *v)
+{
+	return ((struct gctx *)v)->filp;
+}
+
+static void
+unmap(struct gctx *c, struct map *m)
+{
+	list_del(&m->node);
+	if (m->vram) {
+		if (amdgpu_fencetrace)
+			pr_info("amdgpu: pager %s: unmapped\n", m->seg);
+		mutex_lock(&pmaplock);
+		list_del(&m->pnode);
+		mutex_unlock(&pmaplock);
+		p9_segfree(m->seg, NULL);	/* its faults fail from now on */
+		drm_gem_object_put(&m->abo->tbo.base);
+		kfree(m);
+		return;
+	}
+	p9_segfree(m->seg, NULL);	/* revoked in every process (GTT's alias) */
+	unpin(m->abo);
+	kfree(m);
+}
+
+/* TTM moves objects (unmap_mapping_range): their pages are taken back */
+static void
+pagerunmap(unsigned long long start, unsigned long long len)
+{
+	struct map *m;
+
+	mutex_lock(&pmaplock);
+	list_for_each_entry(m, &pmaps, pnode)
+		if (m->mmoff < start + len && start < m->mmoff + m->mmlen) {
+			p9_segctl(m->seg, "unmap");
+			atomic64_inc(&npunmap);
+		}
+	mutex_unlock(&pmaplock);
+}
+
+/*
+ * the pages of the object in VRAM, from page 0 on, in lines of at most
+ * ~3K, formatted here (p9_segctl's format is Plan 9's: %s only)
+ */
+static int
+pagerpages(const char *seg, struct amdgpu_bo *abo, u64 size)
+{
+	struct amdgpu_res_cursor cur;
+	char *line;
+	u64 off;
+	unsigned long i;
+	int n, r;
+
+	line = kmalloc(4096, GFP_KERNEL);
+	if (!line)
+		return -ENOMEM;
+	r = 0;
+	i = 0;
+	n = scnprintf(line, 4096, "pages %lu", i);
+	for (amdgpu_res_first(abo->tbo.resource, 0, size, &cur); cur.remaining && r == 0; amdgpu_res_next(&cur, cur.size))
+		for (off = cur.start; off < cur.start + cur.size && r == 0; off += PAGE_SIZE) {
+			n += scnprintf(line + n, 4096 - n, " %#llx", off);
+			i++;
+			if (n > 3000) {
+				r = p9_segctl(seg, "%s", line);
+				n = scnprintf(line, 4096, "pages %lu", i);
+			}
+		}
+	if (r == 0 && strchr(line + 6, ' ') != NULL)
+		r = p9_segctl(seg, "%s", line);
+	if (amdgpu_fencetrace)
+		pr_info("amdgpu: pager %s: %lu pages written (%d)\n", seg, i, r);
+	kfree(line);
+	return r < 0 ? -EIO : 0;
+}
+
+/*
+ * the pages of the object in GTT (or system memory): memory's pages by
+ * physical address ("ram", mapped cached as the GTT path's alias), as
+ * Linux maps a GTT object's pages when the fault leaves it there
+ */
+static int
+pagerram(const char *seg, struct amdgpu_bo *abo, u64 size)
+{
+	struct ttm_operation_ctx ctx = { false, false };
+	struct ttm_tt *tt;
+	unsigned long i, n, first;
+	char *line;
+	int len, r;
+
+	tt = abo->tbo.ttm;
+	n = size >> PAGE_SHIFT;
+	if (!tt || tt->num_pages < n)
+		return -EIO;
+	if (!ttm_tt_is_populated(tt) && (r = ttm_tt_populate(abo->tbo.bdev, tt, &ctx)) != 0)
+		return r;
+	if (!tt->pages)
+		return -EIO;
+	line = kmalloc(4096, GFP_KERNEL);
+	if (!line)
+		return -ENOMEM;
+	r = 0;
+	first = 0;
+	len = scnprintf(line, 4096, "ram %lu", first);
+	for (i = 0; i < n && r == 0; i++) {
+		len += scnprintf(line + len, 4096 - len, " %#llx", (u64)page_to_phys(tt->pages[i]));
+		if (len > 3000) {
+			r = p9_segctl(seg, "%s", line);
+			first = i + 1;
+			len = scnprintf(line, 4096, "ram %lu", first);
+		}
+	}
+	if (r == 0 && first < n)
+		r = p9_segctl(seg, "%s", line);
+	kfree(line);
+	return r < 0 ? -EIO : 0;
+}
+
+/* a fault on seg's pager segment: the object made visible to the processor, its pages given */
+static void
+pagerfault(const char *seg)
+{
+	struct amdgpu_device *adev;
+	struct amdgpu_bo *abo;
+	struct map *m;
+	char name[32];
+	vm_fault_t vf;
+	u64 size;
+	long r;
+	int tries;
+
+	abo = NULL;
+	size = 0;
+	mutex_lock(&pmaplock);
+	list_for_each_entry(m, &pmaps, pnode)
+		if (strcmp(m->seg, seg) == 0) {
+			abo = m->abo;
+			size = m->mmlen;
+			drm_gem_object_get(&abo->tbo.base);
+			break;
+		}
+	mutex_unlock(&pmaplock);
+	if (amdgpu_fencetrace)
+		pr_info("amdgpu: pager %s: fault%s\n", seg, abo ? "" : ", no such map");
+	if (!abo)
+		return;		/* unmapped meanwhile: its segment is gone, the fault fails */
+	strscpy(name, seg, sizeof(name));
+	adev = amdgpu_ttm_adev(abo->tbo.bdev);
+	for (tries = 0; tries < 100; tries++) {
+		if (amdgpu_bo_reserve(abo, false) != 0)
+			break;
+		vf = amdgpu_bo_fault_reserve_notify(&abo->tbo);
+		if (vf == VM_FAULT_NOPAGE) {
+			/* busy (Linux: the fault again): a while, then again */
+			amdgpu_bo_unreserve(abo);
+			msleep(1);
+			continue;
+		}
+		if (vf == 0 && (abo->tbo.resource->mem_type == TTM_PL_TT || abo->tbo.resource->mem_type == TTM_PL_SYSTEM ||
+		    (abo->tbo.resource->mem_type == TTM_PL_VRAM && amdgpu_res_cpu_visible(adev, abo->tbo.resource)))) {
+			/* a move's copy first (Linux: ttm_bo_vm_fault_idle), then the processor */
+			r = dma_resv_wait_timeout(abo->tbo.base.resv, DMA_RESV_USAGE_KERNEL, false, MAX_SCHEDULE_TIMEOUT);
+			if (r >= 0)
+				r = abo->tbo.resource->mem_type == TTM_PL_VRAM ?
+				    pagerpages(name, abo, size) : pagerram(name, abo, size);
+			if (r < 0) {
+				/* visible, but its pages not handed in */
+				pr_warn("amdgpu: pager %s: the pages not given (%ld)\n", name, r);
+				amdgpu_bo_unreserve(abo);
+				break;
+			}
+			if (amdgpu_fencetrace)
+				pr_info("amdgpu: pager %s: %llu pages in %s at %#llx...\n", name, size >> PAGE_SHIFT,
+				    abo->tbo.resource->mem_type == TTM_PL_VRAM ? "VRAM" : "memory",
+				    (u64)abo->tbo.resource->start << PAGE_SHIFT);
+			atomic64_inc(&npfault);
+			amdgpu_bo_unreserve(abo);
+			drm_gem_object_put(&abo->tbo.base);
+			return;
+		}
+		pr_warn("amdgpu: pager %s: not visible to the processor (fault %#x, in %u)\n", name, vf,
+		    abo->tbo.resource ? abo->tbo.resource->mem_type : 99);
+		amdgpu_bo_unreserve(abo);
+		break;
+	}
+	p9_segctl(name, "nopage");
+	atomic64_inc(&npnopage);
+	drm_gem_object_put(&abo->tbo.base);
+}
+
+/* the pager proc: the queue's faults ("NAME PAGE" lines) */
+static int
+pagerproc(void *arg)
+{
+	char buf[2048], *p, *e, *sp;
+	int fd = (int)(long)arg;
+	long n;
+
+	while ((n = p9_pagerqread(fd, buf, sizeof(buf) - 1)) > 0) {
+		buf[n] = 0;
+		for (p = buf; (e = strchr(p, '\n')) != NULL; p = e + 1) {
+			*e = 0;
+			if ((sp = strchr(p, ' ')) != NULL) {
+				*sp = 0;
+				pagerfault(p);
+			}
+		}
+	}
+	pr_warn("amdgpu: pager queue %s ended\n", pagerq);
+	return 0;
+}
+
+/* the queue and its proc, at the first VRAM map */
+static int
+pagerinit(void)
+{
+	int fd, r;
+
+	r = 0;
+	mutex_lock(&pmaplock);
+	if (!pagerstarted) {
+		snprintf(pagerq, sizeof(pagerq), "amdgpu.%d.pager", p9_getpid());
+		if (p9_pagerq(pagerq) < 0 || (fd = p9_pagerqopen(pagerq)) < 0) {
+			pr_warn("amdgpu: pager queue %s: no\n", pagerq);
+			r = -EIO;
+		} else if (IS_ERR_OR_NULL(kthread_run(pagerproc, (void *)(long)fd, "amdgpu-pager"))) {
+			pr_warn("amdgpu: pager proc: no\n");
+			r = -EIO;
+		} else {
+			kpi_unmap_range = pagerunmap;
+			pagerstarted = 1;
+		}
+	}
+	mutex_unlock(&pmaplock);
+	return r;
+}
+
+/* the status: the processor's view of VRAM */
+int
+amdgpu_pagerstatus(char *p, int n)
+{
+	struct map *m;
+	int nmap;
+
+	nmap = 0;
+	mutex_lock(&pmaplock);
+	list_for_each_entry(m, &pmaps, pnode)
+		nmap++;
+	mutex_unlock(&pmaplock);
+	return scnprintf(p, n, "cpu view of vram: %d mapped, page by page; faults %lld, taken back %lld, refused %lld\n",
+	    nmap, (long long)atomic64_read(&npfault), (long long)atomic64_read(&npunmap), (long long)atomic64_read(&npnopage));
+}
+
+/*
+ * the processor's view of the client's object handle, a segment at va:
+ * GTT, an alias of its pages (pinned); VRAM, a pager segment of the aperture,
+ * page by page as Linux (pmaps above); revoked by unmap and when the
+ * context goes
+ */
+int
+amdgpu_map(void *v, u32 handle, char *seg, int nseg, u64 *va, u64 *size)
+{
+	struct gctx *c = v;
+	struct drm_gem_object *gobj;
+	struct amdgpu_device *adev;
+	struct amdgpu_res_cursor cur;
+	struct ttm_tt *tt;
+	struct map *m;
+	u32 domain;
+	u64 next;
+	int r;
+
+	mutex_lock(&c->lock);
+	list_for_each_entry(m, &c->maps, node)
+		if (m->handle == handle) {
+			r = -EBUSY;	/* mapped already */
+			goto out;
+		}
+	gobj = drm_gem_object_lookup(c->file, handle);
+	if (!gobj) {
+		r = -ENOENT;
+		goto out;
+	}
+	m = kzalloc(sizeof(*m), GFP_KERNEL);
+	if (!m) {
+		drm_gem_object_put(gobj);
+		r = -ENOMEM;
+		goto out;
+	}
+	m->handle = handle;
+	m->abo = gem_to_amdgpu_bo(gobj);
+	/* as Linux's amdgpu_gem_object_mmap: no view of an object without one (a display's image in VRAM) */
+	if (amdgpu_ttm_tt_get_usermm(m->abo->tbo.ttm) || (m->abo->flags & AMDGPU_GEM_CREATE_NO_CPU_ACCESS)) {
+		drm_gem_object_put(gobj);
+		kfree(m);
+		r = -EPERM;
+		goto out;
+	}
+	adev = amdgpu_ttm_adev(m->abo->tbo.bdev);
+	domain = m->abo->preferred_domains & AMDGPU_GEM_DOMAIN_VRAM ? AMDGPU_GEM_DOMAIN_VRAM : AMDGPU_GEM_DOMAIN_GTT;
+	m->vram = domain == AMDGPU_GEM_DOMAIN_VRAM;
+	*size = amdgpu_bo_size(m->abo);
+	if (m->vram) {
+		char bar[32];
+
+		/* page by page, not pinned (above): the mmap offset TTM's unmaps name it by */
+		if ((r = pagerinit()) != 0 || (r = drm_gem_create_mmap_offset(gobj)) != 0) {
+			drm_gem_object_put(gobj);
+			kfree(m);
+			goto out;
+		}
+		if (p9_apseg(adev->gmc.aper_base, 1, bar, sizeof(bar)) < 0) {
+			pr_warn("amdgpu: map %u: no aperture segment\n", handle);
+			drm_gem_object_put(gobj);
+			kfree(m);
+			r = -ENOSPC;
+			goto out;
+		}
+		snprintf(m->seg, sizeof(m->seg), "amdgpu.%d.%d.m%u", p9_getpid(), c->id, handle);
+		*va = (unsigned long)p9_segpager(m->seg, bar, *size, pagerq);
+		if (!*va) {
+			drm_gem_object_put(gobj);
+			kfree(m);
+			r = -ENOMEM;
+			goto out;
+		}
+		m->mmoff = drm_vma_node_offset_addr(&gobj->vma_node);
+		m->mmlen = *size;
+		mutex_lock(&pmaplock);
+		list_add(&m->pnode, &pmaps);
+		mutex_unlock(&pmaplock);
+		if (amdgpu_fencetrace)
+			pr_info("amdgpu: pager %s: mapped, %llu bytes\n", m->seg, *size);
+		strscpy(seg, m->seg, nseg);
+		list_add(&m->node, &c->maps);
+		mutex_unlock(&c->lock);
+		return 0;
+	}
+	r = amdgpu_bo_reserve(m->abo, false);
+	if (r == 0) {
+		u32 was = m->abo->tbo.resource->mem_type;
+		u64 wasat = m->abo->tbo.resource->start;
+
+		r = amdgpu_bo_pin(m->abo, domain);
+		if (r == 0 && (m->abo->tbo.resource->mem_type != was || m->abo->tbo.resource->start != wasat))
+			pr_info("amdgpu: map %u: the pin moved it: type %u page %#llx -> type %u page %#llx\n",
+			    handle, was, wasat, m->abo->tbo.resource->mem_type, (u64)m->abo->tbo.resource->start);
+		amdgpu_bo_unreserve(m->abo);
+	}
+	if (r) {
+		drm_gem_object_put(gobj);
+		kfree(m);
+		goto out;
+	}
+	/*
+	 * pinning may have moved it (an sdma copy, not done yet): the processor
+	 * writes after the move, as amdgpu_bo_kmap waits for it; else the copy
+	 * lands later over what the client wrote (RADV's first command dwords
+	 * were the old contents of that VRAM)
+	 */
+	r = dma_resv_wait_timeout(m->abo->tbo.base.resv, DMA_RESV_USAGE_KERNEL, false, MAX_SCHEDULE_TIMEOUT);
+	if (r < 0)
+		goto unpin;
+	r = 0;
+	*va = 0;
+	tt = m->abo->tbo.ttm;
+	if (!tt || !tt->pages || tt->num_pages < (*size >> PAGE_SHIFT)) {
+		r = -EIO;
+		goto unpin;
+	}
+	snprintf(m->seg, sizeof(m->seg), "amdgpu.%d.%d.m%u", p9_getpid(), c->id, handle);
+	*va = (unsigned long)kpi_alias_pages(m->seg, tt->pages, *size >> PAGE_SHIFT, false);
+	if (!*va) {
+		r = -ENOMEM;
+		goto unpin;
+	}
+	strscpy(seg, m->seg, nseg);
+	list_add(&m->node, &c->maps);
+	mutex_unlock(&c->lock);
+	return 0;
+unpin:
+	unpin(m->abo);
+	kfree(m);
+out:
+	mutex_unlock(&c->lock);
+	return r;
+}
+
+int
+amdgpu_unmap(void *v, u32 handle)
+{
+	struct gctx *c = v;
+	struct map *m;
+	int r = -ENOENT;
+
+	mutex_lock(&c->lock);
+	list_for_each_entry(m, &c->maps, node)
+		if (m->handle == handle) {
+			unmap(c, m);
+			r = 0;
+			break;
+		}
+	mutex_unlock(&c->lock);
+	return r;
+}
+
+/*
+ * close (ctx ctl): the client lets go of an object by its handle, as
+ * GEM_CLOSE (an import's, say), its view unmapped first; not one of the
+ * context's own (bo), which free releases
+ */
+int
+amdgpu_gem_close(void *v, u32 handle)
+{
+	struct gctx *c = v;
+	struct drm_gem_close cl = { .handle = handle };
+	int i;
+
+	mutex_lock(&c->lock);
+	for (i = 0; i < c->nbo; i++)
+		if (c->bo[i].used && c->bo[i].handle == handle) {
+			mutex_unlock(&c->lock);
+			return -EBUSY;
+		}
+	mutex_unlock(&c->lock);
+	amdgpu_unmap(v, handle);	/* -ENOENT: not mapped */
+	return ioctl(c, DRM_IOCTL_GEM_CLOSE, &cl);
+}
+
+/*
+ * export and import (gpu(4)'s ctx ctl): an object or a syncobj between
+ * contexts, of any process, as a dma-buf or syncobj fd goes between
+ * processes on Linux.  Export makes the client's object a dma-buf
+ * (PRIME) or its syncobj a syncobj file and names it by a token, 128
+ * random bits; import makes it an object or syncobj of another context
+ * (PRIME again: amdgpu's own buffer is the same object; a syncobj file's
+ * syncobj is the same one).  The table holds a reference to the file
+ * while the exporting context lives; what was imported stays with the
+ * importer.  The descriptors on the way are the server's and closed at
+ * once.
+ */
+enum { Nexport = 512 };
+enum { Xdmabuf, Xsyncobj };
+static struct export {
+	struct file	*f;	/* nil: free */
+	int	kind;
+	struct gctx	*from;
+	char	token[33];
+} exports[Nexport];
+static DEFINE_MUTEX(exportlock);
+
+/* the file of the server's descriptor fd, named by a token (the same for the same file) */
+static int
+exportfile(struct gctx *c, int kind, int fd, char *token, int ntoken)
+{
+	struct file *f;
+	struct export *x, *slot;
+	int i;
+
+	f = fget(fd);	/* a reference of ours */
+	close_fd(fd);
+	if (f == NULL)
+		return -EBADF;
+	mutex_lock(&exportlock);
+	slot = NULL;
+	for (i = 0; i < Nexport; i++) {
+		x = &exports[i];
+		if (x->f == f && x->from == c) {	/* exported before: the same token */
+			fput(f);
+			strscpy(token, x->token, ntoken);
+			mutex_unlock(&exportlock);
+			return 0;
+		}
+		if (x->f == NULL && slot == NULL)
+			slot = x;
+	}
+	if (slot == NULL) {
+		mutex_unlock(&exportlock);
+		fput(f);
+		return -ENOSPC;
+	}
+	slot->f = f;
+	slot->kind = kind;
+	slot->from = c;
+	snprintf(slot->token, sizeof(slot->token), "%08x%08x%08x%08x",
+		 get_random_u32(), get_random_u32(), get_random_u32(), get_random_u32());
+	strscpy(token, slot->token, ntoken);
+	mutex_unlock(&exportlock);
+	return 0;
+}
+
+/* a new descriptor of the server's for the file token names, if it is of kind; its dma-buf's size */
+static int
+importfile(int kind, const char *token, u64 *size)
+{
+	struct export *x;
+	int fd, i;
+
+	mutex_lock(&exportlock);
+	for (i = 0; i < Nexport; i++) {
+		x = &exports[i];
+		if (x->f != NULL && x->kind == kind && strcmp(x->token, token) == 0)
+			break;
+	}
+	if (i == Nexport) {
+		mutex_unlock(&exportlock);
+		return -ENOENT;
+	}
+	fd = get_unused_fd_flags(O_CLOEXEC);
+	if (fd < 0) {
+		mutex_unlock(&exportlock);
+		return fd;
+	}
+	get_file(x->f);
+	fd_install(fd, x->f);	/* the descriptor has that reference */
+	if (size && kind == Xdmabuf)
+		*size = ((struct dma_buf *)x->f->private_data)->size;
+	mutex_unlock(&exportlock);
+	return fd;
+}
+
+int
+amdgpu_export(void *v, u32 handle, char *token, int ntoken)
+{
+	struct gctx *c = v;
+	struct drm_prime_handle p = { .handle = handle, .flags = DRM_CLOEXEC | DRM_RDWR };
+	int r;
+
+	r = ioctl(c, DRM_IOCTL_PRIME_HANDLE_TO_FD, &p);
+	if (r)
+		return r;
+	return exportfile(c, Xdmabuf, p.fd, token, ntoken);
+}
+
+int
+amdgpu_import(void *v, const char *token, u32 *handle, u64 *size)
+{
+	struct gctx *c = v;
+	struct drm_prime_handle p = { };
+	int r;
+
+	p.fd = importfile(Xdmabuf, token, size);
+	if (p.fd < 0)
+		return p.fd;
+	r = ioctl(c, DRM_IOCTL_PRIME_FD_TO_HANDLE, &p);
+	close_fd(p.fd);
+	if (r)
+		return r;
+	*handle = p.handle;
+	return 0;
+}
+
+int
+amdgpu_syncexport(void *v, u32 handle, char *token, int ntoken)
+{
+	struct gctx *c = v;
+	struct drm_syncobj_handle h = { .handle = handle, .flags = 0 };	/* the syncobj, not a sync file */
+	int r;
+
+	r = ioctl(c, DRM_IOCTL_SYNCOBJ_HANDLE_TO_FD, &h);
+	if (r)
+		return r;
+	return exportfile(c, Xsyncobj, h.fd, token, ntoken);
+}
+
+int
+amdgpu_syncimport(void *v, const char *token, u32 *handle)
+{
+	struct gctx *c = v;
+	struct drm_syncobj_handle h = { };
+	int r;
+
+	h.fd = importfile(Xsyncobj, token, NULL);
+	if (h.fd < 0)
+		return h.fd;
+	r = ioctl(c, DRM_IOCTL_SYNCOBJ_FD_TO_HANDLE, &h);
+	close_fd(h.fd);
+	if (r)
+		return r;
+	*handle = h.handle;
+	return 0;
+}
+
+/*
+ * sync files (gpu(4)'s ctx ctl syncfile, syncmerge, syncin, syncclose):
+ * a fence in a file, as SYNCOBJ_HANDLE_TO_FD's EXPORT_SYNC_FILE makes it
+ * on Linux, kept in the context and named by a number; libdrm9 makes a
+ * descriptor of the client's of it (RADV merges them, imports them into
+ * syncobjs: its submissions that only wait and signal).  Within a context;
+ * gone with it, or when the client says so.
+ */
+static int
+syncfileslot(struct gctx *c, struct file *f, int *id)
+{
+	int i;
+
+	mutex_lock(&c->lock);
+	for (i = 0; i < Nsyncfile; i++)
+		if (c->syncfile[i] == NULL) {
+			c->syncfile[i] = f;
+			mutex_unlock(&c->lock);
+			*id = i;
+			return 0;
+		}
+	mutex_unlock(&c->lock);
+	fput(f);
+	return -EMFILE;
+}
+
+static struct dma_fence *
+syncfilefence(struct gctx *c, int id)
+{
+	struct dma_fence *f = NULL;
+
+	mutex_lock(&c->lock);
+	if (id >= 0 && id < Nsyncfile && c->syncfile[id])
+		f = dma_fence_get(((struct sync_file *)c->syncfile[id]->private_data)->fence);
+	mutex_unlock(&c->lock);
+	return f;
+}
+
+/* the fence of syncobj handle (now) as a sync file */
+int
+amdgpu_syncfile(void *v, u32 handle, int *id)
+{
+	struct gctx *c = v;
+	struct drm_syncobj_handle h = {
+		.handle = handle,
+		.flags = DRM_SYNCOBJ_HANDLE_TO_FD_FLAGS_EXPORT_SYNC_FILE,
+	};
+	struct file *f;
+	int r;
+
+	r = ioctl(c, DRM_IOCTL_SYNCOBJ_HANDLE_TO_FD, &h);
+	if (r)
+		return r;
+	f = fget(h.fd);	/* a reference of ours */
+	close_fd(h.fd);
+	if (f == NULL)
+		return -EBADF;
+	return syncfileslot(c, f, id);
+}
+
+/* sync files a and b as one (SYNC_IOC_MERGE): signaled when both are */
+int
+amdgpu_syncmerge(void *v, int a, int b, int *id)
+{
+	struct gctx *c = v;
+	struct dma_fence *fa, *fb, *m;
+	struct sync_file *sf;
+
+	fa = syncfilefence(c, a);
+	fb = syncfilefence(c, b);
+	if (fa == NULL || fb == NULL) {
+		dma_fence_put(fa);
+		dma_fence_put(fb);
+		return -EBADF;
+	}
+	m = dma_fence_unwrap_merge(fa, fb);
+	dma_fence_put(fa);
+	dma_fence_put(fb);
+	if (m == NULL)
+		return -ENOMEM;
+	sf = sync_file_create(m);	/* its own reference */
+	dma_fence_put(m);
+	if (sf == NULL)
+		return -ENOMEM;
+	return syncfileslot(c, sf->file, id);
+}
+
+/* sync file id's fence into syncobj handle (FD_TO_HANDLE's IMPORT_SYNC_FILE) */
+int
+amdgpu_syncin(void *v, u32 handle, int id)
+{
+	struct gctx *c = v;
+	struct drm_syncobj_handle h = {
+		.handle = handle,
+		.flags = DRM_SYNCOBJ_FD_TO_HANDLE_FLAGS_IMPORT_SYNC_FILE,
+	};
+	struct file *f;
+	int r;
+
+	mutex_lock(&c->lock);
+	f = id >= 0 && id < Nsyncfile ? c->syncfile[id] : NULL;
+	if (f)
+		get_file(f);
+	mutex_unlock(&c->lock);
+	if (f == NULL)
+		return -EBADF;
+	h.fd = get_unused_fd_flags(O_CLOEXEC);
+	if (h.fd < 0) {
+		fput(f);
+		return h.fd;
+	}
+	fd_install(h.fd, f);	/* the descriptor has that reference */
+	r = ioctl(c, DRM_IOCTL_SYNCOBJ_FD_TO_HANDLE, &h);
+	close_fd(h.fd);
+	return r;
+}
+
+int
+amdgpu_syncclose(void *v, int id)
+{
+	struct gctx *c = v;
+	struct file *f;
+
+	mutex_lock(&c->lock);
+	f = id >= 0 && id < Nsyncfile ? c->syncfile[id] : NULL;
+	if (f)
+		c->syncfile[id] = NULL;
+	mutex_unlock(&c->lock);
+	if (f == NULL)
+		return -EBADF;
+	fput(f);
+	return 0;
+}
+
+static void
+unexport(struct gctx *c)
+{
+	int i;
+
+	mutex_lock(&exportlock);
+	for (i = 0; i < Nexport; i++)
+		if (exports[i].f != NULL && exports[i].from == c) {
+			fput(exports[i].f);
+			memset(&exports[i], 0, sizeof(exports[i]));
+		}
+	mutex_unlock(&exportlock);
+}

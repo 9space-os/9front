@@ -78,11 +78,53 @@ if(test -r /net/ipselftab){
 if(! test -e /net/dns)
 	ndb/dns -r
 
+# 9space: wlan(8): the strongest known wireless network in range
+# ($home/lib/wlan), in the background; wlan=off in plan9.ini leaves it
+if(! ~ $wlan off && test -r /usr/$user/lib/wlan)
+	@{rfork s; home=/usr/$user; wlan auto} </dev/null >/dev/null >[2=1] &
+
 if(! ~ $terminal *vx32*){
 	# start timesync if it isn't running and we weren't told not to
 	if(! ps|grep -s timesync)
 		if(! ~ $TIMESYNCARGS '')
 			aux/timesync $TIMESYNCARGS
+}
+
+# 9space: ACPI's events (#P/acpiev; *noacpiev= in plan9.ini leaves
+# them out): aux/acpi runs the firmware's event methods (lid, buttons,
+# keys: its acpievents), aux/acpikeys the brightness keys on the panels'
+# backlight.  Before screenrc: a GPU driver uses this interpreter.
+# aux/i2chid: the touchpads and keyboards on I²C the firmware names
+# (in the background: a device's reset takes up to 5s).
+if(test -e '#P/acpiev' && ! test -e /srv/acpi){
+	aux/acpi
+	aux/acpikeys &
+	aux/i2chid &
+}
+
+# 9space: batteryguard(8): halt the file servers and power off when the
+# battery is critical and no AC charges it (batterycrit= in plan9.ini:
+# the percentage, default 5; batteryguard=off leaves it out)
+if(test -r /dev/battery && ! ~ $batteryguard off)
+	batteryguard &
+
+# 9space: aux/pstate, the processors' clock (P-states, pstate(8)):
+# /dev/pstate; only with pstate= in plan9.ini: auto, high or low
+# (shelved for now: not started by default, the firmware's clock stays)
+if(test -e '#P/msr' && ~ $pstate auto high low && ! test -e /srv/pstate)
+	aux/pstate $pstate
+
+# 9space: aux/rtw89, the radio of a wlan(3) interface on a Realtek
+# RTL8852CE that plan9.ini hands to user level (*userpci=10ec/c852,
+# etherN=type=wlan; rtw89(8)); in the background: its firmware takes
+# seconds
+if(ls '#ω' >[2]/dev/null | grep -s wlan && grep -s '^id 10ec/c852' '#G'/*/ctl >[2]/dev/null){
+	# (appended to as a try: a file server's mode bits need not say it, ufs's;
+	# in a subshell: a redirection rc cannot open would end termrc)
+	rtwlog=/fd/2
+	if(@{echo -n >>/sys/log/rtw89} >[2]/dev/null)
+		rtwlog=/sys/log/rtw89
+	aux/rtw89 >>[2]$rtwlog &
 }
 
 # setup mouse and graphics
@@ -96,4 +138,7 @@ if(~ $terminal *reform*){
 	reform/audio
 }
 
-dontkill '^(9660srv|cfs|cs|cwfs.*|disk|dns|dossrv|ether|factotum|gefs|hjfs|ipconfig|kb|kfs|mntgen|paqfs|reboot|usbd|venti|wpa)$'
+# 9space: noswap (-r: the last free pages too) only for what frees memory or
+# carries the way to the disk or the root; nokill for the rest (proc(3))
+dontkill -r '^(9660srv|cfs|cwfs.*|disk|dossrv|ether|gefs|hjfs|kfs|paqfs|usbd|venti)$'
+dontkill '^(acpi|acpikeys|cs|dns|factotum|i2chid|ipconfig|kb|mntgen|reboot|rtw89|wpa)$'

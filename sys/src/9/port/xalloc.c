@@ -39,10 +39,39 @@ struct Xalloc
 
 static Xalloc	xlists;
 
+/*
+ * 9space: user pages below 4 GB (plan9.ini *dma32=MB, default 64, 0
+ * none) when there is memory above: the kernel takes the lowest of
+ * each bank, so it had all of them, and a device that addresses no
+ * more than 32 bits got no user memory (segment(3)'s dma32, the
+ * LinuxKPI's page pool for aux/rtw89).  The kernel takes as much from
+ * the banks above instead.  The pages of a bank (j..) to the user
+ * that end below 4 GB, at most half the bank's part below.
+ */
+static ulong
+dma32pages(void)
+{
+	Confmem *cm;
+	char *s;
+	int i, high;
+
+	high = 0;
+	for(i=0; i<nelem(conf.mem); i++){
+		cm = &conf.mem[i];
+		if(cm->npage != 0 && (uvlong)cm->base + (uvlong)cm->npage*BY2PG > 1ULL<<32)
+			high = 1;
+	}
+	if(!high)
+		return 0;
+	if((s = getconf("*dma32")) != nil)
+		return (strtoul(s, nil, 0)*MB)/BY2PG;
+	return 64*MB/BY2PG;
+}
+
 void
 xinit(void)
 {
-	ulong maxpages, kpages, n;
+	ulong maxpages, kpages, n, low, r, dma32;
 	Hole *h, *eh;
 	Confmem *cm;
 	int i;
@@ -54,12 +83,23 @@ xinit(void)
 	xlists.flist = xlists.hole;
 
 	kpages = conf.npage - conf.upages;
+	dma32 = dma32pages();
 
 	for(i=0; i<nelem(conf.mem); i++){
 		cm = &conf.mem[i];
 		n = cm->npage;
 		if(n > kpages)
 			n = kpages;
+		/* 9space: the bank's top below 4 GB to the user (dma32pages) */
+		if(dma32 > 0 && (uvlong)cm->base < 1ULL<<32){
+			low = cm->npage;
+			if((uvlong)cm->base + (uvlong)low*BY2PG > 1ULL<<32)
+				low = ((1ULL<<32) - cm->base)/BY2PG;
+			r = dma32 < low/2 ? dma32 : low/2;
+			if(n > low - r)
+				n = low - r;
+			dma32 -= r;
+		}
 		/* don't try to use non-KADDR-able memory for kernel */
 		maxpages = cankaddr(cm->base)/BY2PG;
 		if(n > maxpages)

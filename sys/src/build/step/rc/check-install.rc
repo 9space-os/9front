@@ -4,7 +4,7 @@
 # tree ($PLAN9/sys/src/build/check-install.$objtype: the CD's and update archives'
 # from sys/src/build/host/guest/stage-dist.sh, build-self.sh's in its copy)
 # where it was made on the build host (the mkfile parser is python's).
-#	check-install.rc [-r]
+#	check-install.rc [-r]	(-r is accepted and ignored: no stale check here)
 . $PLAN9/sys/src/build/step/rc/lib.rc
 list=$PLAN9/sys/src/build/check-install.$objtype
 test -r $list || die no $list
@@ -12,7 +12,14 @@ bad=0
 n=0
 for(p in `{cat $list}){
 	n=`{echo $n + 1 | hoc}
-	if(! test -e $PLAN9$p){
+	if(~ $p '?'*){
+		# a Rust crate's or APE's program: built where there is Rust
+		# (cargo.rc) or the native gcc (ape.rc); reported as norust either way
+		p=`{echo $p | sed 's/^.//'}
+		if(! test -e $PLAN9$p)
+			echo norust $p
+	}
+	if not if(! test -e $PLAN9$p){
 		echo missing tree $p
 		bad=1
 	}

@@ -65,6 +65,8 @@ OFILES=\
 	writecolmap.$O\
 	writeimage.$O\
 	writesubfont.$O\
+	wsysagain.$O\
+	wsysopen.$O\
 	warp.$O\
 	mkwarp.$O\
 

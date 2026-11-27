@@ -65,6 +65,7 @@ _sock_newrock(int fd)
 		_sock_rock = r;
 	}
 	unlock(&_sock_lock);
+	r->rest = 0;
 	memset(&r->raddr, 0, sizeof(r->raddr));
 	memset(&r->addr, 0, sizeof(r->addr));
 	r->reserved = 0;
@@ -115,8 +116,8 @@ _sock_data(int cfd, char *net, int domain, int stype, int protocol, Rock **rp)
 	return fd;
 }
 
-int
-socket(int domain, int stype, int protocol)
+static int
+socket1(int domain, int stype, int protocol)
 {
 	Rock *r;
 	int cfd, fd, n;
@@ -166,6 +167,53 @@ socket(int domain, int stype, int protocol)
 		errno = EPROTONOSUPPORT;
 		return -1;
 	}
+}
+
+/*
+ * 9front-ng: Linux's SOCK_CLOEXEC and SOCK_NONBLOCK in the type (libwayland's
+ * sockets); no wait is taken but not done (a pipe's read waits)
+ */
+int
+socket(int domain, int stype, int protocol)
+{
+	int fd;
+
+	fd = socket1(domain, stype & ~(SOCK_CLOEXEC|SOCK_NONBLOCK), protocol);
+	if(fd >= 0 && (stype & SOCK_CLOEXEC))
+		fcntl(fd, F_SETFD, FD_CLOEXEC);
+	return fd;
+}
+
+/* 9front-ng: what getsockopt asks of a socket (ap/gnu/posix.c): its domain and type; -1 if fd is none */
+int
+__apecompat_sockinfo(int fd, int *domain, int *stype)
+{
+	Rock *r;
+
+	if((r = _sock_findrock(fd, 0)) == 0)
+		return -1;
+	*domain = r->domain;
+	*stype = r->stype;
+	return 0;
+}
+
+/* 9front-ng: Linux's accept4: accept, the new descriptor with SOCK_CLOEXEC, SOCK_NONBLOCK */
+int
+accept4(int fd, void *a, int *alen, int flags)
+{
+	int nfd;
+
+	if((flags & ~(SOCK_CLOEXEC|SOCK_NONBLOCK)) != 0){
+		errno = EINVAL;
+		return -1;
+	}
+	if((nfd = accept(fd, a, alen)) < 0)
+		return -1;
+	if(flags & SOCK_CLOEXEC)
+		fcntl(nfd, F_SETFD, FD_CLOEXEC);
+	if(flags & SOCK_NONBLOCK)
+		fcntl(nfd, F_SETFL, fcntl(nfd, F_GETFL) | O_NONBLOCK);
+	return nfd;
 }
 
 int

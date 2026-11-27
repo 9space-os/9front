@@ -1,0 +1,32 @@
+#!/bin/rc
+# ape.sh on 9front: APE's parts built with the native gcc of toolchain/gcc
+# (/$cputype/gnu): the build tool -D on the libraries' compatibility manifests
+# (Mesa, libffi, libwayland, SDL3, GLFW, the vendored libraries, foot's), then
+# wlsys and foot into /$objtype/bin when they changed (not cxxwidgets, which
+# ape.sh builds too). Without that gcc it says so and builds nothing
+# (check-install.rc reports the programs missing then as norust).
+. $PLAN9/sys/src/build/step/rc/lib.rc
+# the build tool running this step (build.go: BUILDTOOL), else the installed one
+if(~ $#BUILDTOOL 0)
+	BUILDTOOL=/$cputype/bin/build
+if(! test -x $GNU/gcc){
+	echo ape.rc: no native gcc '('$GNU')': Mesa, libwayland, SDL3, GLFW, wlsys not built >[1=2]
+	exit ''
+}
+bind -b $GNU /bin
+for(d in sys/src/mesa sys/src/libffi sys/src/wayland sys/src/sdl3 sys/src/glfw sys/src/freetype sys/src/pixman sys/src/expat sys/src/xkbcommon sys/src/fontconfig sys/src/fcft sys/src/foot){
+	echo ape.rc: $d
+	CC=$GNU/gcc ARCH=$objtype $BUILDTOOL -D $PLAN9/$d/build.json >/tmp/ape.log >[2=1] || {
+		tail -20 /tmp/ape.log
+		die $d failed
+	}
+}
+w=$PLAN9/sys/src/cmd/wlsys
+gcc -std=gnu11 -O2 -Wall -o /tmp/wlsys $w/*.c -lwayland-server -lffi || die wlsys
+mkdir -p $PLAN9/$objtype/bin
+# foot from its library (apeprogs.py's LINKS)
+gcc -o /tmp/foot -Wl,-u,main -lfoot -lfcft -lfontconfig -lfreetype -lexpat -lpixman-1 -lxkbcommon -lwayland-cursor -lwayland-client -lffi -lm || die foot
+for(p in wlsys foot)
+	if(! cmp -s /tmp/$p $PLAN9/$objtype/bin/$p)
+		cp /tmp/$p $PLAN9/$objtype/bin/$p.new && mv $PLAN9/$objtype/bin/$p.new $PLAN9/$objtype/bin/$p || die install $p
+exit ''

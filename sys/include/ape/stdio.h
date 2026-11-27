@@ -82,7 +82,7 @@ typedef long long fpos_t;
 #define	_IONBF	3			/* unbuffered */
 #define	BUFSIZ	4096			/* size of setbuf buffer */
 #define	EOF	(-1)			/* returned on end of file */
-#define	FOPEN_MAX	90		/* max files open */
+#define	FOPEN_MAX	90		/* streams there always are (_IO_stream); 9front-ng: more come from the heap */
 #define	FILENAME_MAX	BUFSIZ		/* silly filename length */
 #define	L_tmpnam	20		/* sizeof "/tmp/abcdefghij9999 */
 #define	L_cuserid	32		/* maximum size user name */
@@ -127,16 +127,29 @@ extern char *fgets(char *, int, FILE *);
 extern int fputc(int, FILE *);
 extern int fputs(const char *, FILE *);
 extern int getc(FILE *);
-#define	getc(f)	((f)->rp>=(f)->wp?_IO_getc(f):*(f)->rp++&_IO_CHMASK)
 extern int _IO_getc(FILE *f);
 extern int getchar(void);
-#define	getchar()	getc(stdin)
 extern char *gets(char *);
 extern int putc(int, FILE *);
-#define	putc(c, f) ((f)->wp>=(f)->rp?_IO_putc(c, f):(int)(*(unsigned char*)(f)->wp++=(c)&_IO_CHMASK))
 extern int _IO_putc(int, FILE *);
 extern int putchar(int);
+/*
+ * 9space: the macros reach into the FILE only while one thread runs;
+ * then the functions, which lock it (as OpenBSD's stdio.h).  The
+ * _unlocked ones (POSIX) never lock: the caller holds flockfile.
+ */
+extern int __isthreaded;
+#define	getc_unlocked(f)	((f)->rp>=(f)->wp?_IO_getc(f):*(f)->rp++&_IO_CHMASK)
+#define	putc_unlocked(c, f)	((f)->wp>=(f)->rp?_IO_putc(c, f):(int)(*(unsigned char*)(f)->wp++=(c)&_IO_CHMASK))
+#define	getchar_unlocked()	getc_unlocked(stdin)
+#define	putchar_unlocked(c)	putc_unlocked(c, stdout)
+#define	getc(f)	(__isthreaded?(getc)(f):getc_unlocked(f))
+#define	putc(c, f)	(__isthreaded?(putc)(c, f):putc_unlocked(c, f))
+#define	getchar()	getc(stdin)
 #define	putchar(c)	putc(c, stdout)
+extern void flockfile(FILE *);
+extern int ftrylockfile(FILE *);
+extern void funlockfile(FILE *);
 extern int puts(const char *);
 extern int ungetc(int, FILE *);
 extern size_t fread(void *, size_t, size_t, FILE *);
@@ -157,6 +170,13 @@ extern FILE _IO_stream[FOPEN_MAX];
 #ifdef _POSIX_SOURCE
 extern int fileno(FILE *);
 extern FILE* fdopen(int, const char*);
+extern FILE *open_memstream(char **, size_t *);	/* 9front-ng: POSIX.1-2008 */
+#ifndef _SSIZE_T
+#define _SSIZE_T
+typedef long ssize_t;
+#endif
+extern ssize_t getdelim(char **, size_t *, int, FILE *);	/* 9front-ng: POSIX.1-2008 */
+extern ssize_t getline(char **, size_t *, FILE *);
 extern char *ctermid(char *);
 #endif
 

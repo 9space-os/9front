@@ -1,0 +1,126 @@
+.TH WLAN 8
+.SH NAME
+wlan \- wireless networks: the ones in range, joining one, the ones to know
+.SH SYNOPSIS
+.B wlan
+[
+.B -d
+.I dev
+]
+.br
+.B wlan
+[
+.B -d
+.I dev
+]
+.B join
+[
+.B -s
+]
+.I essid
+.br
+.B wlan
+[
+.B -d
+.I dev
+]
+.B auto
+.br
+.B wlan forget
+.I essid
+.br
+.B wlan
+[
+.B -d
+.I dev
+]
+.B off
+.SH DESCRIPTION
+.I Wlan
+works on the first wireless interface (one whose
+.B ifstats
+has an
+.B essid
+line; the interfaces the boot did not bind are bound into
+.B /net
+first), or on
+.IR dev ,
+e.g.
+.BR /net/ether1 .
+.PP
+Without a command it lists the networks the interface has heard, the
+strongest first: a
+.B *
+for the one it is associated with, the best signal in dBm and its
+channel, how many access points send it, whether it is
+.B wpa
+(the privacy bit) or
+.BR open ,
+and its name.
+.PP
+.B Join
+leaves the network it is in and joins
+.IR essid :
+an open one by the interface's
+.B essid
+message, a protected one by
+.IR wpa (8),
+its passphrase from the known networks or else asked for on
+.B /dev/cons
+(not echoed) and put into
+.IR factotum (4).
+Associated, the interface gets its address by DHCP
+.RI ( ipconfig (8);
+an address it had is removed first).
+With
+.B -s
+the network becomes a known one.
+.PP
+.B Auto
+joins the strongest network in range that is known, waiting up to
+.B $wlanwait
+seconds (default 30) for one to be heard: at boot the radio's scan has
+heard nothing yet.
+.I Termrc
+runs it at boot when there are known networks, unless
+.B wlan=off
+is in
+.IR plan9.ini (8).
+Within a network the interface roams between its access points by
+itself (see
+.IR ether (3)).
+.PP
+.B Forget
+drops a known network and its key in factotum;
+.B off
+leaves the network and removes the interface's addresses.
+.SH FILES
+.TF $home/lib/wlan
+.TP
+.B $home/lib/wlan
+the known networks, one per line:
+.I essid
+and passphrase separated by a tab (empty for an open one).
+Only its owner may read it, as it holds the passphrases in clear, like
+the configuration files of other systems' supplicants; they are not in
+.IR secstore (1).
+.PD
+.SH EXAMPLE
+.EX
+% wlan
+*  -53 dBm  ch  05  4 ap  wpa   galaxy
+   -60 dBm  ch  01  1 ap  open  Cafe Free WiFi
+% wlan join -s 'Cafe Free WiFi'
+.EE
+.SH SOURCE
+.B /rc/bin/wlan
+.SH SEE ALSO
+.IR wpa (8),
+.IR ipconfig (8),
+.IR factotum (4)
+.SH BUGS
+It asks for the passphrase only on a console: a window system's menu
+does not offer it yet.
+WPA-PSK only (no 802.1X).
+.PP
+9space: not in 9front.

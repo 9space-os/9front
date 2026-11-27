@@ -28,11 +28,22 @@ manifests(){
 			cp "$TMPD/$(echo $f | tr / _)" "$f"	# leave the tree as it was
 		fi
 	done
-	# a generator that made a file not checked in
-	[ -z "$(git status --porcelain -- '*.json' | grep '^??')" ] || { git status --porcelain -- '*.json' | grep '^??'; bad=1; }
+	# a generator that made a file not checked in (.opencode/: other tooling)
+	[ -z "$(git status --porcelain -- '*.json' ':!.opencode' | grep '^??')" ] || { git status --porcelain -- '*.json' ':!.opencode' | grep '^??'; bad=1; }
 	return $bad
 }
 check "manifests match sys/src/build/gen/gen{libc,libs,cmds,build,kernel}.py (amd64, 386, arm64, riscv64)" manifests
+
+# 1b. the LinuxKPI's manifests are what sys/src/build/linux/genbuild.py writes
+#     (it reads Linux's GPL Makefiles from the Linux tree, LINUX of paths.env:
+#     without it the check fails and says so)
+check "manifests match sys/src/build/linux/genbuild.py" python3 sys/src/build/linux/genbuild.py -n
+
+# 1c. no GPL text of Linux in our LinuxKPI (kpi/, replace/): sys/src/build/linux/provenance.py
+#     against LINUX and LINUX_OLD of paths.env (linux-7.3.1, linux-6.6): without
+#     them the check fails and says what is missing
+check "LinuxKPI holds no GPL text of Linux (sys/src/build/linux/provenance.py --check)" \
+	python3 sys/src/build/linux/provenance.py --check
 
 # 2. no 32-bit ulong compared against the 64-bit ~0UL (sys/src/build/host/fix/fixulongmax.py)
 ulongmax(){
@@ -133,15 +144,25 @@ check "GAS ports: no 6a/8a assembly in them" gasonly
 rcsyntax(){
 	local p9p=$PLAN9PORT bad=0 f
 	[ -x "$p9p/bin/rc" ] || { echo "no $p9p/bin/rc"; return 1; }
-	for f in sys/src/build/step/rc/*.rc sys/src/build/host/guest/boot/*.rc sys/src/build/host/tests/hw/*.rc sys/src/build/host/tests/hw/cat/*.rc sys/src/build/host/tests/hw/termrc; do
+	for f in sys/src/build/step/rc/*.rc sys/src/build/host/guest/boot/*.rc sys/src/build/host/tests/hw/*.rc sys/src/build/host/tests/hw/cat/*.rc sys/src/build/host/tests/hw/termrc sys/src/build/host/tests/gpu/*.rc; do
 		{ echo 'fn __syntax {'; cat "$f"; echo; echo '}'; } |
 			PLAN9=$p9p "$p9p/bin/rc" 2>&1 | sed "s|/dev/stdin|$f|" | grep . && bad=1
 	done
 	return $bad
 }
-check "rc scripts (sys/src/build/step/rc, sys/src/build/host/guest/boot, sys/src/build/host/tests/hw) parse" rcsyntax
+check "rc scripts (sys/src/build/step/rc, sys/src/build/host/guest/boot, sys/src/build/host/tests/hw, sys/src/build/host/tests/gpu) parse" rcsyntax
 
-# 8. device registers: the kernels keep vmap's volatile wherever a
+# 8. the Rust crates 9front changed (sys/src/rust) are a generated mirror of
+#    toolchain/rust's (RUST_DIR in paths.env), whose patches are their
+#    master (sys/src/build/rust/crates.sh); without it there is nothing to compare with
+rustcrates(){
+	local r=$RUST_DIR
+	[ -d "$r/crates" ] || { echo "no $r/crates: not compared"; return 0; }
+	bash sys/src/build/rust/crates.sh -n
+}
+check "sys/src/rust is toolchain/rust's crates and p9win (RUST_DIR; sys/src/build/rust/crates.sh)" rustcrates
+
+# 9. device registers: the kernels keep vmap's volatile wherever a
 #    register's pointer goes (also through a cast, which the build's
 #    -Werror=discarded-qualifiers does not see), and gcc narrows no
 #    volatile load of a register (mmio32r where it would). Both compile

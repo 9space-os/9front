@@ -1,0 +1,34 @@
+From 08934f7832dc12fae0a9322f72ca5a97b2004518 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sun, 15 Nov 2026 08:59:13 +0100
+Subject: [PATCH 36/59] nusb/kb: a collection's usage
+
+repparse1 cleared the local items, then read the collection's usage
+from l[Nu], past the usages (l[Nl] is the first): every collection's
+usage was only its page.  hidparse's check for a touchscreen's finger
+(0x0D0022) not touching never matched.  The usage is taken before the
+locals are cleared now.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/cmd/nusb/kb/kb.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/sys/src/cmd/nusb/kb/kb.c b/sys/src/cmd/nusb/kb/kb.c
+index 9ebac63bd..8aa38654f 100644
+--- a/sys/src/cmd/nusb/kb/kb.c
++++ b/sys/src/cmd/nusb/kb/kb.c
+@@ -280,8 +280,9 @@ repparse1(uchar *d, uchar *e, int g[], int l[], int c,
+ 		case 0:	/* main item*/
+ 			switch(t){
+ 			case Collection:
++				/* its usage, before the locals are cleared */
++				i = l[UsgCnt] > 0 ? l[Nl] : g[UsagPg]<<16;
+ 				memset(l, 0, Nl*sizeof(l[0]));
+-				i = l[Nu] | g[UsagPg]<<16;
+ 				l[Usage] = i;
+ 				(*f)(t, v, g, l, c, a);
+ 
+-- 
+2.56.0
+

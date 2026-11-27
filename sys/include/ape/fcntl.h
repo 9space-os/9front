@@ -29,6 +29,15 @@
 #define	F_GETLK		5	/* Get file lock */
 #define	F_SETLK		6	/* Set file lock */
 #define	F_SETLKW	7	/* Set file lock and wait */
+#define	F_DUPFD_CLOEXEC	1030	/* 9front-ng: F_DUPFD, the new one closed on exec (POSIX.1-2008) */
+/* 9front-ng: a memfd's seals (Linux's; gnu/mman.c: kept within the process) */
+#define	F_ADD_SEALS	1033
+#define	F_GET_SEALS	1034
+#define	F_SEAL_SEAL	0x0001
+#define	F_SEAL_SHRINK	0x0002
+#define	F_SEAL_GROW	0x0004
+#define	F_SEAL_WRITE	0x0008
+#define	F_SEAL_FUTURE_WRITE	0x0010
 
 #define FD_CLOEXEC	1
 
@@ -58,10 +67,10 @@ extern int creat(const char *, mode_t);
 
 #if defined(__GNUC__) || defined(_APE_GNU)
 /* GCC port: POSIX.1-2008's openat with AT_FDCWD (ap/gnu/at.c), posix_fallocate
- * (ap/gnu/posix.c); APE's open knows no O_CLOEXEC */
+ * (ap/gnu/posix.c); O_CLOEXEC: open marks the descriptor FD_CLOEXEC (plan9/open.c) */
 #define AT_FDCWD	(-100)
 #ifndef O_CLOEXEC
-#define O_CLOEXEC	0
+#define O_CLOEXEC	0x8000
 #endif
 #ifdef __cplusplus
 extern "C" {

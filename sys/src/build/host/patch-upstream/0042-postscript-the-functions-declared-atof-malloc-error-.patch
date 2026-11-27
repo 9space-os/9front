@@ -1,0 +1,359 @@
+From 8f87f3d11b3ad97a2529d35f85853dd4444e7ae9 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Mon, 16 Nov 2026 19:01:03 +0100
+Subject: [PATCH 42/59] postscript: the functions declared (atof, malloc,
+ error's arguments were wrong on a 64-bit machine)
+
+The programs on APE (compiled -B) called the C library's and common's
+functions undeclared, as returning int: postreverse's atof gave the
+file's %%Version as garbage, download's malloc and realloc lost the high
+half of their pointers on amd64, and misc.c's error took its arguments as
+unsigned int while the callers passed strings for its %s (cut to 32 bits
+on amd64). common/ext.h now includes stdlib.h, string.h and unistd.h for
+the programs on APE and declares common's functions; error is variadic
+(vfprintf), lineno and position printed with %ld; each program declares
+its own functions before their use; tcpostio is compiled with
+_POSIX_SOURCE (it uses read, fork, select) and waits for its child's
+status in an int (an unsigned long got 4 of its 8 bytes on amd64);
+its getline is fdgetline (POSIX 2008 has a getline with other
+arguments).
+tr2post, a native program, is not changed (libc.h declares it all).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/cmd/postscript/common/ext.h           | 30 +++++++++++++++++++
+ sys/src/cmd/postscript/common/getopt.c        |  1 +
+ sys/src/cmd/postscript/common/misc.c          | 12 +++++---
+ sys/src/cmd/postscript/common/request.c       |  1 +
+ sys/src/cmd/postscript/common/tempnam.c       |  1 +
+ sys/src/cmd/postscript/download/download.c    | 12 ++++++++
+ sys/src/cmd/postscript/postgif/postgif.c      |  1 -
+ sys/src/cmd/postscript/postprint/postprint.c  | 18 +++++++++++
+ .../cmd/postscript/postreverse/postreverse.c  | 12 ++++++++
+ sys/src/cmd/postscript/posttek/posttek.c      | 27 +++++++++++++++++
+ sys/src/cmd/postscript/tcpostio/dial.c        |  2 ++
+ sys/src/cmd/postscript/tcpostio/mkfile        |  2 +-
+ sys/src/cmd/postscript/tcpostio/tcpostio.c    | 14 ++++++---
+ 13 files changed, 123 insertions(+), 10 deletions(-)
+
+diff --git a/sys/src/cmd/postscript/common/ext.h b/sys/src/cmd/postscript/common/ext.h
+index a811cca67..662b88a62 100644
+--- a/sys/src/cmd/postscript/common/ext.h
++++ b/sys/src/cmd/postscript/common/ext.h
+@@ -29,6 +29,36 @@ extern int	optind;
+ 
+ extern void	interrupt();
+ extern char	*tempnam(char*,char*);
++
++/*
++ * the C library's and common's functions, declared: undeclared they
++ * returned int, wrong where they do not (atof, malloc on a 64-bit
++ * machine, error's pointers).  For the programs on APE; tr2post, a
++ * native one, has libc.h's
++ */
++#ifdef _POSIX_SOURCE
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++int	cover(double, double);
++int	writebbox(FILE*, char*, int);
++int	resetbbox(int);
++int	scale(double, double);
++int	translate(double, double);
++int	rotate(double);
++int	concat(double*);
++int	out_list(char*);
++int	in_olist(int);
++int	setencoding(char*);
++int	cat(char*);
++int	str_convert(char**, int);
++int	error(int, char*, ...);
++int	saverequest(char*);
++int	writerequest(int, FILE*);
++int	dumprequest(char*, char*, FILE*);
++int	getopt(int, char**, char*);	/* common's (getopt.c) */
++#endif
+ /* 
+  * extern char	*malloc();
+  * extern char	*calloc();
+diff --git a/sys/src/cmd/postscript/common/getopt.c b/sys/src/cmd/postscript/common/getopt.c
+index 55b9c8cc3..7db348d0f 100644
+--- a/sys/src/cmd/postscript/common/getopt.c
++++ b/sys/src/cmd/postscript/common/getopt.c
+@@ -3,6 +3,7 @@
+ #include <libc.h>
+ #endif
+ #include	<stdio.h>
++#include	<string.h>
+ #define ERR(str, chr)       if(opterr){fprintf(stderr, "%s%s%c\n", argv[0], str, chr);}
+ int     opterr = 1;
+ int     optind = 1;
+diff --git a/sys/src/cmd/postscript/common/misc.c b/sys/src/cmd/postscript/common/misc.c
+index f7fc02bee..508ed02c0 100644
+--- a/sys/src/cmd/postscript/common/misc.c
++++ b/sys/src/cmd/postscript/common/misc.c
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <stdio.h>
++#include <stdarg.h>
+ #include <ctype.h>
+ #include <sys/types.h>
+ #include <fcntl.h>
+@@ -157,8 +158,9 @@ str_convert(char **str, int err)
+ 
+ /*****************************************************************************/
+ 
+-error(int kind, char *mesg, unsigned int a1, unsigned int a2, unsigned int a3)
++error(int kind, char *mesg, ...)
+ {
++    va_list	ap;
+ 
+ /*
+  *
+@@ -168,11 +170,13 @@ error(int kind, char *mesg, unsigned int a1, unsigned int a2, unsigned int a3)
+ 
+     if ( mesg != NULL && *mesg != '\0' ) {
+ 	fprintf(stderr, "%s: ", prog_name);
+-	fprintf(stderr, mesg, a1, a2, a3);
++	va_start(ap, mesg);
++	vfprintf(stderr, mesg, ap);
++	va_end(ap);
+ 	if ( lineno > 0 )
+-	    fprintf(stderr, " (line %d)", lineno);
++	    fprintf(stderr, " (line %ld)", lineno);
+ 	if ( position > 0 )
+-	    fprintf(stderr, " (near byte %d)", position);
++	    fprintf(stderr, " (near byte %ld)", position);
+ 	putc('\n', stderr);
+     }	/* End if */
+ 
+diff --git a/sys/src/cmd/postscript/common/request.c b/sys/src/cmd/postscript/common/request.c
+index a1bb37231..d63768a6b 100644
+--- a/sys/src/cmd/postscript/common/request.c
++++ b/sys/src/cmd/postscript/common/request.c
+@@ -13,6 +13,7 @@
+ #include <stdio.h>
+ 
+ #include "gen.h"			/* general purpose definitions */
++#include "ext.h"			/* common's functions, the C library's */
+ #include "request.h"			/* a few special definitions */
+ #include "path.h"			/* for the default request file */
+ 
+diff --git a/sys/src/cmd/postscript/common/tempnam.c b/sys/src/cmd/postscript/common/tempnam.c
+index 00d819cab..5da50be1d 100644
+--- a/sys/src/cmd/postscript/common/tempnam.c
++++ b/sys/src/cmd/postscript/common/tempnam.c
+@@ -1,6 +1,7 @@
+ #if defined(V9) || defined(BSD4_2) || defined(plan9)
+ #include <stdio.h>
+ #include <stdlib.h>
++#include <string.h>
+ #include <unistd.h>
+ #include <errno.h>
+ #include <sys/types.h>
+diff --git a/sys/src/cmd/postscript/download/download.c b/sys/src/cmd/postscript/download/download.c
+index 0b7b2d29e..4934314fc 100644
+--- a/sys/src/cmd/postscript/download/download.c
++++ b/sys/src/cmd/postscript/download/download.c
+@@ -65,6 +65,18 @@
+ #include "ext.h"			/* external variable declarations */
+ #include "download.h"			/* a few special definitions */
+ 
++/* its functions, declared before their use */
++int	arguments(void);
++int	copyfonts(char *list);
++int	copyinput(void);
++int	done(void);
++int	download(void);
++int	init_signals(void);
++int	lookup(char *font);
++int	options(void);
++int	readmap(void);
++int	readresident(void);
++
+ char	*temp_dir = TEMPDIR;		/* temp directory - for copying stdin */
+ char	*hostfontdir = HOSTDIR;		/* host resident directory */
+ char	*mapname = "map";		/* map table - usually in *hostfontdir */
+diff --git a/sys/src/cmd/postscript/postgif/postgif.c b/sys/src/cmd/postscript/postgif/postgif.c
+index 2a04620ae..9b8f5b10d 100644
+--- a/sys/src/cmd/postscript/postgif/postgif.c
++++ b/sys/src/cmd/postscript/postgif/postgif.c
+@@ -24,7 +24,6 @@ int	copies = 1;                     /* and this many copies of each sheet */
+ int     page = 0;                       /* last page we worked on */
+ int     printed = 0;                    /* and the number of pages printed */
+ 
+-extern char *malloc();
+ extern void free();
+ extern double atof(), pow();
+ 
+diff --git a/sys/src/cmd/postscript/postprint/postprint.c b/sys/src/cmd/postscript/postprint/postprint.c
+index 04af6244e..117c5c0db 100644
+--- a/sys/src/cmd/postscript/postprint/postprint.c
++++ b/sys/src/cmd/postscript/postprint/postprint.c
+@@ -93,6 +93,24 @@
+ #include "ext.h"			/* external variable declarations */
+ #include "postprint.h"			/* a few special definitions */
+ 
++/* its functions, declared before their use */
++int	account(void);
++int	arguments(void);
++int	done();
++int	endline(void);
++int	endstring(void);
++int	formfeed(void);
++int	header(void);
++int	init_signals(void);
++int	newline(void);
++int	options(void);
++int	oput(int ch);
++int	redirect(int pg);
++int	setup(void);
++int	spaces(int ch);
++int	startline(void);
++int	text();
++
+ char	*optnames = "a:c:ef:l:m:n:o:p:r:s:t:x:y:A:C:E:J:L:P:R:DI";
+ 
+ char	*prologue = POSTPRINT;		/* default PostScript prologue */
+diff --git a/sys/src/cmd/postscript/postreverse/postreverse.c b/sys/src/cmd/postscript/postreverse/postreverse.c
+index 2640a5d06..031e7692a 100644
+--- a/sys/src/cmd/postscript/postreverse/postreverse.c
++++ b/sys/src/cmd/postscript/postreverse/postreverse.c
+@@ -81,6 +81,18 @@
+ #include "ext.h"			/* external variable declarations */
+ #include "postreverse.h"		/* a few special definitions */
+ 
++/* its functions, declared before their use */
++int	arguments(void);
++int	copypage(long start, long stop);
++int	done(void);
++int	init_signals(void);
++int	moreprolog(char *str);
++int	options(void);
++int	readpages(void);
++int	reverse(void);
++int	trailer(void);
++int	writepages(void);
++
+ int	page = 1;			/* current page number */
+ int	forms = 1;			/* forms per page in the input file */
+ 
+diff --git a/sys/src/cmd/postscript/posttek/posttek.c b/sys/src/cmd/postscript/posttek/posttek.c
+index eb15d7e97..a7ea3ec2b 100644
+--- a/sys/src/cmd/postscript/posttek/posttek.c
++++ b/sys/src/cmd/postscript/posttek/posttek.c
+@@ -113,6 +113,33 @@
+ #include "ext.h"			/* external variable definitions */
+ #include "posttek.h"			/* control codes and other definitions */
+ 
++/* its functions, declared before their use */
++int	account(void);
++int	alpha(void);
++int	arguments(void);
++int	control(int c);
++int	done(void);
++int	draw(void);
++int	esc(void);
++int	formfeed(void);
++int	gin(void);
++int	graph(void);
++int	header(void);
++int	home(void);
++int	incremental(void);
++int	init_signals(void);
++int	move(int x, int y);
++int	nextchar(void);
++int	options(void);
++int	point(void);
++int	redirect(int pg);
++int	reset(void);
++int	setfont(int newfont);
++int	setmode(int mode);
++int	setup(void);
++int	statemachine(FILE *fp);
++int	text(void);
++
+ char	*optnames = "a:c:f:m:n:o:p:w:x:y:A:C:E:J:L:P:R:DI";
+ 
+ char	*prologue = POSTTEK;		/* default PostScript prologue */
+diff --git a/sys/src/cmd/postscript/tcpostio/dial.c b/sys/src/cmd/postscript/tcpostio/dial.c
+index da885d9b6..2789298cd 100644
+--- a/sys/src/cmd/postscript/tcpostio/dial.c
++++ b/sys/src/cmd/postscript/tcpostio/dial.c
+@@ -1,4 +1,6 @@
+ #include <stdio.h>
++#include <ctype.h>
++#include <unistd.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <sys/types.h>
+diff --git a/sys/src/cmd/postscript/tcpostio/mkfile b/sys/src/cmd/postscript/tcpostio/mkfile
+index 539f5907d..07e1ecdb4 100644
+--- a/sys/src/cmd/postscript/tcpostio/mkfile
++++ b/sys/src/cmd/postscript/tcpostio/mkfile
+@@ -10,7 +10,7 @@ BIN=$POSTBIN
+ 
+ </sys/src/cmd/mkone
+ CC=pcc
+-CFLAGS=-Bw -c -D_BSD_EXTENSION -D_NET_EXTENSION -Dplan9
++CFLAGS=-Bw -c -D_POSIX_SOURCE -D_BSD_EXTENSION -D_NET_EXTENSION -Dplan9
+ 
+ syms:V:
+ 	vc $CFLAGS -a tcpostio.c > syms
+diff --git a/sys/src/cmd/postscript/tcpostio/tcpostio.c b/sys/src/cmd/postscript/tcpostio/tcpostio.c
+index 4f0fdc007..d31b2ccda 100644
+--- a/sys/src/cmd/postscript/tcpostio/tcpostio.c
++++ b/sys/src/cmd/postscript/tcpostio/tcpostio.c
+@@ -12,6 +12,11 @@
+ #include <sys/time.h>
+ 
+ #include <sys/socket.h>
++#include <sys/select.h>
++#include <sys/wait.h>
++#include <ctype.h>
++#include <unistd.h>
++#include <fcntl.h>
+ 
+ extern	int dial_debug;
+ extern	int	dial(char*, char*, char*, int*);
+@@ -33,7 +38,7 @@ rdtmout(void) {
+ }
+ 
+ int
+-getline(int fd, char *buf, int len) {
++fdgetline(int fd, char *buf, int len) {
+ 	char *bp, c;
+ 	int i = 0, n;
+ 
+@@ -249,7 +254,7 @@ reselect:
+ 		if (n > 0 && FD_ISSET(printerfd, &readfds)) {
+ 			/* printer wants to be read */
+ 			if (debug&0x1) fprintf(stderr, "printer wants to be read\n");
+-			if ((c=getline(printerfd, buf, MESGSIZE)) < 0) {
++			if ((c=fdgetline(printerfd, buf, MESGSIZE)) < 0) {
+ 				fprintf(stderr, "read printer failed\n");
+ 				progstate = FATAL_ERROR;
+ 				continue;
+@@ -467,6 +472,7 @@ void main(int argc, char *argv[]) {
+ 	int pipefd[2];
+ 	char *dialstr;
+ 	unsigned long rprv, sprv;
++	int status;
+ 
+ 	dialstr = 0;
+ 
+@@ -528,7 +534,7 @@ void main(int argc, char *argv[]) {
+ 		close(pipefd[0]);
+ 		rprv = readprinter(printerfd, pipefd[1]);	/* parent - from printer */
+ 		if (debug) fprintf(stderr, "from remote - exiting\n");
+-		while(wait(&sprv) != cpid);
+-		exit(rprv|sprv);
++		while(wait(&status) != cpid);
++		exit(rprv|status);
+ 	}
+ }
+-- 
+2.56.0
+

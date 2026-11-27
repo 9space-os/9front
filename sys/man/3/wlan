@@ -1,0 +1,151 @@
+.TH WLAN 3
+.SH NAME
+wlan \- the radio of an 802.11 interface driven by a program
+.SH SYNOPSIS
+.nf
+.B bind -a #ω /dev
+.PP
+.BI /dev/wlan N /data
+.BI /dev/wlan N /ctl
+.fi
+.SH DESCRIPTION
+An ethernet interface of type
+.B wlan
+.RB ( ether\fIN\fP=type=wlan
+in
+.IR plan9.ini (8))
+is an 802.11 interface as
+.IR ether (3)'s
+WLAN drivers are: the kernel's 802.11 code scans, authenticates,
+associates and ciphers
+.RB ( essid ,
+.B bssid
+and keys by its
+.B clone
+file;
+.IR wpa (8)
+for WPA), but its radio is a program, a user-level driver of the
+hardware or a simulation.
+The program has the interface's directory
+.BI wlan N
+here, after its
+.IR ether (3)
+number
+.IR N .
+.PP
+Read, the data file gives a frame the interface sends, or a request
+to tune (no frame), each read one, after a header of 12 bytes:
+the channel (2 bytes, little endian), the rate (in 500 kb/s), flags
+(1: tune only, no frame), the association id (2 bytes) and the
+access point's address (6 bytes): the channel and the access point
+the radio is to be on.
+Written, it takes a frame received, after a header of 12 bytes: the
+channel (2 bytes), the signal strength (in dBm, signed), flags (1:
+the next 8 bytes are the frame's timestamp, little endian) and those
+8 bytes.
+The data file is open once, by the radio; frames sent while it is
+not are dropped.
+.PP
+The kernel's 802.11 code scans the 2.4 GHz channels 1 to 13 and the
+5 GHz channels 36 to 64, 100 to 144 and 149 to 165 (20 MHz), the
+common ones 1, 6 and 11 first and 36 to 48 and 149 to 165 between the
+2.4 GHz ones; a radio ignores what it cannot tune to.
+On the channels with radar detection (DFS, 52 to 144) it only listens
+for beacons, 200 ms, and sends nothing until it has heard the access
+point it wants; on the others it sends probe requests (when an
+.B essid
+is set) and waits 200 ms (2.4 GHz) or 100 ms (5 GHz).
+There is no regulatory domain: it scans every channel of the list.
+The rate in the header is 802.11b's or OFDM's (6 to 54 Mb/s; on 5 GHz
+only these): for management and group addressed frames the access
+point's lowest, for data the kernel's choice; while scanning 1 Mb/s
+on 2.4 GHz and 6 Mb/s on 5 GHz.
+The channel of a frame received is not used: an access point's is the
+one its beacons name (the DS parameter set, else on 5 GHz the HT
+operation element's primary channel), else the one the radio was tuned
+to.
+.PP
+Written,
+.B ctl
+takes
+.BI ea " addr"
+(12 hex digits): the station's address, set by the radio from its
+hardware before the interface is used, and
+.BI caps " hex"
+: the radio's capability elements (id, length, contents, one after
+another: HT capabilities, 45; VHT, 191; HE, 255 with 35), which the
+association request carries where the access point's beacon offers the
+same.
+.B "irq on
+(and
+.BR off )
+hands the frames received to wifi.c from a timer function, at interrupt
+level, as a real radio's driver does from its interrupt handler, instead
+of from the writing process: a test of what wifi.c does there
+.RI ( sys/src/build/host/tests/wlan ).
+With an access point that offers WMM the association request has WMM's
+information element and the station's data frames are QoS data (TID 0);
+the interface's
+.B ifstats
+says what the access point offers
+.RB ( offers: " wmm ht vht he" )
+and whether the data is QoS
+.RB ( qos: " wmm" ).
+The radio sets the access point's station up from the association
+response it passes on (its HT capabilities, its WMM parameters).
+.PP
+The receive header's signal (dBm; 0: the radio has none) chooses the
+node: where the radio gives it, wifi.c joins only after its scan went
+once over the channels since it heard the first node that matches, and
+then the strongest of those it heard in the last 5 s (a mesh's access
+point rather than a far repeater), as OpenBSD chooses: the strongest on
+5 GHz if its signal is at least \-70 dBm, even where one on 2.4 GHz is
+stronger, else the strongest on either band.
+The interface's
+.B ifstats
+says the joined node's signal
+.RB ( signal: )
+and each node's in its
+.B node:
+line, after the channel (dBm, 0: none); 9front's line has no such
+column.
+There is no roaming yet: associated, the radio hears only its channel.
+.PP
+The radio answers aggregates (A-MPDU) with block acks: wifi.c agrees to
+the access point's block ack agreements (buffer size at most 64, no
+A-MSDU in them), holds the frames of such a TID until they are in order
+(at most 100 ms for one missing), asks for one itself for TID 0, and
+takes A-MSDUs apart; the radio learns of the agreements from the ADDBA
+and DELBA frames passing through it.  Only QoS data with data, to this
+station, from the access point, acknowledged normally or by block ack
+and not fragmented is reordered (as OpenBSD's net80211); frames behind
+the window are dropped, and a frame more than a window past its end
+moves it only when eight such come one after the other (OpenBSD's
+ba_winmiss): a single wild sequence number no longer runs the window
+away (the ThinkBook's rtw89, 2026-11-19, whose WLAN then carried nothing).
+.B ifstats
+counts the frames held, the waits given up, those dropped behind the
+window and past it and the window's jumps, with its head
+.RB ( rxba: ),
+the TIDs we aggregate on
+.RB ( txba: )
+and CCMP's replays.
+Read, it gives the state, the capabilities and counts of frames.
+Only the host owner opens the files.
+.SH SOURCE
+.B /sys/src/9/port/etherwlan.c
+.br
+.B /sys/src/9/port/devwlan.c
+.SH SEE ALSO
+.IR ether (3),
+.IR wpa (8),
+.IR plan9.ini (8)
+.SH BUGS
+No 6 GHz channels: their numbers are those of the 2.4 GHz band; the
+header would need the band.
+HT at 20 or 40 MHz (where the access point's HT operation names a
+secondary channel), VHT at up to 80 MHz on 5 GHz (where its VHT
+operation says 80), no HE and no 160 MHz yet: the radio's firmware
+(rtw89) chooses the rates.
+.br
+Written for 9space.

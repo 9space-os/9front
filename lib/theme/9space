@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: MIT
+#
+# wsys' theme (wsys(4)), 9space's: acme's colours on rio's grey desktop.
+# Taken from 9front: acme's (/sys/src/cmd/acme/acme.c, iconinit: its tag's
+# DPalebluegreen mixed with white, DPalegreygreen, DPurpleblue; its text's
+# DPaleyellow mixed with white, DDarkyellow, DYellowgreen; but2col
+# #aa0000, but3col #006600; DMedblue; /sys/include/draw.h's values) and
+# rio's background #777777 (/sys/src/cmd/rio/data.c). Copyright © 2021
+# Plan 9 Foundation, Copyright © 20XX 9front authors; MIT, /lib/legal/mit.
+# The dark palette and the other colours are 9space's.
+# Text on acme's pale yellow with its darker yellow selection; controls,
+# menus and text boxes on acme's pale blue-green (its tag); the current
+# window's border in acme's purple-blue, the scroll bar its yellow-green;
+# danger and success acme's button 2 red and button 3 green. Light and
+# dark: "mode dark" (or "echo mode dark >/dev/theme") chooses the dark
+# palette, the dark.* lines (acme's hues, dimmed). Text has 12:1 or more
+# against its window, every colour of text 6.2:1 or more.
+back #777777
+border #8888cc
+borderinactive #c8c890
+window #ffffea
+text #000000
+select #eeee9e
+menuhigh #9eeeee
+scroll #99994c
+hold #000099
+holdinactive #8888cc
+accent #4d4d99
+surface #eaffff
+secondary #4d4d33
+separator #d8d8a8
+danger #aa0000
+success #006600
+warning #6b5e00
+dark.back #3b3b38
+dark.border #8888cc
+dark.borderinactive #4e4e3a
+dark.window #1e1e16
+dark.text #e8e8d4
+dark.select #55552a
+dark.menuhigh #2c4a4a
+dark.scroll #66663a
+dark.hold #9999ff
+dark.holdinactive #55557a
+dark.accent #a8a8ec
+dark.surface #1c2828
+dark.secondary #b4b49a
+dark.separator #3e3e2e
+dark.danger #ff7a6a
+dark.success #72c472
+dark.warning #d8c45a
+mode light
+title 1
+uifont /lib/font/ttf/Inter-Regular.ttf
+monofont /lib/font/ttf/Go-Mono.ttf

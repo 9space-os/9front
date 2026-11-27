@@ -4,6 +4,11 @@
 
 extern int *_errnoloc;
 #define errno (*_errnoloc)
+#ifdef _GNU_SOURCE
+/* 9front-ng: glibc's: argv[0] and its last element (plan9/callmain.c) */
+extern char *program_invocation_name;
+extern char *program_invocation_short_name;
+#endif
 
 #define EDOM	1000
 #define ERANGE	1001
@@ -107,6 +112,10 @@ extern int *_errnoloc;
 #endif
 #ifndef EOVERFLOW
 #define EOVERFLOW	1105
+#endif
+#ifndef ENODATA
+#define ENODATA		1106	/* 9front next generation: Mesa's RADV (amdgpu's lost contexts) */
+#define EPROTO		1107	/* 9front-ng: libwayland (a protocol error) */
 #endif
 #endif
 #endif

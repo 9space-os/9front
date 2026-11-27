@@ -1,0 +1,43 @@
+From 10df73ae880561187aa1a4747adde0ceb26cc874 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Mon, 16 Nov 2026 16:35:37 +0100
+Subject: [PATCH 40/59] sam: a file that does not exist yet is new, not an
+ error, when first read
+
+Under samterm a file is read when a command first needs it, and that
+command ran into "can't open" and was cancelled: a/text/ typed on a new
+file (sam newfile, the command window) appended nothing, and w wrote an
+empty file. The first read (edit's 'I') of a file that does not exist
+now warns (no such file) and leaves it new and empty; the command goes
+on. Another failure to open it (no permission) is still an error, so
+that w cannot write an empty buffer over it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/cmd/sam/sam.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/sys/src/cmd/sam/sam.c b/sys/src/cmd/sam/sam.c
+index 607a9131e..8f4ff6e2c 100644
+--- a/sys/src/cmd/sam/sam.c
++++ b/sys/src/cmd/sam/sam.c
+@@ -342,6 +342,16 @@ edit(File *f, int cmd)
+ 	if((io = open(genc, OREAD))<0) {
+ 		if (curfile && curfile->unread)
+ 			curfile->unread = FALSE;
++		/*
++		 * the first read of a file that does not exist yet: a new,
++		 * empty file.  Under samterm it comes within the command that
++		 * first needs the file, which an error would cancel (a/text/
++		 * on a new file was lost)
++		 */
++		if(cmd == 'I' && access(genc, AEXIST) < 0){
++			warn_s(Wfile, genc);
++			return;
++		}
+ 		error_r(Eopen, genc);
+ 	}
+ 	p = readio(f, &nulls, empty, TRUE);
+-- 
+2.56.0
+

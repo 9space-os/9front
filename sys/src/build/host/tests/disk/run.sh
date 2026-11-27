@@ -33,7 +33,7 @@ INSTALLED=$(echo $INSTALLED)
 boot(){
 	BOOTDISK=$IMG MEM=1024 "$ROOT/sys/src/build/host/guest/boot-cli.sh" \
 		'echo $bootargs' "ls -d /sys/src/9/$K /$objtype/bin/rc /usr/glenda/lib/profile" \
-		'sleep 10; ps | grep -c closeproc' 'ls /srv | grep -c hjfs' \
+		'ok=0; for(i in `{seq 30}) if(~ $ok 0){n=`{ps|grep -c closeproc}; if(test $n -le 4) ok=1; if not sleep 1}; echo closeprocs $n' 'ls /srv | grep -c hjfs' \
 		"echo lib \`{ls /$objtype/lib | wc -l} gcc \`{ls /$objtype/lib.gcc/libc.a}" \
 		"ls $INSTALLED | wc -l" "echo '3 4 add = quit' | gs -q -dNODISPLAY -" \
 		'git/init /tmp/gt && test -f /tmp/gt/.git/HEAD && echo git/init ok' \
@@ -56,8 +56,9 @@ check "booted from local!/dev/$SD/fs" test "$(out 'echo $bootargs')" = "local!/d
 check "system installed (sources, binaries, home)" bash -c "grep -A3 -F -e '% ls -d /sys/src' -e '# ls -d /sys/src' '$L' | grep -c '^/' | grep -qx 3"
 check "/$objtype/lib empty as in 9front, gcc archives in /$objtype/lib.gcc" \
 	test "$(out 'echo lib')" = "lib 1 gcc /$objtype/lib.gcc/libc.a"
-# closeprocs come and go while rio starts; count them once it is idle
-check "at most a few closeprocs" test "$(out 'sleep 10; ps | grep -c closeproc' | tr -d ' ')" -le 4
+# closeprocs come and go while rio starts: once it is idle at most a few
+# (waited for, 30 s at most)
+check "at most a few closeprocs" test "$(out 'ok=0; for(i in' | sed 's/^closeprocs //')" -le 4
 check "all of mk install: scripts, acme, gs, blabs ($(echo $INSTALLED | wc -w) samples)" \
 	test "$(out "ls $INSTALLED" | tr -d ' ')" = "$(echo $INSTALLED | wc -w)"
 check "gs runs (3 4 add = 7)" test "$(out "echo '3 4 add")" = 7

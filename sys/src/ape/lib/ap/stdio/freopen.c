@@ -12,23 +12,32 @@
  * w+ w+b wb+	open to read and write, truncating
  * a+ a+b ab+	open to read and write, positioned at eof, creating if non-existant.
  */
-FILE *freopen(const char *name, const char *mode, FILE *f){
-	int m;
-
+static FILE *freopen_l(const char *name, const char *mode, FILE *f){
 	if(f->state!=CLOSED){
 		fclose(f);
 /* premature; fall through and see what happens */
 /*		f->state=OPEN; */
 	}
+	return _IO_reopen(name, mode, f);
+}
 
+/*
+ * 9front-ng: freopen's opening, for fopen too: f is a closed stream or
+ * one _IO_newfile reserved (fclose would give it to another thread);
+ * when the open fails f is closed.
+ */
+FILE *_IO_reopen(const char *name, const char *mode, FILE *f){
+	int m;
+
+	f->fd=-1;
 	m = *mode++;
 	if(m == 0)
-		return NULL;
+		goto Fail;
 	if(*mode == 'b')
 		mode++;
 	switch(m){
 	default:
-		return NULL;
+		goto Fail;
 	case 'r':
 		f->fd=open(name, (*mode == '+'? O_RDWR: O_RDONLY));
 		break;
@@ -54,8 +63,13 @@ FILE *freopen(const char *name, const char *mode, FILE *f){
 		break;
 	}
 
-	if(f->fd==-1)
+	if(f->fd==-1){
+	Fail:
+		f->fd=-1;
+		f->flags=0;
+		f->state=CLOSED;
 		return NULL;
+	}
 	f->flags=(mode[0]=='a')? APPEND : 0;
 	f->state=OPEN;
 	f->buf=0;
@@ -63,4 +77,16 @@ FILE *freopen(const char *name, const char *mode, FILE *f){
 	f->wp=0;
 	f->lp=0;
 	return f;
+}
+
+/* 9space: under the stream's lock (iolib.h) */
+FILE *
+freopen(const char *name, const char *mode, FILE *f)
+{
+	FILE * r;
+
+	_IO_lock(f);
+	r = freopen_l(name, mode, f);
+	_IO_unlock(f);
+	return r;
 }

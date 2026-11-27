@@ -8,6 +8,7 @@ OFILES=\
 	_errno.$O\
 	_exit.$O\
 	_fdinfo.$O\
+	_gnuhooks.$O\
 	_getpw.$O\
 	_nap.$O\
 	9mallocz.$O\

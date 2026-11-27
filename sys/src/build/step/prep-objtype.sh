@@ -7,12 +7,17 @@
 # TOOLSET=clang, libclang_rt.builtins.a: toolchain/clang's compiler-rt for
 # $objtype, CLANG_DIR/out, the rest below is gcc's).
 #
-# 386: the runtime library of ../9front-gcc's i686-pc-plan9 (GCC_OUT, as
+# 386: the runtime library of toolchain/gcc's i686-pc-plan9 (GCC_DIR in
+# paths.env; GCC_OUT, default GCC_DIR/out/386, as
 # sys/src/build/host/guest/stage-dist.sh), built for the tree's -march=pentium. gcc
 # -m32's is the x86-64 Linux multilib's: SSE2 and cmov in its 64-bit
 # division and friends, which the 386 programs and the kernel link (a
 # Pentium has neither, the kernel does not save the SSE registers). Without
-# ../9front-gcc the host's stays, with a warning.
+# that libgcc.a the host's is used, with a warning, and libgcc.a.host beside
+# it, which sys/src/build/step/check-install.py reports at the end ("hostlib").
+#
+# arm64: the libgcc.a of ${TOOLPREFIX}gcc (default aarch64-linux-musl-);
+# amd64: the host gcc's.
 #
 # usage: objtype=386|amd64|arm64|riscv64 sys/src/build/step/prep-objtype.sh   (build.exe sets objtype)
 set -e
@@ -34,7 +39,7 @@ if [ "${TOOLSET:-gcc}" = clang ]; then
 	t=$($CC -dumpmachine)
 	case $t in
 	*-plan9) ;;
-	*)	echo "prep-objtype.sh: CC=$CC makes code for $t, not Plan 9: on Linux CC=<target>-clang (x86_64-unknown-plan9-clang, i686-..., aarch64-...; toolchain/clang's build/host/bin)" >&2; exit 1 ;;
+	*)	echo "prep-objtype.sh: CC=$CC makes code for $t, not Plan 9: on Linux CC=<target>-clang (x86_64-unknown-plan9-clang, i686-..., aarch64-..., riscv64-...; toolchain/clang's build/host/bin)" >&2; exit 1 ;;
 	esac
 	lib=$(ls "$CLANG_DIR"/out/$objtype/$objtype/clang/lib/clang/*/lib/plan9/libclang_rt.builtins-*.a 2>/dev/null | tail -1)
 	[ -n "$lib" ] || { echo "prep-objtype.sh: no compiler-rt for $objtype in $CLANG_DIR/out (toolchain/clang: objtype=$objtype ./build.sh runtimes)" >&2; exit 1; }
@@ -49,11 +54,16 @@ case $objtype in
 		echo "prep-objtype.sh: warning: no $GCC_OUT/386/gnu/lib/gcc/i686-pc-plan9/*/libgcc.a" \
 			"(GCC_DIR: toolchain/gcc, objtype=386 build.sh cross native); the host's $lib" \
 			"needs SSE2 and cmov (not a Pentium)" >&2
+		echo "$lib" >386/lib.gcc/libgcc.a.host
+	else
+		rm -f 386/lib.gcc/libgcc.a.host
 	fi
 	copy "$lib" 386/lib.gcc/libgcc.a
 	;;
 arm64)	copy "$(${TOOLPREFIX-aarch64-linux-musl-}gcc -print-libgcc-file-name)" arm64/lib.gcc/libgcc.a ;;
 riscv64)	copy "$(${TOOLPREFIX-riscv64-linux-gnu-}gcc -march=rv64gc -mabi=lp64d -print-libgcc-file-name)" riscv64/lib.gcc/libgcc.a ;;
+# the Linux drivers (sys/src/linux) need gcc's helpers (128-bit division)
+amd64)	copy "$(gcc -print-libgcc-file-name)" amd64/lib.gcc/libgcc.a ;;
 esac
 fi
 # POSIX's names of libraries whose functions are all in libap (gcc's APE,

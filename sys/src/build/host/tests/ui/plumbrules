@@ -1,0 +1,4 @@
+# sys/src/build/host/tests/ui: plumbtest and digits to the port testport (hold.rc)
+type is text
+data matches 'plumbtest[0-9]+'
+plumb to testport

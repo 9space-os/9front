@@ -1,0 +1,35 @@
+From 76dfadf59153126336df1a9682a4769369725c32 Mon Sep 17 00:00:00 2001
+From: port <port@localhost>
+Date: Thu, 19 Nov 2026 22:34:35 +0100
+Subject: [PATCH] egl/plan9: EGL_EXT_buffer_age and swap_buffers_with_damage,
+ as X11's kopper
+
+kopper counts the images' ages and takes the damage; without the
+extensions a program that redraws only what changed (WebRender) drew
+all of every frame.
+---
+ src/egl/drivers/dri2/platform_plan9.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/src/egl/drivers/dri2/platform_plan9.c b/src/egl/drivers/dri2/platform_plan9.c
+index efbfc9d..306cdeb 100644
+--- a/src/egl/drivers/dri2/platform_plan9.c
++++ b/src/egl/drivers/dri2/platform_plan9.c
+@@ -250,6 +250,14 @@ dri2_initialize_plan9(_EGLDisplay *disp)
+       return _eglError(EGL_NOT_INITIALIZED, "plan9: zink did not start");
+    }
+    dri2_setup_screen(disp);
++   /*
++    * kopper counts the images' ages and takes the damage
++    * (VK_KHR_incremental_present to the WSI), as on X11 (dri2_initialize_x11's
++    * kopper): without them a program that redraws only what changed (WebRender)
++    * draws all of every frame
++    */
++   disp->Extensions.EXT_buffer_age = EGL_TRUE;
++   disp->Extensions.EXT_swap_buffers_with_damage = EGL_TRUE;
+    plan9_add_configs(disp);
+    dri2_dpy->min_swap_interval = 0;
+    dri2_dpy->max_swap_interval = 1;
+-- 
+2.56.0
+

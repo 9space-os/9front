@@ -47,9 +47,9 @@ disk/format -b /n/src9/386/pbs -d -r 2 $d/9fat $fatfiles || fail format
 dossrv dosstick
 mount -c /srv/dosstick /n/9fat $d/9fat || fail mount 9fat
 mkdir -p /n/9fat/hwtest
-cp $hw/configs /n/9fat/hwtest/configs
-cp /env/plan9.ini /n/9fat/hwtest/plan9.base
-cp $hw/README.txt /n/9fat/hwtest/README.txt
+cp $hw/configs /n/9fat/hwtest/configs || fail configs
+cp /env/plan9.ini /n/9fat/hwtest/plan9.base || fail plan9.base
+cp $hw/README.txt /n/9fat/hwtest/README.txt || fail README
 unmount /n/9fat
 
 hjfs -f $d/fs -n $s -S -r || fail hjfs
@@ -66,18 +66,23 @@ hjfs -f $d/fs -n $s -S -r || fail hjfs
 	sleep 1
 } >> /srv/$s.cmd
 mount -N -c /srv/$s /n/newfs || fail mount newfs
-disk/mkfs -z 4096 -U -s /n/src9 -d /n/newfs <{cat $proto $bootproto $gccproto}
+# mkfs only warns about a file it cannot read, create or write (its status
+# says only skipped protos): here every warning is a failure
+disk/mkfs -z 4096 -U -s /n/src9 -d /n/newfs <{cat $proto $bootproto $gccproto} >[2]/tmp/mkfs.err
+st=$status
+cat /tmp/mkfs.err
+if(! ~ $st '' || grep -s '^mkfs: ' /tmp/mkfs.err) fail mkfs $st
 
 # the runner, its categories and the test programs
 cp $hw/hwtest.rc /n/newfs/rc/bin/hwtest || fail runner
 chmod 775 /n/newfs/rc/bin/hwtest
 mkdir -p /n/newfs/cfg/hwtest /n/newfs/sys/lib/hwtest /n/newfs/tests
-cp $hw/termrc /n/newfs/cfg/hwtest/termrc
+cp $hw/termrc /n/newfs/cfg/hwtest/termrc || fail termrc
 for(f in $hw/cat/*)
-	cp $f /n/newfs/sys/lib/hwtest/
+	cp $f /n/newfs/sys/lib/hwtest/ || fail $f
 chmod 775 /n/newfs/cfg/hwtest/termrc /n/newfs/sys/lib/hwtest/*.rc
 if(test -d $hw/tests)
-	dircp $hw/tests /n/newfs/tests
+	dircp $hw/tests /n/newfs/tests || fail tests
 echo sync >> /srv/$s.cmd
 echo halt >> /srv/$s.cmd
 while(test -e /srv/$s.cmd) sleep 1

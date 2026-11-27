@@ -34,7 +34,7 @@ PY
 DISKSUM=$(md5sum < "$DISK")
 QPID=
 stopvm(){ [ -n "$QPID" ] && kill "$QPID" 2>/dev/null; wait "$QPID" 2>/dev/null; QPID=; }
-trap 'stopvm; rm -rf "$TMPD"' EXIT
+atexit stopvm
 # boot the stick until the console shows $2 (at most $3 seconds), then power off
 bootuntil(){
 	: > "$1"

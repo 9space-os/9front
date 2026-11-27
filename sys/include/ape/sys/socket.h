@@ -41,6 +41,9 @@ typedef unsigned short sa_family_t;
 /*
  * Types
  */
+/* 9front-ng: or'd into socket's type (Linux): close on exec, no wait (taken, ignored) */
+#define	SOCK_CLOEXEC	02000000
+#define	SOCK_NONBLOCK	04000
 #define	SOCK_STREAM	1		/* stream socket */
 #define	SOCK_DGRAM	2		/* datagram socket */
 #define	SOCK_RAW	3		/* raw-protocol interface */
@@ -72,7 +75,15 @@ typedef unsigned short sa_family_t;
 #define SO_SNDTIMEO	0x1005		/* send timeout */
 #define SO_RCVTIMEO	0x1006		/* receive timeout */
 #define	SO_ERROR	0x1007		/* get error status and clear */
+#define	SO_PEERCRED	0x1011		/* 9front-ng: struct ucred of a PF_UNIX peer (pid 0: not known) */
+
+struct ucred {
+	int	pid;
+	int	uid;
+	int	gid;
+};
 #define	SO_TYPE		0x1008		/* get socket type */
+#define	SO_DOMAIN	0x1019		/* 9front-ng: get socket domain (FreeBSD's number) */
 
 /*
  * Structure used for manipulating linger option.
@@ -145,6 +156,8 @@ struct sockproto {
  */
 #define	PF_UNSPEC	AF_UNSPEC
 #define	PF_UNIX		AF_UNIX
+#define	AF_LOCAL	AF_UNIX		/* 9front-ng: POSIX's name for it */
+#define	PF_LOCAL	PF_UNIX
 #define	PF_INET		AF_INET
 #define	PF_IMPLINK	AF_IMPLINK
 #define	PF_PUP		AF_PUP
@@ -176,22 +189,53 @@ struct sockproto {
 /*
  * Message header for recvmsg and sendmsg calls.
  */
+#include <sys/uio.h>	/* 9front-ng: struct iovec, as POSIX has it here */
+
+/*
+ * 9front-ng: POSIX's form (it was 4.3BSD's msg_accrights, never
+ * implemented); descriptors pass as SCM_RIGHTS over PF_UNIX sockets
+ * (sendmsg.c: through /srv)
+ */
 struct msghdr {
-	char	*msg_name;		/* optional address */
-	int	msg_namelen;		/* size of address */
+	void	*msg_name;		/* optional address */
+	socklen_t	msg_namelen;	/* size of address */
 	struct	iovec *msg_iov;		/* scatter/gather array */
 	int	msg_iovlen;		/* # elements in msg_iov */
-	char	*msg_accrights;		/* access rights sent/received */
-	int	msg_accrightslen;
+	void	*msg_control;		/* ancillary data: cmsghdrs */
+	socklen_t	msg_controllen;
+	int	msg_flags;		/* recvmsg: MSG_TRUNC, MSG_CTRUNC */
 };
+
+struct cmsghdr {
+	socklen_t	cmsg_len;	/* with the header */
+	int	cmsg_level;		/* SOL_SOCKET */
+	int	cmsg_type;		/* SCM_RIGHTS */
+};
+
+#define	SCM_RIGHTS	1
+#define	_CMSG_ALIGN(n)	(((n) + sizeof(long) - 1) & ~(sizeof(long) - 1))
+#define	CMSG_DATA(c)	((unsigned char *)(c) + _CMSG_ALIGN(sizeof(struct cmsghdr)))
+#define	CMSG_SPACE(n)	(_CMSG_ALIGN(sizeof(struct cmsghdr)) + _CMSG_ALIGN(n))
+#define	CMSG_LEN(n)	(_CMSG_ALIGN(sizeof(struct cmsghdr)) + (n))
+#define	CMSG_FIRSTHDR(m)	((m)->msg_controllen >= (socklen_t)sizeof(struct cmsghdr) ? \
+	(struct cmsghdr *)(m)->msg_control : (struct cmsghdr *)0)
+#define	CMSG_NXTHDR(m, c)	((char *)(c) + _CMSG_ALIGN((c)->cmsg_len) + sizeof(struct cmsghdr) > \
+	(char *)(m)->msg_control + (m)->msg_controllen ? (struct cmsghdr *)0 : \
+	(struct cmsghdr *)((char *)(c) + _CMSG_ALIGN((c)->cmsg_len)))
 
 #define	MSG_OOB		0x1		/* process out-of-band data */
 #define	MSG_PEEK	0x2		/* peek at incoming message */
 #define	MSG_DONTROUTE	0x4		/* send without using routing tables */
+#define	MSG_CTRUNC	0x8		/* recvmsg: not all of the ancillary data fit */
+#define	MSG_TRUNC	0x20
+#define	MSG_DONTWAIT	0x40		/* recvmsg: EAGAIN when no message is there */
+#define	MSG_NOSIGNAL	0x4000		/* taken: no SIGPIPE from sendmsg */
+#define	MSG_CMSG_CLOEXEC	0x40000000	/* received descriptors close on exec */
 
 #define	MSG_MAXIOVLEN	16
 
 extern int accept(int, void *, int *);
+extern int accept4(int, void *, int *, int);	/* 9front-ng: Linux's, SOCK_CLOEXEC, SOCK_NONBLOCK */
 extern int bind(int, void *, int);
 extern int connect(int, void *, int);
 extern int getpeername(int, void *, int *);
@@ -201,10 +245,10 @@ extern int setsockopt(int, int, int, void *, int);
 extern int listen(int, int);
 extern int recv(int, void *, int, int);
 extern int recvfrom(int, void *, int, int, void *, int *);
-extern int recvmsg(int, struct msghdr *, int);
+extern long recvmsg(int, struct msghdr *, int);	/* 9front-ng: ssize_t, as POSIX */
 extern int send(int, void *, int, int);
 extern int sendto(int, void *, int, int, void *, int);
-extern int sendmsg(int, struct msghdr *, int);
+extern long sendmsg(int, const struct msghdr *, int);
 extern int shutdown(int, int);
 extern int socket(int, int, int);
 extern int socketpair(int, int, int, int *);

@@ -506,6 +506,7 @@ struct Ctlr {
 
 	QLock	alock;			/* attach */
 	void	*alloc;			/* receive/transmit descriptors */
+	int	suspended;		/* 9space: attached before power(0) */
 	int	rbsz;
 
 	Bpool	pool;
@@ -647,6 +648,7 @@ static char *statistics[Nstatistics] = {
 };
 
 static void i82563recover(Ctlr*);
+static void i82563stopprocs(Ctlr*);
 
 static char*
 cname(Ctlr *c)
@@ -2041,12 +2043,9 @@ i82563ctl(Ether *edev, void *buf, long n)
 }
 
 static void
-i82563recover(Ctlr *ctlr)
+i82563stopprocs(Ctlr *ctlr)
 {
-	Ether *edev;
 	Proc *p;
-
-	edev = ctlr->edev;
 
 	if((p = ctlr->wproc) != nil)
 		postnote(p, 1, "recover", 0);
@@ -2062,6 +2061,15 @@ i82563recover(Ctlr *ctlr)
 	|| ctlr->rproc != nil
 	|| ctlr->lproc != nil)
 		tsleep(&up->sleep, return0, 0, 10);
+}
+
+static void
+i82563recover(Ctlr *ctlr)
+{
+	Ether *edev;
+
+	edev = ctlr->edev;
+	i82563stopprocs(ctlr);
 
 	qlock(&ctlr->alock);
 	splhi();
@@ -2071,6 +2079,44 @@ i82563recover(Ctlr *ctlr)
 	qunlock(&ctlr->alock);
 
 	i82563attach(edev);
+}
+
+/*
+ * 9space: suspend and resume (pc64/acpisleep.c).  Off: as recover's
+ * first half, the procs stopped (the watchdog would recover a sleeping
+ * controller), the controller reset, the rings freed; on: reset again
+ * (S3 lost the registers) and attached anew, as recover's second half.
+ */
+static void
+i82563power(Ether *edev, int on)
+{
+	Ctlr *ctlr;
+
+	ctlr = edev->ctlr;
+	if(!on){
+		if(ctlr->alloc == nil){
+			i82563detach(ctlr);
+			return;
+		}
+		i82563stopprocs(ctlr);
+		qlock(&ctlr->alock);
+		splhi();
+		i82563reset(ctlr);
+		i82563dealloc(ctlr);
+		spllo();
+		ctlr->suspended = 1;
+		qunlock(&ctlr->alock);
+		return;
+	}
+	qlock(&ctlr->alock);
+	splhi();
+	i82563reset(ctlr);
+	spllo();
+	qunlock(&ctlr->alock);
+	if(ctlr->suspended){
+		ctlr->suspended = 0;
+		i82563attach(edev);
+	}
 }
 
 static int
@@ -2340,6 +2386,7 @@ pnp(Ether *edev, int type)
 	edev->Netif.arg = edev;
 	edev->Netif.promiscuous = i82563promiscuous;
 	edev->shutdown = i82563shutdown;
+	edev->power = i82563power;
 	edev->Netif.multicast = i82563multicast;
 
 	intrenable(edev->ISAConf.irq, i82563interrupt, edev, edev->tbdf, edev->Netif.name);

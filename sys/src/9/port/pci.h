@@ -165,6 +165,7 @@ struct Pcidev
 	ushort	did;			/* device ID */
 
 	ushort	pcr;
+	uchar	nobme;		/* 9space: bus mastering stays off until reboot (gpu(3) onexit) */
 
 	uchar	rid;
 	uchar	ccrp;

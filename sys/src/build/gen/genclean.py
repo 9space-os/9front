@@ -1,8 +1,8 @@
 """
 The files a manifest's Pre steps generate, for its Clean key (the build
 tool's -clean removes them, as the clean rules of 9front's mkfiles do:
-rm -f y.tab.? y.debug y.output ...). Used by genlibc.py, genlibs.py and
-gencmds.py.
+rm -f y.tab.? y.debug y.output ...). Used by genlibc.py, genlibs.py,
+gencmds.py and genbuild.py.
 
 clean(pre, d): globs relative to d (an absolute source directory) for
 the Pre commands pre. cp and mv targets are not listed: the build tool

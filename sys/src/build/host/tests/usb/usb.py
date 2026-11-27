@@ -2,7 +2,7 @@
 """
 A USB stick (QEMU usb-storage) on the USB host controllers the kernels
 have drivers for: xHCI, EHCI, UHCI, OHCI. Per controller the CD boots to
-rio once; checked through the serial rc: the controller is found, its
+the desktop once (sys/src/build/host/tests/vm.py); checked through the serial rc: the controller is found, its
 root hub is in #u, the stick is enumerated and nusb/disk serves it as
 /dev/sdU*, and its first sector reads back what the image holds.
 Regression for: the long fields of nusb/disk's CBW (amd64), xHCI

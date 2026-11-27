@@ -1,0 +1,105 @@
+[
+	{
+		"Name": "aux-rtw89-linux",
+		"Noinc": true,
+		"Cflags": [
+			"-D__linux__=1",
+			"-std=gnu11",
+			"-O2",
+			"-g",
+			"-fno-strict-aliasing",
+			"-fno-strict-overflow",
+			"-ftrivial-auto-var-init=zero",
+			"-fno-delete-null-pointer-checks",
+			"-fno-common",
+			"-fno-pie",
+			"-fno-stack-protector",
+			"-fno-omit-frame-pointer",
+			"-mcmodel=small",
+			"-fshort-wchar",
+			"-funsigned-char",
+			"-Wno-unused",
+			"-Wno-pointer-sign",
+			"-Wno-address-of-packed-member",
+			"-Wno-format-truncation",
+			"-nostdinc",
+			"-D__KERNEL__",
+			"-DKBUILD_MODNAME=\"rtw89\"",
+			"-include",
+			"../../../linux/kpi/include/linux/kconfig.h",
+			"-include",
+			"../../../linux/kpi/include/linux/compiler.h",
+			"-I../../../linux/replace/include",
+			"-I../../../linux/kpi/include",
+			"-I../../../linux/kpi/obsd/include",
+			"-I../../../linux/vendor/include",
+			"-I../../../linux/vendor/include/uapi",
+			"-I../../../linux/vendor",
+			"-DCONFIG_RTW89_DEBUG=1",
+			"-DCONFIG_RTW89_DEBUGMSG=1",
+			"-I../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89"
+		],
+		"Install": "/$ARCH/lib.gcc/",
+		"Library": "librtw89.a",
+		"SourceFiles": [
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/core.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/mac80211.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/mac.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/mac_be.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/phy.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/phy_be.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/fw.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/cam.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/efuse.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/efuse_be.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/regd.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/sar.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/coex.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/ps.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/chan.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/ser.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/acpi.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/util.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/wow.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/debug.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/pci.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/pci_be.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/rtw8852c.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/rtw8852c_table.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/rtw8852c_rfk.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/rtw8852c_rfk_table.c",
+			"../../../linux/freebsd/freebsd/sys/contrib/dev/rtw89/rtw8852ce.c",
+			"linux/rtw89.c"
+		]
+	},
+	{
+		"Name": "aux-rtw89",
+		"Include": [
+			"/$ARCH/cflags.json"
+		],
+		"Cflags": [
+			"-I",
+			"../../../linux/kpi/include"
+		],
+		"Install": "/$ARCH/bin/aux/",
+		"Oflags": [
+			"--entry=_main"
+		],
+		"Libs": [
+			"--start-group",
+			"/$ARCH/lib.gcc/librtw89.a",
+			"/$ARCH/lib.gcc/libkpi.a",
+			"/$ARCH/lib.gcc/libkpi9.a",
+			"/$ARCH/lib.gcc/lib9p.a",
+			"/$ARCH/lib.gcc/libthread.a",
+			"/$ARCH/lib.gcc/libauth.a",
+			"/$ARCH/lib.gcc/libc.a",
+			"/$ARCH/lib.gcc/$CCRT",
+			"--end-group"
+		],
+		"Program": "rtw89",
+		"SourceFiles": [
+			"main.c"
+		]
+	}
+]

@@ -1,0 +1,18 @@
+#!/bin/rc
+# run by wsys -x -i (sys/src/build/host/tests/wayland/run.sh, the guest with venus): wlsys with
+# wlvk, a Wayland client whose buffers are GPU buffers (zwp_linux_dmabuf_v1,
+# then Mesa's Wayland WSI); then Khronos' vkcube on Mesa's Wayland WSI
+# (--wsi wayland), 120 frames; wlgl: GLES on EGL's Wayland platform
+/tests/wlsys -d /tests/wlvk >/tmp/wlvk.log >[2=1]
+echo wlsys: exit $status >>/tmp/wlvk.log
+if(test -x /tests/vkcube){
+	/tests/wlsys -d /tests/vkcube --wsi wayland --c 120 >/tmp/vkcube.log >[2=1]
+	echo vkcube: exit $status >>/tmp/vkcube.log
+}
+if(test -x /tests/wlgl){
+	/tests/wlsys -d /tests/wlgl >/tmp/wlgl.log >[2=1]
+	echo wlsys: exit $status >>/tmp/wlgl.log
+}
+# weston's simple-egl (GLES on EGL's Wayland platform)
+if(test -x /tests/weston-simple-egl)
+	/tests/wlweston.rc weston-simple-egl simple-egl -c 000000

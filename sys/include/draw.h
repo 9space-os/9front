@@ -62,6 +62,7 @@ enum
 	Displaybufsize	= 8000,
 	ICOSSCALE	= 1024,
 	Borderwidth =	4,
+	DefaultDPI =	96,	/* scalesize(2): a window system's at scale 1 */
 };
 
 enum
@@ -211,6 +212,7 @@ struct Display
 	Subfont		*defaultsubfont;
 	Image		*windows;
 	Image		*screenimage;
+	int		dpi;	/* the window system's (its window's dpi file), else DefaultDPI */
 };
 
 struct Image
@@ -355,10 +357,42 @@ extern int	_freeimage1(Image*);
 extern int	geninitdraw(char*, void(*)(Display*, char*), char*, char*, char*, int);
 extern int	initdraw(void(*)(Display*, char*), char*, char*);
 extern int	newwindow(char*);
+extern int	wsyslost(void);	/* 9front-ng: the window's wsys gone */
+extern int	wsysagain(char*);	/* 9front-ng: the window again in the next wsys */
+/* 9space: more windows of the program under wsys(4) (wsysopen(2)) */
+typedef struct Wsyswin Wsyswin;
+struct Wsyswin
+{
+	int	ctl;		/* its clone file: closed, the window goes */
+	int	id;		/* its number in wsys */
+	char	dir[32];	/* its files: /mnt/drawwin.key, there in the next wsys too */
+	Image	*image;		/* its window, in display (wsysgetwindow) */
+	Screen	*screen;
+	/* libdraw's: to make it again in the next wsys */
+	Wsyswin	*parent;
+	Wsyswin	*next;
+	char	*msgs;
+	char	*label;
+	Rectangle	r;
+	int	key;
+	int	gone;
+	int	own;		/* parent -: a window of its own */
+	char	srv[64];	/* the wsys it is in */
+};
+extern Wsyswin*	wsysopen(Wsyswin*, char*);
+extern int	wsysgetwindow(Wsyswin*);
+extern int	wsysctl(Wsyswin*, char*);
+extern int	wsyswinlost(Wsyswin*);
+extern void	wsysseen(Wsyswin*);
+extern int	wsysparent(Wsyswin*, Wsyswin*, int);
+extern void	wsysclose(Wsyswin*);
+extern void	_wsysremake(void);
 extern Display*	initdisplay(char*, char*, void(*)(Display*, char*));
 extern int	loadimage(Image*, Rectangle, uchar*, int);
 extern int	cloadimage(Image*, Rectangle, uchar*, int);
+extern int	zloadimage(Image*, Rectangle, uchar*, int);	/* 9space */
 extern int	getwindow(Display*, int);
+extern int	scalesize(Display*, int);
 extern int	gengetwindow(Display*, char*, Image**, Screen**, int);
 extern Image*	readimage(Display*, int, int);
 extern Image*	creadimage(Display*, int, int);
@@ -550,6 +584,7 @@ extern	int	_cursorfd;
 #define	NCBLOCK	6000		/* size of compressed blocks */
 extern	void	_twiddlecompressed(uchar*, int);
 extern	int	_compblocksize(Rectangle, int);
+extern	int	_compresslines(uchar*, int, int, uchar*, int, int*);	/* 9space */
 
 extern	ulong	drawld2chan[];
 extern	void	drawsetdebug(int);

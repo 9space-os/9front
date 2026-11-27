@@ -18,6 +18,9 @@ OFILES=scat.$O\
 
 HFILES=sky.h
 CFLAGS=$CFLAGS -I/sys/src/cmd/map
+# 9space: map.h's library by name, not only by the headers' #pragma lib
+# (gcc and gccmk do not take it)
+LIB=/sys/src/cmd/map/libmap/libmap.a$O
 
 BIN=/$objtype/bin
 </sys/src/cmd/mkone

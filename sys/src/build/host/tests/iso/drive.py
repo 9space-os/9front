@@ -1,13 +1,26 @@
 #!/usr/bin/env python3
 # Boot the install/live CD in QEMU the way a user does and report whether
 # it came up: press Enter (the default) at each of 9front's boot prompts
-# -- bootargs, user, vgasize, monitor, mouseport -- until rio's grey
-# screen shows, then type into rio's window a command that writes a
-# marker and the boot device to the serial line ('#t/eia0'; the CD's
-# plan9.ini has no console=0, so the serial line is otherwise quiet).
+# -- bootargs, user, vgasize, monitor, mouseport -- until the desktop's
+# grey screen shows (rio's, or wsys'), then type into its window a command
+# that writes a marker, the boot devices and the desktop (desktop wsys|rio)
+# to the serial line ('#t/eia0'; the CD's plan9.ini has no console=0, so
+# the serial line is otherwise quiet).
 #
 # usage: drive.py iso cd|disk bios|uefi workdir
-#   exit 0 when the marker arrived; the serial log is workdir/serial.log
+#   exit 0 when the marker arrived; the serial log is workdir/serial.log,
+#   printed on stdout at the end
+#   env: QEMU_EXTRA  more QEMU options (e.g. "-vga none -device virtio-vga")
+#        KVM=0       emulate (default: KVM, /dev/kvm writable)
+#        OVMF_CODE, OVMF_VARS   the UEFI firmware (paths.env; sys/src/build/host/tests/iso/run.sh passes them)
+#        WAITMAX     seconds to wait for the desktop (default 240)
+#        DISK_INDEX  the IDE place of the image as a disk (default 0: sdC0)
+#        SHOW        files whose contents go to the serial line with the
+#                    marker (e.g. /dev/vgactl: whose screen it is)
+#        TYPE        more to type into the window once the marker came (a command
+#                    line; its output to '#t/eia0' lands in the serial log), then
+#        TYPEWAIT    seconds to wait (default 60) before a screendump,
+#                    workdir/typed.ppm (e.g. a program's window)
 import json, os, shutil, socket, subprocess, sys, time
 
 iso, media, fw, work = sys.argv[1:5]
@@ -22,22 +35,26 @@ for f in (sock, serial):
 q = ['qemu-system-x86_64', '-m', '1024', '-display', 'none', '-no-reboot',
 	'-cpu', 'qemu64,+rdrand', '-qmp', 'unix:%s,server,nowait' % sock,
 	'-serial', 'file:' + serial, '-netdev', 'user,id=n0', '-device', 'e1000,netdev=n0']
+q += os.environ.get('QEMU_EXTRA', '').split()
 if os.environ.get('KVM', '1') != '0':	# KVM always (KVM=0: emulation)
 	if not os.access('/dev/kvm', os.W_OK):
 		sys.exit('drive: /dev/kvm not writable (KVM=0 to emulate)')
 	q += ['-accel', 'kvm']
 if fw == 'uefi':
-	code = os.environ.get('OVMF_CODE', '/usr/share/edk2/x64/OVMF_CODE.4m.fd')
+	code = os.environ['OVMF_CODE']
 	vars = os.path.join(work, 'vars.fd')
-	shutil.copy(code.replace('CODE', 'VARS'), vars)
+	shutil.copy(os.environ['OVMF_VARS'], vars)
 	q += ['-drive', 'if=pflash,format=raw,readonly=on,file=' + code,
 		'-drive', 'if=pflash,format=raw,file=' + vars]
 if media == 'cd':
 	q += ['-drive', 'file=%s,format=raw,if=ide,index=2,media=cdrom,readonly=on' % iso]
-else:	# the hybrid image as a disk (USB stick); QEMU writes to it, so a copy
-	disk = os.path.join(work, 'disk.img')
-	shutil.copy(iso, disk)
-	q += ['-drive', 'file=%s,format=raw,if=ide,index=0' % disk]
+else:	# the hybrid image as a disk (USB stick); QEMU writes to it: into a qcow2 overlay,
+	# the image stays as it is (a copy of a CD past 2 GB per run filled the tmpfs of
+	# sys/src/build/host/tests/run.sh's work directory: the full profile's, disk with uefi after bios)
+	disk = os.path.join(work, 'disk.qcow2')
+	subprocess.run(['qemu-img', 'create', '-q', '-f', 'qcow2', '-F', 'raw',
+		'-b', os.path.abspath(iso), disk], check=True)
+	q += ['-drive', 'file=%s,format=qcow2,if=ide,index=%s' % (disk, os.environ.get('DISK_INDEX', '0'))]
 vm = subprocess.Popen(q, stdout=subprocess.DEVNULL, stderr=open(os.path.join(work, 'qemu.log'), 'w'))
 
 def qmp():
@@ -64,7 +81,10 @@ cmd({'execute': 'qmp_capabilities'})
 KEYS = {' ': 'spc', '-': 'minus', '/': 'slash', '.': 'dot', '\n': 'ret', "'": 'apostrophe',
 	';': 'semicolon', '=': 'equal', ',': 'comma', '#': ('shift', '3'), '>': ('shift', 'dot'),
 	'|': ('shift', 'backslash'), '*': ('shift', '8'), '{': ('shift', 'bracket_left'),
-	'}': ('shift', 'bracket_right'), '!': ('shift', '1'), '$': ('shift', '4')}
+	'}': ('shift', 'bracket_right'), '!': ('shift', '1'), '$': ('shift', '4'),
+	'(': ('shift', '9'), ')': ('shift', '0'), ':': ('shift', 'semicolon'),
+	'_': ('shift', 'minus'), '`': 'grave_accent', '&': ('shift', '7'), '?': ('shift', 'slash')}
+KEYS.update({c: ('shift', c.lower()) for c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'})
 def type_(text):
 	for ch in text:
 		k = KEYS.get(ch, ch)
@@ -113,12 +133,20 @@ while time.time() < end and vm.poll() is None and not inkernel():
 while time.time() < end and vm.poll() is None:
 	if rio_up():
 		time.sleep(3)	# riostart's windows
-		type_("{echo %s; ls -d /dev/sd*/data /dev/sd*/esp} >'#t/eia0'\n" % MARK)
+		show = os.environ.get('SHOW', '')
+		show = '; cat ' + show if show else ''
+		# and which window system runs: the desktop wsys or rio (sys/src/build/host/tests/iso/run.sh)
+		type_("{echo %s; ls -d /dev/sd*/data /dev/sd*/esp; if(ps | grep -s ' wsys$') echo desktop wsys; if not echo desktop rio%s} >'#t/eia0'\n" % (MARK, show))
 		for _ in range(20):
 			time.sleep(1)
 			if marked():
 				ok = True
 				break
+		if ok and os.environ.get('TYPE'):
+			type_(os.environ['TYPE'] + '\n')
+			time.sleep(float(os.environ.get('TYPEWAIT', '60')))
+			cmd({'execute': 'screendump', 'arguments': {'filename': os.path.join(work, 'typed.ppm')}})
+			time.sleep(0.5)
 		break
 	type_('\n')	# a boot prompt's default
 	time.sleep(4)

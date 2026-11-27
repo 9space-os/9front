@@ -51,9 +51,11 @@ u64int	getxcr0(void);
 u64int	getdr6(void);
 char*	getconf(char*);
 void	halt(void);
+void	mwaithint(volatile void*, ulong);	/* 9space: cstate.c */
 void	mwait(volatile void*);	/* GCC port: volatile, the word MONITOR watches (another processor writes it) */
 void	lapicipiirq(int, int);	/* pmc(3) */
 int	i8042auxcmd(int);
+int	i8042auxquery(uchar*, int, uchar*, int);
 void	i8042auxenable(void (*)(int, int));
 void	i8042reset(void);
 void	i8250console(void);
@@ -117,6 +119,9 @@ uintptr	paddr(void*);
 void	patwc(void*, int);
 int	pcibiosinit(int*, int*);
 void	pcicfginit(void);
+void	pciroutingrestore(void);
+void	pciroutingsave(void);
+void	pcimcfginit(uvlong, int, int);
 int	(*pcicfgrw8)(int, int, int, int);
 int	(*pcicfgrw16)(int, int, int, int);
 int	(*pcicfgrw32)(int, int, int, int);
@@ -172,6 +177,7 @@ volatile void*	vmap(uvlong, vlong); /* GCC port: volatile, device registers (gcc
 void*	vmapmem(uvlong, vlong);	/* GCC port: vmap for memory (tables, frame buffers): not volatile */
 void	vunmap(volatile void*, vlong);	/* GCC port: volatile, as vmap */
 void	wbinvd(void);
+void	cpuhalt(void);
 void	writeconf(void);
 int	wrmsr(int, vlong);
 int	xchgw(ushort*, int);

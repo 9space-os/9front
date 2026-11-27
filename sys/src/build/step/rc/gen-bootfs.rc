@@ -1,7 +1,7 @@
 #!/bin/rc
 # gen-bootfs.sh: the kernel's boot program and bootfs ($CONF.bootfs.paq),
 # as boot/bootmkfile makes them, from this tree's programs
-#	gen-bootfs.rc conf [kernel dir]
+#	gen-bootfs.rc [conf [kernel dir]]	(default pc64; amd64 and 386 only)
 . $PLAN9/sys/src/build/step/rc/lib.rc
 CONF=$1
 ~ $#CONF 0 && CONF=pc64

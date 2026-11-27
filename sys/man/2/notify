@@ -42,6 +42,10 @@ and the
 process is suspended in the
 .B Broken
 state for debugging.
+In 9space the other processes sharing its memory
+.RB ( RFMEM ,
+.IR fork (2))
+are then killed.
 .PP
 These default actions may be overridden.
 The

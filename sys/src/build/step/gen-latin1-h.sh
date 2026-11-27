@@ -4,7 +4,7 @@
 # /lib/keyboard. mklatin runs on the build host, so it is compiled with
 # plan9port's 9c/9l (not the Plan 9 target gcc toolchain).
 set -e
-ROOT=${PLAN9:-$(git rev-parse --show-toplevel)}
+ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 . "$ROOT/sys/src/build/lib/paths.sh"	# PLAN9PORT (the distribution's paths.env)
 P9P=$PLAN9PORT
 TMP=$(mktemp -d)

@@ -581,6 +581,24 @@ ethershutdown(void)
 }
 
 
+/*
+ * 9space: suspend and resume (acpisleep.c): each interface's driver
+ * gets power(0) before the machine sleeps and power(1) after it wakes,
+ * when the controller has lost its state.
+ */
+static void
+etherpower(int on)
+{
+	Ether *ether;
+	int i;
+
+	for(i = 0; i < MaxEther; i++){
+		ether = etherxx[i];
+		if(ether != nil && ether->power != nil)
+			(*ether->power)(ether, on);
+	}
+}
+
 #define POLY 0xedb88320
 
 /* really slow 32 bit crc for ethers */
@@ -620,6 +638,7 @@ Dev etherdevtab = {
 	etherbwrite,
 	devremove,
 	etherwstat,
+	etherpower,
 };
 
 enum { PktHdr = 42 };

@@ -1,0 +1,161 @@
+.TH BROWSER 1
+.SH NAME
+browser, servoshell, webfs-rs \- web browser
+.SH SYNOPSIS
+.B browser
+[
+.I url
+]
+.PP
+.B servoshell
+[
+.I url
+]
+.PP
+.B webfs-rs
+[
+.B -dD
+] [
+.B -A
+.I useragent
+] [
+.B -T
+.I timeout
+] [
+.B -m
+.I mtpt
+] [
+.B -s
+.I service
+]
+.SH DESCRIPTION
+.I Browser
+shows the web page
+.I url
+in the window it runs in, with
+.IR servoshell ,
+Servo's own browser (Servo for 9space: Servo with SpiderMonkey, drawing through
+Mesa's Zink on the window system's GPU,
+.IR wsys (4)).
+It runs in
+.IR wsys ;
+the address bar takes a new
+.I url
+(Ctrl-L).
+.PP
+Servo's requests go through
+.IR webfs-rs ,
+a version of
+.IR webfs (4)
+with extensions Servo needs: several messages a write of
+.BR ctl ,
+redirects and cookies left to Servo, and a client's
+.B head
+file, which marks it.
+.I Browser
+mounts one on
+.B /mnt/web
+in a private name space; the
+.I webfs
+on
+.B /mnt/web
+of the rest stays as it was.
+.PP
+.I Webfs-rs
+mounts itself on
+.I mtpt
+(default
+.BR /mnt/web )
+and, with
+.BR -s ,
+posts itself as
+.BI /srv/ service
+too;
+.B -s
+alone only posts it.
+.I Browser
+starts it so, in a name space of its own, mounts the post and removes it:
+.I webfs-rs
+ends with its last mount, when the browser ends, however it ends.
+Against a
+.I webfs
+without the extensions,
+.I servoshell
+refuses its requests, once, with an error.
+.PP
+It needs the network configured
+.RI ( ipconfig (8))
+and a resolver
+.RI ( ndb (8)'s
+.IR dns ),
+as the installed system does at boot; a live CD does not (run
+.B ip/ipconfig
+and
+.BR "ndb/dns -r" ).
+Without them every page fails with
+.BR "bad status """"" .
+.PP
+The certificates of the authorities it trusts for
+.B https
+are in
+.BR /sys/lib/tls/ca.pem .
+Fonts come from
+.IR fontconfig 's
+configuration,
+.BR /lib/fontconfig/fonts.conf
+(the TrueType fonts of
+.BR /lib/font/ttf ).
+.SH FILES
+.TF /sys/lib/browser/SOURCES
+.TP
+.B /sys/lib/browser/LICENSES.md
+which part of the programs is under which licence
+.TP
+.B /sys/lib/browser/LICENSE.MPL-2.0
+the Mozilla Public License 2.0, Servo's and SpiderMonkey's
+.TP
+.B /sys/lib/browser/SOURCES
+where their source code is
+.TP
+.B /sys/lib/browser/resources
+.IR servoshell 's
+own pages
+.RB ( servo:newtab ,
+a new tab's, and the others;
+.B $servoresources
+names another directory)
+.TP
+.B $home/lib/servo
+.IR servoshell 's
+settings
+.RB ( /tmp/servo
+where the home cannot be written, as on the live CD)
+.TP
+.B /tmp/browser.webfs.log
+.IR webfs-rs 's
+errors
+.SH SOURCE
+.B /rc/bin/browser
+.br
+9space's browser repository (not in
+.BR /sys/src :
+Servo and SpiderMonkey are under the MPL, the tree takes only permissive code;
+.B /sys/lib/browser/SOURCES
+says where)
+.SH SEE ALSO
+.IR webfs (4),
+.IR wsys (4),
+.IR ipconfig (8)
+.SH BUGS
+Memory grows with each page visited (in 9space's first long test about 57 MB a
+page, kept in the program's heap): restart
+.I browser
+after long sessions.
+.PP
+One process: Servo's content runs in
+.IR servoshell 's
+own (no
+.BR --multiprocess ).
+The system's time zone is UTC to it.
+.SH HISTORY
+9space's.

@@ -1,0 +1,31 @@
+From 9dbb721ba239737c26446dcb86d5c57ccd255989 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 19 Nov 2026 11:15:16 +0100
+Subject: [PATCH 55/59] ape: fcntl with an unknown command fails with EINVAL
+
+fcntl's switch had no default: an unknown command returned 0. Mesa's
+os_dupfd_cloexec asks for F_DUPFD_CLOEXEC, which APE did not have, and
+took the 0 for the new descriptor: stdin. POSIX wants EINVAL.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sys/src/ape/lib/ap/plan9/fcntl.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/sys/src/ape/lib/ap/plan9/fcntl.c b/sys/src/ape/lib/ap/plan9/fcntl.c
+index 053e38ec3..1e09f2cfa 100644
+--- a/sys/src/ape/lib/ap/plan9/fcntl.c
++++ b/sys/src/ape/lib/ap/plan9/fcntl.c
+@@ -72,6 +72,9 @@ fcntl(int fd, int cmd, ...)
+ 		case F_SETLKW:
+ 			err = EINVAL;
+ 			break;
++		default:
++			err = EINVAL;	/* an unknown command (POSIX) */
++			break;
+ 		}
+ 	if(err){
+ 		errno = err;
+-- 
+2.56.0
+

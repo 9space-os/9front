@@ -9,7 +9,7 @@
 # generated .i files -- regenerate on demand.
 set -e
 
-ROOT=${PLAN9:-$(git rev-parse --show-toplevel)}
+ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
 PC=$ROOT/sys/src/9/pc
 
 for stem in 2k 4k; do

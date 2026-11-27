@@ -292,6 +292,7 @@ static char *privtop;	/* a child's stack, in its own stack segment */
 static struct __pthread *threads;	/* all but main */
 static int nthreads;	/* running, main included */
 static int listlock;
+static int exiting;	/* killothers began (below) */
 static Key keys[PTHREAD_KEYS_MAX];
 static int keylock;
 
@@ -368,6 +369,33 @@ mainpidinit(void)
 	mainpid = getpid();
 }
 
+/*
+ * 9space: fork's child (plan9/fork.c) has one thread, the one that
+ * forked (POSIX): it is main now, with no others on the list (the
+ * copy's would be the parent's procs: exit's killothers ended them)
+ */
+void
+__pthread_forkchild(void)
+{
+	mainpid = getpid();
+	memset(&mainthread, 0, sizeof mainthread);
+	mainthread.pid = mainpid;
+	mainthread.state = Detached;
+	_privates[0] = &mainthread;
+	threads = NULL;
+	nthreads = 1;
+	listlock = 0;
+	keylock = 0;
+	exiting = 0;
+}
+
+/* the proc of a thread (gnuext.c: pthread_setname_np) */
+int
+__apecompat_pthreadpid(pthread_t t)
+{
+	return t->pid;
+}
+
 pthread_t
 pthread_self(void)
 {
@@ -431,6 +459,20 @@ killothers(void)
 	pthread_t self, t;
 
 	self = pthread_self();
+	/*
+	 * 9space: only one of the program's threads ends the others: a
+	 * child of fork has the list as a copy (its pthread_self is a
+	 * struct of its own, on no list), and its exit or _exit must not
+	 * end its parent's threads
+	 */
+	if(self != &mainthread){
+		spinlock(&listlock);
+		for(t = threads; t != NULL && t != self; t = t->next)
+			;
+		spinunlock(&listlock);
+		if(t == NULL)
+			return;
+	}
 	__atomic_store_n(&exiting, 1, __ATOMIC_SEQ_CST);
 	spinlock(&listlock);
 	for(t = threads; t != NULL; t = t->next)
@@ -462,6 +504,7 @@ threadinit(void)
 	pthread_self();
 	__atomic_add_fetch(&nthreads, 1, __ATOMIC_SEQ_CST);	/* main */
 	atexit(killothers);
+	__isthreaded = 1;	/* 9space: stdio locks its streams from now on (stdio/flockfile.c) */
 }
 
 /* libgcc's __wrap_main (config/i386/plan9-main.c): main on a stack from

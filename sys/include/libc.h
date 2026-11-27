@@ -801,11 +801,11 @@ extern	int	remove(char*);
 extern	void*	sbrk(usize);
 extern	long	oseek(int, long, int);
 extern	vlong	seek(int, vlong, int);
-extern	void*	segattach(int, char*, void*, ulong);
+extern	void*	segattach(int, char*, void*, usize);
 extern	void*	segbrk(void*, void*);
 extern	int	segdetach(void*);
-extern	int	segflush(void*, ulong);
-extern	int	segfree(void*, ulong);
+extern	int	segflush(void*, usize);
+extern	int	segfree(void*, usize);
 extern	int	semacquire(int*, int);	/* GCC port: int*, the kernel's 32 bits (was long*: 64 bits under gcc) */
 extern	long	semrelease(int*, long);
 extern	int	sleep(long);

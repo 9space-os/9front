@@ -657,6 +657,27 @@ i8250putc(Uart *uart, int c)
 		delay(1);
 }
 
+/*
+ * 9space: after a sleep (S3) the chip is as reset: the divisor, the line
+ * (csr8w writes the sticky bits), the interrupts and modem lines again,
+ * then a pending interrupt cleared as i8250enable does
+ */
+static void
+i8250power(Uart* uart, int on)
+{
+	Ctlr *ctlr;
+
+	if(!on || !uart->enabled)
+		return;
+	ctlr = uart->regs;
+	i8250baud(uart, uart->baud);
+	csr8w(ctlr, Lcr, 0);
+	csr8w(ctlr, Ier, 0);
+	csr8w(ctlr, Mcr, 0);
+	if(ctlr->iena)
+		i8250interrupt(nil, uart);
+}
+
 PhysUart i8250physuart = {
 	.name		= "i8250",
 	.pnp		= i8250pnp,
@@ -675,6 +696,7 @@ PhysUart i8250physuart = {
 	.fifo		= i8250fifo,
 	.getc		= i8250getc,
 	.putc		= i8250putc,
+	.power		= i8250power,
 };
 
 void

@@ -1,0 +1,209 @@
+#!/bin/rc
+# term (sys/src/cmd/term), run by wsys -x -i: rc on a pty of ptyfs in term's
+# window, typed into; its screen's text from TERMDEBUG=screen (/tmp/term.pid.screen,
+# the cells' place in .geom): echo, a colour on the screen, the size told to
+# the pty, Del interrupting, the alternate screen, a selection and button 2's
+# menu (snarf, paste, send, as rio's), scrolling back with the wheel, exit. Prints ok/FAIL
+# lines and "term: all passed". The snarf buffer: /mnt/wsys/$id/snarf (term's
+# /dev/snarf).
+fn fail { echo FAIL $*; exit fail }
+fn wait1 { # cmd...: until it succeeds, 10 s at most
+	n=0
+	while(! $* >[2]/dev/null && test $n -lt 100){ sleep 0.1; n=`{echo $n+1 | hoc} }
+	$* >[2]/dev/null
+}
+fn key { aux/kbdtype $1 }
+fn nl { aux/kbdtype '
+' }
+fn m { echo A $1 $2 $3; sleep 0.1 }
+fn on { grep -s $1 $scr }
+fn noton { ! grep -s $1 $scr }
+fn away { echo A 1020 760 0 >/dev/mousein; sleep 0.2 }
+away
+
+# term in a window of its own (window(1) runs a command through rc again: a script)
+echo '#!/bin/rc
+TERMDEBUG=screen
+exec /tests/term >/tmp/term.err >[2=1]' >/tmp/runterm
+chmod +x /tmp/runterm
+rm -f /tmp/term.*.geom /tmp/term.*.screen
+window -r 100 100 700 500 /tmp/runterm
+fn geom { ls /tmp/term.*.geom }
+wait1 geom >/dev/null || fail no term: `{cat /tmp/term.err}
+g=`{geom}
+t=`{echo $g | sed 's/.*term\.([0-9]+)\.geom/\1/'}
+scr=/tmp/term.$t.screen
+gm=`{cat $g}
+x0=$gm(1); y0=$gm(2); cw=$gm(3); ch=$gm(4); rows=$gm(5); cols=$gm(6)
+id=`{ls -p /mnt/wsys | grep '^[0-9]+$' | sed 1q}
+echo ok term $t: $rows x $cols cells of $cw x $ch at $x0 $y0, window $id
+fn x { echo $x0+$cw'*'$1+$cw/2 | hoc | sed 's/\..*//' }	# column n's middle
+fn y { echo $y0+$ch'*'$1+$ch/2 | hoc | sed 's/\..*//' }	# row n's middle
+wait1 test -s $scr || fail no screen: `{cat /tmp/term.err}
+sleep 1
+
+# echo
+key 'echo hello term'; nl
+wait1 on '^hello term$' || fail echo: `{cat $scr}
+echo ok typed and run: hello term
+
+# a colour: red text through xterm's SGR
+key 'awk ''BEGIN{printf "\033[31mRED RED RED\033[0m\n"}'''; nl
+wait1 on '^RED RED RED$' || fail red: `{cat $scr}
+sleep 0.5
+n=`{/tests/uipeek -n 104,104,696,496 cd0000}
+test $n -gt 15 || fail red: $n pixels of cd0000
+echo ok red text: $n pixels of cd0000
+
+# moved, and hidden and back: term draws where its window is now, not into
+# an image looked up before (p9win looks the window up again only when its
+# name, its place or a resize event says it changed)
+fn colour { # sgr rgb text: the text in colour, its pixels in the window as it is now
+	key 'awk ''BEGIN{printf "\033['$1'm'$3'\033[0m\n"}'''; nl
+	wait1 on '^'$3'$' || fail $3: `{cat $scr}
+	sleep 0.5
+	f=`{dd -if /mnt/wsys/$id/wctl -bs 256 -count 1 -quiet 1}
+	ax=`{echo $f(1)+4 | hoc}; ay=`{echo $f(2)+4 | hoc}; bx=`{echo $f(3)-4 | hoc}; by=`{echo $f(4)-4 | hoc}
+	n=`{/tests/uipeek -n $ax,$ay,$bx,$by $2}
+	test $n -gt 15 || fail $3: $n pixels of $2 in the window at $f(1-4)
+	echo ok $3: $n pixels of $2 at $f(1-4)
+}
+echo move -minx 300 -miny 200 >/mnt/wsys/$id/wctl
+sleep 1
+colour 32 00cd00 GREEN-MOVED
+echo hide >/mnt/wsys/$id/wctl
+sleep 0.5
+echo unhide >/mnt/wsys/$id/wctl
+echo current >/mnt/wsys/$id/wctl
+sleep 1
+colour 34 0000ee BLUE-UNHIDDEN
+echo move -minx 100 -miny 100 >/mnt/wsys/$id/wctl
+sleep 1
+
+# the size the pty knows (TIOCGWINSZ): term's rows and columns
+key 'cat /dev/ptyctl*'; nl
+wait1 on '^IOR ' || fail ptyctl: `{cat $scr}
+s=`{grep '^IOR ' $scr | sed 1q}
+~ $s(18) $rows && ~ $s(19) $cols || fail size: $"s term $rows x $cols
+echo ok the pty knows the size: $s(18) x $s(19)
+
+# Del interrupts what the shell runs (as in rio)
+key 'sleep 100'; nl
+sleep 1
+key `{awk 'BEGIN{printf "%c", 127}'}
+sleep 0.5
+key 'echo after'; nl
+wait1 on '^after$' || fail Del: `{cat $scr}
+echo ok Del interrupted sleep
+
+# the alternate screen: a full-screen program's, the shell's again after it
+key 'awk ''BEGIN{printf "\033[?1049hALT%sSCREEN", ""; fflush(); system("sleep 2"); printf "\033[?1049l"}'''; nl
+wait1 on ALTSCREEN || fail alternate screen: `{cat $scr}
+noton '^hello term$' || fail alternate screen: the text of the shell still there
+wait1 noton ALTSCREEN || fail alternate screen: not left: `{cat $scr}
+on '^hello term$' || fail alternate screen: the text of the shell not back
+echo ok the alternate screen and back
+
+# button 1 selects (the snarf buffer stays), button 2's menu snarfs, as in rio
+# (term writes the file anew after each picture: read until it has the line)
+fn row { r=`{grep -n '^hello term$' $scr | sed 1q | sed 's/:.*//'}; ~ $#r 1 }
+fn menu2 { # item n of button 2's menu (paste snarf plumb look send): held at row 3, let go over it
+	mx=`{x 20}; my=`{y 3}
+	iy=`{echo $my+'('$ch+4')*'$1 | hoc}
+	{ m $mx $my 2; m $mx $iy 2; m $mx $iy 0 } >/dev/mousein
+	sleep 0.3
+}
+fn snarf { sn=`{cat /mnt/wsys/$id/snarf} }
+wait1 row || fail no hello term to select: `{cat $scr}
+r=`{echo $r-1 | hoc}
+echo -n before >/mnt/wsys/$id/snarf
+{ m `{x 0} `{y $r} 1; m `{x 5} `{y $r} 1; m `{x 9} `{y $r} 1; m `{x 9} `{y $r} 0 } >/dev/mousein
+sleep 0.5
+snarf
+~ $"sn before || fail selecting changed the snarf buffer: $"sn
+menu2 1
+snarf
+~ $"sn 'hello term' || fail snarf: $"sn, row $r
+echo ok button 1 selected hello term, the menu of button 2 snarfed it
+
+# button 2's paste: the snarf buffer typed
+echo -n 'echo pasted' >/mnt/wsys/$id/snarf
+menu2 0
+nl
+wait1 on '^pasted$' || fail paste: `{cat $scr}
+echo ok paste of button 2
+
+# button 2's send: the snarf buffer (no selection) typed with a newline
+echo -n 'echo sent' >/mnt/wsys/$id/snarf
+menu2 4
+wait1 on '^sent$' || fail send: `{cat $scr}
+echo ok send of button 2
+
+# plumbing, as acme's and rio's: the plumber (started before wsys, sys/src/build/host/tests/ui/plumbrules)
+# sends plumbtest... to testport; a click of button 3 on a word plumbs it, so does
+# button 2's plumb with the selection
+fn lineof { # pattern: its row (from 0), as $r (term writes the file anew: until it has it)
+	fn lineof1 { r=`{grep -n $pat $scr | sed 1q | sed 's/:.*//'}; ~ $#r 1 }
+	pat=$1
+	wait1 lineof1 || fail no line $1: `{cat $scr}
+	r=`{echo $r-1 | hoc}
+}
+# (the screen cleared first: on a full one each new line scrolls it, and a row
+# found would move under the click)
+fn clear { key 'awk ''BEGIN{printf "\033[H\033[2J"}'''; nl; sleep 0.5 }
+if(test -e /mnt/plumb/send){
+	clear
+	rm -f /tmp/tplumbed
+	cat /mnt/plumb/testport >/tmp/tplumbed >[2]/dev/null </dev/null &
+	catpid=$apid
+	key 'echo plumbtest77'; nl
+	wait1 on '^plumbtest77$' || fail no plumbtest77
+	lineof '^plumbtest77$'
+	{ m `{x 3} `{y $r} 0; m `{x 3} `{y $r} 4; m `{x 3} `{y $r} 0 } >/dev/mousein
+	wait1 grep -s plumbtest77 /tmp/tplumbed || { echo kill >/proc/$catpid/note; fail plumb by button 3: nothing at the port }
+	grep -s '^term$' /tmp/tplumbed || fail plumb: not from term: `{cat /tmp/tplumbed}
+	echo ok button 3 plumbed the word: `{tr '\012' ' ' </tmp/tplumbed}
+	key 'echo plumbtest78'; nl
+	wait1 on '^plumbtest78$' || fail no plumbtest78
+	lineof '^plumbtest78$'
+	{ m `{x 0} `{y $r} 1; m `{x 10} `{y $r} 1; m `{x 10} `{y $r} 0 } >/dev/mousein
+	sleep 0.3
+	menu2 2
+	wait1 grep -s plumbtest78 /tmp/tplumbed || { echo kill >/proc/$catpid/note; fail plumb by the menu: nothing at the port }
+	echo ok the menu of button 2 plumbed the selection
+	echo kill >/proc/$catpid/note
+}
+if not echo ok no plumber: plumbing not tried
+
+# look: the selection found further on, selected (its cells in the selection's colour)
+clear
+key 'echo lookone lookmore'; nl
+wait1 on '^lookone lookmore$' || fail no look line
+lineof '^lookone lookmore$'
+{ m `{x 0} `{y $r} 1; m `{x 3} `{y $r} 1; m `{x 3} `{y $r} 0 } >/dev/mousein
+sleep 0.3
+menu2 3
+sleep 0.5
+# the top left pixel of lookmore's first cell (column 8)
+lx=`{echo $x0+$cw'*'8+1 | hoc}; ly=`{echo $y0+$ch'*'$r+1 | hoc}
+c=`{/tests/uipeek $lx,$ly | awk '{print $2}'}
+~ $c ffffaa || fail look: lookmore not selected: $c at $lx,$ly
+echo ok look found the selection further on
+
+# the wheel scrolls back; typing comes back to the bottom
+key 'for(i in `{seq 1 60}) echo line$i'; nl
+wait1 on '^line60$' || fail lines: `{tail -3 $scr}
+for(i in 1 2 3 4 5 6 7 8 9 10){ { m `{x 3} `{y 3} 8; m `{x 3} `{y 3} 0 } >/dev/mousein }
+sleep 0.5
+on '^line10$' && noton '^line60$' || fail scrollback: `{cat $scr}
+echo ok the wheel scrolled back
+key 'echo back'; nl
+wait1 on '^back$' || fail back from the scrollback: `{cat $scr}
+echo ok typing came back to the bottom
+
+# exit: term goes with its shell, and its window
+key 'exit'; nl
+wait1 test ! -e /proc/$t || fail term still there after exit
+echo ok term gone with its shell
+ls -p /mnt/wsys | grep -s '^[0-9]+$' && fail a window left: `{ls -p /mnt/wsys}
+echo term: all passed

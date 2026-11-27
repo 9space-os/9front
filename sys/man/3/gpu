@@ -1,0 +1,266 @@
+.TH GPU 3
+.SH NAME
+gpu \- graphics devices for user-space drivers
+.SH SYNOPSIS
+.nf
+.B bind -a #G /dev
+
+.B #G/0/ctl
+.B #G/0/irq
+.B #G/0/dirty
+ ...
+.fi
+.SH DESCRIPTION
+The
+.I gpu
+device is the kernel's whole part of a graphics driver: it hands
+the hardware of every PCI display controller (class 03) to a
+user-space driver, such as
+.IR virtiogpu
+in
+.IR gpu (4).
+It knows nothing about mode setting, memory management, command
+submission or firmware.
+Other PCI devices a user-level driver drives the same way (9space:
+a WLAN card for
+.IR aux/rtw89 )
+are named in
+.IR plan9.ini (8)'s
+.BI *userpci= vid / did
+(hex, several separated by blanks or commas);
+they get the same files, numbered after all display controllers; the framebuffer's, dirty's and cursor's mean nothing there.
+.PP
+Each controller has a directory
+.IR n ,
+numbered from 0 in PCI order, with three files.
+.PP
+Reading
+.B ctl
+returns lines of text:
+.TF "bar\fIi\fP \fIaddr size seg\fP"
+.TP
+.BI pci " bus.dev.fn"
+the device, as named in
+.BR #$/pci ;
+its configuration space is
+.BI #$/pci/ bus.dev.fn raw\f1.
+.TP
+.BI id " vid/did
+vendor and device id.
+.TP
+.BI irq " line state count kind
+the interrupt line, whether
+.B irq
+has enabled it, the interrupts seen, and
+.B msi
+or
+.BR intx .
+.TP
+.BI bar i " addr size seg \fR[\fPcseg wseg\fR]\fP
+a base address register: physical address, size and the physical
+segment that maps it, uncached (see
+.IR segattach (2)),
+.B -
+for an I/O bar; after
+.BI "bar " i " cached"
+also the write-back and the write-combining segment.
+.TP
+.BI mem " addr size seg
+memory of the firmware's the driver needs, outside the bars: for an
+Intel device the ACPI OpRegion (its address from the device's ASLS
+register), which holds the video BIOS tables; a write-back segment.
+.TP
+.BI vram " addr size seg wseg
+an AMD APU's video memory, after
+.B vram
+was written: the uncached and the write-combining segment.
+.TP
+.BI fb " addr size seg
+the framebuffer, if allocated, else
+.BR "fb none" .
+.PD
+.PP
+The memory bars are attachable segments named
+.BI gpu n bar i\f1,
+uncached; the framebuffer is
+.BI gpu n fb\f1.
+Only the hostowner may attach them: a GPU reaches all of the
+machine's memory (DMA); its driver gives clients views of their own
+objects
+.RB ( phys
+in
+.IR segment (3)).
+.PP
+Writing
+.B wbinvd
+to
+.B ctl
+writes back and invalidates the caches of all processors.
+.PP
+Writing
+.B ctl
+(by the host owner) controls the device:
+.TF "fb \fIbytes\fP"
+.TP
+.B "bme on\fR|\fPoff
+enable or disable bus mastering.
+.TP
+.BI fb " bytes
+allocate a physically contiguous framebuffer of
+.I bytes
+bytes (rounded up to pages), the segment
+.BI gpu n fb
+for the first,
+.BI gpu n fb. k
+for the
+.IR k th
+after it; a request of the size it has is a no-op.
+A new one (bigger for a monitor plugged in, smaller for one gone) is
+the framebuffer from then on: the screen goes onto it when
+.IR vga (3)'s
+.B "type gpu"
+is written again.
+The old one is freed when the screen is no longer on it and no segment
+of it is attached (the driver detaches its own).
+.TP
+.B fbfree
+free the old framebuffers that are unused now (as happens when the
+last segment of one is detached).
+.TP
+.B "irq ack
+unmask the interrupt (see below).
+.TP
+.BI bar " n " cached
+also map memory bar
+.I n
+write-back, as the segment
+.BI gpu n bar n c\f1,
+and write-combining, as
+.BI gpu n bar n w\f1,
+and make the MTRRs write-back, so that the page attributes decide;
+only for memory that is RAM to the processor, such as virtio-gpu's
+host visible memory, which only the driver knows.
+The driver tells its clients which part to map how.
+.TP
+.BI vram " addr size
+an AMD APU's video memory: RAM the firmware kept from the kernel
+(a carveout), outside the bars; the driver reads where it is from
+the GPU.  Mapped as the segments
+.BI gpu n vram
+(uncached) and
+.BI gpu n vramw
+(write-combining), once, and only if no part of it is memory the
+kernel has (RAM, ACPI tables) or one of the device's bars.
+.PD 0
+.TP
+.BI "onexit w32 " "bar off val
+.TP
+.BI "onexit w8 " "bar off val
+.TP
+.BI "onexit wait " "bar off mask want ms
+.TP
+.BI "onexit wait8 " "bar off mask want ms
+.PD
+.TP
+.B "onexit clear
+(9space) a step of the driver's last words, kept on this open
+.B ctl
+file: when it closes (the driver ends, however it ends: the kernel
+closes a process's files before its memory goes), the steps run in
+order: a 32-bit or byte write of
+.I val
+at offset
+.I off
+of memory bar
+.IR bar ,
+or a read until
+.RI ( reg & mask )
+is
+.I want
+for at most
+.I ms
+milliseconds (5000 at most).
+A driver writes there the reset of its engines, so that the device
+reads and writes none of its pages once they are freed: its segments
+may then go with it
+.RI ( segment (3),
+.BR ORCLOSE ).
+If a wait times out, bus mastering goes off (the screen with it) and
+.B "bme on
+is refused until reboot: the device may still run where it stopped.
+Up to 32 steps; the host owner's.
+.PD
+.PP
+Opening
+.B irq
+enables the device's interrupt: MSI where the device has it
+(the interrupt line need not be assigned), else legacy INTx.
+A read blocks until the device interrupts and returns the count.
+With INTx the kernel's handler masks the interrupt with the
+interrupt-disable bit of the PCI command register; the driver serves
+the device and writes
+.B "irq ack
+to unmask it (with MSI, an edge, nothing is masked and
+.B "irq ack
+does no harm).
+.PP
+.B dirty
+connects the framebuffer to
+.IR draw (3):
+with
+.IR vga (3)
+type
+.BR gpu ,
+the screen is the framebuffer of controller 0, drawn into directly,
+and every flush of the screen is collected here.
+A read blocks until something changed and returns the bounding
+rectangle as
+.IB "x0 y0 x1 y1" .
+Each open file collects for itself (up to four at once): the driver's
+copy to the card and a compositor
+.RI ( wsys (4)
+.BR -g )
+each get every change.
+The driver copies that part to the display.
+.SH EXAMPLES
+What the driver does to show the screen:
+.EX
+	echo fb 9216000 >'#G/0/ctl'
+	echo type gpu >/dev/vgactl
+	echo size 1280x800x32 x8r8g8b8 >/dev/vgactl
+	echo drawinit >/dev/vgactl
+.EE
+.SH SOURCE
+.B /sys/src/9/port/devgpu.c
+.br
+.B /sys/src/9/pc/vgagpu.c
+.SH "SEE ALSO"
+.IR gpu (4),
+.IR segment (3),
+.IR vga (3),
+.IR segattach (2)
+.SH BUGS
+Only the first controller's framebuffer can be the screen.
+.br
+Only legacy interrupts; no MSI.
+.br
+The framebuffer is never freed.
+.br
+The kernel's console keeps writing on the screen.
+.br
+(9space) A driver whose
+.B onexit
+steps are wrong frees pages the device may still use.  aux/i915 resets
+the render domain (GEN6_GDRST) as Linux does before graphics 12.70,
+without the preparations Meteor Lake and later need; aux/virtiogpu
+resets the device (virtio's device status).
+If the reset does not finish, the display is gone until reboot
+(bus mastering off, for the pages freed next).  aux/amdgpu and
+aux/intelgpu write none: their segments stay after a crash until their
+next start.
+.br
+(9space) Each ORCLOSE segment is an open file of the driver's, and a
+process has at most 5000
+.RI ( MAXNFD ):
+past it the driver's next object cannot be made (its client gets the
+error).  aux/i915 shows how many it has open in its status.

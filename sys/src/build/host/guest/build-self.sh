@@ -1,6 +1,6 @@
 #!/bin/bash
 # The system builds itself: boots the gcc-built system with the native
-# gcc and binutils of ../9front-gcc (/$objtype/gnu) and runs the build
+# gcc and binutils of toolchain/gcc (GCC_DIR in paths.env; /$objtype/gnu) and runs the build
 # tool there (sys/src/build/host/guest/boot/mkself.rc) on a copy of the tree's
 # sources ($CLI_DIR/self.$objtype: git ls-files) -- the build of
 # CC=gcc ARCH=$objtype sys/src/cmd/build/build.exe, on 9front (amd64:
@@ -15,7 +15,7 @@
 # for $objtype).
 #
 # usage: [objtype=386] sys/src/build/host/guest/build-self.sh [buildfile...]   (needs
-#        the build for objtype, the native toolchain: ../9front-gcc's
+#        the build for objtype, the native toolchain: GCC_DIR's
 #        out/$objtype, GCC_OUT)
 #        buildfile: only these manifests (relative to the tree, e.g.
 #        sys/src/ape/cmd/cmds.json), else the whole build.json
@@ -29,7 +29,7 @@
 #                 build tool and the manifests renewed), e.g. after a fix
 set -e
 ROOT=${PLAN9:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
-. "$ROOT/sys/src/build/lib/paths.sh"	# GCC_DIR, RUST_DIR, GO_DIR, MCP_DIR, DISTFILES (the distribution's paths.env)
+. "$ROOT/sys/src/build/lib/paths.sh"	# GCC_DIR, CLI_DIR (the distribution's paths.env)
 A=${objtype:-amd64}
 case $A in
 amd64)	mem=4096 ;;
@@ -88,7 +88,13 @@ rm -rf "$S.new/lost+found" "$S"
 mv "$S.new" "$S"
 grep -qE '^mkself: (done|failed:)' "$LOG.txt" || { tail -30 "$LOG.txt"; die "did not finish (log: $LOG.txt)"; }
 grep -E '^mkself: status|files expected' "$LOG.txt"
-grep -qE 'files expected, ok' "$LOG.txt" || { grep -B5 -E 'exit status|failed' "$LOG.txt" | tail -40; die "build failed (log: $LOG.txt)"; }
+# the whole build ends with check-install's verdict; single manifests
+# with the build tool's status (empty: none failed)
+if [ $# -eq 0 ]; then
+	grep -qE 'files expected, ok' "$LOG.txt"
+else
+	grep -qx 'mkself: status *' "$LOG.txt"
+fi || { grep -B5 -E 'exit status|failed' "$LOG.txt" | tail -40; die "build failed (log: $LOG.txt)"; }
 echo "ok: the system built itself ($S)"
 
 # the same code as the build on Linux: every object of the tree, without

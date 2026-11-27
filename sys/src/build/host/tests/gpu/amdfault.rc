@@ -1,0 +1,10 @@
+#!/bin/rc
+# a GPU page fault on purpose (amdcs -u: WRITE_DATA where nothing is
+# mapped): does amdgpu report it (gmc's interrupt), what the hub's status says
+fn amdg { for(d in /shr/gpu/[0-9]*) if(grep -s '^device amd' $d/status >[2]/dev/null) echo $d }	# the AMD card's entry (gpu(4): named for its #G/n)
+aux/amdgpu -S $* >/tmp/amd.log >[2=1]
+sleep 2
+/tests/amdcs -u | grep 'FAIL|passed|GPU wrote'
+echo waves >`{amdg}^/ctl
+grep -i 'fault|GCVM|MORE|WALKER|PERMISSION|MAPPING|RW|CID|waves$' /tmp/amd.log | sed 20q
+echo TESTEND

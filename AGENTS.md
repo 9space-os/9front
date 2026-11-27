@@ -1,18 +1,19 @@
 # AGENTS.md
 
 ## What this is
-The **9front** OS source tree (Plan 9 fork). Branch `front` = mirror of github.com/9front/9front. Branch `gcc` = port that builds 9front with **gcc** on Linux instead of 9front's own compilers (8c/6c/7c + mk). Docs: man pages `sys/man`, papers `sys/doc`. Status and open items of the port: `sys/src/build/host/MEMORY.md` (German).
+The **9front** OS source tree (Plan 9 fork). Branch `front` = mirror of github.com/9front/9front. Branch `gcc` = port that builds 9front with **gcc** on Linux instead of 9front's own compilers (8c/6c/7c + mk). Branch `main` = 9space, the distribution on top of it (GPU stack, wsys, ui); the paths of its other parts come from `../dist/paths.env` via `sys/src/build/lib/paths.sh`. Docs: man pages `sys/man`, papers `sys/doc`. Status and open items of the port: `sys/src/build/host/MEMORY.md` (German).
 
 ## Layout
 - `386/ amd64/ arm64/`: per arch `include/u.h`, `include/ureg.h`; built files land in `<arch>/bin`, `<arch>/lib.gcc`.
 - `sys/src/`: `lib*` libraries, `cmd` + `games` programs, `9` kernel (`9/port` common, `9/pc` 386, `9/pc64` amd64, `9/arm64` qemu), `ape` POSIX layer, `boot` loaders.
 - `sys/include/`: shared headers. `rc/`, `lib/`, `acme/`: scripts and data.
-- `sys/src/build/`: what a build needs: the root manifests (`build.json`, `build.$ARCH.json`), `step/` build steps (`step/rc/` their rc versions for 9front), `gen/` manifest generators, `lib/`. Its `host/` is the Linux host's only (not on the CD): `guest/` QEMU/CD/boot loaders, `check/` + `fix/` porting tools, `debug/`, `tests/` test suites, `sys/src/build/host/patch-upstream/`, `MEMORY.md` (see `sys/src/build/README.md`). The tree's root holds only 9front's directories.
+- `sys/src/build/`: what a build needs: the root manifests (`build.json`, `build.$ARCH.json`), `step/` build steps (`step/rc/` their rc versions for 9front), `gen/` manifest generators, `lib/`, and the vendoring/import scripts of the ported parts (`linux/`, `mesa/`, `ape/`, `libffi/`, `sdl3/`, `glfw/`, `wayland/`, `rust/`). Its `host/` is the Linux host's only (not on the CD): `guest/` QEMU/CD/boot loaders, `hw/`, `check/` + `fix/` porting tools, `debug/`, `replica/`, `tests/` test suites, `patch-upstream/`, `MEMORY.md` (see `sys/src/build/README.md`). The tree's root holds only 9front's directories.
 
 ## Build (gcc port)
 - Build tool (Go) once: `cd sys/src/cmd/build && GO111MODULE=off go build -o build.exe .`
 - Everything for one arch, from the tree root: `CC=gcc ARCH=amd64 sys/src/cmd/build/build.exe` (or `ARCH=386`, `ARCH=arm64`). Ends with `NNN files expected, ok`.
 - One manifest: `CC=gcc ARCH=amd64 sys/src/cmd/build/build.exe <path/to/x.json>`.
+- Rust programs (wsys, term, wbar, ui: `sys/src/cmd/*/rust.json`): the build's step `rust` (`sys/src/build/step/cargo.sh`, 9front-rust's (`$RUST_DIR`) stage-1 rustc; amd64, 386, arm64, the GPU parts on amd64 only); without it they are skipped, not an error.
 - Only what is out of date (like mk): add `-D`. After switching ARCH it rebuilds everything (objects of another arch are out of date).
 - Never run two builds in the same tree at once (they share object files).
 - After kernel changes rebuild with the full command, not the kernel manifest alone: its generated files (`sys/src/9/port/initcode.i`, ...) are shared by the arches and made by the full build just before the kernel. arm64: the guest boots `arm64/9qemu.u`, which only `sys/src/build/host/guest/build-boot.sh` remakes.

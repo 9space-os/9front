@@ -1,0 +1,25 @@
+#!/bin/rc
+# kstacks [name ...]: the kernel stacks of the processes that wait in the
+# kernel, for a hang that is looked at before its guest goes (run.sh's
+# bootwsys): for each process named (default: virtiogpu, vktri, wsys,
+# wsysback and those in Queueing, Stat, Open or Semacquire), a line
+# "kstack PID NAME STATE", then acid's PC and SP of its kernel context and
+# 64 words of the kernel stack from SP.  acid -k reads them through
+# /proc/N/mem against /tests/9pc64.elf (the kernel run, copied by run.sh);
+# the guest has no kernel symbols: sys/src/build/host/debug/kstack.py resolves the
+# addresses on the host.  Kernel processes (closeproc) refuse /proc/N/mem:
+# only their line.
+rfork e
+names=($*)
+if(~ $#names 0)
+	names=(virtiogpu vktri wsys wsysback)
+ps | awk -v 'names='^$"names '
+	BEGIN { n = split(names, a, " "); for(i = 1; i <= n; i++) want[a[i]] = 1 }
+	$NF in want || $6 ~ /^(Queueing|Stat|Open|Semacqui)$/ { print $2, $NF, $6 }' |
+while(l=`{read}){
+	echo kstack $l
+	echo 'print(*PC, " ", *SP, "\n"); mem(*SP, "64Y")' |
+		objtype=amd64 acid -k $l(1) /tests/9pc64.elf >[2]/dev/null |
+		grep '^acid: 0x'
+}
+exit ''

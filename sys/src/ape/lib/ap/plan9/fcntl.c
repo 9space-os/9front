@@ -10,6 +10,8 @@
 
 #define OFL (O_ACCMODE|O_NONBLOCK|O_APPEND)
 
+extern int _dupbuf(int, int);
+
 int
 fcntl(int fd, int cmd, ...)
 {
@@ -20,6 +22,8 @@ fcntl(int fd, int cmd, ...)
 
 	err = 0;
 	ans = 0;
+	extern int __shmseals(int, int, int);
+
 	va_start(va, cmd);
 	arg = va_arg(va, int);
 	va_end(va);
@@ -27,19 +31,40 @@ fcntl(int fd, int cmd, ...)
 	if(fd<0 || fd>=OPEN_MAX || !(fi->flags&FD_ISOPEN))
 		err = EBADF;
 	else switch(cmd){
+		case F_DUPFD_CLOEXEC:	/* 9front-ng: below, then FD_CLOEXEC */
 		case F_DUPFD:
-			if(fi->flags&(FD_BUFFERED|FD_BUFFEREDX)){
-				err = EGREG;	/* dup of buffered fd not implemented */
+			if(fi->flags&FD_BUFFEREDX){
+				err = EGREG;	/* dup of buffered fd not implemented (kencc's _buf.c) */
 				break;
 			}
 			oflags = fi->oflags;
-			for(i = (arg>0)? arg : 0; i<OPEN_MAX; i++)
-				if(!(_fdinfo[i].flags&FD_ISOPEN))
-					break;
+			/*
+			 * 9front-ng: a number free in the kernel too: dup(fd, i)
+			 * replaces what i is, and descriptors APE did not open
+			 * (a native program's: Rust's std in one with APE's C)
+			 * are not in _fdinfo; Mesa's dup took a Rust program's
+			 * /srv file. Without a minimum the kernel chooses.
+			 */
+			if(arg <= 0){
+				i = _DUP(fd, -1);
+				if(i >= OPEN_MAX){
+					_CLOSE(i);
+					i = OPEN_MAX;
+				}
+			}else{
+				char buf[2];
+
+				for(i = arg; i<OPEN_MAX; i++)
+					if(!(_fdinfo[i].flags&FD_ISOPEN) && _FD2PATH(i, buf, sizeof buf) < 0)
+						break;
+			}
 			if(i == OPEN_MAX)
 				err = EMFILE;
-			else {
-				ans = _DUP(fd, i);
+			else if(i < 0){
+				_syserrno();
+				err = errno;
+			}else {
+				ans = arg <= 0 ? i : _DUP(fd, i);
 				if(ans != i){
 					if(ans < 0){
 						_syserrno();
@@ -48,7 +73,16 @@ fcntl(int fd, int cmd, ...)
 						err = EBADF;
 				}else{
 					fans = &_fdinfo[ans];
-					fans->flags = fi->flags&~FD_CLOEXEC;
+					fans->flags = fi->flags&~(FD_CLOEXEC|FD_BUFFERED);
+					fans->buf = 0;
+					if(cmd == F_DUPFD_CLOEXEC)
+						fans->flags |= FD_CLOEXEC;
+					/* 9front-ng: a dup is in its original's group, a buffered one's reads through the same buffer (gnu/buf.c) */
+					if(_dupbuf(fd, ans) < 0 && (fi->flags&FD_BUFFERED)){
+						_CLOSE(ans);
+						fans->flags = 0;
+						err = EGREG;	/* dup of buffered fd not implemented (kencc's _buf.c) */
+					}
 					fans->oflags = oflags;
 					fans->uid = fi->uid;
 					fans->gid = fi->gid;
@@ -70,6 +104,17 @@ fcntl(int fd, int cmd, ...)
 		case F_GETLK:
 		case F_SETLK:
 		case F_SETLKW:
+			err = EINVAL;
+			break;
+		case F_ADD_SEALS:	/* 9front-ng: a memfd's (gnu/mman.c) */
+		case F_GET_SEALS:
+			if((ans = __shmseals(fd, cmd, arg)) < 0){
+				err = errno;
+				ans = -1;
+			}
+			break;
+		default:
+			/* 9front-ng: an unknown command is an error (POSIX); it returned 0 (Mesa's F_DUPFD_CLOEXEC, before there was one: stdin as the new descriptor) */
 			err = EINVAL;
 			break;
 		}

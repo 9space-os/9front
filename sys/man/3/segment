@@ -8,6 +8,7 @@ segment \- long lived memory segments
 .BI #g/ seg1
 .BI #g/ seg1 /ctl
 .BI #g/ seg1 /data
+.BI #g/ seg1 /pa
 .BI #g/ seg2
 .BI #g/ seg2 /ctl
 .BI #g/ seg2 /data
@@ -41,6 +42,15 @@ However, the segment will continue to exist until all
 processes using it either exit or
 .I segdetach
 it.
+A directory created with
+.B ORCLOSE
+is removed when that file is closed, however its process ends; only
+that segment, not one made later in its place after a
+.I remove
+by name (9space: 9front removed whichever segment was then in its
+slot).  A GPU driver makes its segments so (see
+.IR gpu (3)'s
+.BR onexit ).
 .PP
 Within each segment directory are two files,
 .B data
@@ -75,11 +85,40 @@ with a fixed physical base address suitable for hardware
 DMA access.
 Sticky segments are like normal shared segments but
 preallocated at creation time and never swapped out.
+With a fourth field,
+.BR contig ,
+a sticky segment's pages are also physically contiguous, starting at
+an address aligned to the segment's size (at most 2 MB), as a buddy
+allocator's blocks are; it fails when no such run of free memory is
+left.
+With
+.B dma32
+(after
+.B sticky
+or
+.BR contig )
+the pages are below 4 GB, for a device that addresses no more,
+and contiguous too (aligned only with
+.BR contig );
+an 9space addition.
 Only the hostowner is allowed to create
 .B fixed
 or
 .B sticky
 segments.
+.PP
+An
+.I address
+of 0 lets the kernel choose, with a
+.I type
+or without: a range of a region reserved for such segments
+(from half the user address space up, a sixteenth of it), one no other
+segment of the region has, so that any process can attach any of them
+without a collision; the range is free again once the segment is
+removed and no process has it attached any more.
+.IR Segattach (2)'s
+own choice of an address (0) stays out of that region, and a segment
+given an address of its own in the region is refused.
 .PP
 When the segment is attached using
 .IR segattach,
@@ -95,6 +134,156 @@ start address and length. For
 .B fixed
 segments, the type and physical base address are appended.
 .PP
+For
+.B fixed
+and
+.B sticky
+segments the hostowner may read a third file,
+.BR pa :
+the physical address of each page of the segment, from its start,
+as little-endian 64-bit words.
+Their pages stay in place while the segment exists, so a driver
+can hand them to hardware for DMA, scattered as they are.
+.PP
+A segment of type
+.B alias
+is sticky, but made without pages; the hostowner puts pages of
+other sticky segments there with
+.IP
+.EX
+	page \fIindex source offset ...\fP
+.EE
+.PP
+which places, from page
+.I index
+of the segment on, the pages at the byte
+.I offsets
+of the sticky segment named
+.IR source :
+the same memory at other addresses, the pages one after the other.
+A page stays while any segment has it.
+Writing
+.B revoke
+to the control file, or removing the segment, takes its pages out of
+every process that has it attached, at once: a later access there is
+a fault.
+A driver revokes an object's segment before it uses the memory
+otherwise, so that nobody keeps seeing it.
+.PP
+A segment of type
+.B phys
+shows a part of a physical segment
+.RI ( segattach (2)'s
+names: a device's memory, such as a GPU's bar), only that part:
+.IP
+.EX
+	va \fIaddr len\fP phys \fIphysseg offset\fP
+.EE
+.PP
+makes it, for the hostowner, from the page aligned
+.I offset
+of the physical segment
+.IR physseg ,
+with that segment's attributes (cached, write-combining, device).
+Reading its control file appends
+.BI phys " physseg pa" ,
+and
+.B revoked
+once it is.
+Writing
+.B revoke
+or removing it makes every access of every process that has it
+attached fault, as for an alias segment: a driver gives a client the
+view of one object and takes it back when the object is freed.
+.PP
+9space: writing
+.B lost
+to the control file of an alias, phys or pager segment says what
+happens when it is removed because the process that made it exits
+(its file opened
+.B ORCLOSE
+closed by the exit, the exit dropping its last reference): it is not
+revoked to a fault but lost: every page
+of it, in every process that has it attached, maps one page of its own,
+zeroed then, writable, freed with the segment.
+Writes there go nowhere and nothing reaches another segment; reads see
+what was written there since.
+A GPU driver marks so the views of objects it gives its clients
+.RI ( gpu (4)):
+when the driver dies, a client writing into such a view goes on
+until its next request to the driver says that the device is lost, as
+Linux maps a dummy page once a device is unplugged.
+Removing the segment otherwise (by name, or the file's last reference
+closed by a process that lives on, a
+.IR srv (3)
+entry removed), or writing
+.BR revoke ,
+still revokes it to a fault: a client that writes into an object after
+it was freed is wrong.
+9front has no
+.BR lost .
+.PP
+A
+.B pager
+segment shows a driver's memory page by page, as Linux maps a GPU
+object: its pages come when they are touched, from wherever the
+object is, and go again when the driver moves it.
+Writing
+.B pager
+to the control file of a new directory makes it a queue (no memory);
+its
+.B data
+file, opened by the hostowner for reading, yields a line
+.IB "name page" \en
+for each fault waiting for a page.
+.IP
+.EX
+	va \fIaddr len\fP phys \fIphysseg\fP pager \fIqueue\fP
+.EE
+.PP
+makes a segment of
+.I len
+bytes of the physical segment
+.I physseg
+(its attributes) without pages, whose faults go to
+.IR queue :
+the faulting process waits.
+The driver answers on the segment's control file:
+.TF "nopage "
+.TP
+.BI pages " idx off ..."
+the pages from page
+.I idx
+on are at the page aligned offsets
+.I off
+of
+.IR physseg ;
+.TP
+.BI ram " idx pa ..."
+they are memory's pages at the physical addresses
+.IR pa ,
+mapped cached;
+.TP
+.B unmap
+every page goes, the mappings of every process are flushed, the next
+touch faults again;
+.TP
+.B nopage
+there is none: the waiting faults fail.
+.PD
+.PP
+Removing the segment, or the queue, or closing the queue's last
+reader fails its faults too.
+9space: removing the queue or closing its last reader (the driver
+died) also revokes each pager segment of the queue that is still
+there, as removing it would: lost if so marked, else to a fault.
+The pages it had mapped, the driver's memory that the next driver
+hands out again, stay mapped in no process.
+Reading the control file says how many pages are there and whether a
+fault waits for the driver.
+.PP
+The table of global segments grows as they are made (once 100).
+.PP
 Opening
 .B data
 or reading
@@ -106,7 +295,9 @@ The permissions check when
 .IR segattach ing
 is equivalent to the one performed when opening
 .B data
-with mode ORDWR.
+with mode ORDWR; the hostowner may attach every segment (it may give
+any to itself anyway): a driver keeps the segments it made for its
+clients and gave to their users.
 .SH EXAMPLE
 .PP
 Create a one megabyte segment at address 0x10000000:

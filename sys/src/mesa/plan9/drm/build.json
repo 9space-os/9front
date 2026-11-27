@@ -1,0 +1,17 @@
+[
+	{
+		"Name": "mesa-plan9-drm",
+		"Compat": true,
+		"Cflags": [
+			"-O2",
+			"-Wall",
+			"-Iinclude",
+			"-I../include",
+			"-I../../vendor/include"
+		],
+		"SourceFiles": [
+			"amdgpu9.c",
+			"drm9.c"
+		]
+	}
+]

@@ -1,0 +1,75 @@
+#!/bin/rc
+# A GPU driver killed while a client draws and others walk into its
+# tree (9space: gpu(3) onexit, segment(3) ORCLOSE, shr(3)): its engines
+# reset before its pages go, none of its #g segments left, the memory
+# back, no proc of it left, and a new driver works.  Then
+# the failure path: a reset that never finishes turns bus mastering
+# off for good.  Lines "killdrv: ..." for sys/src/build/host/tests/gpu/run.sh.
+rfork e
+
+fn userpages { awk '$2 == "user" {split($1, a, "/"); print a[1]}' /dev/swap }
+fn drvsegs { ls -p '#g' | grep -c '^gpu0(dma|blob|ctx)' }
+fn drvpids { ps | awk '$NF == "virtiogpu" {print $2}' }
+kn=`{wc -l </dev/kmesg}
+
+echo killdrv: user before `{userpages}
+aux/virtiogpu
+bind -a '#i' /dev	# draw(3) once the driver set the screen up
+echo killdrv: driver `{drvpids}
+WSI_PLAN9_COPY=1 /tests/vkcube --c 100000 >/tmp/vkcube.log >[2=1] &
+cpid=$apid
+sleep 5
+sed 3q /tmp/vkcube.log | sed 's/^/killdrv: vkcube: /'
+echo killdrv: user drawing `{userpages}
+echo killdrv: segs drawing `{drvsegs}
+
+# walks into the driver's tree in flight at the kill (shr(3)'s walk held
+# the share's lock across one: the driver's exit, removing its entry,
+# waited for it, and it for the driver: patch-upstream 0064)
+fn walker { while() ls -l $1 >/dev/null >[2=1] }
+walker /shr/gpu/0/ctx &
+w1=$apid
+walker /shr/gpu/0/status &
+w2=$apid
+sleep 1
+# as the pager does: a kill, no note handler runs
+for(p in `{drvpids})
+	@{echo kill >/proc/$p/note} >[2]/dev/null
+sleep 2
+@{echo kill >/proc/$cpid/note} >[2]/dev/null
+sleep 2
+echo killdrv: driver left `{drvpids}
+for(p in $w1 $w2)
+	@{echo kill >/proc/$p/note} >[2]/dev/null
+echo killdrv: segs after `{drvsegs}
+echo killdrv: user after `{userpages}
+tail -n +`{echo $kn + 1 | hoc} /dev/kmesg | grep -e onexit -e 'did not stop' -e fault -e panic | sed 's/^/killdrv: kmesg: /'
+
+# a new driver on the same device draws again
+aux/virtiogpu
+grep '^device ' /shr/gpu/0/status | sed 's/^/killdrv: restart status /'
+if(/tests/gputest >/tmp/gputest.log >[2=1] && grep -s 'gputest: \[0 0\]' /tmp/gputest.log)
+	echo killdrv: restart drew
+if not
+	sed 's/^/killdrv: gputest: /' /tmp/gputest.log
+for(p in `{drvpids})
+	@{echo kill >/proc/$p/note} >[2]/dev/null
+sleep 2
+
+# the failure path, last: the screen is gone after it
+# a memory bar (an I/O bar is refused): the first one taken
+kn=`{wc -l </dev/kmesg}
+done=()
+for(b in `{awk '$1 ~ /^bar[0-9]+$/ {print substr($1, 4)}' '#G/0/ctl'}){
+	if(~ $#done 0 && @{echo onexit wait $b 0 0x1 0x2 100 >'#G/0/ctl'} >[2]/dev/null){
+		echo killdrv: stuck bar $b
+		done=1
+	}
+}
+sleep 1
+tail -n +`{echo $kn + 1 | hoc} /dev/kmesg | grep -e onexit -e 'did not stop' | sed 's/^/killdrv: stuck: /'
+if(echo bme on >'#G/0/ctl' >[2]/dev/null)
+	echo killdrv: bme on taken
+if not
+	echo killdrv: bme on refused
+echo killdrv: done

@@ -1,0 +1,411 @@
+.TH WLSYS 4
+.SH NAME
+wlsys \- Wayland server in wsys
+.SH SYNOPSIS
+.B wlsys
+[
+.B -d
+] [
+.B -s
+.I name
+] [
+.I cmd
+[
+.I arg ...
+]
+]
+.SH DESCRIPTION
+.I Wlsys
+lets programs that speak only Wayland run in windows of
+.IR wsys (4).
+It is a client of
+.I wsys
+(it must run where
+.B /mnt/wsys
+is
+.IR wsys 's)
+and a Wayland server: it listens on the socket
+.BI $XDG_RUNTIME_DIR/ name
+(an APE
+.B PF_UNIX
+socket, an entry in
+.BR /srv ;
+default
+.BI wayland- pid\fR,
+.B $XDG_RUNTIME_DIR
+.B /tmp
+when not set) and writes
+.B $WAYLAND_DISPLAY
+(and
+.BR $XDG_RUNTIME_DIR )
+to
+.BR /env ,
+so that programs started after it find it.
+With
+.IR cmd ,
+it runs it (a name without
+.B /
+from
+.BR /bin )
+and exits when it does, with its status.
+.B -d
+prints what it does on standard error.
+.PP
+It offers
+.BR wl_compositor ,
+.BR wl_shm ,
+.BR wl_seat ,
+.B wl_output
+(the screen of
+.IR wsys ),
+.BR xdg_wm_base ,
+.BR wl_subcompositor ,
+.B wl_data_device_manager
+(the clipboard),
+.B zxdg_decoration_manager_v1
+and, when there is a GPU
+.RB ( /shr/gpu/0 ,
+.IR gpu (4)),
+.B zwp_linux_dmabuf_v1
+(version 3),
+.B wp_viewporter
+and
+.BR wp_fractional_scale_v1 .
+.PP
+At
+.IR wsys 's
+scale (its theme's
+.BR scale ,
+read again when
+.I wsys
+says a window changed) clients are told it as each output's scale
+(rounded) and as a surface's preferred fractional scale.
+.I Wsys
+shows a buffer at its pixels, it does not resample: a window is as big as
+its buffer, and a surface's tree has its root's scale, the buffer's pixels
+per surface unit (the buffer over the viewport's destination, else
+.BR buffer_scale ,
+else 1).
+By it the pointer's place, a configure's size, positions, input regions
+and damage go between surface units and the window's pixels.
+A client that takes fractional scales draws at
+.IR wsys 's
+exactly; one that knows only the outputs' scale draws at it rounded; one
+that knows none draws at 1: sharp, but small.
+.PP
+Each xdg toplevel with a buffer is a window of
+.IR wsys ,
+made through its
+.B clone
+file, of the buffer's size and labelled with the toplevel's title;
+.I wsys
+draws its border and moves and sweeps it, as
+.IR rio (1)
+does: a size swept is sent to the client as a configure, and a buffer of
+another size, once the client has acknowledged it, resizes the window.
+Deleting the window in
+.I wsys
+sends the toplevel
+.B close
+(its
+.B askclose
+lets the client decide; a second Delete deletes it).
+A toplevel with a parent
+.RB ( set_parent )
+is a dialog of the parent's window
+.RB ( ctl 's
+.BR parent ):
+above it, moving, hidden and closed with it;
+.B xdg_wm_dialog_v1
+makes it modal
+.RB ( set_modal :
+the parent takes no clicks while it is shown), and a parent gone makes
+its dialogs windows of their own again.
+Maximizing, full screen and minimizing are not offered
+.RB ( wm_capabilities
+is empty).
+A toplevel's decoration is always the server's
+.RB ( zxdg_decoration_manager_v1 ):
+.I wsys
+draws the border.
+.PP
+A popup is a window of
+.I wsys
+too, without a border
+.RB ( ctl 's
+.BR popup ),
+where its positioner's rules put it by its parent: the anchor's point of
+the anchor rectangle, the side the gravity says, the offset; flipped when
+it would leave the screen and the rules let it (and it fits then), then
+slid onto the screen if they let it; repositioned when asked.
+One that grabs (a menu) takes the focus and the keyboard; one that does
+not (a tooltip) leaves them where they are.
+Once the focus settled, a popup that is not on the way to the window with
+the focus (it, or one of its popups), nor a tooltip of one that is, is
+done
+.RB ( popup_done ):
+a click on its parent, or anywhere else, closes a menu, as a grab's.
+Its parent's toplevel stays activated while a popup of it has the focus.
+.PP
+A window with subsurfaces is shown as
+.IR wsys 's
+layers
+.RB ( ctl 's
+.BR layers ):
+each surface's buffer goes to
+.I wsys
+as it is, a
+.B wl_shm
+one with its channels
+.RB ( a8r8g8b8
+for
+.BR argb8888 ),
+a dma-buf by its token, and one message gives the tree's order and each
+surface's place; a commit of the tree sends it again, marking the buffers
+that are new.
+.I Wsys
+composes them (on the GPU, a layer with alpha blended over those under it,
+or with
+.IR draw (3))
+and gives each buffer back when no frame shows it any more;
+.I wlsys
+copies no pixels.
+Synchronized subsurfaces (the default) keep their commits until the
+parent's; desynchronized ones show theirs at once.
+The pointer goes to the topmost surface of the tree under it whose input
+region has the point (while a button is held, to the one it was pressed
+on).
+.PP
+Drag and drop
+.RB ( start_drag ,
+while a button is held in the window it starts from:
+.I wsys
+keeps giving that window the mouse, also outside it) goes between Wayland
+windows: each motion's point on the screen finds the topmost window of
+.I wsys
+there
+.RI ( wsys 's
+.BR stack ),
+and if it is one of
+.IR wlsys 's
+the surface of its tree under the point, whose client's data devices get
+an offer of the source's types with enter, motion and leave.
+The button released over a target that accepted a type and an action
+(the target's preferred, else copy, move, ask) drops; else the source is
+cancelled.
+The target's
+.B receive
+goes to the source as it is (its pipe), its
+.B finish
+ends the drag.
+The icon is a window without a border and without the focus at the pointer.
+No drag reaches a Plan 9 program, nor comes from one.
+.PP
+The pointer's picture
+.RB ( wl_pointer.set_cursor )
+goes to the window's
+.B cursor
+file, as
+.IR cursor (3)'s
+16 by 16 pixels: a pixel at least half opaque is black if dark, else white;
+a bigger picture is shrunk by a whole factor (a dark pixel of a block
+first), its hot spot with it.
+.I Wsys
+shows it while the window has the focus.
+No surface hides the cursor; one of a dma-buf gives the default.
+.I Wlsys
+reads the picture from the segment's
+.B data
+file when it is committed and releases the buffer at once.
+.PP
+The clipboard is
+.IR wsys 's
+snarf buffer (the window's
+.B snarf
+file; rio's, when
+.I wsys
+runs in
+.IR rio ),
+shared with every Plan 9 program.
+A selection a client sets is read from it at once, as text
+.RB ( text/plain;charset=utf-8 ,
+.BR UTF8_STRING ,
+.BR text/plain ,
+.BR TEXT ,
+.BR STRING ,
+in that order), and written to the snarf buffer; the client that gets the
+keyboard is offered the snarf buffer as the selection, read when it asks,
+so that what a Plan 9 program snarfed since is what it pastes.
+A child process writes it to the client's pipe:
+.I wlsys
+never waits for a client to read.
+The snarf buffer outlives the client that set it, as
+.IR rio 's;
+a selection unset by the client whose selection it is empties it, if it
+still holds that text (a password manager clearing what it copied), not
+what another program snarfed since.
+.PP
+A
+.B wl_shm
+pool must be shared memory of APE
+.RB ( memfd_create ,
+.BR shm_open ):
+a segment of
+.IR segment (3)
+whose address the kernel chose.
+.I Wlsys
+keeps its descriptor (the segment stays named in
+.BR #g )
+and announces each buffer to the window with
+.I wsys 's
+.B buffer
+message, the segment by name, the buffer's offset in it:
+.I wsys
+attaches it and reads the pixels where the client wrote them;
+.I wlsys
+does not map the pool.
+The formats are
+.B argb8888
+and
+.B xrgb8888
+(the alpha is ignored).
+A commit presents the damaged part; the buffer is released when
+.I wsys
+lets go of it, and the frame callbacks are done 16 ms after (a
+display's pace: a client that draws on each callback draws some 60
+frames a second, not as fast as
+.I wsys
+copies).
+A window holds 32 buffers; when all are taken, the one presented
+longest ago that
+.I wsys
+has released is announced anew.
+.PP
+A dma-buf is a GPU buffer of
+.IR gpu (4),
+named by its export token: Mesa's Vulkan drivers make its descriptor
+the read end of a pipe that holds the line
+.BI dmabuf " token" ,
+which reaches
+.I wlsys
+as the same pipe (APE's
+.BR SCM_RIGHTS ).
+.I Wlsys
+reads the token (the same pipe again is known by its qid) and announces
+the buffer with
+.I wsys 's
+.B gpubuffer
+message;
+.I wsys
+imports the object and reads it where the processor sees it (host
+visible memory).
+One plane at offset 0, linear (or the driver's own modifier, taken as
+linear), formats
+.B argb8888
+and
+.BR xrgb8888 ;
+other buffers fail.
+There are no fences: the client's rendering must be done when it commits.
+Mesa's Vulkan drivers do so for a
+.B VK_KHR_wayland_surface
+swapchain
+.RI ( gpu (4)),
+and so does OpenGL on EGL's Wayland platform (zink, whose kopper presents
+through that swapchain; libwayland-egl's
+.BR wl_egl_window ).
+.PP
+When
+.I wsys
+goes (its files hung up, not a window deleted: a crash, or killed), the
+windows go with it, but the clients do not: their buffers are released
+and their frame callbacks done at a frame's pace, and once a second
+.I wlsys
+tries to mount the user's next
+.I wsys
+.RB ( /srv/wsys.$user ,
+which a new one posts) on
+.BR /mnt/wsys ;
+then it makes each toplevel's window again and shows its buffer there.
+So Wayland programs outlive their window system.
+For that
+.I wlsys
+starts a note group of its own, as
+.I wsys
+does: the window it was started in may be deleted, or its
+.I wsys
+exit (hanging up the window's processes), and
+.I wlsys
+and its programs stay; nor do they get the window's interrupt (Del).
+.PP
+The pointer is the mouse of
+.IR wsys
+in the window with the focus: buttons 1, 2 and 3 are
+.BR BTN_LEFT ,
+.B BTN_MIDDLE
+and
+.BR BTN_RIGHT ,
+the wheel is the vertical axis.
+The keyboard is the window's
+.B kbd
+file: the keys held in
+.IR kbd (3)'s
+.B k
+and
+.B K
+messages, their changes key events, Linux's codes of the keys' scancodes.
+The keymap (XKB) is made of
+.IR kbdfs 's
+tables
+.RB ( /dev/kbmap ,
+read at the start):
+each key's runes with shift, altgr and both are its levels; the keys whose
+runes are shift, control, alt, mod4 and altgr are the modifiers
+Shift, Control, Mod1, Mod4 and Mod5.
+So a client's xkbcommon gives the characters
+.I kbdfs
+would.
+When the tables change
+.RI ( kbmap (1)),
+the next window that gets the keyboard brings every client the new keymap
+.RI ( wlsys
+reads them again then).
+.SH EXAMPLES
+In a window of
+.IR wsys ,
+a Wayland program, and
+.I wlsys
+for it:
+.IP
+.EX
+wlsys weston-simple-shm
+.EE
+.PP
+A server for the programs started later in the window's name space:
+.IP
+.EX
+wlsys -s wayland-0 &
+.EE
+.SH SOURCE
+.B /sys/src/cmd/wlsys
+(C on APE with libwayland-server,
+.BR sys/src/build/wayland/build.sh )
+.SH SEE ALSO
+.IR wsys (4),
+.IR gpu (4),
+.IR segment (3),
+.IR kbd (3)
+.SH BUGS
+One output; a subsurface beyond its root surface is cut off (the window is
+the root's size), a window holds 32 buffers (its surfaces'); cursors of two colours and 16 by 16 pixels, as
+.IR cursor (3)'s;
+only text in the clipboard, no primary selection; drags only between
+Wayland windows; dma-bufs without feedback
+(version 4), modifiers or fences
+.RB ( linux-drm-syncobj :
+Mesa's Wayland WSI waits for its blit before it commits); transform is
+taken as normal; a viewport's source rectangle other than all of the
+buffer is not cropped (nothing is resampled); a client without a scale is
+not enlarged.
+Built by the system's build only with ../9front-gcc's compiler (build step
+.BR ape ),
+as Mesa, SDL3 and GLFW.

@@ -55,7 +55,11 @@ enum {
 
 typedef struct Buf Buf;
 struct Buf {
-	int	fd;
+	int	fd;		/* the descriptor the copy proc reads (its own copy) */
+	int	ref;		/* 9front-ng: descriptors of the program with this buffer */
+	int	type;		/* 9front-ng: the stream's identity (device, qid), when known */
+	unsigned int	dev;
+	unsigned long long	path;
 	int	pid;		/* of the copy proc */
 	int	closed;		/* the program closed fd */
 	int	eof;		/* after the data */
@@ -234,6 +238,60 @@ copyproc(void *v)
 	}
 }
 
+/*
+ * 9front-ng: the identity of fd's open file if it is a stream (a pipe, a
+ * network connection: not a mounted file, whose opens have offsets of their
+ * own).  Descriptors of one stream (dup: libwayland reads a client's
+ * connection through one and polls another) share one buffer: a copy proc
+ * reading for one of them takes the data of all.
+ */
+static int
+ident(int fd, int *type, unsigned int *dev, unsigned long long *path)
+{
+	Dir *d;
+
+	if((d = _dirfstat(fd)) == NULL)
+		return 0;
+	if(d->type == 'M' || (d->qid.type & 0x80)){	/* a mounted file; a directory */
+		free(d);
+		return 0;
+	}
+	*type = d->type;
+	*dev = d->dev;
+	*path = d->qid.path;
+	free(d);
+	return 1;
+}
+
+/*
+ * 9front-ng: descriptors made by dup of one another, a group each (0: none):
+ * one channel, whatever the file, so they share a buffer too (libwayland
+ * polls a dup of an fd source and hands its callback the original: wsys'
+ * event file, a mounted one, read through both)
+ */
+static int dupgrp[OPEN_MAX];
+static int dupgen;
+
+/* fd is closed: no longer in its group */
+void
+_dupclose(int fd)
+{
+	if(fd >= 0 && fd < OPEN_MAX)
+		dupgrp[fd] = 0;
+}
+
+/* called with lk: i and fd read the same: dups of one another, or one stream */
+static int
+samefile(int i, int fd, int type, unsigned int dev, unsigned long long path, int isstream)
+{
+	Buf *ob;
+
+	if(dupgrp[fd] != 0 && dupgrp[i] == dupgrp[fd])
+		return 1;
+	ob = (Buf *)_fdinfo[i].buf;
+	return isstream && ob != NULL && ob->type == type && ob->dev == dev && ob->path == path;
+}
+
 /* fd read through a copy proc from now on; -1 if it cannot be */
 int
 _startbuf(int fd)
@@ -259,12 +317,93 @@ _startbuf(int fd)
 		unlock(&lk);
 		return 0;
 	}
+	unlock(&lk);
+	{
+		int type, i, *others, nothers, isstream;
+		unsigned int dev;
+		unsigned long long path;
+		Buf *ob;
+
+		type = -1;
+		dev = 0;
+		path = 0;
+		isstream = ident(fd, &type, &dev, &path);
+		/* a buffer of the same file (a dup, the stream): this descriptor's too */
+		lock(&lk);
+		for(i = 0; i < OPEN_MAX; i++){
+			ob = (Buf *)_fdinfo[i].buf;
+			if(i != fd && (_fdinfo[i].flags&FD_BUFFERED) && ob != NULL && ob->ref > 0 && !ob->closed
+			&& samefile(i, fd, type, dev, path, isstream)){
+				f->buf = (Muxbuf *)ob;
+				f->flags |= FD_BUFFERED;
+				ob->ref++;
+				unlock(&lk);
+				return 0;
+			}
+		}
+		unlock(&lk);
+		/* other descriptors of it, not buffered yet: they share the new one
+		 * (on the heap: OPEN_MAX is 5000, a thread's stack is small) */
+		others = malloc(OPEN_MAX * sizeof others[0]);
+		if(others == NULL){
+			errno = ENOMEM;
+			return -1;
+		}
+		nothers = 0;
+		for(i = 0; i < OPEN_MAX; i++){
+			int t;
+			unsigned int dv;
+			unsigned long long pa;
+
+			if(i == fd || (_fdinfo[i].flags&(FD_ISOPEN|FD_BUFFERED|FD_BUFFEREDX)) != FD_ISOPEN)
+				continue;
+			if((dupgrp[fd] != 0 && dupgrp[i] == dupgrp[fd])
+			|| (isstream && ident(i, &t, &dv, &pa) && t == type && dv == dev && pa == path))
+				others[nothers++] = i;
+		}
+		if(isstream || nothers > 0){
+			lock(&lk);
+			if(f->flags&FD_BUFFERED){	/* another thread was quicker */
+				unlock(&lk);
+				free(others);
+				return 0;
+			}
+			b = calloc(1, sizeof *b);
+			if(b == NULL){
+				unlock(&lk);
+				free(others);
+				errno = ENOMEM;
+				return -1;
+			}
+			b->type = isstream ? type : -1;
+			b->dev = dev;
+			b->path = path;
+			b->ref = 1;
+			for(i = 0; i < nothers; i++)
+				if((_fdinfo[others[i]].flags&(FD_ISOPEN|FD_BUFFERED)) == FD_ISOPEN){
+					_fdinfo[others[i]].buf = (Muxbuf *)b;
+					_fdinfo[others[i]].flags |= FD_BUFFERED;
+					b->ref++;
+				}
+			free(others);
+			goto made;
+		}
+		free(others);
+	}
+	lock(&lk);
+	if(f->flags&FD_BUFFERED){
+		unlock(&lk);
+		return 0;
+	}
 	b = calloc(1, sizeof *b);
 	if(b == NULL){
 		unlock(&lk);
 		errno = ENOMEM;
 		return -1;
 	}
+	b->ref = 1;
+	b->type = -1;
+made:
 	b->fd = fd;
 	f->buf = (Muxbuf *)b;
 	f->flags |= FD_BUFFERED;
@@ -275,9 +414,14 @@ _startbuf(int fd)
 	unlock(&lk);
 	pid = rforkproc(RFMEM_|RFFDG_|RFNOWAIT_, copyproc, b);
 	if(pid < 0){
+		int i;
+
 		lock(&lk);
-		f->flags &= ~FD_BUFFERED;
-		f->buf = NULL;
+		for(i = 0; i < OPEN_MAX; i++)
+			if((Buf *)_fdinfo[i].buf == b){
+				_fdinfo[i].flags &= ~FD_BUFFERED;
+				_fdinfo[i].buf = NULL;
+			}
 		unlock(&lk);
 		free(b);
 		_syserrno();
@@ -287,7 +431,7 @@ _startbuf(int fd)
 	return 0;
 }
 
-/* fd is closed: its copy proc goes */
+/* fd is closed: its copy proc goes, after the last descriptor sharing it */
 void
 _closebuf(int fd)
 {
@@ -298,6 +442,12 @@ _closebuf(int fd)
 	if(b == NULL)
 		return;
 	lock(&lk);
+	if(--b->ref > 0){
+		/* 9front-ng: other descriptors of the stream read through it still */
+		unlock(&lk);
+		_fdinfo[fd].buf = NULL;
+		return;
+	}
 	b->closed = 1;
 	done = b->eof;
 	if(b->roomwait){
@@ -324,7 +474,7 @@ _readbuf(int fd, void *addr, int nwant, int noblock)
 	int n;
 
 	b = (Buf *)_fdinfo[fd].buf;
-	if(b == NULL || b->fd != fd){
+	if(b == NULL){	/* 9front-ng: b->fd may be another descriptor of the stream */
 		errno = EBADF;
 		return -1;
 	}
@@ -522,4 +672,29 @@ select(int nfds, fd_set *rfds, fd_set *wfds, fd_set *efds, struct timeval *tv)
 			FD_SET(p[i].fd, efds), c++;
 	}
 	return c;
+}
+
+/*
+ * 9front-ng: dup (fcntl F_DUPFD): to is in from's group; when from is
+ * buffered, to reads through the same buffer (was EGREG)
+ */
+int
+_dupbuf(int from, int to)
+{
+	Buf *b;
+
+	lock(&lk);
+	if(from >= 0 && from < OPEN_MAX && to >= 0 && to < OPEN_MAX){
+		if(dupgrp[from] == 0)
+			dupgrp[from] = ++dupgen;
+		dupgrp[to] = dupgrp[from];
+	}
+	b = (Buf *)_fdinfo[from].buf;
+	if((_fdinfo[from].flags&FD_BUFFERED) && b != NULL){
+		b->ref++;
+		_fdinfo[to].buf = (Muxbuf *)b;
+		_fdinfo[to].flags |= FD_BUFFERED;
+	}
+	unlock(&lk);
+	return 0;
 }

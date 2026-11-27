@@ -20,6 +20,8 @@ close(int d)
 				_closebuf(d);
 			f->flags &= ~FD_BUFFERED;
 		}
+		_dupclose(d);	/* 9front-ng: out of its group of dups (gnu/buf.c) */
+		_fdinfo[d].gen++;
 		_fdinfo[d].flags = 0;
 		_fdinfo[d].oflags = 0;
 		if(_fdinfo[d].name){
@@ -31,4 +33,17 @@ close(int d)
 			_syserrno();
 	}
 	return n;
+}
+
+/*
+ * 9space: descriptor d's generation: it changes when d is closed (also
+ * by dup2 onto it), so a library that knows what d was (Mesa's
+ * drm9.c: a GPU context) can tell it is still that without a stat
+ */
+unsigned long
+__fdgen(int d)
+{
+	if(d < 0 || d >= OPEN_MAX)
+		return 0;
+	return _fdinfo[d].gen;
 }

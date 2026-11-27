@@ -1,0 +1,7 @@
+# files Linux's Makefiles build that we leave out (census.py, the build):
+# helpers nothing we build calls; GPL, so we would have to write them
+drivers/gpu/drm/drm_simple_kms_helper.c	simple display pipes: for small drivers, not i915
+drivers/gpu/drm/drm_bridge_connector.c	bridge connectors: for SoC display bridges
+drivers/gpu/drm/drm_format_helper.c	format conversions for small drivers and the panic screen: nothing we build calls them
+drivers/gpu/drm/drm_vblank_helper.c	vblank timers for virtual displays: nothing we build uses them (drm_vblank_helper.h is GPL)
+drivers/gpu/drm/drm_bridge_helper.c	bridge resets for SoC display bridges: nothing we build calls it

@@ -1,0 +1,6567 @@
+// SPDX-License-Identifier: MIT
+//
+// wsys: the window system of ../9front-ui (PLAN.md stages 3 and 4), a prototype
+// with the processor backend. A 9P file server (wsys(4)), rio(4)'s files and
+// attach names included, so that draw(3) programs and window(1) run in it:
+//
+//	attach "" or none	the tree below
+//	attach new [-r x0 y0 x1 y1] [-dx n] [-dy n] [-pid n] [-cd dir]
+//				a new window; the tree is its directory
+//	attach n		window n's directory
+//
+//	/mnt/wsys/screen	read: an image(6) of where wsys draws (all of the
+//				screen, or inside its rio window), as rio's
+//	/mnt/wsys/wctl		write: new [options] [cmd] (rio(4))
+//	/mnt/wsys/stack		read: the windows bottom to top, a line each:
+//				id x0 y0 x1 y1 border hidden (the frame, border and all)
+//	/mnt/wsys/clone		open: a new window; the fid is then its ctl
+//	/mnt/wsys/N/		a window: ctl, event (wsys' own), and rio(4)'s
+//				cons consctl cursor kbd label mouse screen snarf
+//				text wctl wdir window winid winname
+//	N/ctl			read: id x0 y0 x1 y1 w h base size focus (ten fields:
+//				Mesa's plan9 WSI knows a window of wsys by them)
+//				write: rect x0 y0 x1 y1 | buffer n seg w h stride [off [chan]] |
+//				gpubuffer n token w h stride [chan] | unbuffer n |
+//				present n [x0 y0 x1 y1] | layers [+]n x y ... | top |
+//				label text | popup [grab] | delete
+//	N/event			read (blocks): lines m x y buttons msec | k hex-rune |
+//				r w h | f 0|1 | b n
+//
+// A window is a window (layer) of draw(3) on wsys's screen, border and all,
+// named as winname gives: a draw(3) program draws into it itself, as in rio.
+// A client of wsys's own protocol keeps its pixels in global segments of
+// segment(3) it makes, in the range of addresses ctl gives each window (wsys
+// attaches them at the same address, so they cannot collide in it) or where
+// the kernel put them (segment(3)'s "va 0 len": unique anyway); buffer n
+// announces one (x8r8g8b8, w x h, stride bytes a line, off bytes into the
+// segment; several buffers may share one); present n copies a
+// rectangle of it into the window and answers with the event b n: buffer n
+// is free again (a swap chain of the client's).
+//
+// Input: /dev/mouse and /dev/kbd (else /dev/cons, raw) to the focused window:
+// its mouse file gets the mouse while it is over the window or a button is
+// held (r first after a change of the window), its kbd file the keyboard's
+// messages when open, else cons the runes (a line at a time unless raw; Del
+// interrupts the window's note group). A button pressed on another window
+// gives it the focus and raises it; on a border, as in rio, button 1 (or 2)
+// sweeps it to a new size (the corner within 20 pixels of it, else the edge; an
+// outline until the button comes up), button 3 moves the window.
+// A window made by new is a text window, as rio's: while no program has its
+// mouse open, wsys shows the end of what was written to its cons (and text) and
+// the line being typed, in a font of font(6); the wheel scrolls it. Button 1
+// selects text; the selection is where typing goes (an empty one: the tick), as
+// rio's: what is typed replaces it (snarfed), anywhere in the window; only what
+// is after the output point (the end of what the program wrote) is the program's
+// to read, line by line; ^H, ^U, ^W erase before the tick (not past the output
+// point), left and right move it, ^A, ^E to the line's start and end, ^B to the
+// output point, Del leaves what was typed unread; the text file is all of it.
+// Button 2's menu cuts, pastes, snarfs (the snarf buffer is
+// /dev/snarf's, rio's when wsys runs in rio) and sends. Button 3's menu, on the
+// background or a text window, as rio's: New (sweep, a shell in it), Resize
+// (sweep from the window), Move, Delete, Hide, and the hidden windows to bring
+// back; a cross for the cursor while a command waits.
+// A window lives while its files are open (or the clone fid that made it).
+// Processes wsys starts (-i, wctl's new) get note groups of their own.
+//
+// usage: wsys [-dgkpOxz] [-f font] [-t theme] [-S scale] [-s srvname] [-i cmd]
+//	-g	the GPU composes the screen (the default, where it can): why not if it cannot,
+//		and what it does
+//	-p	the processor composes the screen
+//	-d	devdraw is wsys' own (draw/ in its tree, drawcore): the draw(3) programs in
+//		its windows draw through it, not the kernel's (the default; -d: or an error)
+//	-k	the kernel's devdraw (the windows are its windows, as in rio)
+//	-f	the font of text windows (default the theme's, $font, else /lib/font/bit/vga/unicode.font)
+//	-t	the theme, a file of lines "name value" (theme.rs; /lib/theme/classic, the
+//		default, and modern); the file theme (root and windows: /dev/theme) has it,
+//		and lines written there change it at once
+//	-S	the scale (1 = 96 dpi; 1.5, 2 ...: what is drawn as big as at that many
+//		times 96 dpi), not the theme's; default found (the monitor's EDID)
+//	-s	post as /srv/srvname (default wsys.$user.$pid, and wsys.$user: the newest
+//		wsys of the user, where programs that outlive one find the next)
+//	-i	run cmd (rc) in a name space with /mnt/wsys mounted, $wsys set
+//	-x	exit when cmd exits
+//	-O	no overlay plane: every window's pixels in wsys' screen (tests read them back)
+//	-z	what devdraw (its own) drew goes to the screen compressed ('Y', image(6)'s
+//		compression; the default where /dev/draw is the terminal's of a cpu
+//		session, /mnt/term's: drawterm's)
+// WSYSDEBUG=compress: at the end, the bytes of pixels copied and of the messages
+// WSYSDEBUG=damage: every 120 frames of -g, the windows' pixels copied a frame
+// (a client's present n x0 y0 x1 y1, Mesa's VK_KHR_incremental_present: only
+// what changed is composed again, in each of the swapchain's images)
+// WSYSDEBUG=wctl: each message to a wctl file, with the window's number
+// WSYSDEBUG=ctl: each message to a window's ctl that wsys refuses, and why
+
+#[cfg(feature = "gpu")]
+mod comp;
+mod sup;
+use sup::{Job, Next, Sup};
+// without the feature (no Vulkan linked) -g says so
+#[cfg(not(feature = "gpu"))]
+mod comp {
+    pub type Key = (u32, u32);
+    #[derive(Clone, PartialEq)]
+    pub struct Shown {
+        pub key: Key,
+        pub at: (i32, i32),
+        pub rects: Vec<crate::draw::Rect>,
+        pub blend: bool,
+        pub damage: Option<crate::draw::Rect>,
+    }
+    #[allow(dead_code)] // made by the GPU's comp only; main matches on it
+    pub enum Done {
+        Composed(Vec<Key>),
+        Failed(String),
+    }
+    pub struct Comp;
+    impl Comp {
+        pub fn start(_: Box<dyn Fn(Done) + Send>, _: bool) -> Result<Comp, String> {
+            Err("built without the GPU (feature gpu)".into())
+        }
+        pub fn import(&self, _: Key, _: &str, _: i32, _: i32, _: usize) -> Result<(), String> {
+            Err("no GPU".into())
+        }
+        pub fn forget(&self, _: Key) {}
+        pub fn scene(&self, _: Vec<Shown>) -> bool {
+            false
+        }
+        pub fn snapshot(&self, _: crate::draw::Rect) -> Result<Vec<u8>, String> {
+            Err("no GPU".into())
+        }
+        pub fn damage(&self, _: crate::draw::Rect) {}
+    }
+    pub fn corescreen(_: &str, _: usize) {}
+}
+mod draw;
+mod drawcore;
+mod font;
+mod gpu;
+mod p9;
+use desk::theme;
+
+use draw::{Display, Rect, XRGB32};
+use ninep::{Dir, Qid, R, T};
+use p9::{Fd, OREAD, ORDWR, OWRITE, Seg};
+use std::collections::{HashMap, VecDeque};
+use std::rc::{Rc, Weak};
+use std::io::Write;
+use std::sync::mpsc;
+use std::thread;
+
+const BORDER: i32 = 4;
+// a title bar's buttons (the theme's title 1), right to left from its end
+const TITLEOPS: [(&str, TitleOp); 3] = [("x", TitleOp::Delete), ("max", TitleOp::Max), ("min", TitleOp::Hide)];
+const TITLEPAD: i32 = 6; // each side of a button's text: what a click may hit is wider
+
+/// a window's frame around its content r: the border b, and a title bar t high
+/// between the top border and the content
+fn outer(r: Rect, b: i32, t: i32) -> Rect {
+    Rect::new(r.x0 - b, r.y0 - b - t, r.x1 + b, r.y1 + b)
+}
+
+/// the content in frame f
+fn inner(f: Rect, b: i32, t: i32) -> Rect {
+    Rect::new(f.x0 + b, f.y0 + b + t, f.x1 - b, f.y1 - b)
+}
+// the windows' ranges for their clients' segments: slot i is SEGBASE + i*SEGSIZE
+// (p9::window_region; slots are given again when free)
+const SEGBASE: usize = p9::window_region().0;
+const SEGSIZE: usize = p9::window_region().1;
+const NSLOT: usize = p9::window_region().2;
+const MAXBUF: u32 = 32; // a window's buffers (a Wayland window's surfaces, two or three each)
+const MINSIZE: i32 = 16;
+// devdraw's screen in a window (-d's drawcore): the window may grow to this
+const MAXSCREEN: (i32, i32) = (4096, 2304); // devdraw's segment holds this much from the start (Core::resize makes a bigger one)
+const CORNER: i32 = 20; // on the border this near a corner grabs both its edges
+const MAXEVENTS: usize = 512;
+const MAXMOUSE: usize = 32;
+const MAXTEXT: usize = 1 << 20;
+const TEXTSHOWN: usize = 64 << 10; // of a text window's text, laid out to show its end
+// a text window as rio's: the scroll bar inside the border, then a gap, then the text
+const SCROLLWID: i32 = 12;
+const SCROLLGAP: i32 = 4;
+const MENUBORDER: i32 = 2; // a menu's frame
+const MENUPAD: i32 = 8; // left of a program's menu's items, each side of wsys' own
+const DEFFONT: &str = "/lib/font/bit/vga/unicode.font";
+const TTFFONT: &str = "Go-Mono.ttf"; // at a scale other than 1, from truetypefs(4):
+const TTFSIZE: i32 = 13; // as high as vga's (16) at scale 1
+
+enum Ev {
+    Tick, // every 50 ms: a scroll button held repeats
+    Msg(Vec<u8>),
+    Hangup,
+    Mouse { x: i32, y: i32, b: i32, ms: u32 },
+    Resized, // the mouse's r: the window wsys is in was made anew (moved, resized)
+    Kbd(Vec<Vec<u8>>), // kbd(3) messages: k, K or c and runes
+    ChildExit(String),
+    WinExit(u32, String), // the process wsys started in a window, its wait message
+    HelperExit(u32, String), // a helper's (wctl helper), its wait message
+    Again(Job), // a supervised program's pause is over: start it again
+    // the overlay's thread did a request: a present (its write's tag, unless off) or off
+    Overlay { win: u32, b: u32, tag: Option<u16>, count: u32, err: Option<String> },
+    // the GPU's thread (-g): a frame on its way, or it is gone
+    Comp(comp::Done),
+    // a new GPU's thread after a failure (compagain): started, or why not
+    CompStarted(Result<comp::Comp, String>),
+}
+
+/// a request for the overlay's thread: its own fid of wsys' GPU context, as the
+/// display's update waits for the vblank (wsys goes on meanwhile)
+struct OvJob {
+    win: u32,
+    b: u32,
+    tag: Option<u16>, // a present's write, answered when it is done; None: off
+    count: u32,
+    line: String,
+}
+
+/// a window's files
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum F {
+    Ctl,
+    Event,
+    Cons,
+    Consctl,
+    Cursor,
+    Kbd,
+    Label,
+    Mouse,
+    Snarf,
+    Text,
+    Wctl,
+    Wdir,
+    Winid,
+    Winname,
+    Window,
+    Screen,
+    Theme,
+    Menu,
+    Dpi,
+    Kbdtap,
+}
+
+const WINFILES: [(F, &str, u32); 20] = [
+    (F::Ctl, "ctl", 0o666),
+    (F::Event, "event", 0o444),
+    (F::Cons, "cons", 0o666),
+    (F::Consctl, "consctl", 0o222),
+    (F::Cursor, "cursor", 0o666),
+    (F::Kbd, "kbd", 0o666),
+    (F::Label, "label", 0o666),
+    (F::Mouse, "mouse", 0o666),
+    (F::Snarf, "snarf", 0o666),
+    (F::Text, "text", 0o666),
+    (F::Wctl, "wctl", 0o666),
+    (F::Wdir, "wdir", 0o666),
+    (F::Winid, "winid", 0o444),
+    (F::Winname, "winname", 0o444),
+    (F::Window, "window", 0o444),
+    (F::Screen, "screen", 0o444),
+    (F::Theme, "theme", 0o666),
+    (F::Menu, "menu", 0o666),
+    (F::Kbdtap, "kbdtap", 0o660),
+    (F::Dpi, "dpi", 0o444),
+];
+
+/// the files of a client of wsys' devdraw, as #i's
+const DRAWFILES: [(u64, &str, u32); 4] = [
+    (drawcore::QCOLORMAP, "colormap", 0o600),
+    (drawcore::QCTL, "ctl", 0o600),
+    (drawcore::QDATA, "data", 0o600),
+    (drawcore::QREFRESH, "refresh", 0o400),
+];
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Kind {
+    Root,
+    Screen,
+    Clone,
+    RootWctl,
+    Stack,
+    Theme, // the theme: its text; lines written change it (theme.rs)
+    Kbdtap, // the keyboard's tap (rio(4)'s kbdtap), as each window's kbdtap
+    Wsys,  // a window's wsys/: all the windows (rio's /dev/wsys: winwatch)
+    WinDir(u32),
+    WinClone(u32), // a window's clone: a window of the same client, that one its parent
+    File(u32, F),
+    // wsys' own devdraw (-d): draw/, draw/new, draw/n/ (a client in devdraw's
+    // slot n), its files (devdraw's types: colormap, ctl, data, refresh)
+    RootWinname, // -d: the screen's name in wsys' devdraw
+    Draw,
+    DrawNew,
+    DrawCl(u32),
+    DrawF(u32, u64),
+}
+
+struct FidState {
+    kind: Kind,
+    open: bool,
+    dirpos: usize,
+    win: Option<u32>, // the window it holds (attached to it, or made through clone)
+    owns: bool,       // the clone fid that made the window: clunked, the window goes
+    raw: bool,        // a consctl that turned raw mode on
+    seen: u64,        // wctl: the window's state last read (0: none yet)
+    snap: Option<Vec<u8>>, // screen, window: the image (6) as it was at the first read
+    chan: Option<drawcore::Chan>, // a file of wsys' devdraw, open
+    // an event file open: its own queue, every reader gets every event (a
+    // program's window toolkit and its Vulkan WSI read the same window's)
+    evq: Option<VecDeque<String>>,
+    tap: (bool, bool), // a kbdtap open: reading, writing (the tap's, let go at the clunk)
+}
+
+/// the keyboard's tap (rio(4)'s kbdtap): while a program reads it, the
+/// keyboard's messages go to it instead of the current window (after
+/// wsys' own Mod4 keys), each after a change of the window "z" and its
+/// number; what it writes back goes to the current window if that is still
+/// the one it was (else it is dropped). One reader and one writer at a time;
+/// a reader 32 messages behind is passed by.
+#[derive(Default)]
+struct Tap {
+    reader: bool,
+    writer: bool,
+    q: VecDeque<Vec<u8>>,  // to the reader, each with its NUL
+    cur: Option<u32>,      // the window the keys went to last
+    told: bool,            // the reader has had a z since it opened
+}
+const TAPMAX: usize = 32;
+
+/// how many lines the text moved up between two drawings of a window (old's
+/// rows against new's): the most rows that stay, at least half the window's,
+/// else 0 (draw each changed row where it is)
+fn scrolledby(old: &[RowSig], new: &[RowSig]) -> usize {
+    let n = old.len().min(new.len());
+    if old[..n] == new[..n] {
+        return 0; // the same lines where they were (repeated lines would match moved too)
+    }
+    (1..n).find(|&k| n - k >= n / 2 && old[k..n] == new[..n - k]).unwrap_or(0)
+}
+
+/// A client's buffer, a segment of wsys's (every thread has it: std's threads
+/// are procs of one memory image, segattach(2)). The main loop owns it (Rc).
+struct Buf {
+    mem: Mem,
+    w: i32,
+    h: i32,
+    stride: usize,
+    comp: bool, // imported by the GPU's thread too (-g): it composes it
+    alpha: bool, // a8r8g8b8 (premultiplied): a layer over others is blended
+    token: Option<String>, // gpubuffer's: imported again by a GPU's thread started anew
+}
+
+/// a buffer's channels, the last word of buffer and gpubuffer: x8r8g8b8 (the
+/// default, opaque) or a8r8g8b8 (premultiplied alpha)
+fn bufalpha(w: Option<&&str>) -> Result<bool, String> {
+    match w.copied() {
+        None | Some("x8r8g8b8") => Ok(false),
+        Some("a8r8g8b8") => Ok(true),
+        Some(c) => Err(format!("channels {c}: x8r8g8b8 or a8r8g8b8")),
+    }
+}
+
+/// where a buffer's pixels are: a segment of the client's, or a GPU buffer it
+/// exported (gpu(4)), imported by wsys
+enum Mem {
+    Seg(Rc<Seg>, usize), // and where in it the buffer begins
+    Gpu(gpu::GpuMem),
+}
+
+impl Mem {
+    /// rows y0 to y1 of the pixels, stride bytes a row, and the row the slice
+    /// begins with: a GPU buffer's are read once into wsys's memory first (the
+    /// device's memory can be slow to read twice, write-combined)
+    fn rows(&mut self, y0: i32, y1: i32, stride: usize) -> (&[u8], i32) {
+        match self {
+            Mem::Seg(s, off) => (&s.bytes()[*off..], 0),
+            Mem::Gpu(g) => (g.read(y0 as usize * stride, (y1 - y0) as usize * stride), y0),
+        }
+    }
+}
+
+/// a buffer of a window's layers (layers: a Wayland window with subsurfaces),
+/// where its top left corner is in the window
+#[derive(Clone, Copy, PartialEq)]
+struct Layer {
+    b: u32,
+    x: i32,
+    y: i32,
+}
+
+struct Win {
+    r: Rect, // content, in screen coordinates
+    border: i32, // around it: BORDER, none for a popup
+    title: i32,  // its title bar's height (the theme's title 1), none for a popup
+    unmax: Option<Rect>, // maximized from this frame (the title bar's max, a double click)
+    bar: bool,           // wctl's bar: on top of the others, the mouse without the focus (wbar)
+    menuout: Option<i32>, // its menu's item chosen (-1: none), for a read of menu
+    full: Option<(Rect, i32, i32)>, // wctl's fullscreen: the frame, border and title bar it had
+    scale: f64, // its monitor's (wsys' dpi file, its border and title bar, a text window's font)
+    home: Option<(String, Rect)>, // its monitor went: that one's name and the frame on it, relative to its corner (back there when it comes again)
+    mapped: bool, // made by clone: off the screen (hidden) until its first present
+    nofocus: bool, // a popup that leaves the focus where it is (a tooltip)
+    parent: Option<u32>, // a dialog's or popup's window: it moves, stacks, hides and goes with that one
+    modal: bool,         // ctl modal: its parent takes no clicks while it is shown (they bring it up)
+    askclose: bool,      // ctl askclose: Delete (title bar, menu) sends close, the client deletes it
+    asked: bool,         // close sent: the next Delete deletes it (a client that hangs or will not)
+    hiddenby: bool,      // hidden with its parent, shown again with it
+    slot: usize,
+    bufs: HashMap<u32, Buf>,
+    img: u32,   // what a client of buffers presented, x8r8g8b8, the window's size
+    stale: bool, // presented into the layer since: img is behind it (freshen)
+    layer: u32, // its window on wsys's screen in draw(3), border and all (as rio's: what winname names)
+    tlayer: Option<u32>, // its title bar's, above it: draw(3) programs inset winname's by the border only
+    name: String, // the layer's public name (winname)
+    refs: u32,    // fids holding the window
+    pinned: bool, // made by wctl's new: kept until its process attached or ended
+    pid: Option<u32>, // the note group for interrupt and hangup
+    sup: Option<Sup>, // window -restart: its program kept going
+    label: String,
+    wdir: String,
+    text: String,     // what was written to cons and text, and the lines typed
+    partial: Vec<u8>, // the start of a rune whose rest is in the next write
+    events: VecDeque<String>,
+    // the files of rio(4)
+    raw: bool,
+    line: String,        // cons, cooked: the line being typed
+    cons: VecDeque<u8>,  // cons: what reads get
+    eof: bool,           // cons: ^D on an empty line, a read of 0
+    kbd: VecDeque<Vec<u8>>, // kbd: messages, each with its null byte
+    kbdopen: u32,
+    mouseopen: u32,
+    mouse: VecDeque<(i32, i32, i32, u32)>,
+    resized: bool, // the next mouse read is an r message
+    cursor: Vec<u8>, // cursor(3)'s 72 bytes, or none: the default arrow
+    state: u64,      // bumped when wctl's answer changes
+    textwin: bool,   // made by new: shows its text while no program has its mouse
+    scroll: usize,   // a text window: lines back from the end
+    scrolling: bool, // output scrolls to the end even when looking back (button 2's scroll, as rio's)
+    scrollr: Rect,   // its scroll bar
+    shown: (usize, usize, usize), // lines laid out, the first shown, how many fit
+    sel: (usize, usize), // the selection: byte offsets in text, then line
+    rows: Vec<Row>,      // where the runes shown are
+    drawn: Option<TextDrawn>, // what drawtext drew last (None: draw it all)
+    hold: bool,          // rio's hold mode: lines typed wait (Esc toggles it)
+    want: Option<usize>, // drawtext scrolls so that this offset is shown (look)
+    hidden: bool,        // off the screen (button 3's Hide), listed in its menu
+    lastb: Option<u32>,  // the buffer presented last (the overlay's: copied when it goes off)
+    inside: bool,        // the mouse was over it, last seen
+    nooverlay: bool,     // the driver refused it the overlay: copies until it moves or resizes
+    ovsent: Option<bool>, // the last "overlay 0|1" event: whether it may go on the plane
+    // -g: the buffer presented last, composed by the GPU, and the one a frame on
+    // its way shows (held: the client gets it back when another is shown)
+    shownb: Option<u32>,
+    held: Option<u32>,
+    // what its presents since the GPU's thread was last told changed in it (the
+    // buffer's coordinates): none, Some(None) all of it, Some(Some(r)) r
+    cdamage: Option<Option<Rect>>,
+    // layers: what the window shows, bottom to top (none: a buffer presented);
+    // its buffers stay wsys' while listed. lgpu: composed by the GPU, lheld the
+    // buffers of the last frame on the display, lqueued those listed with new
+    // content since (each gets its s when a frame shows it)
+    layers: Vec<Layer>,
+    lgpu: bool,
+    lheld: Vec<u32>,
+    lqueued: Vec<u32>,
+    scratch: Option<(u32, i32, i32)>, // an a8r8g8b8 image of draw(3) to blend a layer through
+    // the GPU buffers presented since the one held, oldest first (shownb last): a
+    // frame with one of them on the display gives back the ones before it
+    queued: Vec<u32>,
+    // on the overlay plane: the buffer shown there (variant b: the display reads
+    // the client's own), back to the client when another one is shown
+    ovheld: Option<u32>,
+}
+
+impl Win {
+    /// the window on the screen, border and all
+    fn frame(&self) -> Rect {
+        outer(self.r, self.border, self.title)
+    }
+
+    /// its title bar (empty: none): above the border
+    fn titlebar(&self) -> Rect {
+        let f = self.frame();
+        Rect::new(f.x0, f.y0, f.x1, f.y0 + self.title)
+    }
+
+    /// its layer's rectangle: the content and the border
+    fn lrect(&self) -> Rect {
+        self.r.inset(-self.border)
+    }
+
+    /// its layers, the title bar's last
+    fn layers(&self) -> Vec<u32> {
+        std::iter::once(self.layer).chain(self.tlayer).collect()
+    }
+}
+
+/// a line of a text window as drawn: each rune's x, width and offset, and the
+/// offset after the last
+struct Row {
+    y: i32,
+    runes: Vec<(i32, i32, usize)>,
+    end: usize,
+}
+
+/// a row drawtext drew: its runes (rune, x, width, selected), the rest of the
+/// line selected, the tick's x
+type RowSig = (Vec<(char, i32, i32, bool)>, bool, Option<i32>);
+
+/// what drawtext drew in a text window: only rows that differ are drawn again
+/// (each upload to a display over the network costs: drawterm); the key (the
+/// window's rectangle, layer, ink, the font's height, the tab) the same, else all
+struct TextDrawn {
+    key: (Rect, u32, u32, i32, i32),
+    rows: Vec<RowSig>,
+    thumb: Rect, // the scroll bar's white part
+}
+
+/// a menu while its button is held
+struct Menu {
+    win: Option<u32>, // button 2's: the text window
+    button: i32,
+    items: Vec<String>,
+    hidden: Vec<u32>, // button 3's: the hidden windows after its commands
+    r: Rect,
+    layer: u32,
+    cur: Option<usize>,
+    client: Option<Waiting>, // a program's, through its window's menu file
+    sc: f64, // the scale of the monitor it opened on: its font and sizes
+}
+
+/// a program's menu: where its buttons are
+#[derive(Clone, Copy, PartialEq)]
+enum Waiting {
+    Held { first: bool }, // a button is down (first: the one down when it opened)
+    Open,                 // none: the next press and its release choose
+}
+
+const MENU2: &[&str] = &["cut", "paste", "snarf", "plumb", "look", "send"];
+const MENU3: &[&str] = &["New", "Resize", "Move", "Delete", "Hide"];
+const MENURESTART: u32 = 1 << 31; // menu 3's window entry: restart its program (Sup), not bring it back
+
+/// a command of button 3's menu, waiting for button 3 on the screen
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Op3 {
+    New,
+    Resize,
+    Move,
+    Delete,
+    Hide,
+}
+
+/// what of r is not in o: up to four rectangles (above, below, left, right of it)
+fn subtract(r: &Rect, o: &Rect) -> Vec<Rect> {
+    let i = r.clip(o);
+    if i.empty() {
+        return vec![*r];
+    }
+    [
+        Rect::new(r.x0, r.y0, r.x1, i.y0),
+        Rect::new(r.x0, i.y1, r.x1, r.y1),
+        Rect::new(r.x0, i.y0, i.x0, i.y1),
+        Rect::new(i.x1, i.y0, r.x1, i.y1),
+    ]
+    .into_iter()
+    .filter(|x| !x.empty())
+    .collect()
+}
+
+/// cursor(3) while a command waits: a cross (offset, clr, set: 16x16 bits)
+fn crosscursor() -> Vec<u8> {
+    let mut c = vec![];
+    c.extend_from_slice(&(-7i32).to_le_bytes());
+    c.extend_from_slice(&(-7i32).to_le_bytes());
+    let (mut clr, mut set) = ([0u8; 32], [0u8; 32]);
+    for row in 0..16usize {
+        // a cross two pixels thick through 7 and 8, white around it
+        let (s, w): (u16, u16) = if row == 7 || row == 8 {
+            (0x7FFE, 0xFFFF)
+        } else if row >= 1 && row <= 14 {
+            (0x0180, 0x03C0)
+        } else {
+            (0, 0x03C0)
+        };
+        set[2 * row] = (s >> 8) as u8;
+        set[2 * row + 1] = s as u8;
+        clr[2 * row] = (w >> 8) as u8;
+        clr[2 * row + 1] = w as u8;
+    }
+    c.extend_from_slice(&clr);
+    c.extend_from_slice(&set);
+    c
+}
+
+/// rio's cursors of a window's border, by whichcorner: offset, clr, set.
+/// The bits are 9front's sys/src/cmd/rio/data.c (tl, t, tr, l, r, bl, b, br):
+/// Copyright © 2021 Plan 9 Foundation, Copyright © 9front authors; MIT
+/// license, /lib/legal/mit
+const CORNERS: [(i32, i32, [u8; 32], [u8; 32]); 9] = [
+    (-4, -4,
+     [0xfe, 0x00, 0x82, 0x00, 0x8c, 0x00, 0x87, 0xff, 0xa0, 0x01, 0xb0, 0x01, 0xd0, 0x01, 0x11, 0xff,
+      0x11, 0x00, 0x11, 0x00, 0x11, 0x00, 0x11, 0x00, 0x11, 0x00, 0x11, 0x00, 0x11, 0x00, 0x1f, 0x00],
+     [0x00, 0x00, 0x7c, 0x00, 0x70, 0x00, 0x78, 0x00, 0x5f, 0xfe, 0x4f, 0xfe, 0x0f, 0xfe, 0x0e, 0x00,
+      0x0e, 0x00, 0x0e, 0x00, 0x0e, 0x00, 0x0e, 0x00, 0x0e, 0x00, 0x0e, 0x00, 0x0e, 0x00, 0x00, 0x00]),
+    (-7, -8,
+     [0x00, 0x00, 0x00, 0x00, 0x03, 0x80, 0x06, 0xc0, 0x1c, 0x70, 0x10, 0x10, 0x0c, 0x60, 0xfc, 0x7f,
+      0x80, 0x01, 0x80, 0x01, 0x80, 0x01, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+     [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x03, 0x80, 0x0f, 0xe0, 0x03, 0x80, 0x03, 0x80,
+      0x7f, 0xfe, 0x7f, 0xfe, 0x7f, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+    (-11, -4,
+     [0x00, 0x7f, 0x00, 0x41, 0x00, 0x31, 0xff, 0xe1, 0x80, 0x05, 0x80, 0x0d, 0x80, 0x0b, 0xff, 0x88,
+      0x00, 0x88, 0x00, 0x88, 0x00, 0x88, 0x00, 0x88, 0x00, 0x88, 0x00, 0x88, 0x00, 0x88, 0x00, 0xf8],
+     [0x00, 0x00, 0x00, 0x3e, 0x00, 0x0e, 0x00, 0x1e, 0x7f, 0xfa, 0x7f, 0xf2, 0x7f, 0xf0, 0x00, 0x70,
+      0x00, 0x70, 0x00, 0x70, 0x00, 0x70, 0x00, 0x70, 0x00, 0x70, 0x00, 0x70, 0x00, 0x70, 0x00, 0x00]),
+    (-7, -7,
+     [0x03, 0xe0, 0x02, 0x20, 0x02, 0x20, 0x1a, 0x20, 0x16, 0x20, 0x36, 0x20, 0x60, 0x20, 0x40, 0x20,
+      0x60, 0x20, 0x36, 0x20, 0x16, 0x20, 0x1a, 0x20, 0x02, 0x20, 0x02, 0x20, 0x02, 0x20, 0x03, 0xe0],
+     [0x00, 0x00, 0x01, 0xc0, 0x01, 0xc0, 0x01, 0xc0, 0x09, 0xc0, 0x09, 0xc0, 0x1f, 0xc0, 0x3f, 0xc0,
+      0x1f, 0xc0, 0x09, 0xc0, 0x09, 0xc0, 0x01, 0xc0, 0x01, 0xc0, 0x01, 0xc0, 0x01, 0xc0, 0x00, 0x00]),
+    (0, 0, [0; 32], [0; 32]), // the middle: no border (the default arrow)
+    (-8, -7,
+     [0x07, 0xc0, 0x04, 0x40, 0x04, 0x40, 0x04, 0x58, 0x04, 0x68, 0x04, 0x6c, 0x04, 0x06, 0x04, 0x02,
+      0x04, 0x06, 0x04, 0x6c, 0x04, 0x68, 0x04, 0x58, 0x04, 0x40, 0x04, 0x40, 0x04, 0x40, 0x07, 0xc0],
+     [0x00, 0x00, 0x03, 0x80, 0x03, 0x80, 0x03, 0x80, 0x03, 0x90, 0x03, 0x90, 0x03, 0xf8, 0x03, 0xfc,
+      0x03, 0xf8, 0x03, 0x90, 0x03, 0x90, 0x03, 0x80, 0x03, 0x80, 0x03, 0x80, 0x03, 0x80, 0x00, 0x00]),
+    (-4, -11,
+     [0x1f, 0x00, 0x11, 0x00, 0x11, 0x00, 0x11, 0x00, 0x11, 0x00, 0x11, 0x00, 0x11, 0x00, 0x11, 0x00,
+      0x11, 0xff, 0xd0, 0x01, 0xb0, 0x01, 0xa0, 0x01, 0x87, 0xff, 0x8c, 0x00, 0x82, 0x00, 0xfe, 0x00],
+     [0x00, 0x00, 0x0e, 0x00, 0x0e, 0x00, 0x0e, 0x00, 0x0e, 0x00, 0x0e, 0x00, 0x0e, 0x00, 0x0e, 0x00,
+      0x0e, 0x00, 0x0f, 0xfe, 0x4f, 0xfe, 0x5f, 0xfe, 0x78, 0x00, 0x70, 0x00, 0x7c, 0x00, 0x00, 0x00]),
+    (-7, -7,
+     [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x80, 0x01, 0x80, 0x01, 0x80, 0x01,
+      0xfc, 0x7f, 0x0c, 0x60, 0x10, 0x10, 0x1c, 0x70, 0x06, 0xc0, 0x03, 0x80, 0x00, 0x00, 0x00, 0x00],
+     [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7f, 0xfe, 0x7f, 0xfe, 0x7f, 0xfe,
+      0x03, 0x80, 0x03, 0x80, 0x0f, 0xe0, 0x03, 0x80, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+    (-11, -11,
+     [0x00, 0xf8, 0x00, 0x88, 0x00, 0x88, 0x00, 0x88, 0x00, 0x88, 0x00, 0x88, 0x00, 0x88, 0x00, 0x88,
+      0xff, 0x88, 0x80, 0x0b, 0x80, 0x0d, 0x80, 0x05, 0xff, 0xe1, 0x00, 0x31, 0x00, 0x41, 0x00, 0x7f],
+     [0x00, 0x00, 0x00, 0x70, 0x00, 0x70, 0x00, 0x70, 0x00, 0x70, 0x00, 0x70, 0x00, 0x70, 0x00, 0x70,
+      0x00, 0x70, 0x7f, 0xf0, 0x7f, 0xf2, 0x7f, 0xfa, 0x00, 0x1e, 0x00, 0x0e, 0x00, 0x3e, 0x00, 0x00]),
+];
+
+/// cursor(3) of the border part k (whichcorner); the middle: the default arrow
+fn cornercursor(k: usize) -> Vec<u8> {
+    if k == 4 || k >= CORNERS.len() {
+        return vec![];
+    }
+    let (x, y, clr, set) = &CORNERS[k];
+    let mut c = vec![];
+    c.extend_from_slice(&x.to_le_bytes());
+    c.extend_from_slice(&y.to_le_bytes());
+    c.extend_from_slice(clr);
+    c.extend_from_slice(set);
+    c
+}
+
+/// what a title bar's button does
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum TitleOp {
+    Delete,
+    Max,
+    Hide,
+}
+
+#[derive(Clone, Copy)]
+enum DragKind {
+    Move,
+    Button(TitleOp, Rect), // a title bar's button held: done if let go on it
+    Sweep { left: bool, right: bool, top: bool, bottom: bool },
+    Box(Option<u32>), // a rectangle swept from the press: a new window's, or a window's new frame
+}
+
+/// a window under the mouse: moved, or swept to a new size
+#[derive(Clone, Copy)]
+struct Drag {
+    win: u32,
+    kind: DragKind,
+    x0: i32, // where the button went down
+    y0: i32,
+    orig: Rect,
+    cur: Rect,
+}
+
+/// a read that waits: answered when the window has something for it
+struct Pending {
+    tag: u16,
+    fid: u32,
+    win: u32,
+    f: F,
+    count: u32,
+}
+
+/// the options of wctl's new, resize, move and set, and of attach's new
+#[derive(Default)]
+struct Opts {
+    r: Option<Rect>,
+    dx: Option<i32>,
+    dy: Option<i32>,
+    minx: Option<(bool, i32)>, // (relative, value)
+    miny: Option<(bool, i32)>,
+    maxx: Option<(bool, i32)>,
+    maxy: Option<(bool, i32)>,
+    pid: Option<u32>,
+    cd: Option<String>,
+    bar: bool, // -bar: a bar from the start (wbar): no border or title bar
+    restart: bool, // -restart: its program started again when it goes (Sup)
+    cmd: Vec<String>,
+}
+
+fn opts(words: &[&str], cmd: bool) -> Result<Opts, String> {
+    let mut o = Opts::default();
+    let mut i = 0;
+    let num = |i: usize| -> Result<i32, String> {
+        words.get(i).and_then(|w| w.parse::<i32>().ok()).ok_or(format!("bad number after {}", words[i - 1]))
+    };
+    let edge = |i: usize| -> Result<(bool, i32), String> {
+        let w = words.get(i).ok_or("missing number")?;
+        let rel = w.starts_with('+') || w.starts_with('-');
+        let v = w.trim_start_matches('+').parse::<i32>().map_err(|_| format!("bad number {w}"))?;
+        Ok((rel, v))
+    };
+    while i < words.len() {
+        let w = words[i];
+        if !w.starts_with('-') || w.len() < 2 || w.as_bytes()[1].is_ascii_digit() {
+            break;
+        }
+        match w {
+            "-r" => {
+                o.r = Some(Rect::new(num(i + 1)?, num(i + 2)?, num(i + 3)?, num(i + 4)?));
+                i += 5;
+            }
+            "-dx" => {
+                o.dx = Some(num(i + 1)?);
+                i += 2;
+            }
+            "-dy" => {
+                o.dy = Some(num(i + 1)?);
+                i += 2;
+            }
+            "-minx" | "-miny" | "-maxx" | "-maxy" => {
+                let v = Some(edge(i + 1)?);
+                match w {
+                    "-minx" => o.minx = v,
+                    "-miny" => o.miny = v,
+                    "-maxx" => o.maxx = v,
+                    _ => o.maxy = v,
+                }
+                i += 2;
+            }
+            "-pid" => {
+                o.pid = Some(num(i + 1)? as u32);
+                i += 2;
+            }
+            "-cd" => {
+                o.cd = Some(words.get(i + 1).ok_or("missing directory")?.to_string());
+                i += 2;
+            }
+            "-bar" => {
+                o.bar = true;
+                i += 1;
+            }
+            "-restart" => {
+                o.restart = true;
+                i += 1;
+            }
+            "-hide" | "-scroll" | "-noscroll" => i += 1,
+            _ => return Err(format!("unknown option {w}")),
+        }
+    }
+    if cmd {
+        o.cmd = words[i..].iter().map(|s| s.to_string()).collect();
+    } else if i < words.len() {
+        return Err(format!("unexpected {}", words[i]));
+    }
+    Ok(o)
+}
+
+/// the monitor of outs window frame f is most on (the one nearest its
+/// middle if on none)
+fn outof(outs: &[(String, Rect, f64)], f: Rect) -> usize {
+    let area = |r: Rect| if r.empty() { 0i64 } else { r.dx() as i64 * r.dy() as i64 };
+    let (cx, cy) = ((f.x0 + f.x1) / 2, (f.y0 + f.y1) / 2);
+    let dist = |r: &Rect| {
+        let dx = (r.x0 - cx).max(cx - r.x1).max(0) as i64;
+        let dy = (r.y0 - cy).max(cy - r.y1).max(0) as i64;
+        dx * dx + dy * dy
+    };
+    let best = (0..outs.len()).max_by_key(|&i| area(f.clip(&outs[i].1)));
+    match best {
+        Some(i) if area(f.clip(&outs[i].1)) > 0 => i,
+        _ => (0..outs.len()).min_by_key(|&i| dist(&outs[i].1)).unwrap_or(0),
+    }
+}
+
+/// frame f on monitor from to monitor to: its corner where it was in
+/// proportion, its size kept
+fn remap(f: Rect, from: Rect, to: Rect) -> Rect {
+    let x = to.x0 + ((f.x0 - from.x0).max(0) as i64 * to.dx() as i64 / from.dx().max(1) as i64) as i32;
+    let y = to.y0 + ((f.y0 - from.y0).max(0) as i64 * to.dy() as i64 / from.dy().max(1) as i64) as i32;
+    f.add(x - f.x0, y - f.y0)
+}
+
+/// frame f no bigger than area and moved into it
+fn fitin(f: Rect, area: Rect) -> Rect {
+    let (w, h) = (f.dx().min(area.dx()), f.dy().min(area.dy()));
+    let x = f.x0.min(area.x1 - w).max(area.x0);
+    let y = f.y0.min(area.y1 - h).max(area.y0);
+    Rect::new(x, y, x + w, y + h)
+}
+
+/// an output's mode file ("WxH hz at x y", "off"): where it is on the screen
+fn parsemode(m: &str) -> Option<Rect> {
+    let f: Vec<&str> = m.split_whitespace().collect();
+    let (w, h) = f.first()?.split_once('x')?;
+    let (w, h): (i32, i32) = (w.parse().ok()?, h.parse().ok()?);
+    let at = f.iter().position(|v| *v == "at")?;
+    let (x, y): (i32, i32) = (f.get(at + 1)?.parse().ok()?, f.get(at + 2)?.parse().ok()?);
+    Some(Rect::new(x, y, x + w, y + h))
+}
+
+/// rect r (a window's frame) after the options: move keeps the size
+fn place(r: Rect, o: &Opts, mv: bool) -> Rect {
+    let mut r = o.r.unwrap_or(r);
+    let set = |cur: i32, e: Option<(bool, i32)>| match e {
+        Some((true, v)) => cur + v,
+        Some((false, v)) => v,
+        None => cur,
+    };
+    if mv {
+        let (x, y) = (set(r.x0, o.minx), set(r.y0, o.miny));
+        return r.add(x - r.x0, y - r.y0);
+    }
+    r = Rect::new(set(r.x0, o.minx), set(r.y0, o.miny), set(r.x1, o.maxx), set(r.y1, o.maxy));
+    if let Some(dx) = o.dx {
+        r.x1 = r.x0 + dx;
+    }
+    if let Some(dy) = o.dy {
+        r.y1 = r.y0 + dy;
+    }
+    r
+}
+
+/// an rc word: quoted
+/// a child's wait message (empty: it ended of its own), as Ev::WinExit and
+/// Ev::HelperExit carry it (Sup::ended)
+fn waitmsg(r: std::io::Result<std::process::ExitStatus>) -> String {
+    use std::os::plan9::process::ExitStatusExt;
+    match r {
+        Ok(st) => String::from_utf8_lossy(st.msg()).into_owned(),
+        Err(e) => format!("wait: {e}"),
+    }
+}
+
+fn rcquote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+struct Wsys {
+    srv: Fd,
+    srvpath: String,
+    msize: u32,
+    uid: String,
+    fids: HashMap<u32, FidState>,
+    wins: HashMap<u32, Win>,
+    z: Vec<u32>, // bottom to top
+    keysdown: Vec<char>, // kbd(3)'s keys down now (k, K): Mod4 is wsys' (kbdmod4)
+    focus: Option<u32>,
+    nextwin: u32,
+    helpers: HashMap<u32, Sup>, // wctl helper: programs without a window, kept going
+    nexthelper: u32,
+    pending: Vec<Pending>,
+    d: Display,
+    core: Option<drawcore::Core>, // -d: devdraw is wsys' own; its screen
+    compress: bool, // -z: devdraw's screen to the kernel's (kd) compressed
+    imgr: Rect, // the image wsys' screen is on, all of it (devdraw's in a window: more than d.r shows); hidden windows go past its corner
+    kd: Option<Display>,          // -d without the GPU: the kernel's devdraw, where the screen is copied
+    drawpend: Vec<(u16, u32, u32)>, // refresh reads of wsys' devdraw waiting: tag, fid, count
+    bg: u32,
+    cfocus: u32,
+    cother: u32,
+    buttons: i32,
+    mx: i32, // the mouse, last seen
+    my: i32,
+    ms: u32,
+    white: u32,
+    slots: Vec<bool>, // in use
+    drag: Option<Drag>,
+    scr: u32,          // the screen in draw(3) the windows are on
+    sweep: Vec<u32>,   // the outline of a sweep: four thin windows on top
+    snarf: Vec<u8>,
+    mousefd: Option<Fd>,  // to move the pointer
+    cursorfd: Option<Fd>, // to set the cursor of the focused window
+    edge: Option<usize>,  // the border part the mouse is on (whichcorner), shown by the cursor
+    tx: mpsc::Sender<Ev>,
+    font: Option<font::Font>, // of the text windows, menus, title bars: at the theme's scale
+    fonts: HashMap<i32, font::Font>, // the same at the other monitors' scales (by dpi), opened when first needed
+    curdpi: i32,              // the cursor's size is for this (the monitor with the mouse)
+    fontname: String,         // its file
+    fontflag: Option<String>, // -f
+    ownscreen: bool,          // the screen of this machine itself (not a window's, not far away)
+    outs: Vec<(String, Rect, f64)>, // the monitors (gpu(4)'s outputs on), left to right, each its scale; one, the screen, without (readouts)
+    black: u32,
+    pale: u32,    // a selection's background
+    menuhi: u32,  // a menu's item under the mouse
+    selecting: Option<(u32, usize)>, // button 1 sweeping a selection: window, where it began
+    menu: Option<Menu>,
+    parentsnarf: bool, // in rio: its /dev/snarf is the snarf buffer
+    op3: Option<Op3>,  // button 3's command waiting for its click
+    tabstop: i32,      // $tabstop, as rio: a tab is this many zeros wide
+    scrollbg: u32,
+    scrolling: Option<(u32, i32, std::time::Instant)>, // window, button held in its scroll bar, next repeat
+    click: Option<(u32, i32, i32, u32)>, // the last button 1 click in a text window: window, x, y, msec
+    holdcol: u32,
+    paleholdcol: u32,
+    theme: theme::Theme, // the colours the images above have (and title bars, fonts)
+    plumbfd: Option<Fd>, // /mnt/plumb/send, opened when first plumbed
+    ovtx: Option<mpsc::Sender<OvJob>>, // the overlay's thread, started for the first
+    ov: Option<u32>,                   // the window on the overlay plane
+    ovtags: Vec<u16>,                  // presents waiting for the overlay's thread
+    ovwhy: Option<&'static str>,       // why the last present did not go there (WSYSDEBUG)
+    nooverlay: bool,                   // -O
+    gpu: Option<gpu::Gpu>, // a context for clients' GPU buffers, made for the first
+    segs: HashMap<usize, Weak<Seg>>, // the clients' segments attached, by address
+    comp: Option<comp::Comp>, // -g: the GPU composes the screen
+    compwant: Option<bool>,       // the GPU may compose (Some: its verbose flag): started again after a failure
+    compretry: Option<(std::time::Instant, std::time::Duration)>, // when to try again, and the wait after that
+    compstarting: bool,           // a try on its way (its own thread: Vulkan's start would hold the main loop)
+    compscene: Vec<comp::Shown>, // what it was told last
+    compdirty: bool,             // a buffer presented since: a frame
+    compgone: Vec<(u32, u32)>,   // buffers out of the scene: back when the next frame is composed
+    sweepr: Option<Rect>,        // the sweep's outline (over the GPU windows)
+    barheld: Option<u32>,        // a button went down on this bar: the mouse is its until all are up
+    mlast: Option<u32>,          // the window the last mouse event went to
+    hlast: Option<u32>,          // the window without the focus the pointer was over (its event file's m)
+    tap: Tap,                    // the keyboard's tap (kbdtap)
+    textdue: std::collections::BTreeSet<u32>, // text windows to draw at the end of the batch (drawdue)
+    outputdue: bool, // a program's output among textdue's: more may follow (the main loop waits)
+}
+
+fn qid(k: Kind) -> Qid {
+    let (ty, path) = match k {
+        Kind::Root => (ninep::QTDIR, 0),
+        Kind::Clone => (0, 1),
+        Kind::Screen => (0, 5),
+        Kind::RootWctl => (0, 6),
+        Kind::Stack => (0, 7),
+        Kind::Theme => (0, 8),
+        Kind::Wsys => (ninep::QTDIR, 9),
+        Kind::Kbdtap => (0, 10),
+        Kind::WinDir(n) => (ninep::QTDIR, (n as u64) << 8 | 0x10),
+        Kind::WinClone(n) => (0, (n as u64) << 8 | 0x11),
+        Kind::File(n, f) => (0, (n as u64) << 8 | (0x20 + f as u64)),
+        Kind::Draw => (ninep::QTDIR, 2),
+        Kind::RootWinname => (0, 4),
+        Kind::DrawNew => (0, 3),
+        Kind::DrawCl(sl) => (ninep::QTDIR, 1 << 40 | (sl as u64) << drawcore::QSHIFT | 3),
+        Kind::DrawF(sl, t) => (0, 1 << 40 | (sl as u64) << drawcore::QSHIFT | t),
+    };
+    Qid { ty, vers: 0, path }
+}
+
+fn mousemsg(c: char, x: i32, y: i32, b: i32, ms: u32) -> Vec<u8> {
+    format!("{c}{x:11} {y:11} {b:11} {ms:11} ").into_bytes()
+}
+
+impl Wsys {
+    /// n pixels at 96 dpi at the theme's scale (libdraw's scalesize(2))
+    fn sz(&self, n: i32) -> i32 {
+        self.theme.scalesize(n)
+    }
+
+    /// the kernel's (software) cursor as big as the scale makes 16 pixels
+    /// (vga(3)'s cursorsize), on this machine's own screen only
+    fn cursorsize(&self) {
+        if !self.ownscreen {
+            return;
+        }
+        let dpi = if self.curdpi > 0 { self.curdpi } else { self.theme.dpi() };
+        let n = theme::scalesize(dpi, 16).clamp(16, 64);
+        if let Err(e) = std::fs::write("#v/vgactl", format!("cursorsize {n}")) {
+            if self.theme.scale != 1.0 {
+                eprintln!("wsys: #v/vgactl: cursorsize {n}: {e}");
+            }
+        }
+    }
+
+    fn send(&self, m: Vec<u8>) {
+        if let Err(e) = self.srv.write1(&m) {
+            eprintln!("wsys: srv write: {e}");
+        }
+    }
+
+    fn dir(&self, k: Kind) -> Dir {
+        let (name, mode) = match k {
+            Kind::Root => ("/".to_string(), ninep::DMDIR | 0o555),
+            Kind::Clone | Kind::WinClone(_) => ("clone".to_string(), 0o666),
+            Kind::Screen => ("screen".to_string(), 0o444),
+            Kind::RootWctl => ("wctl".to_string(), 0o222),
+            Kind::Stack => ("stack".to_string(), 0o444),
+            Kind::Theme => ("theme".to_string(), 0o666),
+            Kind::Kbdtap => ("kbdtap".to_string(), 0o660),
+            Kind::Wsys => ("wsys".to_string(), ninep::DMDIR | 0o555),
+            Kind::WinDir(n) => (n.to_string(), ninep::DMDIR | 0o555),
+            Kind::File(_, f) => {
+                let (_, name, mode) = WINFILES.iter().find(|w| w.0 == f).unwrap();
+                (name.to_string(), *mode)
+            }
+            Kind::Draw => ("draw".to_string(), ninep::DMDIR | 0o555),
+            Kind::RootWinname => ("winname".to_string(), 0o444),
+            Kind::DrawNew => ("new".to_string(), 0o666),
+            Kind::DrawCl(sl) => (drawcore::clientid(sl).unwrap_or(0).to_string(), ninep::DMDIR | 0o555),
+            Kind::DrawF(_, t) => {
+                let (name, mode) = DRAWFILES.iter().find(|d| d.0 == t).map(|d| (d.1, d.2)).unwrap_or(("?", 0));
+                (name.to_string(), mode)
+            }
+        };
+        Dir { qid: qid(k), mode, length: 0, name, uid: self.uid.clone(), mtime: 0 }
+    }
+
+    fn exists(&self, k: Kind) -> bool {
+        match k {
+            Kind::WinDir(n) | Kind::WinClone(n) | Kind::File(n, _) => self.wins.contains_key(&n),
+            Kind::DrawCl(sl) | Kind::DrawF(sl, _) => drawcore::clientid(sl).is_some_and(|id| id > 0),
+            _ => true,
+        }
+    }
+
+    fn walk1(&self, k: Kind, name: &str) -> Option<Kind> {
+        match k {
+            Kind::Root => match name {
+                "clone" => Some(Kind::Clone),
+                "screen" => Some(Kind::Screen),
+                "wctl" => Some(Kind::RootWctl),
+                "stack" => Some(Kind::Stack),
+                "theme" => Some(Kind::Theme),
+                "kbdtap" => Some(Kind::Kbdtap),
+                "draw" if self.core.is_some() => Some(Kind::Draw),
+                "winname" if self.core.is_some() => Some(Kind::RootWinname),
+                ".." => Some(Kind::Root),
+                _ => {
+                    let n: u32 = name.parse().ok()?;
+                    self.wins.contains_key(&n).then_some(Kind::WinDir(n))
+                }
+            },
+            Kind::WinDir(n) => {
+                if name == ".." {
+                    return Some(Kind::Root);
+                }
+                if name == "wsys" {
+                    return Some(Kind::Wsys);
+                }
+                if name == "clone" {
+                    return Some(Kind::WinClone(n));
+                }
+                if name == "draw" && self.core.is_some() {
+                    return Some(Kind::Draw);
+                }
+                WINFILES.iter().find(|w| w.1 == name).map(|w| Kind::File(n, w.0))
+            }
+            Kind::Wsys => match name {
+                ".." => Some(Kind::Root),
+                _ => {
+                    let n: u32 = name.parse().ok()?;
+                    self.wins.contains_key(&n).then_some(Kind::WinDir(n))
+                }
+            },
+            Kind::Draw => match name {
+                ".." => Some(Kind::Root),
+                "new" => Some(Kind::DrawNew),
+                _ => {
+                    let id: u32 = name.parse().ok()?;
+                    let sl = drawcore::clientslot(id);
+                    (id > 0 && sl > 0).then_some(Kind::DrawCl(sl))
+                }
+            },
+            Kind::DrawCl(sl) => {
+                if name == ".." {
+                    return Some(Kind::Draw);
+                }
+                DRAWFILES.iter().find(|d| d.1 == name).map(|d| Kind::DrawF(sl, d.0))
+            }
+            _ => None,
+        }
+    }
+
+    fn children(&self, k: Kind) -> Vec<Kind> {
+        match k {
+            Kind::Root => {
+                let mut v = vec![Kind::Screen, Kind::Clone, Kind::RootWctl, Kind::Stack, Kind::Theme, Kind::Kbdtap];
+                if self.core.is_some() {
+                    v.push(Kind::Draw);
+                    v.push(Kind::RootWinname);
+                }
+                let mut ids: Vec<u32> = self.wins.keys().copied().collect();
+                ids.sort();
+                v.extend(ids.into_iter().map(Kind::WinDir));
+                v
+            }
+            Kind::WinDir(n) => {
+                let mut v: Vec<Kind> = WINFILES.iter().map(|w| Kind::File(n, w.0)).collect();
+                v.push(Kind::WinClone(n));
+                v.push(Kind::Wsys);
+                if self.core.is_some() {
+                    v.push(Kind::Draw);
+                }
+                v
+            }
+            Kind::Wsys => {
+                let mut ids: Vec<u32> = self.wins.keys().copied().collect();
+                ids.sort();
+                ids.into_iter().map(Kind::WinDir).collect()
+            }
+            Kind::Draw => {
+                let mut v = vec![Kind::DrawNew];
+                let mut sl = 1;
+                while let Some(id) = drawcore::clientid(sl) {
+                    if id > 0 {
+                        v.push(Kind::DrawCl(sl));
+                    }
+                    sl += 1;
+                }
+                v
+            }
+            Kind::DrawCl(sl) => DRAWFILES.iter().map(|d| Kind::DrawF(sl, d.0)).collect(),
+            _ => vec![],
+        }
+    }
+
+    fn handle(&mut self, m: &[u8]) {
+        let Some((tag, t)) = ninep::parse(m) else {
+            eprintln!("wsys: bad 9P message of {} bytes", m.len());
+            return;
+        };
+        let r = self.answer(tag, t);
+        if let Some(r) = r {
+            self.send(r);
+        }
+    }
+
+    fn newfid(&mut self, fid: u32, kind: Kind, win: Option<u32>) {
+        if let Some(n) = win {
+            if let Some(w) = self.wins.get_mut(&n) {
+                w.refs += 1;
+                w.pinned = false;
+            }
+        }
+        self.fids.insert(fid, FidState { kind, open: false, dirpos: 0, win, owns: false, raw: false, seen: 0, snap: None, chan: None, evq: None, tap: (false, false) });
+    }
+
+    /// the reply, or None when it comes later (a read that waits)
+    fn answer(&mut self, tag: u16, t: T) -> Option<Vec<u8>> {
+        let e = |s: &str| Some(ninep::error(tag, s));
+        match t {
+            T::Version { msize, version } => {
+                self.msize = msize.min(65536);
+                let fids: Vec<u32> = self.fids.keys().copied().collect();
+                for f in fids {
+                    self.clunk(f);
+                }
+                let v = if version.starts_with("9P2000") { "9P2000" } else { "unknown" };
+                Some(R::new(101, tag).u32(self.msize).str(v).done())
+            }
+            T::Auth => e("wsys: no authentication required"),
+            T::Attach { fid, _uname: _, aname } => {
+                if self.fids.contains_key(&fid) {
+                    return e("fid in use");
+                }
+                let words: Vec<&str> = aname.split_whitespace().collect();
+                let (kind, win) = match words.first().copied() {
+                    None | Some("none") => (Kind::Root, None),
+                    Some("new") => match opts(&words[1..], false).and_then(|o| self.newwin(&o, true)) {
+                        Ok(n) => (Kind::WinDir(n), Some(n)),
+                        Err(err) => return e(&err),
+                    },
+                    Some(w) => match w.parse::<u32>() {
+                        Ok(n) if self.wins.contains_key(&n) => (Kind::WinDir(n), Some(n)),
+                        _ => return e("no such window"),
+                    },
+                };
+                self.newfid(fid, kind, win);
+                Some(R::new(105, tag).qid(qid(kind)).done())
+            }
+            T::Flush { oldtag } => {
+                self.pending.retain(|p| p.tag != oldtag);
+                self.drawpend.retain(|p| p.0 != oldtag);
+                self.ovtags.retain(|&t| t != oldtag); // no answer for it any more
+                Some(R::new(109, tag).done())
+            }
+            T::Walk { fid, newfid, names } => {
+                let Some(f) = self.fids.get(&fid) else { return e("unknown fid") };
+                if f.open {
+                    return e("walk of an open fid");
+                }
+                if newfid != fid && self.fids.contains_key(&newfid) {
+                    return e("fid in use");
+                }
+                let (mut k, win) = (f.kind, f.win);
+                let mut qids = vec![];
+                for n in &names {
+                    match self.walk1(k, n) {
+                        Some(k2) => {
+                            k = k2;
+                            qids.push(qid(k));
+                        }
+                        None => break,
+                    }
+                }
+                if !names.is_empty() && qids.is_empty() {
+                    return e("file does not exist");
+                }
+                if qids.len() == names.len() {
+                    if newfid == fid {
+                        self.fids.get_mut(&fid).unwrap().kind = k;
+                    } else {
+                        self.newfid(newfid, k, win);
+                    }
+                }
+                let mut r = R::new(111, tag).u16(qids.len() as u16);
+                for q in qids {
+                    r = r.qid(q);
+                }
+                Some(r.done())
+            }
+            T::Open { fid, mode } => {
+                let Some(f) = self.fids.get(&fid) else { return e("unknown fid") };
+                if f.open {
+                    return e("already open");
+                }
+                let k = f.kind;
+                if !self.exists(k) {
+                    return e("window deleted");
+                }
+                let rw = mode & 3;
+                let reading = rw == OREAD as u8 || rw == 2;
+                let writing = rw == OWRITE as u8 || rw == 2;
+                let k = match k {
+                    Kind::Root | Kind::Wsys | Kind::WinDir(_) | Kind::Draw | Kind::DrawCl(_) if rw != OREAD as u8 => return e("is a directory"),
+                    Kind::DrawNew | Kind::DrawF(..) => {
+                        let path = match k {
+                            Kind::DrawF(sl, t) => (sl as u64) << drawcore::QSHIFT | t,
+                            _ => drawcore::QNEW,
+                        };
+                        match drawcore::Chan::open(path, mode) {
+                            Ok(c) => {
+                                let k = Kind::DrawF((c.path >> drawcore::QSHIFT) as u32, c.path & 0xF);
+                                let f = self.fids.get_mut(&fid).unwrap();
+                                f.chan = Some(c);
+                                f.kind = k;
+                                f.open = true;
+                                self.drawwake();
+                                return Some(R::new(113, tag).qid(qid(k)).u32(self.msize - ninep::IOHDRSZ).done());
+                            }
+                            Err(err) => return e(&err),
+                        }
+                    }
+                    Kind::Screen | Kind::Stack | Kind::RootWinname if writing => return e("permission denied"),
+                    Kind::RootWctl if reading => return e("permission denied"),
+                    Kind::File(_, F::Event | F::Winid | F::Winname | F::Window | F::Screen | F::Dpi) if writing => return e("permission denied"),
+                    Kind::File(_, F::Consctl) if reading => return e("permission denied"),
+                    Kind::Clone | Kind::WinClone(_) => match self.newwin(&Opts::default(), false) {
+                        Ok(n) => {
+                            let f = self.fids.get_mut(&fid).unwrap();
+                            (f.owns, f.win) = (true, Some(n));
+                            let w = self.wins.get_mut(&n).unwrap();
+                            w.refs += 1;
+                            // a window's clone: that window its parent (dialogs, popups)
+                            if let Kind::WinClone(p) = k {
+                                w.parent = Some(p);
+                            }
+                            Kind::File(n, F::Ctl)
+                        }
+                        Err(err) => return e(&format!("new window: {err}")),
+                    },
+                    k => k,
+                };
+                let mut evq = None;
+                let mut tap = (false, false);
+                if matches!(k, Kind::Kbdtap | Kind::File(_, F::Kbdtap)) {
+                    if (reading && self.tap.reader) || (writing && self.tap.writer) {
+                        return e("file in use");
+                    }
+                    if reading {
+                        self.tap.told = false;
+                    }
+                    self.tap.reader |= reading;
+                    self.tap.writer |= writing;
+                    tap = (reading, writing);
+                }
+                match k {
+                    Kind::File(n, F::Kbd) => self.wins.get_mut(&n).unwrap().kbdopen += 1,
+                    Kind::File(n, F::Mouse) => {
+                        // a program takes the window (draw(3)): what the text
+                        // drew before is gone under its drawing
+                        let w = self.wins.get_mut(&n).unwrap();
+                        w.mouseopen += 1;
+                        w.drawn = None;
+                    }
+                    // the events so far (made before anyone read them: the first
+                    // r, f) to the first reader, those after to every reader
+                    Kind::File(n, F::Event) => evq = Some(std::mem::take(&mut self.wins.get_mut(&n).unwrap().events)),
+                    _ => {}
+                }
+                let f = self.fids.get_mut(&fid).unwrap();
+                f.evq = evq;
+                f.tap = tap;
+                f.kind = k;
+                f.open = true;
+                Some(R::new(113, tag).qid(qid(k)).u32(self.msize - ninep::IOHDRSZ).done())
+            }
+            T::Create => e("cannot create in wsys"),
+            T::Remove { fid } => {
+                self.clunk(fid);
+                e("cannot remove in wsys")
+            }
+            T::Wstat => e("wstat not allowed"),
+            T::Stat { fid } => {
+                let Some(f) = self.fids.get(&fid) else { return e("unknown fid") };
+                let s = ninep::stat(&self.dir(f.kind));
+                Some(R::new(125, tag).u16(s.len() as u16).bytes(&s).done())
+            }
+            T::Clunk { fid } => {
+                self.clunk(fid);
+                Some(R::new(121, tag).done())
+            }
+            T::Read { fid, offset, count } => {
+                let count = count.min(self.msize - ninep::IOHDRSZ);
+                // a picture of the screen or a window: with the text drawn that waits
+                if offset == 0 && self.fids.get(&fid).is_some_and(|f| matches!(f.kind, Kind::Screen | Kind::File(_, F::Screen | F::Window))) {
+                    self.drawdue();
+                }
+                let Some(f) = self.fids.get(&fid) else { return e("unknown fid") };
+                if !f.open {
+                    return e("not open");
+                }
+                let k = f.kind;
+                if !self.exists(k) {
+                    return e("window deleted");
+                }
+                let text = |s: &[u8]| {
+                    let o = (offset as usize).min(s.len());
+                    let b = &s[o..(o + count as usize).min(s.len())];
+                    Some(R::new(117, tag).u32(b.len() as u32).bytes(b).done())
+                };
+                match k {
+                    Kind::DrawF(..) => {
+                        let mut b = vec![0u8; count as usize];
+                        let c = f.chan.as_ref().unwrap();
+                        match c.read(&mut b, offset) {
+                            Ok(drawcore::Read::Data(n)) => Some(R::new(117, tag).u32(n as u32).bytes(&b[..n]).done()),
+                            Ok(drawcore::Read::Wait) => {
+                                self.drawpend.push((tag, fid, count));
+                                None
+                            }
+                            Err(err) => e(&err),
+                        }
+                    }
+                    Kind::Root | Kind::Wsys | Kind::WinDir(_) | Kind::Draw | Kind::DrawCl(_) => {
+                        let pos = if offset == 0 { 0 } else { f.dirpos };
+                        let mut out = vec![];
+                        let mut n = pos;
+                        for c in self.children(k).into_iter().skip(pos) {
+                            let s = ninep::stat(&self.dir(c));
+                            if out.len() + s.len() > count as usize {
+                                break;
+                            }
+                            out.extend(s);
+                            n += 1;
+                        }
+                        self.fids.get_mut(&fid).unwrap().dirpos = n;
+                        Some(R::new(117, tag).u32(out.len() as u32).bytes(&out).done())
+                    }
+                    Kind::Screen | Kind::File(_, F::Screen | F::Window) => {
+                        // an image(6) of the screen or of the window (border and
+                        // all), taken at the read at offset 0
+                        if offset == 0 || f.snap.is_none() {
+                            let (id, r) = match k {
+                                Kind::File(n, F::Window) => (self.wins[&n].layer, self.wins[&n].lrect()),
+                                _ => (self.d.screen, self.d.r),
+                            };
+                            // -g: the screen as the GPU composed it (the GPU windows are
+                            // not in devdraw's); a window's is what is seen of it
+                            let gpuwin = matches!(k, Kind::File(n, F::Window) if self.wins[&n].shownb.is_some() || self.wins[&n].lgpu);
+                            let snap = if self.comp.is_some() && (gpuwin || !matches!(k, Kind::File(_, F::Window))) {
+                                self.compsnapshot(r)
+                            } else {
+                                self.snapshot(id, r)
+                            };
+                            match snap {
+                                Ok(b) => self.fids.get_mut(&fid).unwrap().snap = Some(b),
+                                Err(err) => return e(&err.to_string()),
+                            }
+                        }
+                        let snap = self.fids[&fid].snap.as_ref().unwrap();
+                        let o = (offset as usize).min(snap.len());
+                        let b = &snap[o..(o + count as usize).min(snap.len())];
+                        Some(R::new(117, tag).u32(b.len() as u32).bytes(b).done())
+                    }
+                    Kind::File(n, F::Ctl) => text(self.ctltext(n).as_bytes()),
+                    Kind::Stack => text(self.stacktext().as_bytes()),
+                    Kind::Theme => text(self.theme.text().as_bytes()),
+                    // a window's: at its monitor's scale
+                    Kind::File(n, F::Theme) => {
+                        let mut t = self.theme.clone();
+                        t.scale = self.wins[&n].scale;
+                        text(t.text().as_bytes())
+                    }
+                    Kind::RootWinname => text(self.core.as_ref().map(|c| c.winname.as_str()).unwrap_or("").as_bytes()),
+                    Kind::File(n, F::Label) => text(self.wins[&n].label.as_bytes()),
+                    Kind::File(n, F::Wdir) => text(self.wins[&n].wdir.as_bytes()),
+                    // all of it, as rio's: also what is typed and not yet read
+                    Kind::File(n, F::Text) => {
+                        let w = &self.wins[&n];
+                        text(format!("{}{}", w.text, w.line).as_bytes())
+                    }
+                    Kind::File(n, F::Cursor) => text(&self.wins[&n].cursor),
+                    Kind::File(n, F::Winname) => text(self.wins[&n].name.as_bytes()),
+                    Kind::File(n, F::Winid) => text(format!("{n:11} ").as_bytes()),
+                    // the theme's scale as dots per inch (libdraw's display->dpi, scalesize(2))
+                    Kind::File(n, F::Dpi) => text(format!("{}\n", theme::dpi(self.wins[&n].scale)).as_bytes()),
+                    Kind::File(_, F::Snarf) => {
+                        if offset == 0 {
+                            self.getsnarf();
+                        }
+                        text(&self.snarf)
+                    }
+                    // the tap's: of window 0 (none) at the root
+                    Kind::Kbdtap | Kind::File(_, F::Kbdtap) => match self.taptake() {
+                        Some(b) => Some(R::new(117, tag).u32(b.len() as u32).bytes(&b).done()),
+                        None => {
+                            let win = if let Kind::File(n, _) = k { n } else { 0 };
+                            self.pending.push(Pending { tag, fid, win, f: F::Kbdtap, count });
+                            None
+                        }
+                    },
+                    Kind::File(n, f @ (F::Event | F::Mouse | F::Cons | F::Kbd | F::Wctl | F::Menu)) => {
+                        match self.take(fid, n, f, count) {
+                            Some(b) => Some(R::new(117, tag).u32(b.len() as u32).bytes(&b).done()),
+                            None => {
+                                self.pending.push(Pending { tag, fid, win: n, f, count });
+                                None
+                            }
+                        }
+                    }
+                    _ => e("permission denied"),
+                }
+            }
+            T::Write { fid, offset, data } => {
+                let Some(f) = self.fids.get(&fid) else { return e("unknown fid") };
+                if !f.open {
+                    return e("not open");
+                }
+                let k = f.kind;
+                if !self.exists(k) {
+                    return e("window deleted");
+                }
+                let ok = Some(R::new(119, tag).u32(data.len() as u32).done());
+                if let Kind::DrawF(..) = k {
+                    let r = match f.chan.as_ref().unwrap().write(&data) {
+                        Ok(n) => Some(R::new(119, tag).u32(n as u32).done()),
+                        Err(err) => e(&err),
+                    };
+                    self.drawwake();
+                    return r;
+                }
+                // the tap's messages back: to the current window, if the keys
+                // still go to the one they went to (rio's way); its z ignored
+                if let Kind::Kbdtap | Kind::File(_, F::Kbdtap) = k {
+                    if data.len() < 2 {
+                        return e("malformed key");
+                    }
+                    let parts: Vec<&[u8]> = data.split(|&b| b == 0).collect();
+                    let mut msgs = vec![];
+                    for (i, m) in parts.iter().enumerate() {
+                        match m.first() {
+                            None if i == parts.len() - 1 => {}
+                            None => return e("null message type"),
+                            Some(b'z') => {}
+                            Some(_) => msgs.push(m.to_vec()),
+                        }
+                    }
+                    if self.focus == self.tap.cur {
+                        self.tofocus(msgs);
+                    }
+                    return ok;
+                }
+                let s = String::from_utf8_lossy(&data).into_owned();
+                match k {
+                    Kind::File(n, F::Ctl) => {
+                        let lines: Vec<&str> = s.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+                        if let [line] = lines[..] {
+                            if self.overlay_present(n, line, tag, data.len() as u32) {
+                                return None; // answered when the overlay's thread is done
+                            }
+                        }
+                        for line in s.lines() {
+                            if let Err(err) = self.ctl(n, line.trim()) {
+                                // WSYSDEBUG=ctl: each refused message and why (a
+                                // client's present after a move, ...)
+                                if wsysdebug("ctl") {
+                                    eprintln!("wsys: ctl {n}: {}: {err}", line.trim());
+                                }
+                                return e(&err);
+                            }
+                        }
+                        // what it did on draw(3) done before its program hears back
+                        // (a new layer's name: the program's namedimage looks it up)
+                        let _ = self.d.flush();
+                        ok
+                    }
+                    Kind::RootWctl | Kind::File(_, F::Wctl) => {
+                        let n = if let Kind::File(n, _) = k { Some(n) } else { None };
+                        for line in s.lines() {
+                            if let Err(err) = self.wctl(n, line.trim()) {
+                                return e(&err);
+                            }
+                        }
+                        ok
+                    }
+                    Kind::File(n, F::Cons | F::Text) => {
+                        self.output(n, &data);
+                        ok
+                    }
+                    Kind::File(n, F::Consctl) => {
+                        for w in s.split_whitespace() {
+                            match w {
+                                "rawon" | "rawoff" => {
+                                    let on = w == "rawon";
+                                    self.fids.get_mut(&fid).unwrap().raw = on;
+                                    self.setraw(n, on);
+                                }
+                                "holdon" | "holdoff" => self.sethold(n, w == "holdon"),
+                                _ => return e("unknown control message"),
+                            }
+                        }
+                        ok
+                    }
+                    Kind::File(_, F::Mouse) => {
+                        // m x y: the pointer goes there
+                        let v: Vec<i32> = s[1..].split_whitespace().filter_map(|x| x.parse().ok()).collect();
+                        if s.starts_with('m') && v.len() >= 2 {
+                            let (dx, dy) = self.shift();
+                            if let Some(fd) = &self.mousefd {
+                                let _ = fd.write(format!("m{} {}", v[0] + dx, v[1] + dy).as_bytes());
+                            }
+                        }
+                        ok
+                    }
+                    Kind::File(n, F::Cursor) => {
+                        let c = if data.len() >= 72 { data[..72].to_vec() } else { vec![] };
+                        self.wins.get_mut(&n).unwrap().cursor = c;
+                        if self.focus == Some(n) {
+                            self.setcursor();
+                        }
+                        ok
+                    }
+                    Kind::Theme | Kind::File(_, F::Theme) => match self.settheme(&String::from_utf8_lossy(&data)) {
+                        Ok(()) => ok,
+                        Err(err) => e(&err),
+                    },
+                    Kind::File(n, F::Menu) => match self.clientmenu(n, &s) {
+                        Ok(()) => ok,
+                        Err(err) => e(&err),
+                    },
+                    Kind::File(n, F::Label | F::Wdir) => {
+                        let w = self.wins.get_mut(&n).unwrap();
+                        let v = if matches!(k, Kind::File(_, F::Label)) { &mut w.label } else { &mut w.wdir };
+                        if offset == 0 {
+                            v.clear();
+                        }
+                        v.push_str(&s);
+                        if matches!(k, Kind::File(_, F::Label)) {
+                            self.painttitle(n);
+                        }
+                        ok
+                    }
+                    Kind::File(_, F::Snarf) => {
+                        if offset == 0 {
+                            self.snarf.clear();
+                        }
+                        self.snarf.extend_from_slice(&data);
+                        self.putsnarf();
+                        ok
+                    }
+                    _ => e("permission denied"),
+                }
+            }
+        }
+    }
+
+    /// refresh reads of wsys' devdraw that may be answered now
+    fn drawwake(&mut self) {
+        if self.core.is_none() || !drawcore::wake() {
+            return;
+        }
+        let waiting = std::mem::take(&mut self.drawpend);
+        for (tag, fid, count) in waiting {
+            let Some(c) = self.fids.get(&fid).and_then(|f| f.chan.as_ref()) else { continue };
+            let mut b = vec![0u8; count as usize];
+            match c.read(&mut b, 0) {
+                Ok(drawcore::Read::Data(n)) => self.send(R::new(117, tag).u32(n as u32).bytes(&b[..n]).done()),
+                Ok(drawcore::Read::Wait) => self.drawpend.push((tag, fid, count)),
+                Err(err) => self.send(ninep::error(tag, &err)),
+            }
+        }
+    }
+
+    /// what devdraw (wsys' own, -d) drew reaches the screen: the GPU composes it,
+    /// or it is copied into the kernel's devdraw's screen
+    fn corepresent(&mut self) {
+        let Some(core) = &self.core else { return };
+        let rects = core.dirty();
+        self.coreload(rects);
+        drawcore::drawing(false); // the batch done: the composer may copy it
+    }
+
+    /// where wsys' screen is on the display: devdraw's (wsys' own) stays where
+    /// the window was when wsys started, the window it is in may have moved
+    /// since (coreload copies it there); /dev/mouse counts the display's points
+    fn shift(&self) -> (i32, i32) {
+        match (&self.core, &self.kd, &self.comp) {
+            (Some(core), Some(kd), None) => (kd.r.x0 - core.r.x0, kd.r.y0 - core.r.y0),
+            _ => (0, 0),
+        }
+    }
+
+    /// rectangles of devdraw's screen (wsys' own) to the display: the GPU's
+    /// frames, or the kernel's devdraw's screen (the window wsys is in: what of
+    /// devdraw's screen it shows, d.r, at its place)
+    fn coreload(&mut self, rects: Vec<Rect>) {
+        let Some(core) = &self.core else { return };
+        if rects.is_empty() {
+            return;
+        }
+        if let Some(c) = &self.comp {
+            for r in rects {
+                c.damage(r.add(-core.r.x0, -core.r.y0));
+            }
+            return;
+        }
+        let Some(kd) = self.kd.as_mut() else { return };
+        let px = core.seg.bytes();
+        let (shown, dx, dy) = (self.d.r, kd.r.x0 - core.r.x0, kd.r.y0 - core.r.y0);
+        let mut res = Ok(());
+        for r in rects {
+            let r = r.clip(&shown);
+            if r.empty() {
+                continue;
+            }
+            let (sx, sy) = (r.x0 - core.r.x0, r.y0 - core.r.y0);
+            res = res.and_then(|_| {
+                if self.compress {
+                    kd.cload_at(kd.screen, &r.add(dx, dy), px, core.stride, sx, sy)
+                } else {
+                    kd.load_at(kd.screen, &r.add(dx, dy), px, core.stride, sx, sy)
+                }
+            });
+        }
+        if let Err(e) = res.and_then(|_| kd.flush()) {
+            eprintln!("wsys: the screen: {e}");
+        }
+    }
+
+    fn clunk(&mut self, fid: u32) {
+        let Some(mut f) = self.fids.remove(&fid) else { return };
+        self.pending.retain(|p| p.fid != fid);
+        if f.open && f.tap.0 {
+            self.tap.reader = false;
+            self.tap.q.clear();
+        }
+        if f.open && f.tap.1 {
+            self.tap.writer = false;
+        }
+        self.drawpend.retain(|p| p.1 != fid);
+        if let Some(c) = f.chan.take() {
+            drop(c); // devdraw lets go of what the client had (its windows go)
+            self.drawwake();
+        }
+        // the window a file is of (counts of open files: kbd, mouse, raw mode)
+        // and the one the fid holds (attached to it, or made by its clone): not
+        // the same for /dev/wsys/m/mouse opened in window n's name space
+        let file = match f.kind {
+            Kind::File(n, _) => Some(n),
+            _ => None,
+        };
+        let Some(n) = f.win.or(match f.kind {
+            Kind::File(n, _) | Kind::WinDir(n) => Some(n),
+            _ => None,
+        }) else {
+            return;
+        };
+        if let Some(fw) = file {
+            self.closed(fw, &f);
+        }
+        if f.win == Some(n) {
+            if f.owns {
+                self.delwin(n, false);
+                return;
+            }
+            if let Some(w) = self.wins.get_mut(&n) {
+                w.refs = w.refs.saturating_sub(1);
+                // a window -restart outlives its program's fids: its end
+                // (Ev::WinExit, winexit) decides, which comes after them
+                if w.refs == 0 && !w.pinned && w.sup.is_none() {
+                    self.delwin(n, false);
+                }
+            }
+        }
+    }
+
+    /// file f of window n closed: its counts, raw mode, a text window's text again
+    fn closed(&mut self, n: u32, f: &FidState) {
+        if let Some(w) = self.wins.get_mut(&n) {
+            if f.open {
+                match f.kind {
+                    Kind::File(_, F::Kbd) => w.kbdopen = w.kbdopen.saturating_sub(1),
+                    Kind::File(_, F::Mouse) => w.mouseopen = w.mouseopen.saturating_sub(1),
+                    _ => {}
+                }
+                if f.raw {
+                    self.setraw(n, false);
+                }
+                if matches!(f.kind, Kind::File(_, F::Mouse)) {
+                    // the program let go of the window: its text again, all of
+                    // it (the program drew over every row; drawn of before the
+                    // program would keep its pixels where the rows are the same)
+                    if let Some(w) = self.wins.get_mut(&n) {
+                        w.drawn = None;
+                    }
+                    self.paint(n, None);
+                    self.drawtext(n);
+                }
+            }
+        }
+    }
+
+    fn setraw(&mut self, n: u32, on: bool) {
+        let w = self.wins.get_mut(&n).unwrap();
+        w.raw = on;
+        if on && !w.line.is_empty() {
+            // what was typed so far goes as it is
+            let l = std::mem::take(&mut w.line);
+            w.cons.extend(l.as_bytes());
+            self.wake(n);
+        }
+    }
+
+    /// image(6), uncompressed: rectangle r of image id (the screen's channels)
+    fn snapshot(&mut self, id: u32, r: Rect) -> std::io::Result<Vec<u8>> {
+        let chan = self.d.chan;
+        let mut b = format!("{:>11} {:11} {:11} {:11} {:11} ", draw::chanstr(chan), r.x0, r.y0, r.x1, r.y1).into_bytes();
+        b.extend(self.d.unload(id, &r, draw::chandepth(chan))?);
+        self.ovpaste(&mut b, r);
+        Ok(b)
+    }
+
+    /// the window on the overlay plane into snapshot b of rectangle r: the display
+    /// shows its buffer over the screen, devdraw's screen has not got it.  A buffer
+    /// the processor cannot see (in VRAM for the plane, variant b) is copied where
+    /// it can first (gpu(4) readback)
+    fn ovpaste(&mut self, b: &mut [u8], r: Rect) {
+        let Some(n) = self.ov else { return };
+        let Some(w) = self.wins.get(&n) else { return };
+        let Some(buf) = w.ovheld.and_then(|h| w.bufs.get(&h)) else { return };
+        let Mem::Gpu(g) = &buf.mem else { return };
+        let i = r.clip(&w.r);
+        if self.d.chan != XRGB32 || i.empty() {
+            return;
+        }
+        let (o, stride) = ((w.r.x0, w.r.y0), buf.stride);
+        let mut copy = None;
+        if !g.mapped() {
+            match self.gpu.as_ref().map(|gpu| gpu.readback(g)) {
+                Some(Ok(c)) => copy = Some(c),
+                Some(Err(e)) => {
+                    eprintln!("wsys: window {n}: the overlay's pixels: {e}");
+                    return;
+                }
+                None => return,
+            }
+        }
+        let n = self.wins.get_mut(&n).unwrap();
+        let h = n.ovheld.unwrap();
+        let Mem::Gpu(g) = &mut n.bufs.get_mut(&h).unwrap().mem else { return };
+        let src = copy.as_mut().unwrap_or(g);
+        let (y0, y1) = (i.y0 - o.1, i.y1 - o.1);
+        let px = src.read(y0 as usize * stride, (y1 - y0) as usize * stride);
+        let hdr = b.len() - (r.dx() * r.dy()) as usize * 4;
+        let row = (i.dx() * 4) as usize;
+        for y in i.y0..i.y1 {
+            let s = (y - i.y0) as usize * stride + (i.x0 - o.0) as usize * 4;
+            let d = hdr + (((y - r.y0) * r.dx() + (i.x0 - r.x0)) * 4) as usize;
+            if s + row <= px.len() && d + row <= b.len() {
+                b[d..d + row].copy_from_slice(&px[s..s + row]);
+            }
+        }
+    }
+
+    /// image(6) of rectangle r of the screen as the GPU composes it
+    fn compsnapshot(&mut self, r: Rect) -> std::io::Result<Vec<u8>> {
+        self.compsync();
+        let px = self.comp.as_ref().unwrap().snapshot(r).map_err(std::io::Error::other)?;
+        let r = r.clip(&self.d.r);
+        let mut b = format!("{:>11} {:11} {:11} {:11} {:11} ", draw::chanstr(XRGB32), r.x0, r.y0, r.x1, r.y1).into_bytes();
+        b.extend(px);
+        self.ovpaste(&mut b, r);
+        Ok(b)
+    }
+
+    /// the stack file: each window, bottom to top, its frame, its border's width, whether hidden
+    fn stacktext(&self) -> String {
+        let mut s = String::new();
+        for n in &self.z {
+            let w = &self.wins[n];
+            let f = w.frame();
+            s.push_str(&format!("{} {} {} {} {} {} {}\n", n, f.x0, f.y0, f.x1, f.y1, w.border, w.hidden as i32));
+        }
+        s
+    }
+
+    fn ctltext(&self, n: u32) -> String {
+        let w = &self.wins[&n];
+        format!(
+            "{} {} {} {} {} {} {} {:#x} {:#x} {}\n",
+            n, w.r.x0, w.r.y0, w.r.x1, w.r.y1, w.r.dx(), w.r.dy(),
+            SEGBASE + w.slot * SEGSIZE, SEGSIZE, (self.focus == Some(n)) as i32
+        )
+    }
+
+    /// what a read of window n's file f gets now, or None: it waits
+    fn take(&mut self, fid: u32, n: u32, f: F, count: u32) -> Option<Vec<u8>> {
+        let (mx, my, ms, focus) = (self.mx, self.my, self.ms, self.focus);
+        let seen = self.fids.get(&fid).map(|f| f.seen).unwrap_or(0);
+        if f == F::Event {
+            self.wins.get(&n)?;
+            let q = self.fids.get_mut(&fid)?.evq.as_mut()?;
+            if q.is_empty() {
+                return None;
+            }
+            let mut out = String::new();
+            while let Some(l) = q.front() {
+                if !out.is_empty() && out.len() + l.len() > count as usize {
+                    break;
+                }
+                out.push_str(l);
+                q.pop_front();
+            }
+            out.truncate(count as usize);
+            return Some(out.into_bytes());
+        }
+        let w = self.wins.get_mut(&n)?;
+        match f {
+            F::Event => None,
+            F::Mouse => {
+                if w.resized {
+                    w.resized = false;
+                    return Some(mousemsg('r', mx, my, 0, ms));
+                }
+                let (x, y, b, t) = w.mouse.pop_front()?;
+                Some(mousemsg('m', x, y, b, t))
+            }
+            F::Cons => {
+                if w.cons.is_empty() {
+                    if w.eof {
+                        w.eof = false;
+                        return Some(vec![]);
+                    }
+                    return None;
+                }
+                // whole runes
+                let mut k = (count as usize).min(w.cons.len());
+                while k < w.cons.len() && k > 0 && (w.cons[k] & 0xC0) == 0x80 {
+                    k -= 1;
+                }
+                Some(w.cons.drain(..k).collect())
+            }
+            F::Kbd => {
+                let mut out = vec![];
+                while let Some(m) = w.kbd.front() {
+                    if !out.is_empty() && out.len() + m.len() > count as usize {
+                        break;
+                    }
+                    out.extend_from_slice(m);
+                    w.kbd.pop_front();
+                }
+                if out.is_empty() { None } else { Some(out) }
+            }
+            F::Menu => w.menuout.take().map(|i| format!("{i}\n").into_bytes()),
+            F::Wctl => {
+                // the first read answers at once, a later one when something changed
+                if seen != 0 && seen >= w.state {
+                    return None;
+                }
+                let state = w.state.max(1);
+                w.state = state;
+                let f = w.frame();
+                let cur = if focus == Some(n) { "current" } else { "notcurrent" };
+                let vis = if w.hidden { "hidden" } else { "visible" };
+                let s = format!("{:11} {:11} {:11} {:11} {:>11} {:>11} ", f.x0, f.y0, f.x1, f.y1, cur, vis);
+                if let Some(fs) = self.fids.get_mut(&fid) {
+                    fs.seen = state;
+                }
+                Some(s.into_bytes())
+            }
+            _ => None,
+        }
+    }
+
+    /// answer the reads that wait on window n, as far as it has something
+    fn wake(&mut self, n: u32) {
+        let mut i = 0;
+        while i < self.pending.len() {
+            let p = &self.pending[i];
+            if p.win != n {
+                i += 1;
+                continue;
+            }
+            let (tag, fid, f, count) = (p.tag, p.fid, p.f, p.count);
+            match self.take(fid, n, f, count) {
+                Some(b) => {
+                    self.pending.remove(i);
+                    self.send(R::new(117, tag).u32(b.len() as u32).bytes(&b).done());
+                }
+                None => i += 1,
+            }
+        }
+    }
+
+    /// something wctl reports changed
+    fn changed(&mut self, n: u32) {
+        if let Some(w) = self.wins.get_mut(&n) {
+            w.state += 1;
+            self.wake(n);
+        }
+    }
+
+    fn event(&mut self, n: u32, line: String) {
+        // WSYSDEBUG=release: each buffer given back
+        if line.starts_with("b ") && wsysdebug("release") {
+            eprintln!("wsys: window {n}: {line}");
+        }
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        let line = line + "\n";
+        let mut readers = 0;
+        for f in self.fids.values_mut() {
+            if let (Kind::File(m, F::Event), Some(q)) = (f.kind, f.evq.as_mut()) {
+                if m == n {
+                    if q.len() >= MAXEVENTS {
+                        q.pop_front();
+                    }
+                    q.push_back(line.clone());
+                    readers += 1;
+                }
+            }
+        }
+        if readers == 0 {
+            // none open: kept for the first one
+            if w.events.len() >= MAXEVENTS {
+                w.events.pop_front();
+            }
+            w.events.push_back(line);
+        }
+        self.wake(n);
+    }
+
+    /// a white image of w x h for a window
+    fn image(&mut self, w: i32, h: i32) -> Result<u32, String> {
+        let img = self.d.alloc(Rect::new(0, 0, w, h), XRGB32, false, 0xFFFF_FFFF).map_err(|e| e.to_string())?;
+        Ok(img)
+    }
+
+    /// a new window, where the options put its frame (else by itself); text: a
+    /// text window (made by new, not by clone)
+    fn newwin(&mut self, o: &Opts, text: bool) -> Result<u32, String> {
+        let slot = self.slots.iter().skip(1).position(|&u| !u).map(|i| i + 1).ok_or("too many windows")?;
+        let n = self.nextwin + 1;
+        let s = self.d.r;
+        // on the monitor with the mouse, at its scale, unless the options put it
+        // on another one
+        let (m, mut scale) = { let o = &self.outs[self.outat(self.mx, self.my)]; (o.1, o.2) };
+        let off = self.szat(scale, 40 + 30 * ((n as i32 - 1) % 10));
+        // a bar (-bar) has neither: its rectangle is all of it (a title bar
+        // would not fit in a bar's height at a larger scale)
+        let mut t = if o.bar { 0 } else { self.titlehat(scale) };
+        let mut bw = if o.bar { 0 } else { self.szat(scale, BORDER) };
+        let auto = outer(Rect::new(m.x0 + off, m.y0 + off, m.x0 + off + self.szat(scale, 400), m.y0 + off + self.szat(scale, 300)), bw, t);
+        let f = place(auto, o, false);
+        let sc = self.scaleof(f);
+        if (sc - scale).abs() > 1e-6 {
+            scale = sc;
+            if !o.bar {
+                (t, bw) = (self.titlehat(scale), self.szat(scale, BORDER));
+            }
+        }
+        let r = inner(f, bw, t).clip(&inner(s, bw, t));
+        if r.dx() < 1 || r.dy() < 1 {
+            return Err("window outside the screen".into());
+        }
+        let img = self.image(r.dx(), r.dy())?;
+        let layer = match self.d.allocwindow(self.scr, r.inset(-bw), 0xFFFF_FFFF) {
+            Ok(l) => l,
+            Err(e) => {
+                let _ = self.d.free(img);
+                return Err(e.to_string());
+            }
+        };
+        // without a border: noborder., as libdraw and p9win know such a window
+        let pre = if bw == 0 { "noborder." } else { "" };
+        let name = format!("{pre}wsys.{}.{}.{}", std::process::id(), n, layer);
+        if let Err(e) = self.d.name(layer, &name, true) {
+            let _ = self.d.free(layer);
+            let _ = self.d.free(img);
+            return Err(e.to_string());
+        }
+        self.nextwin = n;
+        self.slots[slot] = true;
+        self.wins.insert(n, Win {
+            r, border: bw, title: t, unmax: None, bar: o.bar, menuout: None, full: None, scale, home: None, tlayer: None, mapped: text, nofocus: false, parent: None, modal: false, askclose: false, asked: false, hiddenby: false, slot, bufs: HashMap::new(), img, layer, name, refs: 0, pinned: false, pid: o.pid,
+            label: String::new(), wdir: o.cd.clone().unwrap_or_default(), text: String::new(), partial: vec![],
+            events: VecDeque::new(), raw: false, line: String::new(), cons: VecDeque::new(), eof: false,
+            kbd: VecDeque::new(), kbdopen: 0, mouseopen: 0, mouse: VecDeque::new(), resized: false,
+            cursor: vec![], state: 1, textwin: text, scroll: 0, scrolling: false, sel: (0, 0), rows: vec![], drawn: None, hidden: false,
+            hold: false, want: None, stale: false,
+            scrollr: Rect::default(), shown: (1, 0, 1), lastb: None, inside: false, nooverlay: false, ovsent: None, sup: None, shownb: None, held: None, cdamage: None, queued: vec![], ovheld: None,
+            layers: vec![], lgpu: false, lheld: vec![], lqueued: vec![], scratch: None,
+        });
+        self.z.push(n);
+        self.alloctitle(n);
+        self.restack(n, true); // (below the bars; a bar above the others)
+        if o.bar {
+            // never the focus (as the ctl message bar makes it)
+        } else if text {
+            self.setfocus(Some(n));
+        } else {
+            // a client of buffers: shown with its first picture, where it put the window
+            self.hide(n, true);
+        }
+        self.paint(n, None);
+        self.drawtext(n);
+        // its layer's name known before its program reads winname
+        let _ = self.d.flush();
+        Ok(n)
+    }
+
+    /// window n goes; hangup: its note group gets the note (a delete by wctl)
+    fn delwin(&mut self, n: u32, hangup: bool) {
+        // its dialogs and popups first (their clients' reads say window deleted)
+        for c in self.family(n).into_iter().rev() {
+            self.delwin(c, false);
+        }
+        let Some(w) = self.wins.remove(&n) else { return };
+        if let Some(c) = &self.comp {
+            for (&b, buf) in &w.bufs {
+                if buf.comp {
+                    c.forget((n, b));
+                }
+            }
+        }
+        if hangup {
+            if let Some(pid) = w.pid {
+                postnote(pid, "hangup");
+            }
+        }
+        let _ = self.d.name(w.layer, &w.name, false);
+        if let Some((id, _, _)) = w.scratch {
+            let _ = self.d.free(id);
+        }
+        let _ = self.d.free(w.layer);
+        if let Some(t) = w.tlayer {
+            let _ = self.d.free(t);
+        }
+        let _ = self.d.free(w.img);
+        self.slots[w.slot] = false; // its buffers go with w
+        self.z.retain(|&i| i != n);
+        for p in self.pending.iter().filter(|p| p.win == n) {
+            self.send(ninep::error(p.tag, "window deleted"));
+        }
+        self.pending.retain(|p| p.win != n);
+        if self.drag.map(|g| g.win) == Some(n) {
+            self.drag = None;
+            self.outline(None);
+        }
+        if self.selecting.map(|s| s.0) == Some(n) {
+            self.selecting = None;
+        }
+        if self.menu.as_ref().map(|m| m.win) == Some(Some(n)) {
+            let m = self.menu.take().unwrap();
+            let _ = self.d.free(m.layer);
+        }
+        if self.focus == Some(n) {
+            self.focus = None;
+            // a dialog's or popup's focus back to its window, else the top one's
+            let back = w.parent.filter(|p| self.wins.get(p).is_some_and(|pw| !pw.hidden));
+            let top = back.or_else(|| self.z.iter().rev().copied().find(|i| !self.wins[i].hidden && !self.wins[i].bar));
+            self.setfocus(top);
+        }
+        let _ = self.d.flush();
+    }
+
+    fn setfocus(&mut self, n: Option<u32>) {
+        if self.focus == n {
+            return;
+        }
+        let old = self.focus;
+        self.focus = n;
+        for (id, v) in [(old, 0), (n, 1)] {
+            if let Some(id) = id {
+                if self.wins.contains_key(&id) {
+                    self.event(id, format!("f {v}"));
+                    self.paintborder(id);
+                    self.changed(id);
+                }
+            }
+        }
+        self.setcursor();
+    }
+
+    /// the cursor of the focused window (none: the default)
+    fn setcursor(&mut self) {
+        let mut c = self.focus.and_then(|n| self.wins.get(&n)).map(|w| w.cursor.clone()).unwrap_or_default();
+        if let Some(k) = self.edge {
+            c = cornercursor(k);
+        }
+        if self.op3.is_some() || matches!(self.drag.map(|g| g.kind), Some(DragKind::Box(_))) {
+            c = crosscursor();
+        }
+        if let Some(fd) = &self.cursorfd {
+            let _ = fd.write(&c);
+        }
+    }
+
+    /// rio's whichcorner: the part of window n's frame at x, y, 3*row+column
+    /// (4 the middle); 20 pixels from an end of an edge take the corner
+    fn whichcorner(&self, n: u32, x: i32, y: i32) -> usize {
+        let f = self.wins[&n].frame();
+        let corner = self.sz(CORNER);
+        let portion = |v: i32, lo: i32, hi: i32| {
+            let (v, hi) = (v - lo, hi - lo);
+            if v < hi / 2 { if v < corner { 0 } else { 1 } } else if v > hi - corner { 2 } else { 1 }
+        };
+        3 * portion(y, f.y0, f.y1) + portion(x, f.x0, f.x1)
+    }
+
+    /// window n's dialogs and popups and theirs (parent), in stacking order
+    fn family(&self, n: u32) -> Vec<u32> {
+        let mut v = vec![];
+        let mut i = 0;
+        let mut q = vec![n];
+        while i < q.len() {
+            let p = q[i];
+            q.extend(self.z.iter().copied().filter(|c| self.wins.get(c).is_some_and(|w| w.parent == Some(p))));
+            i += 1;
+        }
+        q.remove(0);
+        for &c in &self.z {
+            if q.contains(&c) {
+                v.push(c);
+            }
+        }
+        v
+    }
+
+    /// a modal dialog of window n (or of one of its dialogs) on the screen,
+    /// the one on top: it takes what goes to n
+    fn modalof(&self, n: u32) -> Option<u32> {
+        self.family(n).into_iter().rev().find(|c| {
+            let w = &self.wins[c];
+            w.modal && w.mapped && !w.hidden
+        })
+    }
+
+    fn restack(&mut self, n: u32, top: bool) {
+        // its dialogs and popups go with it, above it
+        let fam = self.family(n);
+        self.z.retain(|&i| i != n && !fam.contains(&i));
+        if top {
+            self.z.push(n);
+            self.z.extend(&fam);
+        } else {
+            let mut v = vec![n];
+            v.extend(&fam);
+            self.z.splice(0..0, v);
+        }
+        // draw(3)'s t: the first listed ends in front, each next one behind it
+        // (to the bottom: the first at the very back, each next in front of
+        // it): its dialogs and popups in front of it either way
+        let mut l: Vec<u32> = if top {
+            fam.iter().rev().flat_map(|i| self.wins[i].layers()).chain(self.wins[&n].layers()).collect()
+        } else {
+            self.wins[&n].layers().into_iter().chain(fam.iter().flat_map(|i| self.wins[i].layers())).collect()
+        };
+        // (a window in fullscreen on top: the bars below it)
+        if top && !self.wins[&n].bar && self.wins[&n].full.is_none() {
+            // the bars above it again
+            let bars: Vec<u32> = self.z.iter().copied().filter(|i| self.wins[i].bar).collect();
+            self.z.retain(|i| !self.wins[i].bar);
+            self.z.extend(&bars);
+            l.extend(bars.iter().flat_map(|i| self.wins[i].layers()));
+        }
+        let r = if top { self.d.top(&l) } else { self.d.bottom(&l) };
+        if let Err(e) = r.and_then(|_| self.d.flush()) {
+            eprintln!("wsys: draw: {e}");
+        }
+    }
+
+    fn raise(&mut self, n: u32) {
+        let top = self.z.iter().rev().find(|i| self.wins[i].bar == self.wins[&n].bar);
+        if top != Some(&n) {
+            self.restack(n, true);
+        }
+    }
+
+    /// wctl (rio(4)): of window n, or of wsys (only new)
+    fn wctl(&mut self, n: Option<u32>, line: &str) -> Result<(), String> {
+        // WSYSDEBUG=wctl: each message, with the window it came from
+        if wsysdebug("wctl") {
+            eprintln!("wsys: wctl {}: {}", n.map_or("-".to_string(), |n| n.to_string()), line.trim_end());
+        }
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let Some(&cmd) = words.first() else { return Ok(()) };
+        if cmd == "new" {
+            let o = opts(&words[1..], true)?;
+            return self.spawn(o);
+        }
+        if cmd == "helper" && n.is_none() {
+            return self.helper(&words[1..]);
+        }
+        if cmd == "restart" {
+            return self.restart(n);
+        }
+        let n = n.ok_or("wsys' wctl only makes new windows, helpers, restarts")?;
+        match cmd {
+            "resize" | "move" => {
+                let o = opts(&words[1..], false)?;
+                let (b, t) = (self.wins[&n].border, self.wins[&n].title);
+                let mut f = place(self.wins[&n].frame(), &o, cmd == "move");
+                // only a new size (-dx, -dy): the window kept on its monitor's
+                // work area, moved as little as it takes, and no bigger than it
+                // (a program asking for more than the screen at a scale above
+                // 1: servoshell's 1024x740 at 2 is 2048x1480), as a window
+                // manager on X11 or Wayland keeps it
+                let sizeonly = cmd == "resize" && o.r.is_none() && o.minx.is_none() && o.miny.is_none()
+                    && o.maxx.is_none() && o.maxy.is_none() && (o.dx.is_some() || o.dy.is_some());
+                if sizeonly && !self.wins[&n].bar {
+                    let wa = self.workarea(self.outoffr(self.wins[&n].frame()));
+                    f = fitin(f, wa);
+                }
+                self.wins.get_mut(&n).unwrap().unmax = None;
+                self.wins.get_mut(&n).unwrap().home = None;
+                let r = self.setrect(n, inner(f, b, t));
+                self.rescale(n);
+                r
+            }
+            "top" => {
+                self.raise(n);
+                Ok(())
+            }
+            "bottom" => {
+                self.restack(n, false);
+                Ok(())
+            }
+            "current" => {
+                self.raise(n);
+                if !self.wins[&n].bar {
+                    self.setfocus(Some(n));
+                }
+                Ok(())
+            }
+            "delete" => {
+                self.delwin(n, true);
+                Ok(())
+            }
+            "set" => {
+                let o = opts(&words[1..], false)?;
+                if let Some(pid) = o.pid {
+                    self.wins.get_mut(&n).unwrap().pid = Some(pid);
+                }
+                Ok(())
+            }
+            "hide" => {
+                self.hide(n, true);
+                Ok(())
+            }
+            "unhide" => {
+                self.hide(n, false);
+                Ok(())
+            }
+            "scroll" | "noscroll" => {
+                self.setscrolling(n, cmd == "scroll");
+                Ok(())
+            }
+            "fullscreen" => {
+                // all of the screen, without border or title bar; on top, above
+                // the bars too (restack), until another window goes over it
+                let w = self.wins.get_mut(&n).unwrap();
+                if w.bar || w.full.is_some() {
+                    return Ok(());
+                }
+                let f = w.frame();
+                w.full = Some((f, w.border, w.title));
+                w.unmax = None;
+                (w.border, w.title) = (0, 0);
+                let s = self.outoffr(f);
+                self.reframe(n, s, true)?;
+                self.restack(n, true);
+                Ok(())
+            }
+            "unfullscreen" => {
+                let w = self.wins.get_mut(&n).unwrap();
+                let Some((f, b, t)) = w.full.take() else { return Ok(()) };
+                (w.border, w.title) = (b, t);
+                self.reframe(n, inner(f, b, t), true)?;
+                self.restack(n, true);
+                Ok(())
+            }
+            "bar" => {
+                // a bar (wbar): no border or title bar, above the other windows,
+                // the mouse while over it but never the focus, not in Mod4+Tab;
+                // a window maximized leaves its edge of the screen free
+                let w = self.wins.get_mut(&n).unwrap();
+                w.bar = true;
+                w.unmax = None;
+                if w.border != 0 || w.title != 0 {
+                    (w.border, w.title) = (0, 0);
+                    let r = w.r;
+                    self.reframe(n, r, true)?;
+                }
+                if self.focus == Some(n) {
+                    let next = self.z.iter().rev().copied().find(|i| *i != n && !self.wins[i].hidden && !self.wins[i].bar);
+                    self.setfocus(next);
+                }
+                self.restack(n, true);
+                Ok(())
+            }
+            _ => Err(format!("unknown wctl message: {cmd}")),
+        }
+    }
+
+    /// wctl's new: a window, and cmd (default rc -i) run in it in a name space
+    /// and an environment of its own (as rio: no rc rewriting a shared
+    /// /env while another reads it) with the window's files on /dev and /mnt/wsys
+    fn spawn(&mut self, o: Opts) -> Result<(), String> {
+        let n = self.newwin(&o, true)?;
+        self.wins.get_mut(&n).unwrap().pinned = true;
+        let cmd = if o.cmd.is_empty() { "rc -i".to_string() } else { o.cmd.join(" ") };
+        if o.restart {
+            self.wins.get_mut(&n).unwrap().sup = Some(Sup::new(true, cmd.clone(), o.cd.clone()));
+        }
+        if let Err(e) = self.runwin(n, &cmd, o.cd.as_deref()) {
+            self.delwin(n, false);
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    /// cmd in window n (spawn's, and a supervised window's again): its exit,
+    /// with its wait message, comes as Ev::WinExit
+    fn runwin(&mut self, n: u32, cmd: &str, cd: Option<&str>) -> Result<(), String> {
+        let mut script = format!(
+            "rfork ens; mount {srv} /mnt/wsys {n} || exit mount; bind -b /mnt/wsys /dev; wsys={srv}; ",
+            srv = rcquote(&self.srvpath)
+        );
+        if let Some(d) = cd {
+            script += &format!("cd {} >[2]/dev/null; ", rcquote(d));
+        }
+        // at a scale other than 1 the draw(3) programs' font as big as wsys' own
+        // (they know no scale; libdraw's display->dpi, scalesize(2), for the
+        // rest), unless it is $font as it was (a bitmap font of one's own)
+        if self.theme.scale != 1.0 && std::env::var("font").ok().as_deref() != Some(self.fontname.as_str()) {
+            script += &format!("font={}; ", rcquote(&self.fontname));
+        }
+        script += &format!("exec {cmd} </dev/cons >/dev/cons >[2]/dev/cons");
+        let mut c = std::process::Command::new("/bin/rc").arg("-c").arg(&script).spawn().map_err(|e| format!("new: {e}"))?;
+        let w = self.wins.get_mut(&n).unwrap();
+        if w.pid.is_none() {
+            w.pid = Some(c.id());
+        }
+        if let Some(s) = w.sup.as_mut() {
+            s.pid = Some(c.id());
+            s.running = true;
+            s.started = std::time::Instant::now();
+        }
+        let tx = self.tx.clone();
+        thread::spawn(move || {
+            let msg = waitmsg(c.wait());
+            let _ = tx.send(Ev::WinExit(n, msg));
+        });
+        Ok(())
+    }
+
+    /// wctl helper [-restart] cmd: cmd in wsys' name space with /mnt/wsys,
+    /// without a window (reform's shortcuts on kbdtap), kept going with
+    /// -restart as a window's program is (Sup)
+    fn helper(&mut self, words: &[&str]) -> Result<(), String> {
+        let (restart, cmd) = match words.first() {
+            Some(&"-restart") => (true, &words[1..]),
+            _ => (false, words),
+        };
+        if cmd.is_empty() {
+            return Err("usage: helper [-restart] cmd [arg ...]".into());
+        }
+        let id = self.nexthelper;
+        self.nexthelper += 1;
+        self.helpers.insert(id, Sup::new(restart, cmd.join(" "), None));
+        self.runhelper(id)
+    }
+
+    fn runhelper(&mut self, id: u32) -> Result<(), String> {
+        let Some(s) = self.helpers.get(&id) else { return Ok(()) };
+        let script = format!(
+            // its own redirections (shortcuts' kbdtap) inside the block win
+            "rfork ens; mount -c {srv} /mnt/wsys || exit mount; wsys={srv}; {{exec {cmd}}} </dev/null",
+            srv = rcquote(&self.srvpath),
+            cmd = s.cmd
+        );
+        let mut c = std::process::Command::new("/bin/rc").arg("-c").arg(&script).spawn().map_err(|e| format!("helper: {e}"))?;
+        let s = self.helpers.get_mut(&id).unwrap();
+        s.pid = Some(c.id());
+        s.running = true;
+        s.started = std::time::Instant::now();
+        let tx = self.tx.clone();
+        thread::spawn(move || {
+            let msg = waitmsg(c.wait());
+            let _ = tx.send(Ev::HelperExit(id, msg));
+        });
+        Ok(())
+    }
+
+    /// a supervised program in a pause: started after secs
+    fn later(&self, job: Job, secs: u64) {
+        let tx = self.tx.clone();
+        thread::spawn(move || {
+            thread::sleep(std::time::Duration::from_secs(secs));
+            let _ = tx.send(Ev::Again(job));
+        });
+    }
+
+    /// window n's program ended (Ev::WinExit): the window goes as it did,
+    /// unless it is kept going (window -restart: Sup)
+    fn winexit(&mut self, n: u32, msg: String) {
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        let next = w.sup.as_mut().map(|s| {
+            let what = format!("{} (window {n})", s.cmd);
+            s.ended(&what, &msg)
+        });
+        match next {
+            Some(Next::Again(secs, line)) => {
+                eprintln!("{line}");
+                w.pid = None;
+                self.later(Job::Win(n), secs);
+                return;
+            }
+            Some(Next::GaveUp(line)) => {
+                eprintln!("{line}");
+                w.pid = None;
+                self.output(n, format!("\n{line}\n").as_bytes());
+                return; // the window stays, saying so
+            }
+            _ => {}
+        }
+        // its process is gone, for good: the window too, unless files of it
+        // are open (their last clunk deletes it then: no sup any more)
+        w.sup = None;
+        w.pinned = false;
+        if w.refs == 0 {
+            self.delwin(n, false);
+        }
+    }
+
+    fn helperexit(&mut self, id: u32, msg: String) {
+        let Some(s) = self.helpers.get_mut(&id) else { return };
+        let what = format!("{} (helper {id})", s.cmd);
+        match s.ended(&what, &msg) {
+            Next::Again(secs, line) => {
+                eprintln!("{line}");
+                self.later(Job::Helper(id), secs);
+            }
+            Next::GaveUp(line) => eprintln!("{line}"), // kept: wctl restart
+            Next::Done => {
+                self.helpers.remove(&id);
+            }
+        }
+    }
+
+    /// Ev::Again, or started by hand (wctl restart, menu 3)
+    fn again(&mut self, job: Job) {
+        let r = match job {
+            Job::Win(n) => {
+                let Some(w) = self.wins.get_mut(&n) else { return };
+                let Some(s) = w.sup.as_ref() else { return };
+                if s.running {
+                    return;
+                }
+                let (cmd, cd) = (s.cmd.clone(), s.cd.clone());
+                w.pid = None;
+                self.runwin(n, &cmd, cd.as_deref())
+            }
+            Job::Helper(id) => {
+                if self.helpers.get(&id).is_none_or(|s| s.running) {
+                    return;
+                }
+                self.runhelper(id)
+            }
+        };
+        if let Err(e) = r {
+            eprintln!("wsys: {e}");
+        }
+    }
+
+    /// wctl restart: window n's program (n), or wsys' helpers that were given
+    /// up (none): its count of crashes anew
+    fn restart(&mut self, n: Option<u32>) -> Result<(), String> {
+        match n {
+            Some(n) => {
+                let s = self.wins.get_mut(&n).and_then(|w| w.sup.as_mut()).ok_or("not a window -restart")?;
+                if s.running {
+                    return Err("its program runs".into());
+                }
+                s.anew();
+                self.again(Job::Win(n));
+            }
+            None => {
+                let ids: Vec<u32> = self.helpers.iter().filter(|(_, s)| s.gaveup).map(|(&id, _)| id).collect();
+                for id in ids {
+                    self.helpers.get_mut(&id).unwrap().anew();
+                    self.again(Job::Helper(id));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn ctl(&mut self, n: u32, line: &str) -> Result<(), String> {
+        let mut f = line.split_whitespace();
+        let cmd = f.next().unwrap_or("");
+        let nums: Vec<i32> = line.split_whitespace().skip(1).filter_map(|s| s.parse().ok()).collect();
+        match cmd {
+            "" => Ok(()),
+            "buffer" => {
+                let a: Vec<&str> = line.split_whitespace().collect();
+                let num = |i: usize| a.get(i).and_then(|x| x.parse::<i64>().ok());
+                let (Some(b), Some(name), Some(bw), Some(bh), Some(stride)) = (num(1), a.get(2), num(3), num(4), num(5)) else {
+                    return Err("usage: buffer n seg w h stride [off [chan]]".into());
+                };
+                if !(0..MAXBUF as i64).contains(&b) || bw < 1 || bh < 1 || bw > 16384 || bh > 16384 || stride < bw * 4 {
+                    return Err("bad buffer".into());
+                }
+                let off = match a.get(6) {
+                    None => 0,
+                    Some(x) => x.parse::<usize>().map_err(|_| "bad buffer offset")?,
+                };
+                let alpha = bufalpha(a.get(7))?;
+                let at = Seg::find(name).map_err(|e| format!("buffer {b}: {e}"))?;
+                let w = self.wins.get_mut(&n).unwrap();
+                let base = SEGBASE + w.slot * SEGSIZE;
+                let (rbase, rtop) = p9::shared_region();
+                let (va, len) = at;
+                let inwin = va >= base && va + len <= base + SEGSIZE;
+                let inregion = va >= rbase && va + len <= rtop;
+                if !inwin && !inregion {
+                    return Err(format!("buffer {b}: segment {name} at {va:#x} is outside the window's range"));
+                }
+                if off.checked_add((stride * (bh - 1) + bw * 4) as usize).is_none_or(|e| e > len) {
+                    return Err(format!("buffer {b}: segment {name} too small"));
+                }
+                // a segment attached once, however many buffers are in it (a
+                // Wayland client's pool): by its address, unique while attached
+                let seg = match self.segs.get(&va).and_then(Weak::upgrade) {
+                    Some(s) => s,
+                    None => {
+                        let s = Rc::new(Seg::attach(name, at).map_err(|e| format!("buffer {b}: {e}"))?);
+                        self.segs.retain(|_, s| s.strong_count() > 0);
+                        self.segs.insert(va, Rc::downgrade(&s));
+                        s
+                    }
+                };
+                let w = self.wins.get_mut(&n).unwrap();
+                w.bufs.insert(b as u32, Buf { mem: Mem::Seg(seg, off), w: bw as i32, h: bh as i32, stride: stride as usize, comp: false, alpha, token: None });
+                Ok(())
+            }
+            "gpubuffer" => {
+                let a: Vec<&str> = line.split_whitespace().collect();
+                let num = |i: usize| a.get(i).and_then(|x| x.parse::<i64>().ok());
+                let (Some(b), Some(token), Some(bw), Some(bh), Some(stride)) = (num(1), a.get(2), num(3), num(4), num(5)) else {
+                    return Err("usage: gpubuffer n token w h stride [chan]".into());
+                };
+                let alpha = bufalpha(a.get(6))?;
+                if !(0..MAXBUF as i64).contains(&b) || bw < 1 || bh < 1 || bw > 16384 || bh > 16384 || stride < bw * 4 {
+                    return Err("bad buffer".into());
+                }
+                if self.gpu.is_none() {
+                    self.gpu = Some(gpu::Gpu::open().map_err(|e| format!("gpubuffer {b}: {e}"))?);
+                }
+                let size = (stride * (bh - 1) + bw * 4) as usize;
+                // a context of a driver gone (killed and started again: compfailed,
+                // compagain) imports nothing more: a new one, once
+                let mem = match self.gpu.as_mut().unwrap().import(token, size) {
+                    Ok(m) => m,
+                    Err(_) => {
+                        self.gpu = Some(gpu::Gpu::open().map_err(|e| format!("gpubuffer {b}: {e}"))?);
+                        self.overlayanew();
+                        self.gpu.as_mut().unwrap().import(token, size).map_err(|e| format!("gpubuffer {b}: {e}"))?
+                    }
+                };
+                self.unbuffer(n, b as u32);
+                // -g: the GPU's thread imports it too and composes it; else (or if it
+                // cannot) wsys copies it with the processor
+                let comp = match &self.comp {
+                    Some(c) => c
+                        .import((n, b as u32), token, bw as i32, bh as i32, stride as usize)
+                        .inspect_err(|e| eprintln!("wsys: window {n}: gpubuffer {b}: the GPU composes it not: {e}"))
+                        .is_ok(),
+                    None => false,
+                };
+                let w = self.wins.get_mut(&n).unwrap();
+                w.bufs.insert(b as u32, Buf { mem: Mem::Gpu(mem), w: bw as i32, h: bh as i32, stride: stride as usize, comp, alpha, token: Some(token.to_string()) });
+                Ok(())
+            }
+            "unbuffer" => {
+                let b = *nums.first().ok_or("usage: unbuffer n")? as u32;
+                if !self.wins[&n].bufs.contains_key(&b) {
+                    return Err("no such buffer".into());
+                }
+                self.unbuffer(n, b);
+                Ok(())
+            }
+            "layers" => {
+                let a: Vec<&str> = line.split_whitespace().skip(1).collect();
+                if a.is_empty() || a.len() % 3 != 0 {
+                    return Err("usage: layers [+]b x y ...".into());
+                }
+                let mut list = vec![];
+                let mut new = vec![];
+                for t in a.chunks(3) {
+                    let (fresh, bs) = match t[0].strip_prefix('+') {
+                        Some(r) => (true, r),
+                        None => (false, t[0]),
+                    };
+                    let (Ok(b), Ok(x), Ok(y)) = (bs.parse::<u32>(), t[1].parse::<i32>(), t[2].parse::<i32>()) else {
+                        return Err("usage: layers [+]b x y ...".into());
+                    };
+                    if !self.wins[&n].bufs.contains_key(&b) {
+                        return Err(format!("layers: no buffer {b}"));
+                    }
+                    if list.iter().any(|l: &Layer| l.b == b) {
+                        return Err(format!("layers: buffer {b} twice"));
+                    }
+                    list.push(Layer { b, x, y });
+                    if fresh {
+                        new.push(b);
+                    }
+                }
+                self.map(n);
+                self.setlayers(n, list, new);
+                Ok(())
+            }
+            "present" => {
+                let b = *nums.first().ok_or("usage: present n [x0 y0 x1 y1]")? as u32;
+                if !self.wins[&n].bufs.contains_key(&b) {
+                    return Err("no such buffer".into());
+                }
+                self.map(n);
+                self.unlayer(n, Some(b));
+                let r = if nums.len() == 5 { Some(Rect::new(nums[1], nums[2], nums[3], nums[4])) } else { None };
+                if self.compshow(n, b, Some(r)) {
+                    return Ok(());
+                }
+                self.uncompose(n);
+                self.copybuf(n, b, r)?;
+                self.wins.get_mut(&n).unwrap().lastb = Some(b);
+                // copied: shown, and the client may write it again
+                self.event(n, format!("s {b}"));
+                self.event(n, format!("b {b}"));
+                if self.ov != Some(n) {
+                    self.ovletgo(n); // off the plane (ovcheck turned it off)
+                }
+                Ok(())
+            }
+            "rect" => {
+                if nums.len() != 4 {
+                    return Err("usage: rect x0 y0 x1 y1".into());
+                }
+                self.setrect(n, Rect::new(nums[0], nums[1], nums[2], nums[3]))
+            }
+            "top" => {
+                self.map(n);
+                self.raise(n);
+                self.setfocus(Some(n));
+                Ok(())
+            }
+            "label" => {
+                self.wins.get_mut(&n).unwrap().label = line[5..].trim().to_string();
+                self.painttitle(n);
+                Ok(())
+            }
+            "popup" => {
+                // a menu's or a tooltip's window, before its first present: no
+                // border; shown, it takes the focus if it grabs (a menu), else
+                // leaves it where it is (a tooltip)
+                let grab = match f.next() {
+                    None => false,
+                    Some("grab") => true,
+                    Some(_) => return Err("usage: popup [grab]".into()),
+                };
+                let w = self.wins.get_mut(&n).unwrap();
+                w.nofocus = !grab;
+                if w.border != 0 {
+                    w.border = 0;
+                    w.title = 0;
+                    let r = w.r;
+                    self.reframe(n, r, true)?;
+                }
+                Ok(())
+            }
+            "delete" => {
+                self.delwin(n, true);
+                Ok(())
+            }
+            "parent" => {
+                // parent n: a dialog or popup of window n (moves, stacks, hides and
+                // goes with it); parent -: none
+                let p = match f.next() {
+                    Some("-") => None,
+                    Some(v) => {
+                        let p: u32 = v.parse().map_err(|_| "usage: parent n|-")?;
+                        if !self.wins.contains_key(&p) || p == n || self.family(n).contains(&p) {
+                            return Err("bad parent".into());
+                        }
+                        Some(p)
+                    }
+                    None => return Err("usage: parent n|-".into()),
+                };
+                self.wins.get_mut(&n).unwrap().parent = p;
+                if let Some(p) = p {
+                    if self.wins[&n].mapped {
+                        self.restack(p, true);
+                    }
+                }
+                Ok(())
+            }
+            "modal" | "askclose" => {
+                let on = match f.next() {
+                    None | Some("1") => true,
+                    Some("0") => false,
+                    Some(_) => return Err(format!("usage: {cmd} [0|1]")),
+                };
+                let w = self.wins.get_mut(&n).unwrap();
+                if cmd == "modal" {
+                    w.modal = on;
+                } else {
+                    w.askclose = on;
+                }
+                Ok(())
+            }
+            _ => Err(format!("unknown ctl message: {cmd}")),
+        }
+    }
+
+    /// window n's buffer b composed by the GPU from now on (the next frame), if it
+    /// can be; the client gets back the ones shown or presented before when that
+    /// frame is on the display
+    /// window n shows layers (bottom to top; new: those with new content): composed
+    /// by the GPU if it composes all of them, else by draw(3); the buffers listed
+    /// before and not now go back to the client once no frame shows them
+    fn setlayers(&mut self, n: u32, list: Vec<Layer>, new: Vec<u32>) {
+        if self.wins[&n].layers.is_empty() {
+            // a buffer presented before: off the plane, out of the GPU's frames
+            if self.ov == Some(n) {
+                self.ov = None;
+                if let Some(tx) = &self.ovtx {
+                    let _ = tx.send(OvJob { win: n, b: 0, tag: None, count: 0, line: "overlay off".into() });
+                }
+            }
+            self.ovletgo(n);
+            self.uncompose(n);
+            self.wins.get_mut(&n).unwrap().lastb = None;
+        }
+        let gpu = self.comp.is_some() && list.iter().all(|l| self.wins[&n].bufs[&l.b].comp);
+        if wsysdebug("layers") && (self.wins[&n].layers.is_empty() || self.wins[&n].lgpu != gpu) {
+            eprintln!("wsys: window {n}: layers {}", if gpu { "composed on the GPU" } else { "drawn by draw(3)" });
+        }
+        let w = self.wins.get_mut(&n).unwrap();
+        let old: Vec<u32> = w.layers.iter().map(|l| l.b).collect();
+        w.layers = list;
+        let now: Vec<u32> = w.layers.iter().map(|l| l.b).collect();
+        if gpu {
+            if !w.lgpu {
+                // drawn by draw(3) before: what is not listed now is free at once
+                w.lgpu = true;
+                for b in old.into_iter().filter(|b| !now.contains(b)) {
+                    self.event(n, format!("b {b}"));
+                }
+            }
+            let w = self.wins.get_mut(&n).unwrap();
+            for b in new {
+                w.lqueued.retain(|&q| q != b);
+                w.lqueued.push(b);
+            }
+            self.compdirty = true;
+            return;
+        }
+        if w.lgpu {
+            // the GPU composed them: those on the display go back after the next frame
+            w.lgpu = false;
+            let gone: Vec<u32> = w.lheld.drain(..).chain(w.lqueued.drain(..)).filter(|b| !now.contains(b)).collect();
+            self.compgone.extend(gone.into_iter().map(|b| (n, b)));
+            self.compdirty = true;
+        } else {
+            for b in old.into_iter().filter(|b| !now.contains(b)) {
+                self.event(n, format!("b {b}"));
+            }
+        }
+        self.lcompose(n);
+        for b in new {
+            self.event(n, format!("s {b}"));
+        }
+    }
+
+    /// window n shows a buffer again (b presented), not layers: those listed go
+    /// back to the client (but b)
+    fn unlayer(&mut self, n: u32, keep: Option<u32>) {
+        let w = self.wins.get_mut(&n).unwrap();
+        if w.layers.is_empty() && w.lheld.is_empty() && w.lqueued.is_empty() {
+            return;
+        }
+        let listed: Vec<u32> = w.layers.drain(..).map(|l| l.b).collect();
+        let gpu = std::mem::replace(&mut w.lgpu, false);
+        let mut gone: Vec<u32> = listed;
+        gone.extend(w.lheld.drain(..));
+        gone.extend(w.lqueued.drain(..));
+        gone.sort();
+        gone.dedup();
+        gone.retain(|&b| Some(b) != keep);
+        if gpu {
+            self.compgone.extend(gone.into_iter().map(|b| (n, b)));
+            self.compdirty = true;
+        } else {
+            for b in gone {
+                self.event(n, format!("b {b}"));
+            }
+        }
+    }
+
+    /// window n's layers drawn by draw(3) into its image, bottom to top: the
+    /// bottom one and opaque ones copied, those with alpha blended (SoverD,
+    /// premultiplied) through an a8r8g8b8 image; then shown
+    fn lcompose(&mut self, n: u32) {
+        self.freshen(n);
+        let (layers, r) = (self.wins[&n].layers.clone(), self.wins[&n].r);
+        let all = Rect::new(0, 0, r.dx(), r.dy());
+        for (i, l) in layers.iter().enumerate() {
+            let w = &self.wins[&n];
+            let Some(buf) = w.bufs.get(&l.b) else { continue };
+            if let Mem::Gpu(g) = &buf.mem {
+                if !g.mapped() {
+                    continue; // in VRAM: not for the processor
+                }
+            }
+            let lr = Rect::new(l.x, l.y, l.x + buf.w, l.y + buf.h).clip(&all);
+            if lr.empty() {
+                continue;
+            }
+            let blend = i > 0 && buf.alpha;
+            let scratch = if blend {
+                match self.scratch(n, lr.dx(), lr.dy()) {
+                    Ok(id) => Some(id),
+                    Err(e) => {
+                        eprintln!("wsys: window {n}: a layer to blend: {e}");
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+            let w = self.wins.get_mut(&n).unwrap();
+            let img = w.img;
+            let buf = w.bufs.get_mut(&l.b).unwrap();
+            let stride = buf.stride;
+            let (bx, by) = (lr.x0 - l.x, lr.y0 - l.y);
+            let (px, row) = buf.mem.rows(by, by + lr.dy(), stride);
+            let d = &mut self.d;
+            let res = match scratch {
+                None => d.load_at(img, &lr, px, stride, bx, by - row),
+                Some(s) => d
+                    .load_at(s, &Rect::new(0, 0, lr.dx(), lr.dy()), px, stride, bx, by - row)
+                    .and_then(|_| d.draw(img, &lr, s, 0, 0)),
+            };
+            if let Err(e) = res {
+                eprintln!("wsys: window {n}: a layer: {e}");
+            }
+        }
+        self.paint(n, Some(all));
+    }
+
+    /// window n's a8r8g8b8 image of draw(3), at least w x h
+    fn scratch(&mut self, n: u32, w: i32, h: i32) -> Result<u32, String> {
+        if let Some((id, sw, sh)) = self.wins[&n].scratch {
+            if sw >= w && sh >= h {
+                return Ok(id);
+            }
+            let _ = self.d.free(id);
+            self.wins.get_mut(&n).unwrap().scratch = None;
+        }
+        let id = self.d.alloc(Rect::new(0, 0, w, h), draw::ARGB32, false, 0).map_err(|e| e.to_string())?;
+        self.wins.get_mut(&n).unwrap().scratch = Some((id, w, h));
+        Ok(id)
+    }
+
+    /// buffer b of window n shown by the GPU; r: what changed in it since the
+    /// buffer presented before (Some(None): not said, all of it)
+    fn compshow(&mut self, n: u32, b: u32, r: Option<Option<Rect>>) -> bool {
+        let Some(w) = self.wins.get_mut(&n) else { return false };
+        if self.comp.is_none() || !w.bufs.get(&b).is_some_and(|x| x.comp) {
+            return false;
+        }
+        if wsysdebug("release") {
+            eprintln!("wsys: window {n}: present {b} damage {:?}", r.flatten());
+        }
+        // the presents since the thread was told add up
+        w.cdamage = match (w.cdamage, r.flatten()) {
+            (Some(None), _) | (_, None) => Some(None),
+            (None, Some(r)) => Some(Some(r)),
+            (Some(Some(a)), Some(r)) => Some(Some(Rect::new(a.x0.min(r.x0), a.y0.min(r.y0), a.x1.max(r.x1), a.y1.max(r.y1)))),
+        };
+        if w.held == Some(b) {
+            w.held = None; // presented again while shown: shown again
+        }
+        w.queued.retain(|&q| q != b);
+        w.queued.push(b);
+        w.shownb = Some(b);
+        w.lastb = Some(b);
+        self.compdirty = true;
+        true
+    }
+
+    /// buffer b of window n gone (unbuffer, a new one of the same number)
+    fn unbuffer(&mut self, n: u32, b: u32) {
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        let Some(buf) = w.bufs.remove(&b) else { return };
+        if w.ovheld == Some(b) {
+            w.ovheld = None;
+        }
+        if w.layers.iter().any(|l| l.b == b) {
+            w.layers.retain(|l| l.b != b);
+            self.compdirty = true;
+        }
+        w.lheld.retain(|&q| q != b);
+        w.lqueued.retain(|&q| q != b);
+        if buf.comp {
+            if w.shownb == Some(b) {
+                w.shownb = None;
+                self.compdirty = true;
+            }
+            if w.held == Some(b) {
+                w.held = None;
+            }
+            w.queued.retain(|&q| q != b);
+            self.compgone.retain(|&k| k != (n, b));
+            if let Some(c) = &self.comp {
+                c.forget((n, b));
+            }
+        }
+    }
+
+    /// window n no longer composed by the GPU (its client presents a buffer wsys
+    /// copies): the one held goes back to it
+    fn uncompose(&mut self, n: u32) {
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        if w.shownb.take().is_some() {
+            self.compdirty = true;
+        }
+        // a frame on its way may still read them: back with the next one
+        let gone: Vec<u32> = w.held.take().into_iter().chain(w.queued.drain(..)).collect();
+        if !gone.is_empty() {
+            self.compdirty = true;
+            self.compgone.extend(gone.into_iter().map(|b| (n, b)));
+        }
+    }
+
+    /// what the GPU composes now (-g): the windows with a GPU buffer presented,
+    /// bottom to top, each where it is not covered by a window above it or by
+    /// wsys' menu and sweep; told to the GPU's thread when it changed or a
+    /// buffer was presented
+    fn compsync(&mut self) {
+        if self.comp.is_none() {
+            return;
+        }
+        let mut scene = vec![];
+        for (i, &n) in self.z.iter().enumerate() {
+            let w = &self.wins[&n];
+            if w.lgpu {
+                scene.extend(self.layershown(i, n));
+                continue;
+            }
+            let Some(b) = w.shownb else { continue };
+            let Some(buf) = w.bufs.get(&b) else { continue };
+            if self.ov == Some(n) {
+                continue; // on the overlay plane, over the frames
+            }
+            if w.hidden {
+                // nothing of it seen, but its frames go back at the display's rate
+                // (else its client would wait for ever)
+                scene.push(comp::Shown { key: (n, b), at: (w.r.x0, w.r.y0), rects: vec![], blend: false, damage: None });
+                continue;
+            }
+            let mine = Rect::new(w.r.x0, w.r.y0, w.r.x0 + buf.w.min(w.r.dx()), w.r.y0 + buf.h.min(w.r.dy())).clip(&self.d.r);
+            let rects = self.uncovered(i, mine);
+            // what changed in it since the thread was told, on the screen (empty:
+            // nothing, None: all of it); the same buffer presented again changed too
+            let damage = match w.cdamage {
+                None => Some(Rect::default()),
+                Some(None) => None,
+                Some(Some(d)) => Some(d.add(w.r.x0, w.r.y0)),
+            };
+            scene.push(comp::Shown { key: (n, b), at: (w.r.x0, w.r.y0), rects, blend: false, damage });
+        }
+        if scene == self.compscene && !self.compdirty {
+            return;
+        }
+        self.compdirty = false;
+        for w in self.wins.values_mut() {
+            w.cdamage = None;
+        }
+        self.compscene = scene.clone();
+        if !self.comp.as_ref().unwrap().scene(scene) {
+            self.compfailed("its thread is gone".into());
+        }
+    }
+
+    /// what is seen of r (screen coordinates) of the window at z[i]: not under a
+    /// window above it, wsys' menu or a sweep's outline
+    fn uncovered(&self, i: usize, r: Rect) -> Vec<Rect> {
+        let mut rects = if r.empty() { vec![] } else { vec![r] };
+        let mut over: Vec<Rect> = self.z[i + 1..].iter().map(|o| &self.wins[o]).filter(|o| !o.hidden).map(|o| o.frame()).collect();
+        if let Some(m) = &self.menu {
+            over.push(m.r);
+        }
+        if let Some(r) = self.sweepr {
+            let f = outer(r, self.sz(BORDER), self.titleh());
+            over.extend([
+                Rect::new(f.x0, f.y0, f.x1, r.y0),
+                Rect::new(f.x0, r.y1, f.x1, f.y1),
+                Rect::new(f.x0, r.y0, r.x0, r.y1),
+                Rect::new(r.x1, r.y0, f.x1, r.y1),
+            ]);
+        }
+        for o in over {
+            rects = rects.iter().flat_map(|r| subtract(r, &o)).collect();
+        }
+        rects
+    }
+
+    /// the layers of the window n at z[i] as the GPU composes them, bottom to top,
+    /// each in the window where it is seen; those over others with alpha blended
+    fn layershown(&self, i: usize, n: u32) -> Vec<comp::Shown> {
+        let w = &self.wins[&n];
+        let mut v = vec![];
+        for (k, l) in w.layers.iter().enumerate() {
+            let Some(buf) = w.bufs.get(&l.b) else { continue };
+            let at = (w.r.x0 + l.x, w.r.y0 + l.y);
+            // hidden: nothing seen, but its frames go back at the display's rate
+            let rects = if w.hidden {
+                vec![]
+            } else {
+                let mine = Rect::new(at.0, at.1, at.0 + buf.w, at.1 + buf.h).clip(&w.r).clip(&self.d.r);
+                self.uncovered(i, mine)
+            };
+            v.push(comp::Shown { key: (n, l.b), at, rects, blend: k > 0 && buf.alpha, damage: None });
+        }
+        v
+    }
+
+    /// a frame showed buffers f of layered window n: those new in it get their s,
+    /// those shown or listed before and neither listed nor in it now go back
+    fn lcomposed(&mut self, n: u32, f: &[u32]) {
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        let now: Vec<u32> = w.layers.iter().map(|l| l.b).collect();
+        let mut back: Vec<u32> = w.lheld.iter().chain(w.lqueued.iter()).copied().filter(|b| !f.contains(b) && !now.contains(b)).collect();
+        back.sort();
+        back.dedup();
+        let shown: Vec<u32> = w.lqueued.iter().copied().filter(|b| f.contains(b)).collect();
+        w.lqueued.retain(|b| !f.contains(b) && now.contains(b));
+        w.lheld = f.to_vec();
+        for b in shown {
+            self.event(n, format!("s {b}"));
+        }
+        for b in back {
+            self.event(n, format!("b {b}"));
+        }
+    }
+
+    /// a frame with these buffers is on its way: each window's buffer shown
+    /// before goes back to its client
+    fn composed(&mut self, keys: Vec<comp::Key>) {
+        if wsysdebug("release") {
+            eprintln!("wsys: composed {keys:?}");
+        }
+        for (n, b) in std::mem::take(&mut self.compgone) {
+            self.event(n, format!("b {b}"));
+        }
+        // layered windows: all of a window's buffers in the frame at once
+        let mut lw: Vec<u32> = keys.iter().map(|k| k.0).filter(|n| self.wins.get(n).is_some_and(|w| w.lgpu)).collect();
+        lw.sort();
+        lw.dedup();
+        for &n in &lw {
+            let f: Vec<u32> = keys.iter().filter(|k| k.0 == n).map(|k| k.1).collect();
+            self.lcomposed(n, &f);
+        }
+        for (n, b) in keys {
+            if lw.contains(&n) {
+                continue;
+            }
+            let Some(w) = self.wins.get_mut(&n) else { continue };
+            let Some(i) = w.queued.iter().position(|&q| q == b) else { continue };
+            // b is on the display: the one shown before and those presented before
+            // b (no frame showed them) go back
+            let mut back: Vec<u32> = w.queued.drain(..=i).filter(|&q| q != b).collect();
+            if let Some(h) = w.held.replace(b) {
+                if h != b {
+                    back.push(h);
+                }
+            }
+            // on the display: the time for the client's next picture (Wayland's frame
+            // callbacks, wlsys), while wsys keeps b until another one is shown
+            self.event(n, format!("s {b}"));
+            for q in back {
+                self.event(n, format!("b {q}"));
+            }
+        }
+    }
+
+    /// the GPU's thread is gone: the processor copies the buffers again
+    /// the overlay plane's thread of a driver gone let go of (its connection
+    /// is dead: every request fails): one is made with the next driver's
+    /// context, and the windows refused the plane meanwhile may try it again
+    fn overlayanew(&mut self) {
+        self.ovtx = None;
+        self.ov = None;
+        for w in self.wins.values_mut() {
+            w.nooverlay = false;
+            // "overlay 0|1" said again: a client's new swapchain (made after
+            // the loss) hears that it may go onto the plane
+            w.ovsent = None;
+        }
+    }
+
+    fn compfailed(&mut self, e: String) {
+        eprintln!("wsys: the GPU composes no longer: {e}");
+        self.comp = None;
+        self.overlayanew();
+        // a driver that comes back (aux/i915 killed and started again, a scanout
+        // refused once): the GPU again, tried now and then (compretry)
+        if self.compwant.is_some() {
+            let first = std::time::Duration::from_secs(2);
+            self.compretry = Some((std::time::Instant::now() + first, first));
+        }
+        self.compscene.clear();
+        let ids: Vec<u32> = self.wins.keys().copied().collect();
+        for n in ids {
+            let w = self.wins.get_mut(&n).unwrap();
+            for b in w.bufs.values_mut() {
+                b.comp = false;
+            }
+            if w.lgpu {
+                // draw(3) composes its layers; what is not listed goes back
+                w.lgpu = false;
+                let now: Vec<u32> = w.layers.iter().map(|l| l.b).collect();
+                let mut back: Vec<u32> = w.lheld.drain(..).chain(w.lqueued.drain(..)).filter(|b| !now.contains(b)).collect();
+                back.sort();
+                back.dedup();
+                self.lcompose(n);
+                for b in back {
+                    self.event(n, format!("b {b}"));
+                }
+                for b in now {
+                    self.event(n, format!("s {b}"));
+                }
+                continue;
+            }
+            let shown = w.shownb.take();
+            let mut back: Vec<u32> = w.held.take().into_iter().chain(w.queued.drain(..)).collect();
+            if let Some(b) = shown {
+                let _ = self.copybuf(n, b, None);
+                if !back.contains(&b) {
+                    back.push(b);
+                }
+            }
+            for b in back {
+                self.event(n, format!("b {b}"));
+            }
+        }
+        for (n, b) in std::mem::take(&mut self.compgone) {
+            self.event(n, format!("b {b}"));
+        }
+    }
+
+    /// the GPU's composing again after compfailed, when its time is due: a new
+    /// thread of comp, started by a thread of its own (Vulkan's start takes a
+    /// while where the framebuffer is there but its driver is not: the main
+    /// loop goes on), the result an event (compstarted)
+    fn compagain(&mut self) {
+        let Some((at, _)) = self.compretry else { return };
+        if self.comp.is_some() || self.compstarting || std::time::Instant::now() < at {
+            return;
+        }
+        self.compstarting = true;
+        let verbose = self.compwant.unwrap_or(false);
+        let tx = self.tx.clone();
+        thread::spawn(move || {
+            let done = tx.clone();
+            let r = comp::Comp::start(
+                Box::new(move |d| {
+                    let _ = done.send(Ev::Comp(d));
+                }),
+                verbose,
+            );
+            let _ = tx.send(Ev::CompStarted(r));
+        });
+    }
+
+    /// compagain's try done: the GPU composes again, the clients' GPU buffers
+    /// imported into it again (those it cannot take, of a driver gone, stay
+    /// the processor's until their clients give new ones), all of the screen
+    /// its first frame; else another try later, the wait doubled (a minute at
+    /// most)
+    fn compstarted(&mut self, r: Result<comp::Comp, String>) {
+        self.compstarting = false;
+        let Some((_, wait)) = self.compretry else { return };
+        let c = match r {
+            Ok(c) if self.comp.is_none() => c,
+            Ok(_) => return,
+            Err(e) => {
+                if self.compwant == Some(true) {
+                    eprintln!("wsys: the GPU composes not yet: {e}; again in {} s", wait.as_secs());
+                }
+                let next = (wait * 2).min(std::time::Duration::from_secs(60));
+                self.compretry = Some((std::time::Instant::now() + wait, next));
+                return;
+            }
+        };
+        eprintln!("wsys: the GPU composes again");
+        self.compretry = None;
+        let ids: Vec<u32> = self.wins.keys().copied().collect();
+        for n in &ids {
+            let w = self.wins.get_mut(n).unwrap();
+            for (b, buf) in w.bufs.iter_mut() {
+                if let (Mem::Gpu(_), Some(t)) = (&buf.mem, &buf.token) {
+                    buf.comp = c.import((*n, *b), t, buf.w, buf.h, buf.stride).is_ok();
+                }
+            }
+        }
+        // all of the screen in its first frame (the old thread's reader of #G's
+        // dirty file may take one rectangle more before it ends)
+        c.damage(self.d.r);
+        self.comp = Some(c);
+        self.compdirty = true;
+        // the windows drawn again: the GPU's frames show them
+        for n in ids {
+            if let Some(w) = self.wins.get_mut(&n) {
+                w.resized = true;
+            }
+            self.paintborder(n);
+            self.drawtext(n);
+            self.wake(n);
+        }
+    }
+
+    /// move window n to r; a new size gives it a new window in draw(3) that keeps
+    /// what it showed (white beyond it), and its client an r event; a draw(3)
+    /// program reads r from its mouse file either way
+    fn setrect(&mut self, n: u32, r: Rect) -> Result<(), String> {
+        self.reframe(n, r, false)
+    }
+
+    /// window n's content to r; new: a new layer even if its size stays (its border changed)
+    fn reframe(&mut self, n: u32, r: Rect, new: bool) -> Result<(), String> {
+        if let Some(w) = self.wins.get_mut(&n) {
+            w.nooverlay = false; // somewhere else: the overlay again, perhaps
+        }
+        if r.dx() < 1 || r.dy() < 1 || r.dx() > 16384 || r.dy() > 16384 {
+            return Err("bad rectangle".into());
+        }
+        let old = self.wins[&n].r;
+        if r == old && !new {
+            return Ok(());
+        }
+        self.freshen(n);
+        let sized = r.dx() != old.dx() || r.dy() != old.dy();
+        if sized || new {
+            let img = self.image(r.dx(), r.dy())?;
+            let w = &self.wins[&n];
+            let (oldimg, oldlayer, oldname, border) = (w.img, w.layer, w.name.clone(), w.border);
+            let all = Rect::new(0, 0, r.dx(), r.dy());
+            let (white, scr) = (self.white, self.scr);
+            let d = &mut self.d;
+            let made = d
+                .draw(img, &all, white, 0, 0)
+                .and_then(|_| d.draw(img, &all, oldimg, 0, 0))
+                .and_then(|_| d.allocwindow(scr, r.inset(-border), 0xFFFF_FFFF));
+            let layer = match made {
+                Ok(l) => l,
+                Err(e) => {
+                    let _ = self.d.free(img);
+                    return Err(e.to_string());
+                }
+            };
+            // what the old window showed (a draw(3) program's picture too)
+            let keep = Rect::new(r.x0, r.y0, r.x0 + old.dx().min(r.dx()), r.y0 + old.dy().min(r.dy()));
+            // without a border (a bar): noborder., as libdraw and p9win know such a window
+            let pre = if border == 0 { "noborder." } else { "" };
+            let name = format!("{pre}wsys.{}.{}.{}", std::process::id(), n, layer);
+            let res = self
+                .d
+                .draw(layer, &r, white, 0, 0)
+                .and_then(|_| self.d.draw(layer, &keep, oldlayer, old.x0, old.y0))
+                .and_then(|_| self.d.name(oldlayer, &oldname, false))
+                .and_then(|_| self.d.name(layer, &name, true));
+            if let Err(e) = res {
+                eprintln!("wsys: draw: {e}");
+            }
+            let _ = self.d.free(oldimg);
+            let w = self.wins.get_mut(&n).unwrap();
+            (w.img, w.layer, w.r, w.name) = (img, layer, r, name);
+            self.alloctitle(n);
+            // the stack as it was: those above go on top again
+            let above: Vec<u32> = self.z.iter().skip_while(|&&i| i != n).skip(1).flat_map(|i| self.wins[i].layers()).collect();
+            let _ = self.d.free(oldlayer);
+            if !above.is_empty() {
+                let _ = self.d.top(&above);
+            }
+            self.paintborder(n);
+            self.drawtext(n);
+            // the new layer's name known before its program hears of it (a
+            // window without a border paints nothing that would flush)
+            if let Err(e) = self.d.flush() {
+                eprintln!("wsys: draw: {e}");
+            }
+            if sized {
+                self.event(n, format!("r {} {}", r.dx(), r.dy()));
+            }
+        } else {
+            self.wins.get_mut(&n).unwrap().r = r;
+            self.origins(n);
+        }
+        let w = self.wins.get_mut(&n).unwrap();
+        w.resized = true;
+        if w.hidden {
+            // still off the screen, where it is (hide moves it back)
+            self.origins(n);
+        }
+        self.changed(n);
+        // its dialogs and popups keep their place relative to it; moved after
+        // it (devdraw brings a window it moves to the front: they stay in
+        // front of it, in their order)
+        let (dx, dy) = (r.x0 - old.x0, r.y0 - old.y0);
+        if dx != 0 || dy != 0 {
+            let kids: Vec<u32> = self.z.iter().copied().filter(|c| self.wins[c].parent == Some(n)).collect();
+            for c in kids {
+                let k = self.wins[&c].r;
+                let _ = self.reframe(c, Rect::new(k.x0 + dx, k.y0 + dy, k.x1 + dx, k.y1 + dy), false);
+            }
+        }
+        Ok(())
+    }
+
+    /// window n's title bar a window of its own above its layer (made again:
+    /// the old one freed), none without a bar
+    fn alloctitle(&mut self, n: u32) {
+        let w = self.wins.get_mut(&n).unwrap();
+        let (old, bar) = (w.tlayer.take(), w.titlebar());
+        if let Some(t) = old {
+            let _ = self.d.free(t);
+        }
+        if !bar.empty() {
+            match self.d.allocwindow(self.scr, bar, 0xFFFF_FFFF) {
+                Ok(t) => self.wins.get_mut(&n).unwrap().tlayer = Some(t),
+                Err(e) => eprintln!("wsys: title: {e}"),
+            }
+        }
+        if self.wins[&n].hidden {
+            self.origins(n);
+        }
+        self.painttitle(n);
+    }
+
+    /// window n's layers where it is, or past the screen's far corner when hidden
+    fn origins(&mut self, n: u32) {
+        let w = &self.wins[&n];
+        let f = w.frame();
+        let mut v = vec![(w.layer, w.lrect())];
+        if let Some(t) = w.tlayer {
+            v.push((t, w.titlebar()));
+        }
+        let hidden = w.hidden;
+        let res = (|| -> std::io::Result<()> {
+            for (l, r) in v {
+                let at = if hidden { (self.imgr.x1, self.imgr.y1 + r.y0 - f.y0) } else { (r.x0, r.y0) };
+                self.d.origin(l, (r.x0, r.y0), at)?;
+            }
+            self.d.flush()
+        })();
+        if let Err(e) = res {
+            eprintln!("wsys: draw: {e}");
+        }
+    }
+
+    /// the frame of r on top of all (a sweep in progress): four thin windows
+    fn outline(&mut self, r: Option<Rect>) {
+        self.sweepr = r;
+        let res = (|| -> std::io::Result<()> {
+            for l in std::mem::take(&mut self.sweep) {
+                self.d.free(l)?;
+            }
+            if let Some(r) = r {
+                let f = outer(r, self.sz(BORDER), self.titleh());
+                let col = self.theme.border << 8 | 0xFF;
+                for side in [
+                    Rect::new(f.x0, f.y0, f.x1, r.y0),
+                    Rect::new(f.x0, r.y1, f.x1, f.y1),
+                    Rect::new(f.x0, r.y0, r.x0, r.y1),
+                    Rect::new(r.x1, r.y0, f.x1, r.y1),
+                ] {
+                    let l = self.d.allocwindow(self.scr, side, col)?;
+                    self.sweep.push(l);
+                }
+            }
+            self.d.flush()
+        })();
+        if let Err(e) = res {
+            eprintln!("wsys: draw: {e}");
+        }
+    }
+
+    /// window n's border, in the colour of its focus
+    /// lines of a theme written: the colours' images take the new ones (each a
+    /// 1x1 replicated image, drawn into: whatever uses one sees it), then all of
+    /// it again: the background through a window over the screen, put at the
+    /// bottom and freed (the windows above come back from their backups, the
+    /// screen's fill shows where none is), borders, text windows
+    fn settheme(&mut self, text: &str) -> Result<(), String> {
+        let mut t = self.theme.clone();
+        t.apply(text)?;
+        let pairs = [
+            (self.bg, t.back),
+            (self.cfocus, t.border),
+            (self.cother, t.borderinactive),
+            (self.white, t.window),
+            (self.black, t.text),
+            (self.pale, t.select),
+            (self.menuhi, t.menuhigh),
+            (self.scrollbg, t.scroll),
+            (self.holdcol, t.hold),
+            (self.paleholdcol, t.holdinactive),
+        ];
+        // "scale auto": as found when wsys started (the screen has not changed)
+        if t.scaleauto && !self.theme.scaleauto {
+            t.scale = autoscale(self.ownscreen, self.d.r.dx());
+        } else if t.scaleauto {
+            t.scale = self.theme.scale;
+        }
+        self.theme = t;
+        // the colours (the same images) and maybe the font: the text windows all again
+        for w in self.wins.values_mut() {
+            w.drawn = None;
+        }
+        // another font (the scale's, the theme's)
+        self.cursorsize();
+        let fname = textfont(&self.fontflag, &self.theme);
+        if fname != self.fontname {
+            match font::Font::open(&fname) {
+                Ok(f) => {
+                    self.font = Some(f);
+                    self.fontname = fname;
+                }
+                Err(e) => eprintln!("wsys: font {fname}: {e}"),
+            }
+        }
+        let res = (|| -> std::io::Result<()> {
+            let one = Rect::new(0, 0, 1, 1);
+            for (img, rgb) in pairs {
+                let c = self.d.color(rgb)?;
+                self.d.draw(img, &one, c, 0, 0)?;
+                self.d.free(c)?;
+            }
+            let all = self.d.r;
+            let cover = self.d.allocwindow(self.scr, all, 0xFFFF_FFFF)?;
+            self.d.bottom(&[cover])?;
+            self.d.free(cover)?;
+            self.d.flush()
+        })();
+        if let Err(e) = res {
+            return Err(format!("theme: draw: {e}"));
+        }
+        // title bars on or off, another scale (border, bar): each window keeps
+        // its frame, its content grows or shrinks (a new size for its program)
+        // each window at its monitor's scale (another font: opened again)
+        self.fonts.clear();
+        self.outs = self.readouts();
+        let ids: Vec<u32> = self.wins.keys().copied().collect();
+        for &n in &ids {
+            let sc = self.scaleof(self.wins[&n].frame());
+            self.wins.get_mut(&n).unwrap().scale = sc;
+            let (t, b) = (self.titlehat(sc), self.szat(sc, BORDER));
+            let w = &self.wins[&n];
+            if w.border == 0 || (w.title == t && w.border == b) {
+                continue;
+            }
+            let f = w.frame();
+            let r = inner(f, b, t);
+            if r.dx() < 1 || r.dy() < 1 {
+                continue; // too small for a bar: as it was
+            }
+            let w = self.wins.get_mut(&n).unwrap();
+            (w.title, w.border) = (t, b);
+            if let Err(e) = self.reframe(n, r, true) {
+                eprintln!("wsys: theme: window {n}: {e}");
+            }
+        }
+        // the windows' programs hear it as a resize ('r' on their mouse, as rio
+        // says the window changed): they draw again, and read /dev/theme again
+        for n in ids {
+            self.paintborder(n);
+            self.drawtext(n);
+            self.wins.get_mut(&n).unwrap().resized = true;
+            self.wake(n);
+        }
+        Ok(())
+    }
+
+    fn paintborder(&mut self, n: u32) {
+        let w = &self.wins[&n];
+        let (l, r) = (w.layer, w.r);
+        if w.border == 0 {
+            return;
+        }
+        let f = w.lrect();
+        let col = match (w.hold, self.focus == Some(n)) {
+            (true, true) => self.holdcol,
+            (true, false) => self.paleholdcol,
+            (false, true) => self.cfocus,
+            (false, false) => self.cother,
+        };
+        let res = (|| -> std::io::Result<()> {
+            for side in [
+                Rect::new(f.x0, f.y0, f.x1, r.y0),
+                Rect::new(f.x0, r.y1, f.x1, f.y1),
+                Rect::new(f.x0, r.y0, r.x0, r.y1),
+                Rect::new(r.x1, r.y0, f.x1, r.y1),
+            ] {
+                self.d.draw(l, &side, col, 0, 0)?;
+            }
+            self.d.flush()
+        })();
+        if let Err(e) = res {
+            eprintln!("wsys: draw: {e}");
+        }
+        self.painttitle(n);
+    }
+
+    /// a title bar's height now (the theme's title 1, wsys' font): none without
+    fn titleh(&self) -> i32 {
+        match &self.font {
+            Some(f) if self.theme.title => f.height + self.sz(4),
+            _ => 0,
+        }
+    }
+
+    /// the buttons of window n's title bar, from its end: where each is
+    fn titlebuttons(&mut self, n: u32) -> Vec<(TitleOp, Rect)> {
+        let Some(w) = self.wins.get(&n) else { return vec![] };
+        let bar = w.titlebar();
+        let pad = self.szat(w.scale, TITLEPAD);
+        let dpi = theme::dpi(w.scale);
+        let Some(font) = Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, dpi) else { return vec![] };
+        if bar.empty() {
+            return vec![];
+        }
+        let mut x = bar.x1;
+        let mut v = vec![];
+        for (s, op) in TITLEOPS {
+            // at least as wide as the bar is high (a square: something to hit, as
+            // the HIG want; x of a proportional font is narrow)
+            let wd: i32 = (s.chars().map(|c| font.width(&mut self.d, c)).sum::<i32>() + 2 * pad).max(bar.dy());
+            if x - wd < bar.x0 {
+                break;
+            }
+            v.push((op, Rect::new(x - wd, bar.y0, x, bar.y1)));
+            x -= wd;
+        }
+        v
+    }
+
+    /// window n's title bar: its label (else "window n") at the start, the
+    /// buttons min max x at the end, in the border's colour (the window's
+    /// colour for the text of the current window, the text's for the others)
+    fn painttitle(&mut self, n: u32) {
+        let Some(w) = self.wins.get(&n) else { return };
+        let bar = w.titlebar();
+        let Some(l) = w.tlayer else { return };
+        if bar.empty() || self.font.is_none() {
+            return;
+        }
+        let label = if w.label.is_empty() { format!("window {n}") } else { w.label.clone() };
+        let current = self.focus == Some(n);
+        let bg = match (w.hold, current) {
+            (true, true) => self.holdcol,
+            (true, false) => self.paleholdcol,
+            (false, true) => self.cfocus,
+            (false, false) => self.cother,
+        };
+        let ink = if current { self.white } else { self.black };
+        let sc = w.scale;
+        let buttons = self.titlebuttons(n);
+        let pad = self.szat(sc, TITLEPAD);
+        let end = buttons.last().map_or(bar.x1, |b| b.1.x0) - pad;
+        let mut items: Vec<(i32, i32, String)> = buttons.iter().map(|(op, r)| {
+            let s = TITLEOPS.iter().find(|t| t.1 == *op).unwrap().0;
+            (r.x0 + pad, r.x1, s.to_string())
+        }).collect();
+        items.push((bar.x0 + pad, end, label));
+        let dpi = theme::dpi(sc);
+        let (font, d) = (Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, dpi).unwrap(), &mut self.d);
+        let y = bar.y0 + (bar.dy() - font.height) / 2;
+        let res = (|| -> std::io::Result<()> {
+            d.draw(l, &bar, bg, 0, 0)?;
+            for (x0, x1, s) in items {
+                let mut x = x0;
+                for c in s.chars() {
+                    let Some(g) = font.glyph(d, c) else { continue };
+                    if x + g.width > x1 {
+                        break; // a label too long for its bar ends here
+                    }
+                    let dst = Rect::new(0, 0, g.src.dx(), g.src.dy()).add(x + g.dx, y + g.dy + g.src.y0);
+                    d.drawmask(l, &dst, ink, (0, 0), g.img, (g.src.x0, g.src.y0))?;
+                    x += g.width;
+                }
+            }
+            d.flush()
+        })();
+        if let Err(e) = res {
+            eprintln!("wsys: title: {e}");
+        }
+    }
+
+    /// a title bar's button let go on: x deletes (as button 3's Delete), max
+    /// fills the screen or gives the frame back, min hides (as Hide)
+    /// the user deletes window n (title bar's x, button 3's Delete): its client
+    /// asked to be asked (ctl askclose): an event close, it deletes the window
+    /// (or not: a dialog asks whether to save); else, or when it was asked
+    /// already and the window is still there (a client that hangs), it goes
+    fn closereq(&mut self, n: u32) {
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        if w.askclose && !w.asked {
+            w.asked = true;
+            self.event(n, "close".into());
+        } else {
+            self.delwin(n, true);
+        }
+    }
+
+    fn titleop(&mut self, n: u32, op: TitleOp) {
+        match op {
+            TitleOp::Delete => self.closereq(n),
+            TitleOp::Hide => self.hide(n, true),
+            TitleOp::Max => self.maximize(n),
+        }
+    }
+
+    /// the window wsys is in was made anew (the mouse's r: rio moved or resized
+    /// it, drawterm's window changed size): wsys' screen is what it shows now
+    fn resized(&mut self) {
+        let old = self.d.r;
+        let oldouts = self.outs.clone();
+        // WSYSDEBUG=resize: each r, what the window and wsys' screen are then
+        let dbg = wsysdebug("resize");
+        if dbg {
+            eprintln!("wsys: resize: r, winname {}, screen {:?}", std::fs::read_to_string("/dev/winname").unwrap_or_default().trim(), old);
+        }
+        if self.core.is_some() {
+            // devdraw is wsys' own: its screen as big as the window or screen
+            // shown, a new screen image when that changes (the windows made
+            // again on it, as with the kernel's below)
+            let Some(kd) = self.kd.as_mut() else { return };
+            match kd.reattach().and_then(|again| kd.onlayer().map(|_| again)) {
+                Ok(true) => {}
+                Ok(false) => {
+                    if dbg {
+                        eprintln!("wsys: resize: not in a window (kd.screen {})", kd.screen);
+                    }
+                    return;
+                }
+                Err(e) => {
+                    eprintln!("wsys: the window: {e}");
+                    return;
+                }
+            }
+            let kr = kd.r;
+            let c = self.core.as_mut().unwrap();
+            let new = Rect::new(c.r.x0, c.r.y0, c.r.x0 + kr.dx(), c.r.y0 + kr.dy());
+            if dbg {
+                eprintln!("wsys: resize: the window {kr:?}, devdraw's screen {:?} -> {new:?}", c.r);
+            }
+            if new != c.r {
+                if let Err(e) = c.resize(new) {
+                    eprintln!("wsys: screen {}x{}: {e}", new.dx(), new.dy());
+                    return;
+                }
+                if c.r.x0 == 0 && c.r.y0 == 0 {
+                    comp::corescreen(&c.name, c.stride);
+                }
+                let name = c.winname.clone();
+                match self.d.rescreen(&name) {
+                    Ok(true) => {}
+                    Ok(false) => return,
+                    Err(e) => {
+                        eprintln!("wsys: the screen: {e}");
+                        return;
+                    }
+                }
+                self.rescreen(old, oldouts);
+            } else {
+                // the same size, maybe other monitors
+                self.outs = self.readouts();
+                if self.outs != oldouts {
+                    self.fitwins(&oldouts);
+                }
+            }
+            // all of it again, at the window's place (moved, or only a new image)
+            self.coreload(vec![self.d.r]);
+            return;
+        }
+        // the kernel's devdraw: the windows are layers on the window's image, made
+        // again on a screen on the new one, where they were in the window (a whole
+        // screen: on onlayer's window over it again)
+        match self.d.reattach().and_then(|again| self.d.onlayer().map(|_| again)) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => {
+                eprintln!("wsys: the window: {e}");
+                return;
+            }
+        }
+        self.rescreen(old, oldouts);
+    }
+
+    /// the windows onto the screen image d has now (old: wsys' screen before,
+    /// oldouts: the monitors): a screen of layers on it, each window made
+    /// again where it was, its program told
+    fn rescreen(&mut self, old: Rect, oldouts: Vec<(String, Rect, f64)>) {
+        let new = self.d.r;
+        let (img, bg) = (self.d.screen, self.bg);
+        let scr = match self.d.draw(img, &new, bg, 0, 0).and_then(|_| self.d.allocscreen(img, bg)) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("wsys: screen: {e}");
+                return;
+            }
+        };
+        let oldscr = std::mem::replace(&mut self.scr, scr);
+        self.imgr = new;
+        let (dx, dy) = (new.x0 - old.x0, new.y0 - old.y0);
+        for n in self.z.clone() {
+            let r = self.wins[&n].r.add(dx, dy);
+            if let Err(e) = self.reframe(n, r, true) {
+                eprintln!("wsys: window {n}: {e}");
+            }
+            // (made again: its program finds its window anew)
+            let r = self.wins[&n].r;
+            self.event(n, format!("r {} {}", r.dx(), r.dy()));
+        }
+        let _ = self.d.free(oldscr);
+        let _ = self.d.flush();
+        self.outs = self.readouts();
+        self.fitwins(&oldouts);
+    }
+
+    /// the windows after the screen changed (old: the monitors before): bars
+    /// as wide as it; a window whose monitor went onto the one with the mouse,
+    /// where it was on that one in proportion, no bigger than it (maximized and
+    /// full screen ones over it), remembered for when its monitor comes again;
+    /// one whose monitor came again back where it was; others moved with their
+    /// monitor, and back into the screen when their corner is off it
+    fn fitwins(&mut self, old: &[(String, Rect, f64)]) {
+        let s = self.d.r;
+        let ns: Vec<u32> = self.z.clone();
+        for &n in &ns {
+            let w = &self.wins[&n];
+            if w.bar && !w.hidden {
+                let r = w.r;
+                let _ = self.setrect(n, Rect::new(s.x0, r.y0, s.x1, r.y1));
+            }
+        }
+        let target = self.outat(self.mx, self.my);
+        for &n in &ns {
+            let w = &self.wins[&n];
+            if w.bar || w.hidden {
+                continue;
+            }
+            let (f, b, t) = (w.frame(), w.border, w.title);
+            // the frame it is to have on monitor to (its rectangle, from: the one it was on)
+            let mut to: Option<(Rect, Rect)> = None;
+            let mut home = w.home.clone();
+            if let Some((name, rel)) = &home {
+                if let Some(o) = self.outs.iter().find(|o| &o.0 == name) {
+                    // its monitor is there again: back where it was
+                    to = Some((o.1, Rect::new(o.1.x0, o.1.y0, o.1.x0 + rel.dx().max(1), o.1.y0 + rel.dy().max(1)).add(rel.x0, rel.y0)));
+                    home = None;
+                }
+            }
+            if to.is_none() && !old.is_empty() {
+                let from = old[outof(old, f)].clone();
+                match self.outs.iter().find(|o| o.0 == from.0) {
+                    // its monitor still there: with it, where it moved
+                    Some(o) if o.1 != from.1 => to = Some((o.1, f.add(o.1.x0 - from.1.x0, o.1.y0 - from.1.y0))),
+                    Some(_) => {}
+                    None => {
+                        let o = self.outs[target].1;
+                        if home.is_none() && !from.0.is_empty() {
+                            home = Some((from.0.clone(), f.add(-from.1.x0, -from.1.y0)));
+                        }
+                        to = Some((o, remap(f, from.1, o)));
+                    }
+                }
+            }
+            self.wins.get_mut(&n).unwrap().home = home;
+            let w = &self.wins[&n];
+            if let Some((o, nf)) = to {
+                let area = self.workarea(o);
+                let w = self.wins.get_mut(&n).unwrap();
+                if let Some(u) = w.unmax {
+                    w.unmax = Some(fitin(u.add(nf.x0 - f.x0, nf.y0 - f.y0), area));
+                }
+                if let Some((u, ub, ut)) = w.full {
+                    w.full = Some((fitin(u.add(nf.x0 - f.x0, nf.y0 - f.y0), area), ub, ut));
+                }
+                let r = if w.full.is_some() {
+                    o
+                } else if w.unmax.is_some() {
+                    inner(area, b, t)
+                } else {
+                    inner(fitin(nf, area), b, t)
+                };
+                let _ = self.setrect(n, r);
+                continue;
+            }
+            if w.full.is_some() {
+                let o = self.outs[outof(&self.outs, f)].1;
+                let _ = self.setrect(n, o);
+                continue;
+            }
+            if w.unmax.is_some() {
+                let area = self.workarea(self.outs[outof(&self.outs, f)].1);
+                let _ = self.setrect(n, inner(area, b, t));
+                continue;
+            }
+            const KEEP: i32 = 32; // of a window this much stays on the screen
+            let x = f.x0.min(s.x1 - KEEP).max(s.x0);
+            let y = f.y0.min(s.y1 - KEEP).max(s.y0);
+            if (x, y) != (f.x0, f.y0) {
+                let _ = self.setrect(n, inner(f.add(x - f.x0, y - f.y0), b, t));
+            }
+        }
+        // each at the scale of the monitor it is on now
+        for &n in &ns {
+            self.rescale(n);
+        }
+        self.cursorat();
+    }
+
+    /// the monitors: gpu(4)'s outputs that are on ("WxH hz at x y" in their
+    /// mode files), in wsys' screen's coordinates, left to right; one, the
+    /// whole screen, in a window, far away or without them
+    fn readouts(&self) -> Vec<(String, Rect, f64)> {
+        let s = self.d.r;
+        let mut v: Vec<(String, Rect, f64)> = vec![];
+        if self.ownscreen {
+            for g in std::fs::read_dir(gpu::gpudir()).into_iter().flatten().flatten() {
+                for o in std::fs::read_dir(g.path().join("outputs")).into_iter().flatten().flatten() {
+                    let m = std::fs::read_to_string(o.path().join("mode")).unwrap_or_default();
+                    if let Some(r) = parsemode(&m) {
+                        // "scale auto": each monitor's from its EDID (its pixels to the inch)
+                        let mut scale = self.theme.scale;
+                        if self.theme.scaleauto {
+                            if let Some(mm) = std::fs::read(o.path().join("edid")).ok().and_then(|e| edidmm(&e)) {
+                                scale = theme::autoscale(r.dx(), mm);
+                            }
+                        }
+                        let r = r.add(s.x0, s.y0).clip(&s);
+                        if !r.empty() {
+                            v.push((o.file_name().to_string_lossy().into_owned(), r, scale));
+                        }
+                    }
+                }
+            }
+        }
+        v.sort_by_key(|o| (o.1.x0, o.1.y0));
+        if v.is_empty() {
+            v.push((String::new(), s, self.theme.scale));
+        }
+        v
+    }
+
+    /// n pixels at 96 dpi at scale sc
+    fn szat(&self, sc: f64, n: i32) -> i32 {
+        theme::scalesize(theme::dpi(sc), n)
+    }
+
+    /// the scale of the monitor frame f is most on
+    fn scaleof(&self, f: Rect) -> f64 {
+        self.outs[outof(&self.outs, f)].2
+    }
+
+    /// the font at dpi: the theme's, else one of fonts, opened the first time
+    /// (textfont at that scale); the theme's if it cannot be
+    fn fontfor<'a>(font: &'a mut Option<font::Font>, fonts: &'a mut HashMap<i32, font::Font>, theme: &theme::Theme, flag: &Option<String>, dpi: i32) -> Option<&'a mut font::Font> {
+        if dpi == theme.dpi() || font.is_none() {
+            return font.as_mut();
+        }
+        if !fonts.contains_key(&dpi) {
+            let mut t = theme.clone();
+            t.scale = dpi as f64 / 96.0;
+            let name = textfont(flag, &t);
+            match font::Font::open(&name) {
+                Ok(f) => {
+                    fonts.insert(dpi, f);
+                }
+                Err(e) => {
+                    eprintln!("wsys: font {name}: {e}");
+                    return font.as_mut();
+                }
+            }
+        }
+        fonts.get_mut(&dpi)
+    }
+
+    /// the height of window n's font, as opened (else the theme's)
+    fn wfonth(&self, n: u32) -> i32 {
+        let dpi = self.wins.get(&n).map_or(self.theme.dpi(), |w| theme::dpi(w.scale));
+        let f = if dpi == self.theme.dpi() { self.font.as_ref() } else { self.fonts.get(&dpi).or(self.font.as_ref()) };
+        f.map(|f| f.height).unwrap_or(1).max(1)
+    }
+
+    /// a title bar's height at scale sc (none without title bars)
+    fn titlehat(&mut self, sc: f64) -> i32 {
+        if !self.theme.title {
+            return 0;
+        }
+        let dpi = theme::dpi(sc);
+        let pad = self.szat(sc, 4);
+        Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, dpi).map_or(0, |f| f.height + pad)
+    }
+
+    /// window n at its monitor's scale: border and title bar as big, its
+    /// content as big as it was to the eye (its pixels in proportion, its
+    /// corner kept), its program told (a resize: it reads dpi again)
+    fn rescale(&mut self, n: u32) {
+        let Some(w) = self.wins.get(&n) else { return };
+        if w.hidden {
+            return;
+        }
+        let f = w.frame();
+        let sc = self.scaleof(f);
+        let w = &self.wins[&n];
+        if (sc - w.scale).abs() < 1e-6 {
+            return;
+        }
+        let (old, r, b0, t0, bar, full) = (w.scale, w.r, w.border, w.title, w.bar, w.full.is_some());
+        let (b, t) = if bar || full || b0 == 0 { (b0, t0) } else { (self.szat(sc, BORDER), self.titlehat(sc)) };
+        let w = self.wins.get_mut(&n).unwrap();
+        w.scale = sc;
+        (w.border, w.title) = (b, t);
+        if !bar && !full && w.unmax.is_none() {
+            let k = sc / old;
+            let (dx, dy) = (((r.dx() as f64) * k).round() as i32, ((r.dy() as f64) * k).round() as i32);
+            let nr = Rect::new(f.x0 + b, f.y0 + b + t, f.x0 + b + dx.max(1), f.y0 + b + t + dy.max(1));
+            // no bigger than its monitor (but for the bars)
+            let area = self.workarea(self.outoffr(f));
+            let nr = inner(fitin(outer(nr, b, t), area), b, t);
+            if let Err(e) = self.reframe(n, nr, true) {
+                eprintln!("wsys: window {n}: {e}");
+            }
+        } else if let Err(e) = self.reframe(n, inner(f, b, t), true) {
+            eprintln!("wsys: window {n}: {e}");
+        }
+        self.paintborder(n);
+        self.drawtext(n);
+        let w = self.wins.get_mut(&n).unwrap();
+        w.resized = true;
+        w.drawn = None;
+        self.wake(n);
+    }
+
+    /// the cursor as big as the scale of the monitor with the mouse makes it
+    fn cursorat(&mut self) {
+        let dpi = theme::dpi(self.outs[self.outat(self.mx, self.my)].2);
+        if dpi != self.curdpi {
+            self.curdpi = dpi;
+            self.cursorsize();
+        }
+    }
+
+    /// the monitor with x y on it: its rectangle and scale (the screen
+    /// and the theme's without monitors)
+    fn monat(&self, x: i32, y: i32) -> (Rect, f64) {
+        self.outs.get(self.outat(x, y)).map_or((self.d.r, self.theme.scale), |o| (o.1, o.2))
+    }
+
+    /// the menu's font, at the scale of its monitor
+    fn menufont(&mut self, sc: f64) -> Option<&mut font::Font> {
+        Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, theme::dpi(sc))
+    }
+
+    /// the monitor with x y on it, else the first
+    fn outat(&self, x: i32, y: i32) -> usize {
+        self.outs.iter().position(|o| o.1.contains(x, y)).unwrap_or(0)
+    }
+
+    /// the monitor of window frame f: the one it is most on
+    fn outoffr(&self, f: Rect) -> Rect {
+        self.outs[outof(&self.outs, f)].1
+    }
+
+    /// monitor o but for the bars at its top and bottom edges
+    fn workarea(&self, o: Rect) -> Rect {
+        let mut s = o;
+        for w in self.wins.values().filter(|w| w.bar && !w.hidden) {
+            let f = w.frame();
+            if f.x1 <= o.x0 || f.x0 >= o.x1 {
+                continue;
+            }
+            if f.y0 <= o.y0 {
+                s.y0 = s.y0.max(f.y1);
+            } else if f.y1 >= o.y1 {
+                s.y1 = s.y1.min(f.y0);
+            }
+        }
+        if s.dy() < self.sz(MINSIZE) { o } else { s }
+    }
+
+    /// window n over the whole screen, or back to the frame it had
+    fn maximize(&mut self, n: u32) {
+        let Some(w) = self.wins.get(&n) else { return };
+        let (b, t) = (w.border, w.title);
+        let (f, unmax) = match w.unmax {
+            Some(f) => (f, None),
+            None => (self.workarea(self.outoffr(w.frame())), Some(w.frame())),
+        };
+        if self.setrect(n, inner(f, b, t)).is_ok() {
+            self.wins.get_mut(&n).unwrap().unmax = unmax;
+        }
+    }
+
+    /// buffer b of window n (all, or its rectangle r) into what the window shows
+    fn copybuf(&mut self, n: u32, b: u32, r: Option<Rect>) -> Result<(), String> {
+        let w = &self.wins[&n];
+        let buf = w.bufs.get(&b).ok_or("no such buffer")?;
+        if let Mem::Gpu(g) = &buf.mem {
+            if !g.mapped() {
+                // in VRAM for the overlay plane, which the window may not have now: the
+                // client makes buffers wsys can read when it hears "overlay 0"
+                return Ok(());
+            }
+        }
+        // what of the buffer the window shows: its top left corner
+        let full = Rect::new(0, 0, buf.w.min(w.r.dx()), buf.h.min(w.r.dy()));
+        let r = match r {
+            Some(r) => r.clip(&full),
+            None => full,
+        };
+        if r.empty() {
+            return Ok(());
+        }
+        // straight into its window in draw(3) (screen coordinates), img follows
+        // when it is needed; but through img if the screen's pixels are not the
+        // buffers'
+        let direct = self.d.chan == XRGB32;
+        if !direct {
+            self.freshen(n);
+        }
+        let w = self.wins.get_mut(&n).unwrap();
+        let (layer, img, o) = (w.layer, w.img, (w.r.x0, w.r.y0));
+        let buf = w.bufs.get_mut(&b).unwrap();
+        let stride = buf.stride;
+        let (px, row) = buf.mem.rows(r.y0, r.y1, stride);
+        let d = &mut self.d;
+        let res = if direct {
+            d.load_at(layer, &r.add(o.0, o.1), px, stride, r.x0, r.y0 - row).and_then(|_| d.flush())
+        } else {
+            d.load_at(img, &r, px, stride, r.x0, r.y0 - row)
+        };
+        res.map_err(|e| e.to_string())?;
+        if direct {
+            self.wins.get_mut(&n).unwrap().stale = true;
+        } else {
+            self.paint(n, Some(r));
+        }
+        Ok(())
+    }
+
+    /*
+     * The overlay plane (gpu(4) overlay, aux/amdgpu): the window on top, wholly on
+     * the screen, nothing of wsys' over it (menu, sweep), its GPU buffer as big as
+     * the window: the display shows the buffer itself (the driver copies it into
+     * VRAM on the GPU), wsys copies nothing.  The request waits for the display:
+     * a thread of its own does it, the present's write is answered then.
+     */
+    fn overlayable(&self, n: u32, b: u32) -> bool {
+        self.ovwhynot(n, b).is_none()
+    }
+
+    /// why window n's buffer b may not go on the overlay plane (None: it may)
+    fn ovwhynot(&self, n: u32, b: u32) -> Option<&'static str> {
+        if let Some(why) = self.ovwinwhynot(n) {
+            return Some(why);
+        }
+        let w = &self.wins[&n];
+        let Some(buf) = w.bufs.get(&b) else { return Some("no buffer") };
+        let why = [
+            (!matches!(buf.mem, Mem::Gpu(_)), "not a GPU buffer"),
+            (buf.w != w.r.dx() || buf.h != w.r.dy(), "the buffer is not the window's size"),
+            (buf.stride % 256 != 0, "its stride is not a multiple of 256"),
+        ];
+        why.iter().find(|(c, _)| *c).map(|(_, s)| *s)
+    }
+
+    /// why window n may not go on the overlay plane, whatever its buffers
+    fn ovwinwhynot(&self, n: u32) -> Option<&'static str> {
+        let Some(w) = self.wins.get(&n) else { return Some("no window") };
+        // on top of the windows; bars (wbar) are above all of them, but only
+        // one over it would hide part of it
+        let top = self.z.iter().rev().copied().find(|i| !self.wins[i].bar && !self.wins[i].hidden);
+        let underbar = self.z.iter().skip_while(|i| **i != n).skip(1)
+            .any(|i| self.wins[i].bar && !self.wins[i].hidden && !self.wins[i].frame().clip(&w.frame()).empty());
+        let why = [
+            (self.nooverlay, "-O"),
+            (self.gpu.as_ref().and_then(|g| g.overlay_ctl()).is_none(), "the driver has no overlay"),
+            (top != Some(n), "not on top"),
+            (underbar, "under a bar"),
+            (!w.layers.is_empty(), "layers"),
+            (w.hidden, "hidden"),
+            (w.nooverlay, "refused before"),
+            (self.menu.is_some() || self.drag.is_some() || self.op3.is_some(), "wsys draws over it"),
+            (!self.d.r.contains(w.r.x0, w.r.y0) || w.r.x1 > self.d.r.x1 || w.r.y1 > self.d.r.y1, "not wholly on the screen"),
+        ];
+        why.iter().find(|(c, _)| *c).map(|(_, s)| *s)
+    }
+
+    /// the overlay's thread, started for the first request
+    fn ovthread(&mut self) -> Option<&mpsc::Sender<OvJob>> {
+        if self.ovtx.is_none() {
+            let path = self.gpu.as_ref()?.overlay_ctl()?;
+            let fd = Fd::open(&path, ORDWR).inspect_err(|e| eprintln!("wsys: {path}: {e}")).ok()?;
+            let (jtx, jrx) = mpsc::channel::<OvJob>();
+            let tx = self.tx.clone();
+            thread::spawn(move || {
+                for j in jrx {
+                    let err = fd.write1(j.line.as_bytes()).err().map(|e| e.to_string());
+                    if tx.send(Ev::Overlay { win: j.win, b: j.b, tag: j.tag, count: j.count, err }).is_err() {
+                        return;
+                    }
+                }
+            });
+            self.ovtx = Some(jtx);
+        }
+        self.ovtx.as_ref()
+    }
+
+    /// a present of window n to the overlay's thread, if it can go there
+    fn overlay_present(&mut self, n: u32, line: &str, tag: u16, count: u32) -> bool {
+        let mut f = line.split_whitespace();
+        if f.next() != Some("present") {
+            return false;
+        }
+        // present n, or present n x0 y0 x1 y1 (what changed: the WSI's
+        // VK_KHR_incremental_present); the plane shows the buffer whole
+        let Some(b) = f.next().and_then(|x| x.parse::<u32>().ok()) else { return false };
+        let rest: Vec<&str> = f.collect();
+        if !(rest.is_empty() || rest.len() == 4 && rest.iter().all(|x| x.parse::<i32>().is_ok())) {
+            return false;
+        }
+        if let Some(why) = self.ovwhynot(n, b) {
+            // WSYSDEBUG=overlay: why not, once for each change
+            if wsysdebug("overlay") && self.ovwhy != Some(why) {
+                eprintln!("wsys: window {n}: no overlay: {why}");
+            }
+            self.ovwhy = Some(why);
+            return false;
+        }
+        self.ovwhy = None;
+        let w = &self.wins[&n];
+        let buf = &w.bufs[&b];
+        let Mem::Gpu(g) = &buf.mem else { return false };
+        let req = format!("overlay {} {} {} {} {} {}", g.handle(), w.r.x0, w.r.y0, buf.w, buf.h, buf.stride);
+        let Some(tx) = self.ovthread() else { return false };
+        if tx.send(OvJob { win: n, b, tag: Some(tag), count, line: req }).is_err() {
+            return false;
+        }
+        self.ovtags.push(tag);
+        self.ov = Some(n);
+        self.wins.get_mut(&n).unwrap().lastb = Some(b);
+        // the GPU composing the screen: the plane shows the window over its frames,
+        // which leave it out (the buffers it composed go back with the next one)
+        self.uncompose(n);
+        true
+    }
+
+    /// the overlay's thread did a request
+    fn overlay_done(&mut self, win: u32, b: u32, tag: Option<u16>, count: u32, err: Option<String>) {
+        let Some(tag) = tag else { return }; // off
+        let answer = self.ovtags.contains(&tag);
+        self.ovtags.retain(|&t| t != tag);
+        let r = if !self.wins.contains_key(&win) {
+            Err("window deleted".to_string())
+        } else if let Some(e) = err {
+            // refused (no output has it all, another's on the plane): copies from now on
+            eprintln!("wsys: window {win}: overlay: {e}");
+            self.wins.get_mut(&win).unwrap().nooverlay = true;
+            if self.ov == Some(win) {
+                self.ov = None;
+            }
+            // the GPU composes it, else the processor copies it
+            let r = if self.compshow(win, b, None) {
+                Ok(())
+            } else {
+                let r = self.copybuf(win, b, None);
+                if r.is_ok() {
+                    self.event(win, format!("s {b}"));
+                    self.event(win, format!("b {b}"));
+                }
+                r
+            };
+            self.ovletgo(win);
+            r
+        } else if self.ov != Some(win) {
+            // shown, but off the plane meanwhile (ovcheck): composed by the GPU now,
+            // or the client's again
+            let w = &self.wins[&win];
+            if w.shownb != Some(b) && w.held != Some(b) && !w.queued.contains(&b) {
+                self.event(win, format!("b {b}"));
+            }
+            Ok(())
+        } else {
+            // on the plane: the client's again when the next one is shown there
+            self.event(win, format!("s {b}"));
+            let w = self.wins.get_mut(&win).unwrap();
+            match w.ovheld.replace(b) {
+                Some(h) if h != b => self.event(win, format!("b {h}")),
+                _ => {}
+            }
+            Ok(())
+        };
+        if answer {
+            self.send(match r {
+                Ok(()) => R::new(119, tag).u32(count).done(),
+                Err(e) => ninep::error(tag, &e),
+            });
+        }
+    }
+
+    /// the buffer window n had on the overlay plane back to its client (the
+    /// plane shows it no longer)
+    fn ovletgo(&mut self, n: u32) {
+        if let Some(h) = self.wins.get_mut(&n).and_then(|w| w.ovheld.take()) {
+            self.event(n, format!("b {h}"));
+        }
+    }
+
+    /// the window on the overlay plane may not stay there: off, and what it showed
+    /// last into its window (the overlay was over it)
+    fn ovcheck(&mut self) {
+        // to each window with GPU buffers: whether it may go on the plane now (Mesa's
+        // WSI makes buffers in VRAM for it, else ones wsys reads: variant b)
+        let gpuwins: Vec<u32> = self.wins.iter()
+            .filter(|(_, w)| w.bufs.values().any(|b| matches!(b.mem, Mem::Gpu(_))))
+            .map(|(&n, _)| n).collect();
+        for n in gpuwins {
+            let ok = self.ovwinwhynot(n).is_none();
+            if self.wins[&n].ovsent != Some(ok) {
+                self.wins.get_mut(&n).unwrap().ovsent = Some(ok);
+                self.event(n, format!("overlay {}", ok as u8));
+            }
+        }
+        let Some(n) = self.ov else { return };
+        let lastb = self.wins.get(&n).and_then(|w| w.lastb);
+        if lastb.is_some_and(|b| self.overlayable(n, b)) {
+            return;
+        }
+        self.ov = None;
+        if let Some(tx) = &self.ovtx {
+            let _ = tx.send(OvJob { win: n, b: 0, tag: None, count: 0, line: "overlay off".into() });
+        }
+        if let Some(b) = lastb {
+            if self.wins.contains_key(&n) {
+                if self.compshow(n, b, None) {
+                    // the GPU composes what the plane showed: its buffer stays wsys'
+                    let w = self.wins.get_mut(&n).unwrap();
+                    if w.ovheld == Some(b) {
+                        w.ovheld = None;
+                    }
+                } else {
+                    let _ = self.copybuf(n, b, None);
+                }
+            }
+        }
+        self.ovletgo(n);
+    }
+
+    /// what window n shows, all of it or rectangle r (window coordinates), from
+    /// its image into its window in draw(3); devdraw shows what is not hidden
+    /// img again what window n shows, after presents straight into its layer
+    fn freshen(&mut self, n: u32) {
+        let Some(w) = self.wins.get(&n) else { return };
+        if !w.stale {
+            return;
+        }
+        let (img, l, r) = (w.img, w.layer, w.r);
+        if let Err(e) = self.d.draw(img, &Rect::new(0, 0, r.dx(), r.dy()), l, r.x0, r.y0) {
+            eprintln!("wsys: draw: {e}");
+        }
+        self.wins.get_mut(&n).unwrap().stale = false;
+    }
+
+    fn paint(&mut self, n: u32, r: Option<Rect>) {
+        self.freshen(n);
+        let w = &self.wins[&n];
+        let all = Rect::new(0, 0, w.r.dx(), w.r.dy());
+        let whole = r.is_none();
+        let r = r.unwrap_or(all).clip(&all);
+        let (l, img, o) = (w.layer, w.img, (w.r.x0, w.r.y0));
+        if whole {
+            self.paintborder(n);
+        }
+        let res = self.d.draw(l, &r.add(o.0, o.1), img, r.x0, r.y0).and_then(|_| self.d.flush());
+        if let Err(e) = res {
+            eprintln!("wsys: draw: {e}");
+        }
+    }
+
+    /// a text window shows the end of its text and the line being typed (none
+    /// while a program has its mouse: then the program draws), the selection on
+    /// a pale background; where each rune went is kept for the mouse
+    /// window n's text drawn at the end of this batch of events (drawdue):
+    /// output that comes line by line draws once, not once a line. On a
+    /// display over the network each draw ends in a flush, a round trip
+    /// (drawterm: 3000 lines of output were 3000 of them, 113 s at 33 ms)
+    fn drawtext(&mut self, n: u32) {
+        self.textdue.insert(n);
+    }
+
+    /// the text windows' drawing that waits (drawtext): before the batch goes
+    /// out, and before what needs their lines where they are now (the mouse, the
+    /// keyboard, a read of the screen)
+    fn drawdue(&mut self) {
+        for n in std::mem::take(&mut self.textdue) {
+            self.textnow(n);
+        }
+    }
+
+    /// window n's text now (drawtext waits for the batch's end)
+    fn textnow(&mut self, n: u32) {
+        self.textdue.remove(&n);
+        // what was drawn before; not drawn now (a program draws there): all, next time
+        let prev = self.wins.get_mut(&n).and_then(|w| w.drawn.take());
+        let Some(w) = self.wins.get(&n) else { return };
+        if !w.textwin || w.mouseopen > 0 || !w.bufs.is_empty() || self.font.is_none() {
+            return;
+        }
+        let (r, l, scroll, raw, sel) = (w.r, w.layer, w.scroll, w.raw, w.sel);
+        let mut start = w.text.len().saturating_sub(TEXTSHOWN);
+        while !w.text.is_char_boundary(start) {
+            start += 1;
+        }
+        let mut s = w.text[start..].to_string();
+        if !raw {
+            s.push_str(&w.line);
+        }
+        let (white, black, pale, scrollbg) = (self.white, self.black, self.pale, self.scrollbg);
+        // while holding, the text is blue, as rio's
+        let ink = if w.hold { self.holdcol } else { black };
+        let want = w.want;
+        let tabstop = self.tabstop;
+        let sc = w.scale;
+        let (sw, sg) = (self.szat(sc, SCROLLWID), self.szat(sc, SCROLLGAP));
+        let dpi = theme::dpi(sc);
+        let (font, d) = (Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, dpi).unwrap(), &mut self.d);
+        let scrollr = Rect::new(r.x0, r.y0, r.x0 + sw, r.y1);
+        let inner = Rect::new(r.x0 + sw + sg, r.y0, r.x1, r.y1);
+        let (maxw, h) = (inner.dx().max(1), font.height.max(1));
+        let tab = (tabstop * font.width(d, '0')).max(1);
+        // lay out: lines of (rune, x, width, offset)
+        let mut lines: Vec<(Vec<(char, i32, i32, usize)>, usize)> = vec![(vec![], start)];
+        let mut x = 0;
+        for (i, c) in s.char_indices() {
+            let off = start + i;
+            let next = off + c.len_utf8();
+            match c {
+                '\n' => {
+                    lines.last_mut().unwrap().1 = off;
+                    lines.push((vec![], next));
+                    x = 0;
+                }
+                '\r' => {}
+                _ => {
+                    let cw = if c == '\t' { ((x / tab + 1) * tab - x).max(1) } else { font.width(d, c) };
+                    if x + cw > maxw && x > 0 {
+                        lines.last_mut().unwrap().1 = off;
+                        lines.push((vec![], off));
+                        x = 0;
+                    }
+                    let cw = if c == '\t' { ((x / tab + 1) * tab - x).max(1) } else { cw };
+                    let line = lines.last_mut().unwrap();
+                    line.0.push((c, x, cw, off));
+                    line.1 = next;
+                    x += cw;
+                }
+            }
+        }
+        let nvis = (inner.dy() / h).max(1) as usize;
+        // back no further than a window full from the start
+        let mut scroll = scroll.min(lines.len().saturating_sub(nvis));
+        if let Some(q) = want {
+            // show the line of offset q (look): a third down from the top when it was not
+            let li = lines.iter().position(|(_, e)| q <= *e).unwrap_or(lines.len() - 1);
+            let (end0, begin0) = (lines.len() - scroll, (lines.len() - scroll).saturating_sub(nvis));
+            if li < begin0 || li >= end0 {
+                let top = li.saturating_sub(nvis / 3);
+                scroll = lines.len().saturating_sub(top + nvis).min(lines.len().saturating_sub(nvis));
+            }
+        }
+        let end = lines.len() - scroll;
+        let begin = end.saturating_sub(nvis);
+        let mut rows = vec![];
+        // the tick where typing goes (the selection, empty), if shown: at its rune,
+        // else at the end of the line it ends
+        let mut tick = None;
+        if sel.0 == sel.1 && !raw {
+            let q = sel.0;
+            for (row, (line, lend)) in lines[begin..end].iter().enumerate() {
+                if let Some(&(_, cx, _, _)) = line.iter().find(|r| r.3 == q) {
+                    tick = Some((row, cx));
+                    break;
+                }
+                if *lend == q {
+                    tick = Some((row, line.last().map(|r| r.1 + r.2).unwrap_or(0)));
+                }
+            }
+        }
+        let sigs: Vec<RowSig> = lines[begin..end]
+            .iter()
+            .enumerate()
+            .map(|(row, (line, lend))| {
+                (
+                    line.iter().map(|&(c, cx, cw, off)| (c, cx, cw, off >= sel.0 && off < sel.1)).collect(),
+                    *lend >= sel.0 && *lend < sel.1,
+                    tick.filter(|t| t.0 == row).map(|t| t.1),
+                )
+            })
+            .collect();
+        let key = (r, l, ink, h, tab);
+        let old = prev.filter(|p| p.key == key);
+        let thumb = {
+            let (tot, hh) = (lines.len().max(1) as i64, scrollr.dy() as i64);
+            let mut t = scrollr;
+            t.y0 += (hh * begin as i64 / tot) as i32;
+            t.y1 -= (hh * (tot - end as i64) / tot) as i32;
+            if t.y1 < t.y0 + 2 {
+                t.y1 = (t.y0 + 2).min(scrollr.y1);
+                t.y0 = t.y1 - 2;
+            }
+            Rect::new(t.x0, t.y0, t.x1 - 1, t.y1)
+        };
+        let res = (|| -> std::io::Result<()> {
+            if old.is_none() {
+                d.draw(l, &r, white, 0, 0)?;
+            }
+            // the scroll bar: grey, white where the lines shown are (rio's scrpos)
+            if old.as_ref().is_none_or(|o| o.thumb != thumb) {
+                d.draw(l, &scrollr, scrollbg, 0, 0)?;
+                d.draw(l, &thumb, white, 0, 0)?;
+            }
+            // the text moved up by k lines (output at the end): what is still
+            // shown copied up in the window's image, as rio's frame scrolls; only
+            // the lines that came drawn, not every glyph of the window again
+            let k = old.as_ref().map(|o| scrolledby(&o.rows, &sigs)).unwrap_or(0);
+            if k > 0 {
+                let keep = sigs.len().min(old.as_ref().unwrap().rows.len() - k) as i32;
+                let to = Rect::new(inner.x0, inner.y0, inner.x1, inner.y0 + keep * h).clip(&inner);
+                d.draw(l, &to, l, inner.x0, inner.y0 + k as i32 * h)?;
+            }
+            let was = |row: usize| old.as_ref().and_then(|o| o.rows.get(row + k));
+            for (row, (line, lend)) in lines[begin..end].iter().enumerate() {
+                let y = inner.y0 + row as i32 * h;
+                rows.push(Row { y, runes: line.iter().map(|r| (inner.x0 + r.1, r.2, r.3)).collect(), end: *lend });
+                if was(row) == Some(&sigs[row]) {
+                    continue;
+                }
+                let rowr = Rect::new(inner.x0, y, inner.x1, y + h).clip(&inner);
+                if old.is_some() {
+                    d.draw(l, &rowr, white, 0, 0)?;
+                }
+                for &(c, cx, cw, off) in line {
+                    if off >= sel.0 && off < sel.1 {
+                        d.draw(l, &Rect::new(inner.x0 + cx, y, inner.x0 + cx + cw, y + h).clip(&rowr), pale, 0, 0)?;
+                    }
+                    if c == '\t' {
+                        continue;
+                    }
+                    if let Some(g) = font.glyph(d, c) {
+                        let dst = Rect::new(0, 0, g.src.dx(), g.src.dy()).add(inner.x0 + cx + g.dx, y + g.dy + g.src.y0);
+                        d.drawmask(l, &dst.clip(&rowr), ink, (0, 0), g.img, (g.src.x0, g.src.y0))?;
+                    }
+                }
+                // a selection across the end of the line: the rest of it pale
+                if *lend >= sel.0 && *lend < sel.1 {
+                    let lx = line.last().map(|r| r.1 + r.2).unwrap_or(0);
+                    d.draw(l, &Rect::new(inner.x0 + lx, y, inner.x1, y + h).clip(&rowr), pale, 0, 0)?;
+                }
+                if let Some(tx) = sigs[row].2 {
+                    d.draw(l, &Rect::new(inner.x0 + tx, y, inner.x0 + tx + 1, y + h).clip(&rowr), black, 0, 0)?;
+                }
+            }
+            // rows shown before, now none
+            if let Some(o) = &old {
+                // (after a copy up the same: rows past the new ones hold old text)
+                for row in sigs.len()..o.rows.len() {
+                    let y = inner.y0 + row as i32 * h;
+                    d.draw(l, &Rect::new(inner.x0, y, inner.x1, y + h).clip(&inner), white, 0, 0)?;
+                }
+            }
+            d.flush()
+        })();
+        if let Err(e) = &res {
+            eprintln!("wsys: text: {e}");
+        }
+        if let Some(w) = self.wins.get_mut(&n) {
+            w.rows = rows;
+            w.drawn = res.is_ok().then(|| TextDrawn { key, rows: sigs, thumb });
+            w.scrollr = scrollr;
+            w.shown = (lines.len(), begin, nvis);
+            w.scroll = scroll;
+            w.want = None;
+        }
+    }
+
+    /// button but in window n's scroll bar at y, as rio's: 1 back and 3 on by the
+    /// lines from the top of the bar to the mouse, 2 to that place of the text
+    fn scrollstep(&mut self, n: u32, but: i32, y: i32) {
+        self.drawdue(); // the lines shown, the bar
+        let h = self.wfonth(n);
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        let s = w.scrollr;
+        let (total, begin, nvis) = w.shown;
+        let y = y.clamp(s.y0, s.y1);
+        let lines = ((y - s.y0) / h).max(1) as usize;
+        // scroll counts the lines back from the end (drawtext keeps it in the text)
+        let _ = begin;
+        w.scroll = match but {
+            1 => (w.scroll + lines).min(total.saturating_sub(nvis)),
+            4 => w.scroll.saturating_sub(lines),
+            _ => {
+                let top = (total as i64 * (y - s.y0).min(s.dy() - 2).max(0) as i64 / s.dy().max(1) as i64) as usize;
+                total.saturating_sub(top + nvis)
+            }
+        };
+        self.drawtext(n);
+    }
+
+    /// a double click at q in window n's text, as rio's: inside brackets or quotes
+    /// to their match, a line from its start or end, else a word
+    fn stretch(&self, n: u32, q: usize) -> (usize, usize) {
+        let w = &self.wins[&n];
+        let all: Vec<(usize, char)> = format!("{}{}", w.text, w.line).char_indices().collect();
+        let end = w.text.len() + w.line.len();
+        let i = all.partition_point(|&(o, _)| o < q); // rune index of q
+        let at = |k: usize| all.get(k).map(|r| r.1).unwrap_or('\n');
+        let off = |k: usize| all.get(k).map(|r| r.0).unwrap_or(end);
+        let pairs: [(&str, &str); 3] = [("{[(<«", "}])>»"), ("\n", "\n"), ("'\"`", "'\"`")];
+        for (l, r) in pairs {
+            // the rune before q opens: forward to its match
+            let c = if i == 0 { '\n' } else { at(i - 1) };
+            if let Some(p) = l.chars().position(|x| x == c) {
+                let cr = r.chars().nth(p).unwrap();
+                let (mut k, mut nest) = (i, 1);
+                while k < all.len() {
+                    let x = at(k);
+                    k += 1;
+                    if x == cr {
+                        nest -= 1;
+                        if nest == 0 {
+                            return (q, off(if c == '\n' { k } else { k - 1 }));
+                        }
+                    } else if x == c {
+                        nest += 1;
+                    }
+                }
+                return if c == '\n' && nest == 1 { (q, end) } else { (q, q) };
+            }
+            // the rune at q closes: back to its match
+            let c = if i >= all.len() { '\n' } else { at(i) };
+            if let Some(p) = r.chars().position(|x| x == c) {
+                let cl = l.chars().nth(p).unwrap();
+                let (mut k, mut nest) = (i, 1);
+                while k > 0 {
+                    k -= 1;
+                    let x = at(k);
+                    if x == cl {
+                        nest -= 1;
+                        if nest == 0 {
+                            return (off(k + 1), off(i + (c == '\n' && i < all.len()) as usize));
+                        }
+                    } else if x == c {
+                        nest += 1;
+                    }
+                }
+                return if c == '\n' && nest == 1 { (0, off(i + (i < all.len()) as usize)) } else { (q, q) };
+            }
+        }
+        // a word: letters, digits and _
+        let word = |c: char| c.is_alphanumeric() || c == '_';
+        let (mut a, mut b) = (i, i);
+        while b < all.len() && word(at(b)) {
+            b += 1;
+        }
+        while a > 0 && word(at(a - 1)) {
+            a -= 1;
+        }
+        (off(a), off(b))
+    }
+
+    fn mouse(&mut self, x: i32, y: i32, b: i32, ms: u32) {
+        self.drawdue(); // the lines where they are shown
+        (self.mx, self.my, self.ms) = (x, y, ms);
+        self.cursorat();
+        if self.menu.as_ref().is_some_and(|m| m.client.is_some()) {
+            self.clientmouse(x, y, b);
+            self.buttons = b;
+            return;
+        }
+        if let Some(m) = &self.menu {
+            // a menu while its button is held: let go over an item, it is done
+            let button = m.button;
+            self.menumove(x, y);
+            if b & button == 0 {
+                let m = self.menu.take().unwrap();
+                let _ = self.d.free(m.layer);
+                let _ = self.d.flush();
+                if let Some(i) = m.cur {
+                    match m.win {
+                        Some(n) if self.wins.contains_key(&n) => self.menu2(n, &m.items[i]),
+                        Some(_) => {}
+                        None => self.menu3(i, &m.hidden),
+                    }
+                }
+            }
+            self.buttons = b;
+            return;
+        }
+        if let Some((n, but, _)) = self.scrolling {
+            // a button held in a scroll bar: 2 follows the mouse, 1 and 3 repeat on ticks
+            if b & but == 0 {
+                self.scrolling = None;
+            } else if but == 2 {
+                self.scrollstep(n, 2, y);
+            }
+            self.buttons = b;
+            return;
+        }
+        if let Some((n, q0)) = self.selecting {
+            // button 1 sweeps a selection in a text window
+            if self.wins.contains_key(&n) {
+                let q = self.hit(n, x, y);
+                self.wins.get_mut(&n).unwrap().sel = (q0.min(q), q0.max(q));
+                self.drawtext(n);
+            }
+            if b & 1 == 0 {
+                self.selecting = None;
+            }
+            self.buttons = b;
+            return;
+        }
+        if let Some(g) = self.drag {
+            self.dragto(g, x, y, b);
+            self.buttons = b;
+            return;
+        }
+        let pressed = b != 0 && self.buttons == 0;
+        let hit = self.z.iter().rev().copied().find(|n| !self.wins[n].hidden && self.wins[n].frame().contains(x, y));
+        if b == 0 {
+            // on a window's border, as rio: the cursor shows which edges a sweep takes
+            let edge = hit.filter(|&n| {
+                let w = &self.wins[&n];
+                !w.bar && !w.r.contains(x, y) && !w.titlebar().contains(x, y)
+            }).map(|n| self.whichcorner(n, x, y));
+            if edge != self.edge {
+                self.edge = edge;
+                self.setcursor();
+            }
+        }
+        if pressed && self.op3.is_some() {
+            // button 3's command takes this press (another button cancels it)
+            let op = self.op3.take().unwrap();
+            self.buttons = b;
+            if b == 4 {
+                self.do3(op, hit, x, y);
+            }
+            self.setcursor();
+            return;
+        }
+        if pressed && b == 4 && self.font.is_some() {
+            // button 3's menu: on the background, or a text window no program has the mouse of
+            let mine = match hit {
+                None => true,
+                Some(n) => {
+                    let w = &self.wins[&n];
+                    // (button 3 in the scroll bar scrolls)
+                    w.r.contains(x, y) && w.textwin && w.mouseopen == 0 && !w.scrollr.contains(x, y)
+                }
+            };
+            if mine {
+                let mut hidden: Vec<u32> = self.z.iter().copied().filter(|n| self.wins[n].hidden && self.wins[n].mapped).collect();
+                let mut items: Vec<String> = MENU3.iter().map(|s| s.to_string()).collect();
+                for n in &hidden {
+                    let w = &self.wins[n];
+                    items.push(if w.label.is_empty() { format!("window {n}") } else { w.label.clone() });
+                }
+                // windows -restart whose program crashed too often: started again by hand
+                let gaveup: Vec<u32> = self.z.iter().copied().filter(|n| self.wins[n].sup.as_ref().is_some_and(|s| s.gaveup)).collect();
+                for n in gaveup {
+                    items.push(format!("restart {}", self.wins[&n].sup.as_ref().unwrap().cmd));
+                    hidden.push(n | MENURESTART);
+                }
+                self.openmenu(None, 4, items, hidden, x, y);
+                self.buttons = b;
+                return;
+            }
+        }
+        if pressed && hit.is_some_and(|n| self.wins[&n].bar) {
+            self.barheld = hit;
+        }
+        if pressed {
+            // a window with a modal dialog shown takes no click in its content:
+            // the dialog comes up with the focus (its border and title bar stay
+            // wsys': it can still be moved, the dialog with it)
+            if let Some(m) = hit.filter(|n| !self.wins[n].bar && self.wins[n].r.contains(x, y)).and_then(|n| self.modalof(n)) {
+                self.raise(self.wins[&m].parent.unwrap_or(m));
+                self.setfocus(Some(m));
+                self.buttons = b;
+                return;
+            }
+            if let Some(n) = hit.filter(|n| !self.wins[n].bar) {
+                if self.focus != Some(n) {
+                    self.setfocus(Some(n));
+                }
+                self.raise(n);
+                // button 1 on the title bar: a button (done when let go on it), a
+                // double click maximizes, else it moves the window
+                if b == 1 && self.wins[&n].titlebar().contains(x, y) {
+                    let r = self.wins[&n].r;
+                    if let Some((op, br)) = self.titlebuttons(n).into_iter().find(|(_, br)| br.contains(x, y)) {
+                        self.drag = Some(Drag { win: n, kind: DragKind::Button(op, br), x0: x, y0: y, orig: r, cur: r });
+                        self.buttons = b;
+                        return;
+                    }
+                    let double = matches!(self.click, Some((cw, cx, cy, cms))
+                        if cw == n && (cx - x).abs() <= 3 && (cy - y).abs() <= 3 && ms.wrapping_sub(cms) < 500);
+                    if double {
+                        self.click = None;
+                        self.maximize(n);
+                        self.buttons = b;
+                        return;
+                    }
+                    self.click = Some((n, x, y, ms));
+                    self.drag = Some(Drag { win: n, kind: DragKind::Move, x0: x, y0: y, orig: r, cur: r });
+                    self.buttons = b;
+                    return;
+                }
+                // on the border, as rio: button 1 or 2 sweeps the window to a new size
+                // (rio's whichcorner: 20 pixels from an end of an edge take the
+                // corner), button 3 moves it
+                let r = self.wins[&n].r;
+                if !r.contains(x, y) && b & 7 != 0 {
+                    let kind = if b & 3 == 0 {
+                        DragKind::Move
+                    } else {
+                        let k = self.whichcorner(n, x, y);
+                        let (i, j) = (k % 3, k / 3);
+                        DragKind::Sweep { left: i == 0, right: i == 2, top: j == 0, bottom: j == 2 }
+                    };
+                    self.drag = Some(Drag { win: n, kind, x0: x, y0: y, orig: r, cur: r });
+                    self.buttons = b;
+                    return;
+                }
+                // in a text window: button 1 selects, button 2 is its menu
+                let w = &self.wins[&n];
+                if r.contains(x, y) && w.textwin && w.mouseopen == 0 && self.font.is_some() {
+                    if w.scrollr.contains(x, y) && (b == 1 || b == 2 || b == 4) {
+                        // the scroll bar: a step now, more while the button is held
+                        self.scrollstep(n, b, y);
+                        let next = std::time::Instant::now() + std::time::Duration::from_millis(200);
+                        self.scrolling = Some((n, b, next));
+                        self.buttons = b;
+                        return;
+                    }
+                    if b == 1 {
+                        let q = self.hit(n, x, y);
+                        // a second click at the same place within 500 ms: rio's double click
+                        let double = matches!(self.click, Some((cw, cx, cy, cms))
+                            if cw == n && (cx - x).abs() <= 3 && (cy - y).abs() <= 3 && ms.wrapping_sub(cms) < 500);
+                        if double {
+                            self.click = None;
+                            let sel = self.stretch(n, q);
+                            self.wins.get_mut(&n).unwrap().sel = sel;
+                            self.drawtext(n);
+                            self.buttons = b;
+                            return;
+                        }
+                        self.click = Some((n, x, y, ms));
+                        self.wins.get_mut(&n).unwrap().sel = (q, q);
+                        self.selecting = Some((n, q));
+                        self.drawtext(n);
+                        self.buttons = b;
+                        return;
+                    }
+                    if b == 2 {
+                        // as rio's: scroll, or noscroll when on
+                        let sc = if self.wins[&n].scrolling { "noscroll" } else { "scroll" };
+                        let items = MENU2.iter().map(|s| s.to_string()).chain([sc.to_string()]).collect();
+                        self.openmenu(Some(n), 2, items, vec![], x, y);
+                        self.buttons = b;
+                        return;
+                    }
+                }
+            }
+        }
+        let held = b != 0 || self.buttons != 0;
+        let wheel = b & 24 != 0 && self.buttons & 24 == 0;
+        // the mouse is the focused window's, but over a bar (no button held
+        // from elsewhere) or with a button that went down on one, the bar's
+        let overbar = hit.filter(|n| self.wins[n].bar && self.buttons == 0);
+        let target = self.barheld.or(overbar).or(self.focus).filter(|n| self.wins.contains_key(n));
+        self.buttons = b;
+        if b == 0 {
+            self.barheld = None;
+        }
+        if let Some(o) = self.mlast.filter(|o| Some(*o) != target && self.wins.contains_key(o)) {
+            // gone to another window: once more for the one it left (Wayland's leave)
+            if self.wins[&o].inside {
+                let r = self.wins[&o].r;
+                self.event(o, format!("m {} {} {} {}", x - r.x0, y - r.y0, b, ms));
+                self.wins.get_mut(&o).unwrap().inside = false;
+            }
+        }
+        self.mlast = target;
+        // the pointer over a window without the focus, no button held: m events
+        // on that window's event file only (Wayland's pointer focus: hover, a
+        // tooltip in another window of the client); its mouse file is rio's,
+        // the focused window's alone
+        let hover = hit.filter(|h| {
+            let w = &self.wins[h];
+            !held && Some(*h) != target && !w.bar && w.mapped && !w.hidden && w.r.contains(x, y)
+        });
+        if let Some(o) = self.hlast.filter(|o| Some(*o) != hover && Some(*o) != target && self.wins.contains_key(o)) {
+            if self.wins[&o].inside {
+                let r = self.wins[&o].r;
+                self.event(o, format!("m {} {} {} {}", x - r.x0, y - r.y0, b, ms));
+                self.wins.get_mut(&o).unwrap().inside = false;
+            }
+        }
+        self.hlast = hover;
+        if let Some(h) = hover {
+            let r = self.wins[&h].r;
+            self.event(h, format!("m {} {} {} {}", x - r.x0, y - r.y0, b, ms));
+            self.wins.get_mut(&h).unwrap().inside = true;
+        }
+        if let Some(n) = target {
+            let r = self.wins[&n].r;
+            let w = &self.wins[&n];
+            if wheel && w.textwin && w.mouseopen == 0 && r.contains(x, y) {
+                // the wheel scrolls a text window: 8 back, 16 on
+                let w = self.wins.get_mut(&n).unwrap();
+                w.scroll = if b & 8 != 0 { w.scroll + 3 } else { w.scroll.saturating_sub(3) };
+                self.drawtext(n);
+            }
+            let inside = r.contains(x, y);
+            if !held && !inside && self.wins[&n].inside {
+                // gone out: once more, so that the client knows (Wayland's leave)
+                self.event(n, format!("m {} {} {} {}", x - r.x0, y - r.y0, b, ms));
+                self.wins.get_mut(&n).unwrap().inside = false;
+            }
+            if held || inside {
+                self.event(n, format!("m {} {} {} {}", x - r.x0, y - r.y0, b, ms));
+                let w = self.wins.get_mut(&n).unwrap();
+                w.inside |= inside;
+                if w.mouseopen > 0 {
+                    // a move replaces the last one queued with the same buttons
+                    if w.mouse.len() >= MAXMOUSE || w.mouse.back().is_some_and(|m| m.2 == b && w.mouse.len() > 1) {
+                        w.mouse.pop_back();
+                    }
+                    w.mouse.push_back((x, y, b, ms));
+                    self.wake(n);
+                }
+            }
+        }
+    }
+
+    /// a window moved or swept with the mouse: no events for the client but the
+    /// new size at the end of a sweep
+    fn dragto(&mut self, mut g: Drag, x: i32, y: i32, b: i32) {
+        if !matches!(g.kind, DragKind::Box(None)) && !self.wins.contains_key(&g.win) {
+            self.drag = None;
+            self.outline(None);
+            self.setcursor();
+            return;
+        }
+        let (dx, dy) = (x - g.x0, y - g.y0);
+        match g.kind {
+            DragKind::Move => {
+                if dx != 0 || dy != 0 {
+                    // not under a bar: the frame's top below the one at the top, the
+                    // title bar above one at the bottom (it stays to be grabbed)
+                    let mut dy = dy;
+                    if let Some(w) = self.wins.get(&g.win).filter(|w| !w.bar) {
+                        let (area, f) = (self.workarea(self.outs[self.outat(x, y)].1), w.frame());
+                        let top = g.orig.y0 - (w.r.y0 - f.y0) + dy; // the frame's top after the move
+                        let grip = w.title.max(w.border).max(1);
+                        if top < area.y0 {
+                            dy += area.y0 - top;
+                        } else if top + grip > area.y1 {
+                            dy -= top + grip - area.y1;
+                        }
+                    }
+                    let _ = self.setrect(g.win, g.orig.add(dx, dy));
+                    self.wins.get_mut(&g.win).unwrap().unmax = None;
+                    self.wins.get_mut(&g.win).unwrap().home = None;
+                }
+                if b == 0 {
+                    self.drag = None;
+                    // dropped on another monitor: at its scale
+                    self.rescale(g.win);
+                }
+            }
+            DragKind::Button(op, r) => {
+                if b == 0 {
+                    self.drag = None;
+                    if r.contains(x, y) {
+                        self.titleop(g.win, op);
+                    }
+                }
+            }
+            DragKind::Sweep { left, right, top, bottom } => {
+                let o = g.orig;
+                let mut r = Rect::new(
+                    if left { o.x0 + dx } else { o.x0 },
+                    if top { o.y0 + dy } else { o.y0 },
+                    if right { o.x1 + dx } else { o.x1 },
+                    if bottom { o.y1 + dy } else { o.y1 },
+                );
+                let min = self.sz(MINSIZE);
+                if r.dx() < min {
+                    if left { r.x0 = r.x1 - min } else { r.x1 = r.x0 + min }
+                }
+                if r.dy() < min {
+                    if top { r.y0 = r.y1 - min } else { r.y1 = r.y0 + min }
+                }
+                g.cur = r;
+                if b == 0 {
+                    self.drag = None;
+                    self.outline(None);
+                    self.wins.get_mut(&g.win).unwrap().unmax = None;
+                    let _ = self.setrect(g.win, r);
+                } else {
+                    self.drag = Some(g);
+                    self.outline(Some(r));
+                }
+            }
+            DragKind::Box(target) => {
+                // the frame from the press to the mouse; its content shown as the outline
+                let f = Rect::new(g.x0.min(x), g.y0.min(y), g.x0.max(x), g.y0.max(y));
+                let t = self.titleh();
+                let (min, bw) = (self.sz(MINSIZE), self.sz(BORDER));
+                let big = f.dx() >= min + 2 * bw && f.dy() >= min + 2 * bw + t;
+                if b != 0 {
+                    g.cur = f;
+                    self.drag = Some(g);
+                    self.outline(if big { Some(inner(f, bw, t)) } else { None });
+                    return;
+                }
+                self.drag = None;
+                self.outline(None);
+                self.setcursor();
+                if !big {
+                    return; // too small: nothing
+                }
+                match target {
+                    None => {
+                        let o = Opts { r: Some(f), ..Default::default() };
+                        if let Err(e) = self.spawn(o) {
+                            eprintln!("wsys: new: {e}");
+                        }
+                    }
+                    Some(n) => {
+                        let (b, t) = self.wins.get(&n).map_or((bw, t), |w| (w.border, w.title));
+                        if let Some(w) = self.wins.get_mut(&n) {
+                            w.unmax = None;
+                        }
+                        let _ = self.setrect(n, inner(f, b, t));
+                    }
+                }
+            }
+        }
+    }
+
+    /// button 3's command item i, or a hidden window to bring back
+    fn menu3(&mut self, i: usize, hidden: &[u32]) {
+        if i >= MENU3.len() {
+            if let Some(&n) = hidden.get(i - MENU3.len()) {
+                if n & MENURESTART != 0 {
+                    if let Err(e) = self.restart(Some(n & !MENURESTART)) {
+                        eprintln!("wsys: restart: {e}");
+                    }
+                } else if self.wins.contains_key(&n) {
+                    self.hide(n, false);
+                }
+            }
+            return;
+        }
+        self.op3 = Some([Op3::New, Op3::Resize, Op3::Move, Op3::Delete, Op3::Hide][i]);
+        self.setcursor();
+    }
+
+    /// button 3 pressed for a waiting command: New and Resize sweep from here,
+    /// Move drags the window, Delete and Hide take the window under the mouse
+    fn do3(&mut self, op: Op3, hit: Option<u32>, x: i32, y: i32) {
+        let r = Rect::new(x, y, x, y);
+        match (op, hit) {
+            (Op3::New, _) => self.drag = Some(Drag { win: 0, kind: DragKind::Box(None), x0: x, y0: y, orig: r, cur: r }),
+            (Op3::Resize, Some(n)) => {
+                self.raise(n);
+                self.drag = Some(Drag { win: n, kind: DragKind::Box(Some(n)), x0: x, y0: y, orig: r, cur: r });
+            }
+            (Op3::Move, Some(n)) => {
+                self.raise(n);
+                let orig = self.wins[&n].r;
+                self.drag = Some(Drag { win: n, kind: DragKind::Move, x0: x, y0: y, orig, cur: orig });
+            }
+            (Op3::Delete, Some(n)) => self.closereq(n),
+            (Op3::Hide, Some(n)) => self.hide(n, true),
+            _ => {}
+        }
+    }
+
+    /// window n made by clone on the screen, at its first present: on top, with
+    /// the focus unless it is a tooltip's
+    fn map(&mut self, n: u32) {
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        if w.mapped {
+            return;
+        }
+        w.mapped = true;
+        let focus = !w.nofocus;
+        self.show(n, false, focus);
+    }
+
+    /// window n off the screen (rio's Hide: past its far corner) or back on it
+    fn hide(&mut self, n: u32, off: bool) {
+        self.show(n, off, true)
+    }
+
+    /// hide's; focus: back on the screen, it takes the focus
+    fn show(&mut self, n: u32, off: bool, focus: bool) {
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        if w.hidden == off {
+            return;
+        }
+        w.hidden = off;
+        w.hiddenby = false;
+        self.origins(n);
+        // its dialogs and popups with it: hidden with it, back with it (those it hid)
+        let kids: Vec<u32> = self.z.iter().copied().filter(|c| self.wins[c].parent == Some(n)).collect();
+        for c in kids {
+            let k = &self.wins[&c];
+            if off && !k.hidden && k.mapped {
+                self.show(c, true, false);
+                self.wins.get_mut(&c).unwrap().hiddenby = true;
+            } else if !off && k.hidden && k.hiddenby {
+                self.show(c, false, false);
+            }
+        }
+        if off {
+            if self.focus == Some(n) {
+                let next = self.z.iter().rev().copied().find(|i| !self.wins[i].hidden && !self.wins[i].bar);
+                self.setfocus(next);
+            }
+        } else {
+            self.raise(n);
+            if focus && !self.wins[&n].bar {
+                self.setfocus(Some(n));
+            }
+        }
+        self.changed(n);
+    }
+
+    /// Mod4 (the Windows key, which no program of Plan 9's uses) is wsys': held,
+    /// Tab makes the next window current (Shift: the one before), and the keys
+    /// meanwhile are no window's; once it is up, the keys down then go to the
+    /// window (it sees keys let go meanwhile go up). The other keys go to the
+    /// current window.
+    fn kbdmod4(&mut self, msgs: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+        const MOD4: char = '\u{F868}';
+        const SHIFT: char = '\u{F016}';
+        let mut rest = vec![];
+        for m in msgs {
+            match m.first() {
+                Some(b'k' | b'K') => {
+                    self.keysdown = String::from_utf8_lossy(&m[1..]).chars().collect();
+                    if self.keysdown.contains(&MOD4) {
+                        continue;
+                    }
+                }
+                Some(b'c') if self.keysdown.contains(&MOD4) => {
+                    if String::from_utf8_lossy(&m[1..]).starts_with('\t') {
+                        let back = self.keysdown.contains(&SHIFT);
+                        self.nextwin(back);
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+            rest.push(m);
+        }
+        rest
+    }
+
+    /// Mod4+Tab: the bottom visible window up and current (through all of them
+    /// in turn); back: the current one down, the top one current
+    fn nextwin(&mut self, back: bool) {
+        // (a dialog or popup comes with its window, not by itself)
+        let vis: Vec<u32> = self.z.iter().copied().filter(|n| !self.wins[n].hidden && !self.wins[n].bar && self.wins[n].parent.is_none()).collect();
+        if vis.len() < 2 {
+            return;
+        }
+        let n = if back {
+            if let Some(c) = self.focus {
+                self.restack(c, false);
+            }
+            *self.z.iter().rev().find(|n| !self.wins[*n].hidden && !self.wins[*n].bar && self.wins[*n].parent.is_none()).unwrap()
+        } else {
+            vis[0]
+        };
+        self.raise(n);
+        // a modal dialog of it takes the focus
+        let f = self.modalof(n).unwrap_or(n);
+        self.setfocus(Some(f));
+    }
+
+    /// the keyboard's messages: wsys' Mod4 keys taken out, the rest to the
+    /// tap when one reads it (a z and the window's number first when the
+    /// keys go to another window now), else to the focused window
+    fn kbd(&mut self, msgs: Vec<Vec<u8>>) {
+        self.drawdue(); // PgUp, PgDn: the lines shown
+        let msgs = self.kbdmod4(msgs);
+        if msgs.is_empty() {
+            return;
+        }
+        let focus = self.focus;
+        if self.tap.reader {
+            let z = self.tap.cur != focus || !self.tap.told;
+            let more = msgs.len() + usize::from(z);
+            if self.tap.q.len() + more <= TAPMAX {
+                if z {
+                    let mut m = format!("z{}", focus.unwrap_or(0)).into_bytes();
+                    m.push(0);
+                    self.tap.q.push_back(m);
+                }
+                self.tap.cur = focus;
+                self.tap.told = true;
+                for mut m in msgs {
+                    m.push(0);
+                    self.tap.q.push_back(m);
+                }
+                self.waketap();
+                return;
+            }
+            // the tap 32 behind: these past it
+        }
+        self.tap.cur = focus;
+        self.tofocus(msgs);
+    }
+
+    /// the tap's next message (one a read, as rio's)
+    fn taptake(&mut self) -> Option<Vec<u8>> {
+        self.tap.q.pop_front()
+    }
+
+    /// answer the reads that wait on the tap
+    fn waketap(&mut self) {
+        let mut i = 0;
+        while i < self.pending.len() {
+            if self.pending[i].f != F::Kbdtap {
+                i += 1;
+                continue;
+            }
+            let Some(b) = self.taptake() else { return };
+            let p = self.pending.remove(i);
+            self.send(R::new(117, p.tag).u32(b.len() as u32).bytes(&b).done());
+        }
+    }
+
+    /// kbd(3) messages to the focused window: all of them to its kbd file when
+    /// open, else the runes of the c messages to cons (and wsys' k events)
+    fn tofocus(&mut self, msgs: Vec<Vec<u8>>) {
+        if msgs.is_empty() {
+            return;
+        }
+        let Some(n) = self.focus else { return };
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        if w.kbdopen > 0 {
+            for mut m in msgs {
+                m.push(0);
+                w.kbd.push_back(m);
+            }
+            self.wake(n);
+            return;
+        }
+        for m in msgs {
+            if m.first() != Some(&b'c') {
+                continue;
+            }
+            let s = String::from_utf8_lossy(&m[1..]).into_owned();
+            for c in s.chars() {
+                self.event(n, format!("k {:x}", c as u32));
+                self.typed(n, c);
+            }
+        }
+        self.wake(n);
+        if !self.wins[&n].raw {
+            self.drawtext(n); // the echo
+        }
+    }
+
+    /// a rune typed into window n's cons: raw as it comes, else a line at a time
+    fn typed(&mut self, n: u32, c: char) {
+        let w = self.wins.get_mut(&n).unwrap();
+        let mut b = [0u8; 4];
+        let bytes = c.encode_utf8(&mut b).as_bytes();
+        if w.raw {
+            w.cons.extend(bytes);
+            return;
+        }
+        // Esc toggles hold; Del while holding ends it, then interrupts (rio)
+        if c == '\u{1b}' || (w.hold && c == '\u{7f}') {
+            let on = !w.hold;
+            self.sethold(n, on);
+            if c == '\u{1b}' {
+                return;
+            }
+        }
+        // PgUp, PgDn: two thirds of the window back or on, as rio's (keyboard.h's
+        // Kpgup, Kpgdown); in a raw window they are the program's (above)
+        if c == '\u{f00f}' || c == '\u{f013}' {
+            let w = self.wins.get_mut(&n).unwrap();
+            let (total, _, nvis) = w.shown;
+            let page = (2 * nvis / 3).max(1);
+            w.scroll = if c == '\u{f00f}' {
+                (w.scroll + page).min(total.saturating_sub(nvis))
+            } else {
+                w.scroll.saturating_sub(page)
+            };
+            self.drawtext(n);
+            return;
+        }
+        // as rio's: the selection is where typing goes (an empty one: the tick);
+        // what is after the output point (the text's end: qh) is the line the
+        // program reads, what is before it the window's text, which can be
+        // edited too
+        let w = self.wins.get_mut(&n).unwrap();
+        let qh = w.text.len();
+        let all = w.text.len() + w.line.len();
+        let (q0, q1) = (w.sel.0.min(all), w.sel.1.min(all));
+        match c {
+            '\u{f011}' => {
+                // left, right: the tick a rune on
+                let p = Self::runeback(w, q0, 1);
+                w.sel = (p, p);
+            }
+            '\u{f012}' => {
+                let p = Self::runeon(w, q1);
+                w.sel = (p, p);
+            }
+            '\u{f00d}' => w.scroll = usize::MAX, // Home: the text's start shown
+            '\u{f018}' => w.scroll = 0,          // End: its end
+            '\u{1}' => {
+                // ^A: the line's start (not before the output point)
+                if q0 != 0 && q0 != qh {
+                    let p = q0 - Self::bswidth(w, q0, '\u{15}');
+                    w.sel = (p, p);
+                }
+            }
+            '\u{5}' => {
+                // ^E: the line's end
+                let s = format!("{}{}", w.text, w.line);
+                let p = s[q0..].find('\n').map(|i| q0 + i).unwrap_or(s.len());
+                w.sel = (p, p);
+            }
+            '\u{2}' => w.sel = (qh, qh), // ^B: the output point
+            '\u{7f}' => {
+                // Del: interrupt; what was typed stays in the text, unread
+                let l = std::mem::take(&mut w.line);
+                w.text.push_str(&l);
+                w.scroll = 0;
+                if let Some(pid) = w.pid {
+                    postnote(pid, "interrupt");
+                }
+            }
+            '\u{4}' => {
+                // ^D: the line as it is; on an empty one, end of file
+                if w.line.is_empty() {
+                    w.eof = true;
+                }
+                let l = std::mem::take(&mut w.line);
+                w.cons.extend(l.as_bytes());
+                w.text.push_str(&l);
+                let e = w.text.len();
+                w.sel = (e, e);
+            }
+            _ => {
+                // the selection goes (to the snarf buffer, as rio's), then
+                // erasing or the rune where it was
+                if q0 < q1 {
+                    let cut = format!("{}{}", w.text, w.line)[q0..q1].to_string();
+                    self.snarf = cut.into_bytes();
+                    self.putsnarf();
+                }
+                let w = self.wins.get_mut(&n).unwrap();
+                let q = Self::replace(w, q0, q1, "");
+                match c {
+                    '\u{8}' | '\u{15}' | '\u{17}' => {
+                        // ^H, ^U, ^W: a rune, the line, a word back; not over the output point
+                        let qh = w.text.len();
+                        if q != 0 && q != qh {
+                            let nb = Self::bswidth(w, q, c);
+                            Self::replace(w, q - nb, q, "");
+                        }
+                    }
+                    _ => {
+                        let mut b = [0u8; 4];
+                        Self::replace(w, q, q, c.encode_utf8(&mut b));
+                    }
+                }
+                if c == '\n' && !w.hold {
+                    Self::deliver(w);
+                }
+            }
+        }
+        let w = self.wins.get_mut(&n).unwrap();
+        Self::trim(w);
+    }
+
+    /// q back n runes in window w's text and line
+    fn runeback(w: &Win, q: usize, n: usize) -> usize {
+        let s = format!("{}{}", w.text, w.line);
+        let mut p = q.min(s.len());
+        for _ in 0..n {
+            if p == 0 {
+                break;
+            }
+            p -= 1;
+            while !s.is_char_boundary(p) {
+                p -= 1;
+            }
+        }
+        p
+    }
+
+    fn runeon(w: &Win, q: usize) -> usize {
+        let s = format!("{}{}", w.text, w.line);
+        let mut p = q.min(s.len());
+        if p < s.len() {
+            p += 1;
+            while !s.is_char_boundary(p) {
+                p += 1;
+            }
+        }
+        p
+    }
+
+    /// rio's wbswidth: the bytes ^H (a rune), ^U (to the line's start) or ^W
+    /// (a word and the blanks after it) erase before q, not past the output point
+    fn bswidth(w: &Win, q: usize, c: char) -> usize {
+        let s = format!("{}{}", w.text, w.line);
+        let qh = w.text.len();
+        let stop = if q > qh { qh } else { 0 };
+        let before: Vec<(usize, char)> = s[stop..q].char_indices().map(|(i, c)| (stop + i, c)).collect();
+        if c == '\u{8}' {
+            return before.last().map(|&(i, _)| q - i).unwrap_or(0);
+        }
+        let word = |c: char| c.is_alphanumeric() || c == '_';
+        let mut p = q;
+        let mut it = before.iter().rev().peekable();
+        if c == '\u{17}' {
+            // the non-word runes, then the word
+            while let Some(&&(i, r)) = it.peek() {
+                if r == '\n' || word(r) {
+                    break;
+                }
+                p = i;
+                it.next();
+            }
+            while let Some(&&(i, r)) = it.peek() {
+                if !word(r) {
+                    break;
+                }
+                p = i;
+                it.next();
+            }
+            return q - p;
+        }
+        // ^U: to the line's start; a newline right before: it
+        if let Some(&&(i, '\n')) = it.peek() {
+            return q - i;
+        }
+        for &(i, r) in it {
+            if r == '\n' {
+                break;
+            }
+            p = i;
+        }
+        q - p
+    }
+
+    /// window w's text and line from q0 to q1 replaced by s, the output point
+    /// moved as rio's winsert and wdelete move it (something put right at it
+    /// is typed: in the line); the tick after s
+    fn replace(w: &mut Win, q0: usize, q1: usize, s: &str) -> usize {
+        let mut all = format!("{}{}", w.text, w.line);
+        let mut qh = w.text.len();
+        let q1 = q1.min(all.len());
+        let q0 = q0.min(q1);
+        if !all.is_char_boundary(q0) || !all.is_char_boundary(q1) {
+            return q0;
+        }
+        all.replace_range(q0..q1, s);
+        if q1 <= qh {
+            qh -= q1 - q0;
+        } else if q0 < qh {
+            qh = q0;
+        }
+        if q0 < qh {
+            qh += s.len();
+        }
+        w.line = all.split_off(qh);
+        w.text = all;
+        let q = q0 + s.len();
+        w.sel = (q, q);
+        q
+    }
+
+    /// the whole lines typed after the output point go to the program and
+    /// stay in the text
+    fn deliver(w: &mut Win) {
+        if let Some(i) = w.line.rfind('\n') {
+            let l: String = w.line.drain(..=i).collect();
+            w.cons.extend(l.as_bytes());
+            w.text.push_str(&l);
+            w.scroll = 0;
+        }
+    }
+
+    /// a window's text no longer than MAXTEXT, its selection moved with it
+    fn trim(w: &mut Win) {
+        let (len, total) = (w.text.len(), w.text.len() + w.line.len());
+        if len > MAXTEXT {
+            let mut k = len - MAXTEXT;
+            while !w.text.is_char_boundary(k) {
+                k += 1;
+            }
+            w.text.drain(..k);
+            w.sel = (w.sel.0.saturating_sub(k), w.sel.1.saturating_sub(k));
+        }
+        let total = total.min(w.text.len() + w.line.len());
+        w.sel = (w.sel.0.min(total), w.sel.1.min(total));
+    }
+
+    /// what a program wrote to window n's cons or text: whole runes (the start
+    /// of one waits for the rest), backspace takes one back
+    fn output(&mut self, n: u32, data: &[u8]) {
+        // more lines are likely to follow: the main loop gathers them (not so
+        // for what the keyboard echoes, drawn at the batch's end at once)
+        self.outputdue = true;
+        let w = self.wins.get_mut(&n).unwrap();
+        let mut b = std::mem::take(&mut w.partial);
+        b.extend_from_slice(data);
+        let mut ok = match std::str::from_utf8(&b) {
+            Ok(_) => b.len(),
+            Err(e) if e.error_len().is_none() => e.valid_up_to(), // a rune cut short
+            Err(_) => b.len(),
+        };
+        if b.len() - ok > 3 {
+            ok = b.len();
+        }
+        w.partial = b[ok..].to_vec();
+        let old = w.text.len();
+        for c in String::from_utf8_lossy(&b[..ok]).chars() {
+            if c == '\u{8}' {
+                w.text.pop();
+            } else {
+                w.text.push(c);
+            }
+        }
+        // a selection in the line typed stays on what it was
+        let tl = w.text.len();
+        let shift = |q: usize| if q >= old { q + tl - old.min(tl) } else { q.min(tl) };
+        if tl >= old {
+            w.sel = (shift(w.sel.0), shift(w.sel.1));
+        }
+        Self::trim(w);
+        // at the end, or scroll: the end shown; looking back (noscroll, as rio's): the
+        // same text stays where it was, the lines that came below it
+        if w.scrolling || w.scroll == 0 {
+            w.scroll = 0;
+            self.drawtext(n);
+            return;
+        }
+        let before = w.shown.0;
+        self.textnow(n);
+        if let Some(w) = self.wins.get_mut(&n) {
+            let added = w.shown.0.saturating_sub(before);
+            if added > 0 {
+                w.scroll += added;
+                self.textnow(n);
+            }
+        }
+    }
+
+    /// button 2's scroll and noscroll, wctl's: whether output goes to the end
+    fn setscrolling(&mut self, n: u32, on: bool) {
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        w.scrolling = on;
+        if on {
+            w.scroll = 0;
+            self.drawtext(n);
+        }
+    }
+
+    /// the snarf buffer from rio's, when wsys runs in rio
+    fn getsnarf(&mut self) {
+        if self.parentsnarf {
+            if let Ok(b) = std::fs::read("/dev/snarf") {
+                self.snarf = b;
+            }
+        }
+    }
+
+    fn putsnarf(&mut self) {
+        if !self.parentsnarf {
+            return;
+        }
+        // written from offset 0 (the parent empties it there): an empty one too,
+        // by a write of nothing (write_all writes none)
+        if let Ok(mut f) = std::fs::OpenOptions::new().write(true).open("/dev/snarf") {
+            let _ = if self.snarf.is_empty() { f.write(&[]).map(|_| ()) } else { f.write_all(&self.snarf) };
+        }
+    }
+
+    /// text and line of window n as one: the bytes from q0 to q1
+    fn seltext(w: &Win) -> String {
+        let all = format!("{}{}", w.text, w.line);
+        let (q0, q1) = (w.sel.0.min(all.len()), w.sel.1.min(all.len()));
+        all.get(q0..q1).unwrap_or("").to_string()
+    }
+
+    /// a command of button 2's menu in text window n
+    fn menu2(&mut self, n: u32, cmd: &str) {
+        let w = &self.wins[&n];
+        let (q0, q1) = w.sel;
+        match cmd {
+            "snarf" | "cut" => {
+                if q0 < q1 {
+                    self.snarf = Self::seltext(w).into_bytes();
+                    self.putsnarf();
+                }
+                if cmd == "cut" && q0 < q1 {
+                    Self::replace(self.wins.get_mut(&n).unwrap(), q0, q1, "");
+                }
+            }
+            "paste" => {
+                // as rio's wpaste: over the selection, which is then what was pasted;
+                // its whole lines after the output point go
+                self.getsnarf();
+                let s = String::from_utf8_lossy(&self.snarf).into_owned();
+                let w = self.wins.get_mut(&n).unwrap();
+                let q = Self::replace(w, q0, q1, &s);
+                w.sel = (q - s.len(), q);
+                if !w.hold {
+                    Self::deliver(w);
+                }
+                Self::trim(w);
+                self.wake(n);
+            }
+            "plumb" => self.plumb(n),
+            "look" => {
+                // the next place with the selected text, round the end to the start
+                if q0 < q1 {
+                    let all = format!("{}{}", w.text, w.line);
+                    let pat = all.get(q0..q1).unwrap_or("").to_string();
+                    let next = all.get(q1..).and_then(|r| r.find(&pat)).map(|i| q1 + i).or_else(|| all.find(&pat));
+                    if let Some(i) = next {
+                        let w = self.wins.get_mut(&n).unwrap();
+                        w.sel = (i, i + pat.len());
+                        w.want = Some(i);
+                    }
+                }
+            }
+            "send" => {
+                let mut s = if q0 < q1 { Self::seltext(w) } else { String::from_utf8_lossy(&self.snarf).into_owned() };
+                if !s.ends_with('\n') {
+                    s.push('\n');
+                }
+                self.snarf = s.clone().into_bytes();
+                self.putsnarf();
+                // as rio's: at the end, then it goes
+                let w = self.wins.get_mut(&n).unwrap();
+                let e = w.text.len() + w.line.len();
+                Self::replace(w, e, e, &s);
+                if !w.hold {
+                    Self::deliver(w);
+                }
+                Self::trim(w);
+                self.wake(n);
+            }
+            "scroll" | "noscroll" => self.setscrolling(n, cmd == "scroll"),
+            _ => {}
+        }
+        self.drawtext(n);
+    }
+
+    /// rio's hold mode on or off; off, what was typed meanwhile goes as lines
+    fn sethold(&mut self, n: u32, on: bool) {
+        let Some(w) = self.wins.get_mut(&n) else { return };
+        if w.hold == on {
+            return;
+        }
+        w.hold = on;
+        if !on {
+            if let Some(i) = w.line.rfind('\n') {
+                let l: String = w.line.drain(..=i).collect();
+                w.cons.extend(l.as_bytes());
+                w.text.push_str(&l);
+                w.scroll = 0;
+            }
+            self.wake(n);
+        }
+        self.paintborder(n);
+        self.drawtext(n);
+    }
+
+    /// the selection to the plumber (plumb(6)), else the word around it with
+    /// click= as rio does
+    fn plumb(&mut self, n: u32) {
+        if self.plumbfd.is_none() {
+            // as libplumb's plumbopen: the plumber of wsys' name space (the profile
+            // starts it before wsys)
+            match Fd::open("/mnt/plumb/send", OWRITE) {
+                Ok(f) => self.plumbfd = Some(f),
+                Err(e) => {
+                    eprintln!("wsys: plumb: {e}");
+                    return;
+                }
+            }
+        }
+        let w = &self.wins[&n];
+        let all = format!("{}{}", w.text, w.line);
+        let (q0, q1) = (w.sel.0.min(all.len()), w.sel.1.min(all.len()));
+        let (data, attr) = if q0 < q1 {
+            (all[q0..q1].to_string(), String::new())
+        } else {
+            let sep = |c: char| c == ' ' || c == '\t' || c == '\n';
+            let p0 = all[..q0].rfind(sep).map(|i| i + 1).unwrap_or(0);
+            let p1 = all[q0..].find(sep).map(|i| q0 + i).unwrap_or(all.len());
+            (all[p0..p1].to_string(), format!("click={}", all[p0..q0].chars().count()))
+        };
+        if data.is_empty() || data.len() > 8192 {
+            return;
+        }
+        let wdir = w.wdir.trim().to_string();
+        let msg = format!("rio\n\n{}\ntext\n{}\n{}\n{}", wdir, attr, data.len(), data);
+        if let Err(e) = self.plumbfd.as_ref().unwrap().write1(msg.as_bytes()) {
+            eprintln!("wsys: plumb: {e}");
+        }
+    }
+
+    /// the offset in window n's text of the rune at x, y (as drawn)
+    fn hit(&self, n: u32, x: i32, y: i32) -> usize {
+        let w = &self.wins[&n];
+        let h = self.wfonth(n);
+        let Some(row) = w.rows.iter().find(|r| y < r.y + h).or(w.rows.last()) else {
+            return w.text.len() + w.line.len();
+        };
+        if y < w.rows.first().map(|r| r.y).unwrap_or(0) {
+            return row.runes.first().map(|r| r.2).unwrap_or(row.end);
+        }
+        for &(rx, rw, off) in &row.runes {
+            if x < rx + rw / 2 {
+                return off;
+            }
+        }
+        row.end
+    }
+
+    /// button 2's menu, its item cur lit
+    fn drawmenu(&mut self) {
+        let Some(m) = &self.menu else { return };
+        let (l, r, items, cur, left, sc) = (m.layer, m.r, m.items.clone(), m.cur, m.client.is_some(), m.sc);
+        let (white, black, hi, border) = (self.white, self.black, self.menuhi, self.cfocus);
+        let (mb, pad) = (self.szat(sc, MENUBORDER), self.szat(sc, MENUPAD));
+        let Some(font) = Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, theme::dpi(sc)) else { return };
+        let d = &mut self.d;
+        let h = font.height;
+        let res = (|| -> std::io::Result<()> {
+            d.draw(l, &r, border, 0, 0)?;
+            let inner = r.inset(mb);
+            d.draw(l, &inner, white, 0, 0)?;
+            for (i, it) in items.iter().enumerate() {
+                let y = inner.y0 + i as i32 * h;
+                let row = Rect::new(inner.x0, y, inner.x1, y + h);
+                if cur == Some(i) {
+                    d.draw(l, &row, hi, 0, 0)?;
+                }
+                let tw: i32 = it.chars().map(|c| font.width(d, c)).sum();
+                let mut x = if left { inner.x0 + pad } else { inner.x0 + (inner.dx() - tw) / 2 };
+                for c in it.chars() {
+                    if let Some(g) = font.glyph(d, c) {
+                        let dst = Rect::new(0, 0, g.src.dx(), g.src.dy()).add(x + g.dx, y + g.dy + g.src.y0);
+                        d.drawmask(l, &dst, black, (0, 0), g.img, (g.src.x0, g.src.y0))?;
+                        x += g.width;
+                    }
+                }
+            }
+            d.flush()
+        })();
+        if let Err(e) = res {
+            eprintln!("wsys: menu: {e}");
+        }
+    }
+
+    /// button b's menu at x, y for window n: the first item under the mouse
+    fn openmenu(&mut self, n: Option<u32>, b: i32, items: Vec<String>, hidden: Vec<u32>, x: i32, y: i32) {
+        // in the scale and font of the monitor it opens on, kept on it
+        let (s, sc) = self.monat(x, y);
+        let (mb, pad) = (self.szat(sc, MENUBORDER), self.szat(sc, MENUPAD));
+        let (h, wd) = {
+            let Some(font) = Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, theme::dpi(sc)) else { return };
+            let d = &mut self.d;
+            let wd = items.iter().map(|it| it.chars().map(|c| font.width(d, c)).sum::<i32>()).max().unwrap_or(0);
+            (font.height, wd + 2 * pad + 2 * mb)
+        };
+        let ht = items.len() as i32 * h + 2 * mb;
+        let mut r = Rect::new(x - wd / 2, y - h / 2 - mb, x - wd / 2 + wd, y - h / 2 - mb + ht);
+        let (dx, dy) = ((s.x0 - r.x0).max(0) + (s.x1 - r.x1).min(0), (s.y0 - r.y0).max(0) + (s.y1 - r.y1).min(0));
+        r = r.add(dx, dy);
+        let Ok(layer) = self.d.allocwindow(self.scr, r, 0xFFFF_FFFF) else { return };
+        self.menu = Some(Menu { win: n, button: b, items, hidden, r, layer, cur: None, client: None, sc });
+        self.menumove(x, y);
+    }
+
+    /// a program's menu (window n's menu file written): "x y" and an item a
+    /// line; its top left at x y, kept on the screen; a read of menu gives the
+    /// item chosen, -1 for none
+    fn clientmenu(&mut self, n: u32, s: &str) -> Result<(), String> {
+        if self.menu.is_some() || self.drag.is_some() || self.op3.is_some() {
+            return Err("busy".into());
+        }
+        let mut lines = s.lines();
+        let at: Vec<i32> = lines.next().unwrap_or("").split_whitespace().filter_map(|v| v.parse().ok()).collect();
+        let items: Vec<String> = lines.filter(|l| !l.is_empty()).map(|l| l.to_string()).collect();
+        if at.len() != 2 || items.is_empty() {
+            return Err("bad menu: x y, then an item a line".into());
+        }
+        let (s, sc) = self.monat(at[0], at[1]);
+        let (mb, pad) = (self.szat(sc, MENUBORDER), self.szat(sc, MENUPAD));
+        let (h, wd) = {
+            let Some(font) = Self::fontfor(&mut self.font, &mut self.fonts, &self.theme, &self.fontflag, theme::dpi(sc)) else { return Err("no font".into()) };
+            let d = &mut self.d;
+            let wd = items.iter().map(|it| it.chars().map(|c| font.width(d, c)).sum::<i32>()).max().unwrap_or(0);
+            (font.height, wd + 2 * pad + 2 * mb)
+        };
+        let mut r = Rect::new(at[0], at[1], at[0] + wd, at[1] + items.len() as i32 * h + 2 * mb);
+        let (dx, dy) = ((s.x0 - r.x0).max(0) + (s.x1 - r.x1).min(0), (s.y0 - r.y0).max(0) + (s.y1 - r.y1).min(0));
+        r = r.add(dx, dy);
+        let layer = self.d.allocwindow(self.scr, r, 0xFFFF_FFFF).map_err(|e| e.to_string())?;
+        self.wins.get_mut(&n).unwrap().menuout = None;
+        let client = if self.buttons != 0 { Waiting::Held { first: true } } else { Waiting::Open };
+        self.menu = Some(Menu { win: Some(n), button: 0, items, hidden: vec![], r, layer, cur: None, client: Some(client), sc });
+        let (mx, my) = (self.mx, self.my);
+        self.menumove(mx, my);
+        Ok(())
+    }
+
+    /// the mouse while a program's menu is up: let go over an item, it is
+    /// chosen; let go elsewhere after the press that opened it, the menu stays
+    /// until the next press, whose release chooses (or none, off the items)
+    fn clientmouse(&mut self, x: i32, y: i32, b: i32) {
+        self.menumove(x, y);
+        let Some(m) = &mut self.menu else { return };
+        let Some(c) = m.client else { return };
+        let done = match (c, b) {
+            (Waiting::Held { first }, 0) => {
+                if m.cur.is_none() && first {
+                    m.client = Some(Waiting::Open);
+                    None
+                } else {
+                    Some(m.cur.map_or(-1, |i| i as i32))
+                }
+            }
+            (Waiting::Open, b) if b != 0 => {
+                m.client = Some(Waiting::Held { first: false });
+                None
+            }
+            _ => None,
+        };
+        if let Some(i) = done {
+            let m = self.menu.take().unwrap();
+            let _ = self.d.free(m.layer);
+            let _ = self.d.flush();
+            self.barheld = None; // (the release went to the menu)
+            if let Some(n) = m.win {
+                if let Some(w) = self.wins.get_mut(&n) {
+                    w.menuout = Some(i);
+                }
+                self.wake(n);
+            }
+        }
+    }
+
+    fn menumove(&mut self, x: i32, y: i32) {
+        let Some(sc) = self.menu.as_ref().map(|m| m.sc) else { return };
+        let h = self.menufont(sc).map(|f| f.height).unwrap_or(1).max(1);
+        let mb = self.szat(sc, MENUBORDER);
+        let Some(m) = &mut self.menu else { return };
+        let inner = m.r.inset(mb);
+        let cur = if inner.contains(x, y) { Some(((y - inner.y0) / h) as usize).filter(|&i| i < m.items.len()) } else { None };
+        if cur != m.cur || m.cur.is_none() {
+            m.cur = cur;
+            self.drawmenu();
+        }
+    }
+}
+
+/// a note to the note group of process pid (proc(3))
+fn postnote(pid: u32, note: &str) {
+    if let Ok(f) = Fd::open(&format!("/proc/{pid}/notepg"), OWRITE) {
+        let _ = f.write(note.as_bytes());
+    }
+}
+
+fn reader(fd: i32, size: usize, tx: mpsc::Sender<Ev>) {
+    let f = std::mem::ManuallyDrop::new(Fd(fd));
+    let mut b = vec![0u8; size];
+    // whole messages: one read need not be one (ninep::Frames)
+    let mut frames = ninep::Frames::new(size);
+    loop {
+        match f.read(&mut b) {
+            Ok(0) | Err(_) => {
+                let _ = tx.send(Ev::Hangup);
+                return;
+            }
+            Ok(n) => match frames.push(&b[..n]) {
+                Ok(ms) => {
+                    for m in ms {
+                        if tx.send(Ev::Msg(m)).is_err() {
+                            return;
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("wsys: {e}");
+                    let _ = tx.send(Ev::Hangup);
+                    return;
+                }
+            },
+        }
+    }
+}
+
+/// the mouse: fd is /dev/mouse, open once (the kernel's takes one opener; wsys
+/// writes to it too, to move the pointer)
+fn mousereader(fd: i32, tx: mpsc::Sender<Ev>) {
+    let f = std::mem::ManuallyDrop::new(Fd(fd));
+    let mut b = [0u8; 49];
+    loop {
+        // the display gone (drawterm closed: its mount errs): wsys ends, as rio
+        // does; before, this thread ended alone and wsys stayed, serving nobody
+        let n = match f.read(&mut b) {
+            Ok(n) if n > 0 => n,
+            Err(e) if e.to_string().contains("interrupted") => continue,
+            _ => {
+                let _ = tx.send(Ev::Hangup);
+                return;
+            }
+        };
+        if b[0] == b'r' {
+            // the window wsys is in (or the screen) was made anew: moved, resized
+            if tx.send(Ev::Resized).is_err() {
+                return;
+            }
+            continue;
+        }
+        if n < 49 || b[0] != b'm' {
+            continue;
+        }
+        let v: Vec<i64> = String::from_utf8_lossy(&b[1..n]).split_whitespace().filter_map(|s| s.parse().ok()).collect();
+        if v.len() == 4 && tx.send(Ev::Mouse { x: v[0] as i32, y: v[1] as i32, b: v[2] as i32, ms: v[3] as u32 }).is_err() {
+            return;
+        }
+    }
+}
+
+/// the keyboard: kbd(3)'s messages from /dev/kbd (open, kbdfs gives cons
+/// nothing: nobody else takes keys); without it /dev/cons, raw, as c messages
+fn kbdreader(tx: mpsc::Sender<Ev>) {
+    let mut b = [0u8; 1024];
+    if let Ok(f) = Fd::open("/dev/kbd", OREAD) {
+        while let Ok(n) = f.read(&mut b) {
+            if n == 0 {
+                break;
+            }
+            let msgs: Vec<Vec<u8>> = b[..n].split(|&c| c == 0).filter(|m| !m.is_empty()).map(|m| m.to_vec()).collect();
+            if tx.send(Ev::Kbd(msgs)).is_err() {
+                break;
+            }
+        }
+        return;
+    }
+    let (Ok(ctl), Ok(f)) = (Fd::open("/dev/consctl", OWRITE), Fd::open("/dev/cons", OREAD)) else {
+        eprintln!("wsys: no /dev/kbd or /dev/cons: {}", p9::err());
+        return;
+    };
+    let _ = ctl.write(b"rawon");
+    let mut part = vec![];
+    while let Ok(n) = f.read(&mut b) {
+        if n == 0 {
+            break;
+        }
+        part.extend_from_slice(&b[..n]);
+        // whole runes only
+        let ok = match std::str::from_utf8(&part) {
+            Ok(_) => part.len(),
+            Err(e) => e.valid_up_to(),
+        };
+        let s = String::from_utf8_lossy(&part[..ok]).into_owned();
+        part.drain(..ok);
+        let msgs: Vec<Vec<u8>> = s.chars().map(|c| format!("c{c}").into_bytes()).collect();
+        if !msgs.is_empty() && tx.send(Ev::Kbd(msgs)).is_err() {
+            break;
+        }
+    }
+    drop(ctl);
+}
+
+/// one of WSYSDEBUG's words (blanks or commas between them): whole words,
+/// so that compress is not comp
+/// the kernel's devdraw (-k): on a whole screen (drawterm's, noborder.screen)
+/// the windows go on a window over it (Display::onlayer), as they would in a
+/// rio window: drawterm's devdraw does not show what is drawn on the screen
+/// under its name
+fn kernlayer(mut d: Display) -> Display {
+    if let Err(e) = d.onlayer() {
+        eprintln!("wsys: the screen's window: {e}");
+    }
+    d
+}
+
+fn wsysdebug(word: &str) -> bool {
+    std::env::var("WSYSDEBUG").is_ok_and(|v| v.split(|c: char| c == ',' || c.is_whitespace()).any(|w| w == word))
+}
+
+/// the scale found: in a window of a wsys (/dev/dpi), its; on a screen of
+/// this machine's own, the EDID of the output that shows it (gpu(4): the
+/// first whose mode is as wide as the screen); else 1
+fn autoscale(ownscreen: bool, width: i32) -> f64 {
+    if let Some(dpi) = std::fs::read_to_string("/dev/dpi").ok().and_then(|s| s.trim().parse::<f64>().ok()).filter(|&d| d > 0.0) {
+        return dpi / 96.0;
+    }
+    if !ownscreen {
+        return 1.0;
+    }
+    let Ok(gpus) = std::fs::read_dir(gpu::gpudir()) else { return 1.0 };
+    for g in gpus.flatten() {
+        let Ok(outs) = std::fs::read_dir(g.path().join("outputs")) else { continue };
+        for o in outs.flatten() {
+            let mode = std::fs::read_to_string(o.path().join("mode")).unwrap_or_default();
+            let w: i32 = mode.trim().split('x').next().and_then(|v| v.parse().ok()).unwrap_or(0);
+            if w != width {
+                continue;
+            }
+            if let Some(mm) = std::fs::read(o.path().join("edid")).ok().and_then(|e| edidmm(&e)) {
+                let s = theme::autoscale(w, mm);
+                if wsysdebug("scale") {
+                    eprintln!("wsys: scale: {} {w} pixels across {mm} mm: {s}", o.path().display());
+                }
+                return s;
+            }
+        }
+    }
+    1.0
+}
+
+/// an EDID's width in mm: the first detailed timing's, else the
+/// basic block's centimetres
+fn edidmm(e: &[u8]) -> Option<i32> {
+    if e.len() < 128 || e[..8] != [0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0] {
+        return None;
+    }
+    let dt = &e[54..72];
+    if dt[0] != 0 || dt[1] != 0 {
+        let mm = dt[12] as i32 | ((dt[14] as i32 & 0xf0) << 4);
+        if mm > 0 {
+            return Some(mm);
+        }
+    }
+    (e[21] > 0).then(|| e[21] as i32 * 10)
+}
+
+/// the text windows' font, and the draw(3) programs' at a scale other than 1:
+/// -f, the theme's font as they are; else $font: at scale 1 as it is; at
+/// another, one of truetypefs(4) (Name.ttf.N[a]) as big, the default (none,
+/// vga's) Go Mono as big, antialiased (truetypefs started where /n/ttf has
+/// none); a bitmap font of one's own choice as it is (said once: it cannot
+/// grow)
+fn textfont(flag: &Option<String>, t: &theme::Theme) -> String {
+    if let Some(f) = flag {
+        return f.clone();
+    }
+    if !t.font.is_empty() {
+        return t.font.clone();
+    }
+    let env = std::env::var("font").ok().filter(|f| !f.is_empty()).unwrap_or(DEFFONT.to_string());
+    if t.scale == 1.0 {
+        return env;
+    }
+    // truetypefs' Name.ttf.N[a]/font: the same face, N as big
+    let ttf = env.strip_prefix("/n/ttf/").and_then(|r| r.strip_suffix("/font")).and_then(|r| {
+        let (name, size) = r.rsplit_once('.')?;
+        let (n, aa) = match size.strip_suffix('a') { Some(n) => (n, "a"), None => (size, "") };
+        Some((name.to_string(), n.parse::<i32>().ok()?, aa))
+    });
+    let want = match ttf {
+        Some((name, n, aa)) => format!("/n/ttf/{name}.{}{aa}/font", t.scalesize(n)),
+        None if env == DEFFONT => format!("/n/ttf/{TTFFONT}.{}a/font", t.scalesize(TTFSIZE)),
+        None => {
+            static SAID: std::sync::Once = std::sync::Once::new();
+            SAID.call_once(|| eprintln!("wsys: $font {env} is a bitmap font: at scale {} as it is (name one of truetypefs(4) to have it grow)", t.scale));
+            return env;
+        }
+    };
+    if !std::path::Path::new("/n/ttf").join(TTFFONT).exists() {
+        // it mounts itself on /n/ttf in this name space, then serves in the background
+        // nokill (-k): every window's name space mounts it, a new one would
+        // reach none of them; the window manager's own font server
+        if let Err(e) = std::process::Command::new("/bin/truetypefs").arg("-k").status() {
+            eprintln!("wsys: truetypefs: {e}");
+        }
+    }
+    if std::path::Path::new(&want).exists() {
+        return want;
+    }
+    eprintln!("wsys: no {want}: {env}");
+    env
+}
+
+fn usage() -> ! {
+    eprintln!("usage: wsys [-dgkpOxz] [-f font] [-t theme] [-S scale] [-s srvname] [-i cmd]");
+    std::process::exit(1);
+}
+
+fn main() {
+    // first, before any thread: all of them inherit it (p9::nokill)
+    if let Err(e) = p9::nokill() {
+        eprintln!("wsys: nokill: {e}");
+    }
+    let mut args = std::env::args().skip(1);
+    let user = std::env::var("user").unwrap_or_else(|_| "none".into());
+    // with its pid as rio: a wsys that died leaves its entry, another starts all the same
+    let mut srvname = format!("wsys.{user}.{}", std::process::id());
+    let mut alias = true; // /srv/wsys.$user too, unless -s names it
+    // gpucomp: None the GPU where it can, quietly; Some(true) -g; Some(false) -p
+    let (mut init, mut exitwith, mut nooverlay, mut gpucomp, mut coredraw) = (None, false, false, None, None);
+    let mut fontflag: Option<String> = None;
+    let mut themefile: Option<String> = None;
+    let mut scaleflag: Option<f64> = None;
+    // a screen far away: /dev/draw the terminal's of a cpu session (drawterm's
+    // through rcpu: /mnt/term). Not any file server's: in a window of wsys,
+    // /dev/draw is that wsys' (nested, on the same machine)
+    let remote = p9::fileid("/dev/draw/new").is_some_and(|d| Some(d) == p9::fileid("/mnt/term/dev/draw/new"));
+    let mut compress = remote;
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "-s" => {
+                srvname = args.next().unwrap_or_else(|| usage());
+                alias = false;
+            }
+            "-i" => init = Some(args.next().unwrap_or_else(|| usage())),
+            "-x" => exitwith = true,
+            "-O" => nooverlay = true,
+            "-g" => gpucomp = Some(true),
+            "-p" => gpucomp = Some(false),
+            "-d" => coredraw = Some(true),
+            "-k" => coredraw = Some(false),
+            "-z" => compress = true,
+            "-f" => fontflag = Some(args.next().unwrap_or_else(|| usage())),
+            "-t" => themefile = Some(args.next().unwrap_or_else(|| usage())),
+            "-S" => scaleflag = Some(args.next().and_then(|v| v.parse().ok()).filter(|s: &f64| (0.5..=8.0).contains(s)).unwrap_or_else(|| usage())),
+            _ => usage(),
+        }
+    }
+    // a screen far away (drawterm's): the kernel's devdraw there, as rio's windows
+    // (-k): its programs draw on it, a window moves by a message; wsys' own would
+    // send pixels over the network (-d asks for it)
+    if remote && coredraw.is_none() {
+        coredraw = Some(false);
+    }
+    // the theme: classic, what the file says over it
+    let mut theme = theme::Theme::classic();
+    if let Some(f) = &themefile {
+        match std::fs::read_to_string(f).map_err(|e| e.to_string()).and_then(|t| theme.apply(&t)) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("wsys: {f}: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+    if let Some(s) = scaleflag {
+        (theme.scaleauto, theme.scale) = (false, s);
+    }
+    // a note group of wsys' own (as rio): it goes as a whole at the end
+    if let Err(e) = p9::rfork(p9::RFNOTEG) {
+        eprintln!("wsys: rfork: {e}");
+    }
+    let d = match Display::open() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("wsys: draw: {e}");
+            std::process::exit(1);
+        }
+    };
+    // devdraw is wsys' own (drawcore; -k: the kernel's), on a screen as big as the
+    // kernel's; what it draws the GPU composes, or wsys copies it into the kernel's
+    // screen (kd). Where it cannot start, the kernel's (-d asked for it: an error)
+    // devdraw's screen is as big as the window or the screen shown; when that
+    // changes (a window resized, a monitor plugged in or out: Ev::Resized) a new
+    // screen image of the new size (Core::resize). Its segment holds MAXSCREEN
+    // from the start (its pages made where drawn), a bigger one is made when
+    // the screen outgrows it
+    // the screen of this machine itself, else a window (rio's) or a screen far
+    // away (drawterm's, as its whole screen: noborder.screen too, and it resizes)
+    let ownscreen = !remote && std::fs::read_to_string("/dev/winname").unwrap_or_default().starts_with("noborder.screen.");
+    let (d, core, kd) = if coredraw != Some(false) {
+        let cr = Rect::new(d.r.x0, d.r.y0, d.r.x0 + d.r.dx().max(MAXSCREEN.0), d.r.y0 + d.r.dy().max(MAXSCREEN.1));
+        let started = if d.chan != XRGB32 {
+            Err(std::io::Error::other(format!("the screen is {}, not x8r8g8b8", draw::chanstr(d.chan))))
+        } else {
+            drawcore::Core::start(d.r, cr, "x8r8g8b8").and_then(|c| Ok((Display::open_core()?, c)))
+        };
+        match started {
+            Ok((mut cd, c)) => {
+                if c.r.x0 == 0 && c.r.y0 == 0 {
+                    comp::corescreen(&c.name, c.stride);
+                }
+                // wsys' screen: what the window shows of it
+                cd.r = Rect::new(c.r.x0, c.r.y0, c.r.x0 + d.r.dx(), c.r.y0 + d.r.dy());
+                // a whole screen: copied into a window over it (Display::onlayer)
+                let mut d = d;
+                if let Err(e) = d.onlayer() {
+                    eprintln!("wsys: the screen's window: {e}");
+                }
+                (cd, Some(c), Some(d))
+            }
+            Err(e) if coredraw == Some(true) => {
+                eprintln!("wsys: -d: {e}");
+                std::process::exit(1);
+            }
+            Err(e) => {
+                eprintln!("wsys: the kernel's devdraw: {e}");
+                (kernlayer(d), None, None)
+            }
+        }
+    } else {
+        (kernlayer(d), None, None)
+    };
+
+    // the scale (../9front-ui PLAN stage 8): -S, the theme's, else found: in a
+    // window of a wsys its dpi, on this machine's own screen the monitor's EDID
+    if theme.scaleauto {
+        theme.scale = autoscale(ownscreen, d.r.dx());
+    }
+    // the font: -f, the theme's, at a scale other than 1 Go Mono of truetypefs(4)
+    // as big, else $font, vga's
+    let fontname = textfont(&fontflag, &theme);
+
+    // the connection: one end posted in /srv, wsys serves the other
+    let (p0, p1) = p9::pipe().unwrap_or_else(|e| {
+        eprintln!("wsys: pipe: {e}");
+        std::process::exit(1);
+    });
+    // the user's wsys under a name that does not change: the newest one's
+    // (a wsys gone left its entry; programs that outlive it, such as wlsys,
+    // find the next one there); made first, so that whoever waits for the
+    // entry with the pid finds this one ready too
+    if alias {
+        let apath = format!("/srv/wsys.{user}");
+        let _ = p9::remove(&apath);
+        match Fd::create(&apath, OWRITE, 0o600) {
+            Ok(a) => {
+                if let Err(e) = a.write1(p0.0.to_string().as_bytes()) {
+                    eprintln!("wsys: post {apath}: {e}");
+                }
+                a.leak();
+            }
+            Err(e) => eprintln!("wsys: post {apath}: {e}"),
+        }
+    }
+    let srvpath = format!("/srv/{srvname}");
+    let post = Fd::create(&srvpath, OWRITE, 0o600).unwrap_or_else(|e| {
+        eprintln!("wsys: post {srvpath}: {e}");
+        std::process::exit(1);
+    });
+    if let Err(e) = post.write1(p0.0.to_string().as_bytes()) {
+        eprintln!("wsys: post {srvpath}: {e}");
+        std::process::exit(1);
+    }
+    post.leak(); // the entry stays while wsys runs
+    drop(p0);
+
+    let (tx, rx) = mpsc::channel();
+    let srvfd = p1.0;
+    {
+        let tx = tx.clone();
+        thread::spawn(move || reader(srvfd, 65536 + ninep::IOHDRSZ as usize, tx));
+    }
+    let mousefd = Fd::open("/dev/mouse", ORDWR).inspect_err(|e| eprintln!("wsys: /dev/mouse: {e}")).ok();
+    if let Some(fd) = &mousefd {
+        let (tx, fd) = (tx.clone(), fd.0);
+        thread::spawn(move || mousereader(fd, tx));
+    }
+    {
+        let tx = tx.clone();
+        thread::spawn(move || kbdreader(tx));
+    }
+    {
+        let tx = tx.clone();
+        thread::spawn(move || {
+            while tx.send(Ev::Tick).is_ok() {
+                thread::sleep(std::time::Duration::from_millis(50));
+            }
+        });
+    }
+    let mut ws = Wsys {
+        srv: p1,
+        srvpath: srvpath.clone(),
+        msize: 8192 + ninep::IOHDRSZ,
+        uid: user,
+        fids: HashMap::new(),
+        wins: HashMap::new(),
+        z: vec![],
+        focus: None,
+        nextwin: 0,
+        helpers: HashMap::new(),
+        nexthelper: 1,
+        pending: vec![],
+        imgr: core.as_ref().map_or(d.r, |c| c.r),
+        outs: vec![],
+        compress,
+        core,
+        kd,
+        drawpend: vec![],
+        d,
+        bg: 0,
+        cfocus: 0,
+        cother: 0,
+        buttons: 0,
+        mx: 0,
+        my: 0,
+        ms: 0,
+        white: 0,
+        slots: vec![false; NSLOT],
+        drag: None,
+        scr: 0,
+        sweep: vec![],
+        snarf: vec![],
+        mousefd,
+        cursorfd: Fd::open("/dev/cursor", OWRITE).ok(),
+        edge: None,
+        tx: tx.clone(),
+        font: font::Font::open(&fontname).inspect_err(|e| eprintln!("wsys: font {fontname}: {e}")).ok(),
+        fonts: HashMap::new(),
+        curdpi: 0,
+        fontname: fontname.clone(),
+        fontflag,
+        ownscreen,
+        black: 0,
+        pale: 0,
+        menuhi: 0,
+        selecting: None,
+        menu: None,
+        op3: None,
+        scrollbg: 0,
+        scrolling: None,
+        click: None,
+        holdcol: 0,
+        paleholdcol: 0,
+        theme,
+        keysdown: vec![],
+        ovtx: None,
+        ov: None,
+        ovtags: vec![],
+        ovwhy: None,
+        nooverlay,
+        plumbfd: None,
+        gpu: None,
+        segs: HashMap::new(),
+        comp: None,
+        compwant: None,
+        compretry: None,
+        compstarting: false,
+        compscene: vec![],
+        compdirty: false,
+        compgone: vec![],
+        sweepr: None,
+        barheld: None,
+        mlast: None,
+        hlast: None,
+        tap: Tap::default(),
+        textdue: Default::default(),
+        outputdue: false,
+        tabstop: std::env::var("tabstop").ok().and_then(|t| t.trim().parse().ok()).filter(|&t: &i32| t > 0).unwrap_or(4),
+        // rio's snarf, when wsys runs in a window of rio
+        parentsnarf: std::fs::metadata("/dev/snarf").is_ok() && std::fs::metadata("/dev/wctl").is_ok(),
+    };
+    ws.outs = ws.readouts();
+    let colors = (|| -> std::io::Result<(u32, u32, u32, u32, u32)> {
+        let t = &ws.theme;
+        let (back, border, other, window, text) = (t.back, t.border, t.borderinactive, t.window, t.text);
+        Ok((ws.d.color(back)?, ws.d.color(border)?, ws.d.color(other)?, ws.d.color(window)?, ws.d.color(text)?))
+    })();
+    match colors {
+        Ok((a, b, c, w, k)) => (ws.bg, ws.cfocus, ws.cother, ws.white, ws.black) = (a, b, c, w, k),
+        Err(e) => {
+            eprintln!("wsys: colours: {e}");
+            std::process::exit(1);
+        }
+    }
+    let all = ws.d.r;
+    let made = (|| -> std::io::Result<u32> {
+        let (img, bg) = (ws.d.screen, ws.bg);
+        ws.d.draw(img, &all, bg, 0, 0)?;
+        let scr = ws.d.allocscreen(img, bg)?;
+        ws.d.flush()?;
+        Ok(scr)
+    })();
+    let t = ws.theme.clone();
+    match ws.d.color(t.select).and_then(|p| {
+        Ok((p, ws.d.color(t.menuhigh)?, ws.d.color(t.scroll)?, ws.d.color(t.hold)?, ws.d.color(t.holdinactive)?))
+    }) {
+        Ok((p, h, sb, hc, phc)) => (ws.pale, ws.menuhi, ws.scrollbg, ws.holdcol, ws.paleholdcol) = (p, h, sb, hc, phc),
+        Err(e) => {
+            eprintln!("wsys: colours: {e}");
+            std::process::exit(1);
+        }
+    }
+    match made {
+        Ok(scr) => ws.scr = scr,
+        Err(e) => {
+            eprintln!("wsys: screen: {e}");
+            std::process::exit(1);
+        }
+    }
+    ws.cursorsize();
+    // the GPU composes the screen (unless -p), if wsys has it all (not in a window:
+    // the frames would go into the window wsys draws into) and Vulkan can show it;
+    // -g says why not and what it does
+    if gpucomp != Some(false) {
+        let verbose = gpucomp == Some(true) || wsysdebug("comp");
+        let winname = std::fs::read_to_string("/dev/winname").unwrap_or_default();
+        let why = if !ownscreen {
+            Some(format!("not the whole screen ({winname})"))
+        } else if ws.d.chan != XRGB32 {
+            Some(format!("the screen is {}, not x8r8g8b8", draw::chanstr(ws.d.chan)))
+        } else {
+            let tx = tx.clone();
+            ws.compwant = Some(verbose);
+            match comp::Comp::start(
+                Box::new(move |d| {
+                    let _ = tx.send(Ev::Comp(d));
+                }),
+                verbose,
+            ) {
+                Ok(c) => {
+                    ws.comp = Some(c);
+                    None
+                }
+                Err(e) => Some(e),
+            }
+        };
+        if let Some(why) = why.filter(|_| verbose) {
+            eprintln!("wsys: -g: the processor composes: {why}");
+        }
+    }
+    if exitwith {
+        // for the scripts that run wsys -x: where it is (a desktop prints nothing:
+        // the kernel's console would draw over the screen)
+        println!("wsys: {srvpath} {} {} {} {}", all.x0, all.y0, all.x1, all.y1);
+        let _ = std::io::stdout().flush();
+    }
+
+    if let Some(cmd) = init {
+        let tx = tx.clone();
+        let script = format!("rfork ens; mount -c {srvpath} /mnt/wsys || exit mount; wsys={srvpath}; {cmd}");
+        thread::spawn(move || {
+            let st = std::process::Command::new("/bin/rc").arg("-c").arg(&script).status();
+            let s = match st {
+                Ok(s) if s.success() => String::new(),
+                Ok(s) => format!("{s}"),
+                Err(e) => e.to_string(),
+            };
+            let _ = tx.send(Ev::ChildExit(s));
+        });
+    }
+    drop(tx);
+
+    // at the end the windows' processes get hangup and wsys serves them a little
+    // longer, until they let go of their windows (rio exits on hangup, but a note
+    // like a write on wsys' closed pipe would break it)
+    let mut quit: Option<std::time::Instant> = None;
+    // events already waiting are handled before the screen goes out (corepresent): on
+    // a display over the network (drawterm) each upload is many synchronous writes,
+    // one per mouse message while a window is dragged let them pile up; at least
+    // every PRESENTGAP all the same
+    const PRESENTGAP: std::time::Duration = std::time::Duration::from_millis(20);
+    let mut next: Option<Ev> = None;
+    let mut presented = std::time::Instant::now();
+    loop {
+        let ev = if let Some(ev) = next.take() {
+            ev
+        } else {
+            match quit {
+                None => match rx.recv() {
+                    Ok(ev) => ev,
+                    Err(_) => break,
+                },
+                Some(t) => {
+                    let left = std::time::Duration::from_secs(2).saturating_sub(t.elapsed());
+                    if ws.wins.values().all(|w| w.pid.is_none()) || left.is_zero() {
+                        break;
+                    }
+                    match rx.recv_timeout(left) {
+                        Ok(ev) => ev,
+                        Err(_) => break,
+                    }
+                }
+            }
+        };
+        match ev {
+            Ev::Msg(m) => ws.handle(&m),
+            Ev::Hangup => break,
+            Ev::Resized => ws.resized(),
+            Ev::Mouse { x, y, b, ms } => {
+                // the display's point, on wsys' screen
+                let (dx, dy) = ws.shift();
+                let (x, y) = (x - dx, y - dy);
+                // WSYSDEBUG=mouse: each mouse message, and what is under it then
+                if wsysdebug("mouse") {
+                    let hit = ws.z.iter().rev().copied().find(|n| !ws.wins[n].hidden && ws.wins[n].frame().contains(x, y));
+                    eprintln!("wsys: mouse {x} {y} {b} {ms}: window {hit:?}, drag {}, focus {:?}", ws.drag.is_some(), ws.focus);
+                }
+                ws.mouse(x, y, b, ms)
+            }
+            Ev::Kbd(m) => ws.kbd(m),
+            Ev::Tick => {
+                ws.compagain();
+                if let Some((n, but, next)) = ws.scrolling {
+                    let now = std::time::Instant::now();
+                    if but != 2 && now >= next {
+                        let my = ws.my;
+                        ws.scrollstep(n, but, my);
+                        ws.scrolling = Some((n, but, now + std::time::Duration::from_millis(100)));
+                    }
+                }
+            }
+            Ev::WinExit(n, msg) => ws.winexit(n, msg),
+            Ev::HelperExit(id, msg) => ws.helperexit(id, msg),
+            Ev::Again(job) => {
+                if quit.is_none() {
+                    ws.again(job);
+                }
+            }
+            Ev::Overlay { win, b, tag, count, err } => ws.overlay_done(win, b, tag, count, err),
+            Ev::Comp(comp::Done::Composed(keys)) => ws.composed(keys),
+            Ev::CompStarted(r) => ws.compstarted(r),
+            Ev::Comp(comp::Done::Failed(e)) => {
+                if ws.comp.is_some() {
+                    ws.compfailed(e);
+                }
+            }
+            Ev::ChildExit(s) => {
+                if exitwith && quit.is_none() {
+                    if !s.is_empty() {
+                        eprintln!("wsys: -i: {s}");
+                    }
+                    for w in ws.wins.values() {
+                        if let Some(pid) = w.pid {
+                            postnote(pid, "hangup");
+                        }
+                    }
+                    for h in ws.helpers.values() {
+                        if let Some(pid) = h.pid {
+                            postnote(pid, "hangup");
+                        }
+                    }
+                    quit = Some(std::time::Instant::now());
+                }
+            }
+        }
+        if presented.elapsed() < PRESENTGAP {
+            // text to draw (output coming line by line): what comes within the
+            // gap joins it, else each line would be a batch of its own (its
+            // writer's next line arrives just after the reply) and a round trip
+            // on a display over the network
+            // (only for output: an echo of the keyboard goes out at once)
+            let wait = if ws.textdue.is_empty() || !ws.outputdue { std::time::Duration::ZERO } else { PRESENTGAP.saturating_sub(presented.elapsed()) };
+            if let Ok(ev) = rx.recv_timeout(wait) {
+                next = Some(ev);
+                continue;
+            }
+        }
+        // after whatever changed: the text windows' drawing; the window on the
+        // overlay plane may have to leave it; with -g, what the GPU composes
+        ws.drawdue();
+        ws.outputdue = false;
+        ws.corepresent();
+        ws.ovcheck();
+        ws.compsync();
+        presented = std::time::Instant::now();
+    }
+    let _ = p9::remove(&srvpath);
+    if let Some(kd) = ws.kd.as_ref().filter(|_| wsysdebug("compress")) {
+        eprintln!("wsys: compressed {} bytes of pixels into {} of messages", kd.raw, kd.sent);
+    }
+    if ws.core.is_some() && wsysdebug("draw") {
+        eprint!("{}", drawcore::stats().lines().map(|l| format!("wsys: draw: {l}\n")).collect::<String>());
+    }
+    // the kernel's cursor as big as at scale 1 again (for whoever draws next: rio)
+    if ws.ownscreen && ws.theme.scale != 1.0 {
+        let _ = std::fs::write("#v/vgactl", "cursorsize 16");
+    }
+    // the windows let go of their clients' segments; their processes hang up
+    let ids: Vec<u32> = ws.wins.keys().copied().collect();
+    for n in ids {
+        ws.delwin(n, true);
+    }
+    // then the screen's segment out of #g (std::process::exit runs no destructors):
+    // not before, deleting a window draws on the screen (wsys -x died so, its
+    // processes kept as Broken with wsys' files open)
+    drop(ws.core.take());
+    // std's threads are procs of their own, blocked in reads of the mouse and the
+    // keyboard: std's exit kills them (end_program, /proc/n/ctl kill under its lock of the
+    // thread list). Not a kill note to wsys' own note group: it could hit a thread inside
+    // that lock (one ending, as the ticker when its channel closes), and exit would then
+    // wait for the lock forever (wsys -x hung so, spinning in sleep(0)).
+    std::process::exit(0);
+}

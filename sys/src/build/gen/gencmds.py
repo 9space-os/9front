@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Generate gcc build-tool manifests (cmds.json) for every program
+Generate gcc build-tool manifests (cmds.json; cmds.<objtype>.json but for
+amd64, see arch.py) for every program
 directory that sys/src/mkfile's install walks besides the libraries
 ($SUBSYS $CMDS: ape, /acme, cmd, games), from 9front's mkfiles.
 
@@ -30,7 +31,8 @@ result against the tree, the staged distribution and the CD.
 
 Only targets that build are written to the manifests. `--probe' builds
 every target on its own with the build tool and records the ones that
-fail in sys/src/build/gen/cmds-broken.txt (target, reason); without it, the
+fail in sys/src/build/gen/cmds-broken.txt (cmds-broken.<objtype>.txt but for
+amd64; target, reason); without it, the
 broken list from the last probe is used. Probing needs the libraries
 and the build tool (sys/src/cmd/build/build.exe, see build.json).
 
@@ -100,7 +102,8 @@ for d in ('cmd/ip/snoopy', 'cmd/syscall', 'cmd/tcs', 'cmd/nusb/disk', 'games/bla
 for d in sorted(os.listdir(os.path.join(SRC, 'cmd'))):
 	if re.match(r'^[0-9a-z][cl]$', d) and d != 'rc':
 		PRE['cmd/' + d] = ['gen-src.sh cmd/' + d]
-# not target programs: compilers and assemblers, test data, the build tool
+# directories not walked: the build tool, test data, APE libmp's and libsec's
+# $objtype assembly (not ported)
 SKIP = re.compile(r'^(cmd/build|.*/test|ape/lib/(mp|sec)/%s)(/|$)' % OBJTYPE)	# the build tool, test data, unported asm
 
 def rel(path):
@@ -238,7 +241,8 @@ def variables(text):
 	v = {'objtype': [OBJTYPE], 'O': [O], 'cputype': [OBJTYPE], 'CPUS': [OBJTYPE]}
 	if isape(text):	# sys/src/ape/config
 		v.update({'APE': ['/sys/src/ape'], 'APEBIN': ['/%s/bin/ape' % OBJTYPE], 'FAMILY': ['plan9'],
-			'APELIB': ['/rc/bin/ape'], 'CC': ['pcc'], 'CFLAGS': ['-Fw']})
+			'APELIB': ['/rc/bin/ape'], 'CC': ['pcc'], 'CFLAGS': ['-Fw'],
+			'APEGNU': ['-D_APE_GNU']})	# gcc's APE (devdraw's mkfile; gccmk's mkfile sets it, kencc's not)
 	for m in re.finditer(r'^(\w+)\s*=(.*)$', text, re.M):
 		# rc quoting: FS='64', FS='', -D'PROGRAMNAME="troff, Plan 9 edition"'
 		# `{...} (doom's `{~ $objtype mips && echo -D__BIG_ENDIAN__}) is not run
@@ -766,8 +770,9 @@ def buildentry(e, name):
 	m['Oflags'] = ['--entry=_main']
 	syslibs = ['/$ARCH/lib.gcc/ape/%s.a' % l for l in APELIBS] if e.get('ape') else \
 		['/$ARCH/lib.gcc/%s.a' % l for l in LIBS]
-	m['Libs'] = ['--start-group'] + [l.replace('$O', O) for l in e.get('Libs', [])] + \
-		syslibs + ['--end-group']
+	# a library the mkfile names (LIB) and a header's #pragma lib names too: once
+	own = list(dict.fromkeys(l.replace('$O', O) for l in e.get('Libs', [])))
+	m['Libs'] = ['--start-group'] + own + syslibs + ['--end-group']
 	if 'single' in e:
 		m['SourceFilesCmd'] = [e['single']]
 	else:
@@ -838,7 +843,8 @@ def probe(d, name, e):
 		m['Install'] = '/sys/src/build/host/tests/.probe/'
 	path = os.path.join(SRC, d, '.probe.json')
 	open(path, 'w').write(json.dumps([m]))
-	env = dict(os.environ, PLAN9=ROOT, ARCH=OBJTYPE, objtype=OBJTYPE, CPUS='4', CC='gcc', TOOLPREFIX=arch.TOOLPREFIX, TOOLPFX='')
+	env = dict(os.environ, PLAN9=ROOT, ARCH=OBJTYPE, objtype=OBJTYPE, CPUS='4', CC='gcc', TOOLPREFIX=arch.TOOLPREFIX, TOOLPFX='',
+		LC_ALL='C')	# gcc's and ld's messages in English: matched below
 	try:
 		r = subprocess.run([BUILD, '.probe.json'],
 			cwd=os.path.join(SRC, d), env=env, capture_output=True, text=True, timeout=900)
@@ -848,7 +854,7 @@ def probe(d, name, e):
 	os.remove(path)
 	if rc == 0:
 		return ''
-	for pat in (r'error: (.*)', r'(undefinierter Verweis auf [^\n]*)', r'(undefined reference[^\n]*)',
+	for pat in (r'error: (.*)', r'(undefined reference[^\n]*)',
 			r'(fatal error: [^\n]*)', r'(exit status \d+)'):
 		mm = re.search(pat, out)
 		if mm:

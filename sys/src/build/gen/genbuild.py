@@ -8,8 +8,14 @@ $ARCH) and build.<objtype>.json for 386, amd64 and arm64, so that
 builds what the system needs, in dependency order: libc, the libraries
 (sys/src/build/gen/genlibs.py --list), the kernel's klib*.a, the programs
 (sys/src/build/gen/gencmds.py --list: sys/src/mkfile's $SUBSYS $CMDS; APE's musl
-part after libap's, sys/src/build/gen/genmusl.py --list), the files
-the kernel embeds (sys/src/build/step/gen-*.sh: rebootcode.i, apbootstrap.i, ...,
+part after libap's, sys/src/build/gen/genmusl.py --list), on amd64 Linux's
+drivers on the LinuxKPI (sys/src/linux, aux/i915, aux/amdgpu, aux/rtw89)
+and the parts for APE made with the cross compiler of toolchain/gcc
+(GCC_DIR in paths.env; sys/src/build/step/ape.sh, sys/src/build/gen/apeprogs.py:
+Mesa's libvulkan.a, libwayland, SDL3, GLFW, foot's libraries; wlsys, foot,
+cxxwidgets), the Rust crates (sys/src/build/gen/rustcrates.py,
+sys/src/build/step/cargo.sh: wsys, ui, term, ...), the files the kernel embeds
+(sys/src/build/step/gen-*.sh: rebootcode.i, apbootstrap.i, ...,
 initcode, /boot/boot and $CONF.bootfs.paq), the kernel, its Plan 9
 a.out where 9boot loads it (sys/src/build/step/elf2aout.py), and the check that
 everything mk install installs is there (sys/src/build/step/check-install.py).
@@ -24,7 +30,7 @@ usage: sys/src/build/gen/genbuild.py
 """
 import json, os, subprocess, sys
 
-import genclean
+import apeprogs, genclean, rustcrates
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..'))
 
@@ -85,6 +91,21 @@ def main():
 			{'Name': 'libs', 'Projects': libs},
 			{'Name': 'klibs', 'Projects': klibs},
 			{'Name': 'cmds', 'Projects': cmds},
+		] + ([
+			# Linux's DRM drivers and rtw89 on the LinuxKPI (sys/src/build/linux/genbuild.py)
+			{'Name': 'linux', 'Projects': ['/sys/src/linux/build.json', '/sys/src/cmd/aux/gpu/i915/build.json', '/sys/src/cmd/aux/gpu/amdgpu/build.json',
+				'/sys/src/cmd/aux/rtw89/build.json']},
+		] if objtype == 'amd64' else []) + ([
+			# APE's parts by the cross compiler (sys/src/build/gen/apeprogs.py): before
+			# the Rust crates, wsys links Mesa's libvulkan.a
+			{'Name': 'ape', 'Pre': ['bash /sys/src/build/step/ape.sh']},
+		] if objtype in apeprogs.OBJTYPES else []) + ([
+			# the Rust crates (sys/src/build/gen/rustcrates.py: rust.json), with toolchain/rust (RUST_DIR);
+			# without their GPU features (-n) where APE's step makes no Mesa
+			{'Name': 'rust', 'Pre': ['bash /sys/src/build/step/cargo.sh %s%s %s' % (
+				'' if objtype in apeprogs.OBJTYPES else '-n ', d, ' '.join(p))
+				for d, p in rustcrates.crates()]},
+		] if objtype in rustcrates.OBJTYPES and rustcrates.crates() else []) + [
 			# Clean relative to this manifest's directory (sys/src/build), as the
 			# build tool reads it: there it keeps a file's time when a step writes
 			# it the same again (else -D compiled the kernel's users of the .i

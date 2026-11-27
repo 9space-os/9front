@@ -1,0 +1,129 @@
+From f2cdcf237d9362e89667449a0ff8a035e2e99ec8 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Mon, 16 Nov 2026 22:00:01 +0100
+Subject: [PATCH 44/59] news, zuke, pool, dma, doom, eqn, troff: no variable
+ both changed and read without a sequence point
+
+gcc's -Wsequence-point found seven; their result was undefined:
+news: if((d = dirstat(dir))==nil | hi==d->qid.vers) read d->qid.vers of
+a nil d (| for ||); zuke: *f++ = clip16(*f * g) could scale the wrong
+sample; pool: *lp++ = sig ^ (lp - v), the signature's offset with lp
+before or after its ++; pc/dma: ((pa=PADDR(va))&...) != ((pa+len)&...)
+with pa assigned on one side, read on the other; doom: eventtail =
+(++eventtail)&...; eqn: n = n%2 ? n : ++n; troff assigned
+numtabp[ST].val twice in one expression.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ acme/news/src/news.c          | 2 +-
+ sys/src/9/pc/dma.c            | 3 ++-
+ sys/src/cmd/audio/zuke/zuke.c | 5 +++--
+ sys/src/cmd/eqn/paren.c       | 2 +-
+ sys/src/cmd/troff/n6.c        | 2 +-
+ sys/src/games/doom/d_net.c    | 2 +-
+ sys/src/libc/port/pool.c      | 6 ++++--
+ 7 files changed, 13 insertions(+), 9 deletions(-)
+
+diff --git a/acme/news/src/news.c b/acme/news/src/news.c
+index 90cb3c754..65f874ebb 100644
+--- a/acme/news/src/news.c
++++ b/acme/news/src/news.c
+@@ -274,7 +274,7 @@ acmetimer(Article *m, Window *w)
+ 
+ 	assert(m==nil && w==root);
+ 
+-	if((d = dirstat(dir))==nil | hi==d->qid.vers){
++	if((d = dirstat(dir))==nil || hi==d->qid.vers){
+ 		free(d);
+ 		return;
+ 	}
+diff --git a/sys/src/9/pc/dma.c b/sys/src/9/pc/dma.c
+index 928f7372b..36d5974d1 100644
+--- a/sys/src/9/pc/dma.c
++++ b/sys/src/9/pc/dma.c
+@@ -195,8 +195,9 @@ dmasetup(int chan, void *va, long len, int flags)
+ 	 *  if this isn't kernel memory or crossing 64k boundary or above 16 meg
+ 	 *  use the bounce buffer.
+ 	 */
++	pa = (uintptr)va < KZERO ? 0 : PADDR(va);
+ 	if((uintptr)va < KZERO 
+-	|| ((pa=PADDR(va))&0xFFFF0000) != ((pa+len)&0xFFFF0000)
++	|| (pa&0xFFFF0000) != ((pa+len)&0xFFFF0000)
+ 	|| pa >= 16*MB){
+ 		if(xp->bva == nil)
+ 			return -1;
+diff --git a/sys/src/cmd/audio/zuke/zuke.c b/sys/src/cmd/audio/zuke/zuke.c
+index 92492f24a..c0c73d527 100644
+--- a/sys/src/cmd/audio/zuke/zuke.c
++++ b/sys/src/cmd/audio/zuke/zuke.c
+@@ -679,8 +679,9 @@ gain(double g, char *buf, long n)
+ 
+ 	if(g != 1.0)
+ 		for(f = (s16int*)buf; n >= 4; n -= 4){
+-			*f++ = clip16(*f * g);
+-			*f++ = clip16(*f * g);
++			f[0] = clip16(f[0] * g);
++			f[1] = clip16(f[1] * g);
++			f += 2;
+ 		}
+ }
+ 
+diff --git a/sys/src/cmd/eqn/paren.c b/sys/src/cmd/eqn/paren.c
+index bb019bf75..01941e328 100644
+--- a/sys/src/cmd/eqn/paren.c
++++ b/sys/src/cmd/eqn/paren.c
+@@ -21,7 +21,7 @@ void paren(int leftc, int p1, int rightc)
+ 		n = 1;
+ 	m = n - 2;
+ 	if (leftc == '{' || rightc == '}') {
+-		n = n%2 ? n : ++n;
++		n = n%2 ? n : n+1;
+ 		if (n < 3)
+ 			n = 3;
+ 		m = n-3;
+diff --git a/sys/src/cmd/troff/n6.c b/sys/src/cmd/troff/n6.c
+index 02581e725..8a41b7e60 100644
+--- a/sys/src/cmd/troff/n6.c
++++ b/sys/src/cmd/troff/n6.c
+@@ -161,7 +161,7 @@ void n_setwd(void)
+ 	int	delim, emsz, k;
+ 	int	savhp, savapts, savapts1, savfont, savfont1, savpts, savpts1;
+ 
+-	base = numtabp[ST].val = numtabp[ST].val = wid = numtabp[CT].val = 0;
++	base = numtabp[ST].val = wid = numtabp[CT].val = 0;
+ 	if (ismot(i = getch()))
+ 		return;
+ 	delim = cbits(i);
+diff --git a/sys/src/games/doom/d_net.c b/sys/src/games/doom/d_net.c
+index fd0ef6450..685ce178b 100644
+--- a/sys/src/games/doom/d_net.c
++++ b/sys/src/games/doom/d_net.c
+@@ -461,7 +461,7 @@ void CheckAbort (void)
+ 	
+     I_StartTic ();
+     for ( ; eventtail != eventhead 
+-	      ; eventtail = (++eventtail)&(MAXEVENTS-1) ) 
++	      ; eventtail = (eventtail+1)&(MAXEVENTS-1) ) 
+     { 
+ 	ev = &events[eventtail]; 
+ 	if (ev->type == ev_keydown && ev->data1 == KEY_ESCAPE)
+diff --git a/sys/src/libc/port/pool.c b/sys/src/libc/port/pool.c
+index 17aee9406..9a86fe491 100644
+--- a/sys/src/libc/port/pool.c
++++ b/sys/src/libc/port/pool.c
+@@ -1477,8 +1477,10 @@ memmark(void *v, int sig, ulong size)
+ 	ulong *lp, *elp;
+ 	lp = v;
+ 	elp = lp+size/4;
+-	while(lp < elp)
+-		*lp++ = (sig<<24) ^ ((uintptr)lp-(uintptr)v);
++	while(lp < elp){
++		*lp = (sig<<24) ^ ((uintptr)lp-(uintptr)v);
++		lp++;
++	}
+ 	p = (uchar*)lp;
+ 	ep = (uchar*)v+size;
+ 	while(p<ep)
+-- 
+2.56.0
+

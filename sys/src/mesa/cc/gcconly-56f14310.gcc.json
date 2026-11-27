@@ -1,0 +1,13 @@
+[
+	{
+		"Name": "buildflags",
+		"Cflags": [
+			"-DHAVE_FUNC_ATTRIBUTE_OPTIMIZE",
+			"-DHAVE___BUILTIN_ADD_OVERFLOW_P",
+			"-DHAVE___BUILTIN_SUB_OVERFLOW_P",
+			"-Wno-error=maybe-uninitialized",
+			"-Wno-maybe-uninitialized",
+			"-flifetime-dse=1"
+		]
+	}
+]

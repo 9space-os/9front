@@ -40,6 +40,12 @@ void*		amlroot;
 int		amldebug;
 uvlong		amlintmask;
 
+/*
+ * 9space: called for each Notify (object, value) the AML evaluates, if
+ * set; it runs inside amleval: it may only take note (no amleval)
+ */
+void		(*amlnotify)(void *dot, uvlong value);
+
 #pragma	varargck	type	"V"	void*
 #pragma	varargck	type	"N"	void*
 

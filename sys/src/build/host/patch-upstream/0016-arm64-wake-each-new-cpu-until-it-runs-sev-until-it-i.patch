@@ -1,7 +1,7 @@
-From 44933c894d35855768b05552e5544f123f7e17fd Mon Sep 17 00:00:00 2001
+From 6dd615a7018aad4c536debc173e50170fc8eb278 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sat, 31 Oct 2026 19:57:30 +0100
-Subject: [PATCH 16/25] arm64: wake each new cpu until it runs (sev until it is
+Subject: [PATCH 16/59] arm64: wake each new cpu until it runs (sev until it is
  in main)
 
 mpinit starts the other processors with PSCI CPU_ON; they wait in
@@ -19,7 +19,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 7 insertions(+)
 
 diff --git a/sys/src/9/arm64/main.c b/sys/src/9/arm64/main.c
-index cd3b31ff1..483fa1eb5 100644
+index 7eb0e4e52..8556cf735 100644
 --- a/sys/src/9/arm64/main.c
 +++ b/sys/src/9/arm64/main.c
 @@ -145,6 +145,13 @@ mpinit(void)
