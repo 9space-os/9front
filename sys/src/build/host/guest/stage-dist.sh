@@ -399,6 +399,10 @@ fi
 # (sys/src/build/host/guest/boot/mkdisk.rc, mkiso.rc, mkstick.rc; REPLICA_DIR adds
 # replicaproto below); no proto lists it, so it stays off the disk
 cat /dev/null "${PROTOS[@]}" > "$OUT/gccproto"
+# the firmware staged above: distproto names /lib/firmware as an empty directory, and
+# disk/mk9660 and disk/mkfs take only what a proto names (without this the CD's
+# /lib/firmware was empty, though $OUT.list and the update archives had it)
+[ "${FIRMWARE:-1}" = 1 ] && cat "$ROOT/sys/src/build/host/guest/boot/firmwareproto" >> "$OUT/gccproto"
 # not in /$objtype/go: its programs are a.out, its ELF files are test data of Go's std
 # (debug/elf, runtime/pprof), which strip would change
 find "$OUT" -path "$OUT/$A/go" -prune -o -type f -perm -u+x -exec sh -c 'file -b "$1" | grep -q ^ELF && strip "$1"' _ {} \;

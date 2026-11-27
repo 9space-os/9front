@@ -27,6 +27,23 @@ xorriso -osirrox on -indev "$IMG" -extract /sys/lib/dist/omitted "$TMPD/omitted"
 	omitx="-x $TMPD/omitted"
 check "the CD holds everything mk install installs (sys/src/build/step/check-install.py)" \
 	bash -c "python3 '$ROOT/sys/src/build/step/check-install.py' -i '$IMG' $omitx > '$TMPD/check-install' || { grep -v '^ok' '$TMPD/check-install' | head; false; }"
+# the firmware (stage-dist.sh, firmware.list) unless FIRMWARE=0: each file of
+# firmware.list on the CD, but for the profile's omitted groups (the GPUs' in gpu);
+# it comes in by boot/firmwareproto, the protos are all mk9660 writes
+cdfirmware(){
+	grep -v '^#' "$ROOT/sys/src/build/host/guest/firmware.list" | cut -f2 | sed 's!^!/lib/firmware/!' | sort -u > "$TMPD/fw.want"
+	if [ -n "$omitx" ]; then
+		while read -r o; do
+			[ -n "$o" ] && grep -v "^$o/" "$TMPD/fw.want" > "$TMPD/fw.w2" && mv "$TMPD/fw.w2" "$TMPD/fw.want"
+		done < "$TMPD/omitted"
+	fi
+	xorriso -indev "$IMG" -find /lib/firmware -type f 2>/dev/null | tr -d "'" | sort > "$TMPD/fw.have"
+	comm -23 "$TMPD/fw.want" "$TMPD/fw.have" > "$TMPD/fw.missing"
+	[ ! -s "$TMPD/fw.missing" ] || { echo "$(wc -l < "$TMPD/fw.missing") of $(wc -l < "$TMPD/fw.want") missing, e.g."; head -3 "$TMPD/fw.missing"; return 1; }
+}
+if [ "${FIRMWARE:-1}" = 1 ]; then
+	check "the CD holds firmware.list's firmware (/lib/firmware; FIRMWARE=0: none)" cdfirmware
+fi
 if [ "${BROWSER:-0}" = 1 ]; then
 	check "the browser on the CD (BROWSER=1): servoshell, webfs-rs, browser, its licences and source offer, the CA roots" bash -c "
 		for f in /${objtype:-amd64}/bin/servoshell /${objtype:-amd64}/bin/webfs-rs /rc/bin/browser \
