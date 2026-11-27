@@ -498,7 +498,7 @@ validdevname(Tree *t, char *dname)
 }
 
 static void
-parseconfig(char *a, long n, Cmdbuf **cbp, Cmdtab **ctp)
+parseconfig(char *a, long n, Cmdbuf *volatile *cbp, Cmdtab **ctp)
 {
 	Cmdbuf	*cb;
 	Cmdtab	*ct;
@@ -571,9 +571,9 @@ mconfig(char* a, long n)
 	uchar	key[2*256/8];
 	int	keylen;
 	Chan	**idev;
-	Cmdbuf	*cb;
+	Cmdbuf	*volatile cb;	/* parseconfig sets it after waserror, the handler frees it */
 	Cmdtab	*ct;
-	Fsdev	*mp;
+	Fsdev	*volatile mp;	/* devalloc sets it after waserror, Fail deletes it */
 	Inner	*inprv;
 	Tree	*t;
 
