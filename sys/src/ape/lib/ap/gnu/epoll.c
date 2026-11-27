@@ -196,6 +196,7 @@ epoll_create1(int flags)
 	}
 	e->fd = fd;
 	e->w = w;
+	e->gen = __fdgen(fd);
 	lock(&lk);
 	freeep(findep(fd, 1));	/* an earlier set whose descriptor was closed */
 	e->next = eps;

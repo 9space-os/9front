@@ -1264,6 +1264,33 @@ static volatile int nchld;
 
 static void onchld(int s) { (void)s; nchld++; }
 
+/*
+ * a child forked while SIGCHLD was not handled, the handler set after: the
+ * watcher's wait knows it (it said ECHILD at once, the status was lost)
+ */
+static void
+testsigchldearly(void)
+{
+	struct sigaction sa;
+	int pid, st, r;
+
+	memset(&sa, 0, sizeof sa);
+	sa.sa_handler = SIG_DFL;
+	sigaction(SIGCHLD, &sa, NULL);
+	if((pid = fork()) == 0){
+		usleep(200000);
+		_exit(9);
+	}
+	sa.sa_handler = onchld;
+	sigaction(SIGCHLD, &sa, NULL);
+	st = 0;
+	r = waitpid(pid, &st, 0);
+	check("waitpid of a child forked before the handler: its status 9", r == pid && WIFEXITED(st) && WEXITSTATUS(st) == 9, "%d %x %d", r, st, errno);
+	errno = 0;
+	r = waitpid(-1, &st, WNOHANG);
+	check("then none left: -1, ECHILD", r == -1 && errno == ECHILD, "%d %d", r, errno);
+}
+
 /* SIGCHLD (gnu/sigchld.c): the handler on a child's exit, its status by waitpid */
 static void
 testsigchld(void)
@@ -1603,6 +1630,7 @@ main(int argc, char **argv)
 	testregex();
 	testpty();
 	testsigchld();
+	testsigchldearly();
 	testnosignal();
 	testscm();
 	testposix();

@@ -153,6 +153,11 @@ wait4(pid_t wpid, int *status, int options, struct rusage *res)
 				_syserrno();
 				return -1;
 			}
+			{
+				extern void __sigchld_reaped(int);
+
+				__sigchld_reaped(w->pid);	/* 9space: no longer a child (gnu/sigchld.c) */
+			}
 			if(wpid <= 0 || w->pid == wpid)
 				break;
 			addpid(w);
