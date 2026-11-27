@@ -14,7 +14,7 @@ case $objtype in amd64|arm64) ;; *) skip "pmc" "no pmc(3) on $objtype"; done_tes
 [ -f "$ROOT/$KBIN" ] || { skip "pmc" "no kernel $KBIN, run $BUILDHOW"; done_tests; exit; }
 [ -x "$BUILDEXE" ] || { skip "pmc" "no build tool $BUILDEXE"; done_tests; exit; }
 
-buildtests(){ (cd "$HERE" && env PLAN9="$ROOT" ARCH=$objtype CC=gcc "$BUILDEXE" build.json); }
+buildtests(){ (cd "$HERE" && env PLAN9="$ROOT" ARCH=$objtype CC="${CC:-gcc}" "$BUILDEXE" build.json); }
 check "build sys/src/build/host/tests/pmc with the port toolchain" buildtests || { done_tests; exit; }
 
 NCPU=4 other=3
