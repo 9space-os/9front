@@ -177,6 +177,7 @@ change is then front's.
 | 0065 | chan.c: createdir held the mount head's lock across cclone (a walk RPC): the same deadlock | bug fix |
 | 0066 | kernel: locals set after waserror() and read in its handler are volatile (mntwalk leaked a chan per failed walk) | bug fix |
 | 0067 | ape: _dirfstat's second try with room for the stat's count (fstat failed for long names) | bug fix |
+| 0068 | devvmx: eventparse frees the copy it made, not where q moved to | bug fix |
 
 ### 0001 ip/tcp: don't hang up a reused conversation through a stale bypass pointer
 
@@ -999,3 +1000,14 @@ after it (gcc relinked with the fixed libap) all compile.
   interface added for the Rust port (`shutdown(Write)`), not a fix.
 - Everything about gcc (types, `#pragma pack`, `volatile`, GAS ports,
   member paths, the build tool).
+
+### 0068 devvmx: eventparse frees the copy it made, not where q moved to
+
+`eventparse` (vmx's `event` and `exc` control messages) duplicates the
+string into `q`, moves `q` past a leading `#` and over the vector number
+(`strtoul(q, &q, 10)`), and then frees `q`, in its error handler and at
+its end: a pointer into the middle of the allocation, for every message
+with a number in it. The copy now has a variable of its own, which is
+freed. Found by reading (a scan for locals changed after `waserror()`,
+2026-11-27); compiled with gcc, not run (no test drives vmx(3) yet).
+
