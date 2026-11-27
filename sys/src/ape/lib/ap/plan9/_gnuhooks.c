@@ -53,8 +53,9 @@ __sigchld_exec(void)
 }
 
 void
-__sigchld_forked(void)
+__sigchld_forked(int pid)
 {
+	(void)pid;
 }
 
 int
@@ -64,8 +65,9 @@ __sigchld_watching(void)
 }
 
 Waitmsg*
-__sigchld_take(int pid, int nohang)
+__sigchld_take(int pid, int nohang, int *gone)
 {
+	*gone = 1;
 	return 0;
 }
 

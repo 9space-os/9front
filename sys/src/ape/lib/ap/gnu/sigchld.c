@@ -40,6 +40,27 @@ static pthread_cond_t more = PTHREAD_COND_INITIALIZER;	/* a message came */
 static int pending;	/* a SIGCHLD while it was blocked: sent when unblocked */
 
 /*
+ * the watched proc's children forked since the watcher began, whose
+ * wait message has not come: with none of them (or not pid among them)
+ * and no message kept, wait is ECHILD, as the kernel's await says "no
+ * living children" (/proc/n/wait just blocks then). A child forked
+ * before the handler was set is not known here.
+ */
+static int *kids, nkids, akids;
+
+/* with lk */
+static int
+kidat(int pid)
+{
+	int i;
+
+	for(i = 0; i < nkids; i++)
+		if(kids[i] == pid)
+			return i;
+	return -1;
+}
+
+/*
  * the signal masks of the program's procs: POSIX's are per thread, APE's
  * _psigblocked is one for all (a thread that blocks everything, as foot's
  * render threads do, blocked SIGCHLD for main too); sigprocmask tells
@@ -109,6 +130,22 @@ __sigchld_mask(long mask)
 		post(pid);	/* delivered as this write returns */
 }
 
+/* with lk: pid is a child of the watched proc (no room: not counted, its wait then as before) */
+static void
+addkid(int pid)
+{
+	int *k;
+
+	if(nkids == akids){
+		k = realloc(kids, (akids+16) * sizeof *kids);
+		if(k == NULL)
+			return;
+		kids = k;
+		akids += 16;
+	}
+	kids[nkids++] = pid;
+}
+
 static void *
 watch(void *a)
 {
@@ -138,6 +175,8 @@ watch(void *a)
 		m->w = w;
 		m->next = NULL;
 		pthread_mutex_lock(&lk);
+		if((n = kidat(w->pid)) >= 0)
+			kids[n] = kids[--nkids];
 		*lastmsg = m;
 		lastmsg = &m->next;
 		pthread_cond_broadcast(&more);
@@ -160,9 +199,9 @@ watch(void *a)
 	return NULL;
 }
 
-/* fork made a child (in its parent): the watcher, if SIGCHLD is handled and there is none */
+/* fork made child pid (in its parent): the watcher, if SIGCHLD is handled and there is none */
 void
-__sigchld_forked(void)
+__sigchld_forked(int pid)
 {
 	pthread_t t;
 	pthread_attr_t a;
@@ -173,10 +212,13 @@ __sigchld_forked(void)
 		return;
 	pthread_mutex_lock(&lk);
 	if(watched != 0){
+		if(watched == getpid())
+			addkid(pid);
 		pthread_mutex_unlock(&lk);
 		return;
 	}
 	watched = getpid();
+	addkid(pid);
 	pthread_attr_init(&a);
 	pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
 	pthread_attr_setstacksize(&a, 64*1024);
@@ -195,14 +237,16 @@ __sigchld_watching(void)
 
 /*
  * a child's wait message the watcher kept: pid's (<= 0: any); nil if none
- * and nohang, else waits for the next
+ * and nohang, or (*gone set) if no such child is left: ECHILD; else
+ * waits for the next
  */
 Waitmsg *
-__sigchld_take(int pid, int nohang)
+__sigchld_take(int pid, int nohang, int *gone)
 {
 	Msg **l, *m;
 	Waitmsg *w;
 
+	*gone = 0;
 	pthread_mutex_lock(&lk);
 	for(;;){
 		for(l = &msgs; (m = *l) != NULL; l = &m->next)
@@ -210,6 +254,11 @@ __sigchld_take(int pid, int nohang)
 				break;
 		if(m != NULL)
 			break;
+		if(pid <= 0 ? nkids == 0 : kidat(pid) < 0){
+			*gone = 1;
+			pthread_mutex_unlock(&lk);
+			return NULL;
+		}
 		if(nohang){
 			pthread_mutex_unlock(&lk);
 			return NULL;
