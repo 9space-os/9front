@@ -74,6 +74,10 @@ else
 	git -C "$ROOT" archive HEAD | tar -xf - -C "$S"
 fi
 (cd "$ROOT/sys/src/cmd/build" && GOOS=plan9 GOARCH=$A GO111MODULE=off go build -o "$S/sys/src/cmd/build/build.exe" .)
+# and as /$objtype/bin/build, the installed tool an installed system has:
+# the guest has no Go, so build-tool.rc keeps it (check-install expects it)
+mkdir -p "$S/$A/bin"
+cp "$S/sys/src/cmd/build/build.exe" "$S/$A/bin/build"
 objtype=$A python3 "$ROOT/sys/src/build/step/check-install.py" -l > "$S/sys/src/build/check-install.$A"
 
 T=$(mktemp -d)
