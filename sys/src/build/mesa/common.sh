@@ -29,6 +29,8 @@ amd64)	TRIPLE=x86_64-pc-plan9 CPU=x86_64 ;;
 arm64)	TRIPLE=aarch64-pc-plan9 CPU=aarch64 ;;
 *)	echo "mesa: objtype=$objtype not supported" >&2; exit 1 ;;
 esac
+# CC's family (TOOLSET: build.exe's, or from CC's name): gcc or clang
+TOOLSET=${TOOLSET:-$(case ${CC##*/} in *clang*) echo clang ;; *) echo gcc ;; esac)}
 # the cross compilers of toolchain/gcc (GCC_DIR in paths.env)
 GCC_CROSS=$GCC_DIR/build/$objtype/cross/bin
 BUILD=$WORK/build-$objtype
@@ -36,10 +38,13 @@ BUILD=$WORK/build-$objtype
 # build: the gcc branch's worktree tree-gcc, TREE_GCC); against this tree instead, its headers
 # (APE's errno.h with ENODATA) and libraries (libvulkan.a): $CROSS holds the cross
 # tools with gcc and g++ given --sysroot= a view of $ROOT (made again when WORK moved:
-# the wrappers name the sysroot by its absolute path)
+# the wrappers name the sysroot by its absolute path). Only for gcc: a build
+# with clang (its own sysroot-clang below) left it a view of its tree, and
+# gcc's build of another tree then linked against that one's libraries
+# (wsys against tree-clang's libvulkan.a, libc++'s)
 SYSROOT=$BUILD/sysroot
 CROSS=$BUILD/cross/bin
-if [ -x "$GCC_CROSS/$TRIPLE-gcc" ] &&
+if [ "$TOOLSET" = gcc ] && [ -x "$GCC_CROSS/$TRIPLE-gcc" ] &&
 	{ [ "$(readlink "$SYSROOT/sys/include")" != "$ROOT/sys/include" ] || [ ! -x "$CROSS/$TRIPLE-g++" ] ||
 	  ! grep -qF -- "--sysroot=\"$SYSROOT\"" "$CROSS/$TRIPLE-gcc"; }; then
 	mkdir -p "$BUILD"
@@ -55,12 +60,10 @@ if [ -x "$GCC_CROSS/$TRIPLE-gcc" ] &&
 	done
 fi
 # The cross tools of the build (ape.sh, wayland/build.sh, cargo.sh): XCC,
-# XCXX, XAR, XNM, XRANLIB, XSTRIP, XLD, XOBJCOPY. CC's family chooses
-# (TOOLSET: build.exe's, or from CC's name): gcc's above, or clang's of
+# XCXX, XAR, XNM, XRANLIB, XSTRIP, XLD, XOBJCOPY. TOOLSET chooses: gcc's above, or clang's of
 # toolchain/clang (CLANG_DIR): its cross clang for clang's Plan 9 target
 # (TRIPLE_CLANG), the sysroot a view of this tree with /$objtype/clang,
 # clang's runtimes (libc++ & co., compiler-rt), as on 9front
-TOOLSET=${TOOLSET:-$(case ${CC##*/} in *clang*) echo clang ;; *) echo gcc ;; esac)}
 case $objtype in
 amd64)	TRIPLE_CLANG=x86_64-unknown-plan9 ;;
 386)	TRIPLE_CLANG=i686-unknown-plan9 ;;
