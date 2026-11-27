@@ -45,6 +45,10 @@ struct Fid {
     data: Option<Vec<u8>>, // what an open file reads: taken at open
     events: VecDeque<String>,
     picture: Option<Vec<u8>>, // nodes/id/image: what was written, decoded when closed
+    // ctl, props: the start of a write devmnt split into Twrites of iounit
+    // bytes (one of a full iounit not ending a line goes on), applied
+    // whole with its last one: ui(4)'s write, all or none
+    partial: Vec<u8>,
 }
 
 pub struct Fs {
@@ -243,7 +247,21 @@ impl Fs {
                 if !b.is_empty() && b.len() + l.len() > count as usize {
                     break;
                 }
-                b.extend_from_slice(&l.as_bytes()[..l.len().min(count as usize)]);
+                if l.len() > count as usize {
+                    // longer than the read (a paste over 8 KiB): its start now,
+                    // the rest stays first, for the next read (it was cut, and
+                    // the next event glued to it was lost; a read of 0 took all)
+                    let mut k = count as usize;
+                    while k > 0 && !e.is_char_boundary(k.min(e.len())) {
+                        k -= 1;
+                    }
+                    let k = k.min(e.len());
+                    b.extend_from_slice(&e.as_bytes()[..k]);
+                    let rest = e[k..].to_string();
+                    *f.events.front_mut().unwrap() = rest;
+                    break;
+                }
+                b.extend_from_slice(l.as_bytes());
                 f.events.pop_front();
             }
             self.pending.remove(i);
@@ -260,7 +278,9 @@ impl Fs {
         let r = |e: &str| vec![ninep::error(tag, e)];
         match t {
             T::Version { msize, version } => {
-                self.msize = msize.min(65536 + ninep::IOHDRSZ);
+                // at least a message's header and a little (below IOHDRSZ the
+                // reads' count, msize - IOHDRSZ, wrapped)
+                self.msize = msize.clamp(256, 65536 + ninep::IOHDRSZ);
                 self.fids.clear();
                 self.pending.clear();
                 let v = if version.starts_with("9P2000") { "9P2000" } else { "unknown" };
@@ -269,7 +289,7 @@ impl Fs {
             T::Auth => r("ui: no authentication"),
             T::Attach { fid, .. } => {
                 let q = self.qid(&Path::Root);
-                self.fids.insert(fid, Fid { path: Path::Root, open: false, data: None, events: VecDeque::new(), picture: None });
+                self.fids.insert(fid, Fid { path: Path::Root, open: false, data: None, events: VecDeque::new(), picture: None, partial: Vec::new() });
                 vec![R::new(105, tag).qid(q).done()]
             }
             T::Flush { oldtag } => {
@@ -297,7 +317,7 @@ impl Fs {
                     return r("file does not exist");
                 }
                 if qids.len() == names.len() {
-                    self.fids.insert(newfid, Fid { path: p, open: false, data: None, events: VecDeque::new(), picture: None });
+                    self.fids.insert(newfid, Fid { path: p, open: false, data: None, events: VecDeque::new(), picture: None, partial: Vec::new() });
                 }
                 let mut rr = R::new(111, tag).u16(qids.len() as u16);
                 for q in qids {
@@ -324,7 +344,9 @@ impl Fs {
                 if write && matches!(p, Path::NodeFile(_, "image")) {
                     f.picture = Some(Vec::new());
                 }
-                vec![R::new(113, tag).qid(q).u32(8192).done()]
+                // iounit: as much as a message carries (devmnt splits a longer
+                // write into Twrites of this; ctl's are put together again)
+                vec![R::new(113, tag).qid(q).u32(self.msize - ninep::IOHDRSZ).done()]
             }
             T::Create => r("ui: no creating files"),
             T::Read { fid, offset, count } => {
@@ -381,7 +403,20 @@ impl Fs {
                     pic[o..o + data.len()].copy_from_slice(&data);
                     return vec![R::new(119, tag).u32(data.len() as u32).done()];
                 }
-                let text = String::from_utf8_lossy(&data).into_owned();
+                if matches!(f.path, Path::Ctl | Path::NodeFile(_, "props")) {
+                    let iounit = (self.msize - ninep::IOHDRSZ) as usize;
+                    f.partial.extend_from_slice(&data);
+                    if f.partial.len() > 64 << 20 {
+                        f.partial.clear();
+                        return r("write too long");
+                    }
+                    if data.len() >= iounit && !data.ends_with(b"\n") {
+                        // the next Twrite of the same write(2) follows
+                        return vec![R::new(119, tag).u32(data.len() as u32).done()];
+                    }
+                }
+                let whole = std::mem::take(&mut f.partial);
+                let text = String::from_utf8_lossy(if whole.is_empty() { &data } else { &whole }).into_owned();
                 let cmds = match &f.path {
                     Path::Ctl => text,
                     Path::NodeFile(id, "props") => {

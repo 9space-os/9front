@@ -60,8 +60,9 @@ pub fn err() -> io::Error {
     io::Error::other(String::from_utf8_lossy(&b[..n]).into_owned())
 }
 
-fn cs(s: &str) -> CString {
-    CString::new(s).expect("nul in name")
+/// a name for the C side; one with a NUL in it (a client's) is an error, not a panic
+fn cs(s: &str) -> io::Result<CString> {
+    CString::new(s).map_err(|_| io::Error::other("nul in name"))
 }
 
 /// A file descriptor of Plan 9's: plain reads and writes, each one a system call
@@ -70,12 +71,12 @@ pub struct Fd(pub c_int);
 
 impl Fd {
     pub fn open(name: &str, mode: c_int) -> io::Result<Fd> {
-        let fd = unsafe { p9open(cs(name).as_ptr(), mode | OCEXEC) };
+        let fd = unsafe { p9open(cs(name)?.as_ptr(), mode | OCEXEC) };
         if fd < 0 { Err(err()) } else { Ok(Fd(fd)) }
     }
 
     pub fn create(name: &str, mode: c_int, perm: c_uint) -> io::Result<Fd> {
-        let fd = unsafe { p9create(cs(name).as_ptr(), mode | OCEXEC, perm) };
+        let fd = unsafe { p9create(cs(name)?.as_ptr(), mode | OCEXEC, perm) };
         if fd < 0 { Err(err()) } else { Ok(Fd(fd)) }
     }
 
@@ -160,7 +161,7 @@ pub fn pipe() -> io::Result<(Fd, Fd)> {
 }
 
 pub fn remove(name: &str) -> io::Result<()> {
-    if unsafe { p9remove(cs(name).as_ptr()) } < 0 { Err(err()) } else { Ok(()) }
+    if unsafe { p9remove(cs(name)?.as_ptr()) } < 0 { Err(err()) } else { Ok(()) }
 }
 
 /// A client's global segment of segment(3) (#g), attached here by its name. It
@@ -234,7 +235,7 @@ impl Seg {
 
     /// segment name attached at its address, (va, len) as find gave them
     pub fn attach(name: &str, (va, len): (usize, usize)) -> io::Result<Seg> {
-        let p = unsafe { p9segattach(0, cs(name).as_ptr(), std::ptr::null_mut(), len) };
+        let p = unsafe { p9segattach(0, cs(name)?.as_ptr(), std::ptr::null_mut(), len) };
         if p as isize == -1 {
             return Err(err());
         }
@@ -260,7 +261,7 @@ impl Seg {
         if class.is_empty() || class.contains('/') {
             return Err(io::Error::other("bad segment class"));
         }
-        let p = unsafe { p9segattach(0, cs(class).as_ptr(), std::ptr::null_mut(), len) };
+        let p = unsafe { p9segattach(0, cs(class)?.as_ptr(), std::ptr::null_mut(), len) };
         if p as isize == -1 {
             return Err(err());
         }

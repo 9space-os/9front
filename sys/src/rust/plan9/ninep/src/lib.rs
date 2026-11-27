@@ -132,6 +132,9 @@ pub fn parse(m: &[u8]) -> Option<(u16, T)> {
             let fid = r.u32()?;
             let newfid = r.u32()?;
             let n = r.u16()?;
+            if n > MAXWELEM {
+                return None; // more than 9P allows: its Rwalk could outgrow msize
+            }
             let names = (0..n).map(|_| r.str()).collect::<Option<Vec<_>>>()?;
             T::Walk { fid, newfid, names }
         }
@@ -197,9 +200,21 @@ fn put_qid(v: &mut Vec<u8>, q: Qid) {
     v.extend_from_slice(&q.path.to_le_bytes());
 }
 
+/// Rerror; the text cut to ERRMAX (128 bytes, on a rune's start), as the
+/// kernel keeps no more: a client's text echoed whole made a reply over
+/// msize (its u16 length wrapped past 65535), and devmnt dropped the mount
 pub fn error(tag: u16, e: &str) -> Vec<u8> {
-    R::new(107, tag).str(e).done()
+    let mut n = e.len().min(ERRMAX);
+    while n > 0 && !e.is_char_boundary(n) {
+        n -= 1;
+    }
+    R::new(107, tag).str(&e[..n]).done()
 }
+
+/// Plan 9's ERRMAX: the longest error string
+pub const ERRMAX: usize = 128;
+/// Plan 9's MAXWELEM: the most names in a Twalk
+pub const MAXWELEM: u16 = 16;
 
 /// a directory entry as stat(5) has it (with its leading size)
 pub fn stat(d: &Dir) -> Vec<u8> {

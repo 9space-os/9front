@@ -168,6 +168,7 @@ const SEGBASE: usize = p9::window_region().0;
 const SEGSIZE: usize = p9::window_region().1;
 const NSLOT: usize = p9::window_region().2;
 const MAXBUF: u32 = 32; // a window's buffers (a Wayland window's surfaces, two or three each)
+const MAXSTRIDE: i64 = 1 << 20; // a buffer's line, at most: stride*(h-1)+w*4 in i64 wrapped with a huge one (a client's), the present panicked
 const MINSIZE: i32 = 16;
 // devdraw's screen in a window (-d's drawcore): the window may grow to this
 const MAXSCREEN: (i32, i32) = (4096, 2304); // devdraw's segment holds this much from the start (Core::resize makes a bigger one)
@@ -1257,9 +1258,23 @@ impl Wsys {
                     Kind::Clone | Kind::WinClone(_) => match self.newwin(&Opts::default(), false) {
                         Ok(n) => {
                             let f = self.fids.get_mut(&fid).unwrap();
+                            let old = f.win;
                             (f.owns, f.win) = (true, Some(n));
                             let w = self.wins.get_mut(&n).unwrap();
                             w.refs += 1;
+                            // the walk's reference to the window whose clone it was
+                            // (newfid): the fid names the new one now, its clunk
+                            // drops that one's; this one's dropped here (a dialog's
+                            // parent kept one for each and never closed)
+                            if let Some(o) = old.filter(|&o| o != n) {
+                                if let Some(w) = self.wins.get_mut(&o) {
+                                    w.refs = w.refs.saturating_sub(1);
+                                    if w.refs == 0 && !w.pinned && w.sup.is_none() {
+                                        self.delwin(o, false);
+                                    }
+                                }
+                            }
+                            let w = self.wins.get_mut(&n).unwrap();
                             // a window's clone: that window its parent (dialogs, popups)
                             if let Kind::WinClone(p) = k {
                                 w.parent = Some(p);
@@ -1533,7 +1548,8 @@ impl Wsys {
                     }
                     Kind::File(_, F::Mouse) => {
                         // m x y: the pointer goes there
-                        let v: Vec<i32> = s[1..].split_whitespace().filter_map(|x| x.parse().ok()).collect();
+                        // (s[1..] panicked on an empty write or a first rune of more than a byte)
+                        let v: Vec<i32> = s.strip_prefix('m').unwrap_or("").split_whitespace().filter_map(|x| x.parse().ok()).collect();
                         if s.starts_with('m') && v.len() >= 2 {
                             let (dx, dy) = self.shift();
                             if let Some(fd) = &self.mousefd {
@@ -1863,10 +1879,15 @@ impl Wsys {
                     }
                     return None;
                 }
-                // whole runes
+                // whole runes; a read smaller than the first rune gets its
+                // first bytes, as rio's (0 bytes were end of file: read(1)
+                // byte by byte saw EOF at the first non-ASCII character)
                 let mut k = (count as usize).min(w.cons.len());
                 while k < w.cons.len() && k > 0 && (w.cons[k] & 0xC0) == 0x80 {
                     k -= 1;
+                }
+                if k == 0 {
+                    k = (count as usize).min(w.cons.len());
                 }
                 Some(w.cons.drain(..k).collect())
             }
@@ -2212,6 +2233,13 @@ impl Wsys {
         if wsysdebug("wctl") {
             eprintln!("wsys: wctl {}: {}", n.map_or("-".to_string(), |n| n.to_string()), line.trim_end());
         }
+        // a line after one that deleted the window ("delete\ncurrent"): the
+        // window's code below takes it for there (wsys panicked)
+        if let Some(n) = n {
+            if !self.wins.contains_key(&n) {
+                return Err("window deleted".into());
+            }
+        }
         let words: Vec<&str> = line.split_whitespace().collect();
         let Some(&cmd) = words.first() else { return Ok(()) };
         if cmd == "new" {
@@ -2527,6 +2555,10 @@ impl Wsys {
     }
 
     fn ctl(&mut self, n: u32, line: &str) -> Result<(), String> {
+        // a line after one that deleted the window ("delete\ntop"): gone
+        if !self.wins.contains_key(&n) {
+            return Err("window deleted".into());
+        }
         let mut f = line.split_whitespace();
         let cmd = f.next().unwrap_or("");
         let nums: Vec<i32> = line.split_whitespace().skip(1).filter_map(|s| s.parse().ok()).collect();
@@ -2538,7 +2570,7 @@ impl Wsys {
                 let (Some(b), Some(name), Some(bw), Some(bh), Some(stride)) = (num(1), a.get(2), num(3), num(4), num(5)) else {
                     return Err("usage: buffer n seg w h stride [off [chan]]".into());
                 };
-                if !(0..MAXBUF as i64).contains(&b) || bw < 1 || bh < 1 || bw > 16384 || bh > 16384 || stride < bw * 4 {
+                if !(0..MAXBUF as i64).contains(&b) || bw < 1 || bh < 1 || bw > 16384 || bh > 16384 || stride < bw * 4 || stride > MAXSTRIDE {
                     return Err("bad buffer".into());
                 }
                 let off = match a.get(6) {
@@ -2581,7 +2613,7 @@ impl Wsys {
                     return Err("usage: gpubuffer n token w h stride [chan]".into());
                 };
                 let alpha = bufalpha(a.get(6))?;
-                if !(0..MAXBUF as i64).contains(&b) || bw < 1 || bh < 1 || bw > 16384 || bh > 16384 || stride < bw * 4 {
+                if !(0..MAXBUF as i64).contains(&b) || bw < 1 || bh < 1 || bw > 16384 || bh > 16384 || stride < bw * 4 || stride > MAXSTRIDE {
                     return Err("bad buffer".into());
                 }
                 if self.gpu.is_none() {
@@ -5509,6 +5541,17 @@ impl Wsys {
         if tl >= old {
             w.sel = (shift(w.sel.0), shift(w.sel.1));
         }
+        // inside the text and on a rune's start: backspaces in the output
+        // shortened it under the selection (^E, ^H, cut, paste then sliced
+        // inside a rune and panicked)
+        let fix = |t: &String, q: usize| {
+            let mut q = q.min(t.len());
+            while q > 0 && !t.is_char_boundary(q) {
+                q -= 1;
+            }
+            q
+        };
+        w.sel = (fix(&w.text, w.sel.0), fix(&w.text, w.sel.1));
         Self::trim(w);
         // at the end, or scroll: the end shown; looking back (noscroll, as rio's): the
         // same text stays where it was, the lines that came below it

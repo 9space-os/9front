@@ -185,8 +185,10 @@ impl Node {
         self.props.get(k).map(|s| s.as_str())
     }
 
+    /// a number property; only a finite one (nan, inf: as not set): the
+    /// widgets clamp with them and panicked (f64::clamp, AnimatedF32's assert)
     pub fn num(&self, k: &str) -> Option<f64> {
-        self.prop(k).and_then(|v| v.trim().parse().ok())
+        self.prop(k).and_then(|v| v.trim().parse::<f64>().ok()).filter(|x| x.is_finite())
     }
 }
 
@@ -259,6 +261,9 @@ impl Scene {
                     return Err(format!("{id} exists"));
                 }
                 let parent = f.get(2).copied().unwrap_or(ROOT);
+                if parent == id {
+                    return Err(format!("{id} cannot be its own parent")); // as move refuses it
+                }
                 let index = match f.get(3) {
                     Some(n) => Some(n.parse::<usize>().map_err(|_| format!("bad index {n}"))?),
                     None => None,

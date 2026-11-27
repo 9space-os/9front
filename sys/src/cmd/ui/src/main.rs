@@ -367,6 +367,16 @@ fn stepnums(n: &scene::Node) -> (f64, f64, f64, f64) {
     (n.num("value").unwrap_or(lo).clamp(lo, hi), n.num("step").filter(|s| *s > 0.0).unwrap_or(1.0), lo, hi)
 }
 
+/// a slider's min and max, in order (Masonry's clamp panics for min > max)
+fn range(a: f64, b: f64) -> (f64, f64) {
+    (a.min(b), a.max(b))
+}
+
+/// a varlabel's weight, a font's (1 to 1000): finite as an f32 (1e40 was inf, AnimatedF32 asserts)
+fn weight(n: &scene::Node) -> f32 {
+    n.num("weight").unwrap_or(400.0).clamp(1.0, 1000.0) as f32
+}
+
 fn placement(s: Option<&str>) -> BadgePlacement {
     match s {
         Some("topleft") => BadgePlacement::TopLeft,
@@ -424,8 +434,8 @@ fn build(sc: &Scene, id: &str, ids: &mut Ids) -> NewWidget<dyn Widget> {
         Kind::CheckBox => NewWidget::new(Checkbox::new(n.prop("checked") == Some("1"), text)).erased(),
         Kind::Progress => NewWidget::new(ProgressBar::new(n.num("value").map(|v| v.clamp(0.0, 1.0)))).erased(),
         Kind::Slider => {
-            let (lo, hi) = (n.num("min").unwrap_or(0.0), n.num("max").unwrap_or(1.0));
-            let mut s = Slider::new(lo, hi, n.num("value").unwrap_or(lo).clamp(lo.min(hi), hi.max(lo)));
+            let (lo, hi) = range(n.num("min").unwrap_or(0.0), n.num("max").unwrap_or(1.0));
+            let mut s = Slider::new(lo, hi, n.num("value").unwrap_or(lo).clamp(lo, hi));
             if let Some(st) = n.num("step").filter(|s| *s > 0.0) {
                 s = s.with_step(st);
             }
@@ -531,7 +541,7 @@ fn build(sc: &Scene, id: &str, ids: &mut Ids) -> NewWidget<dyn Widget> {
             }
             NewWidget::new(t).erased()
         }
-        Kind::VarLabel => NewWidget::new(VariableLabel::new(text).with_initial_weight(n.num("weight").unwrap_or(400.0) as f32)).erased(),
+        Kind::VarLabel => NewWidget::new(VariableLabel::new(text).with_initial_weight(weight(n))).erased(),
         Kind::Pages => {
             let count = n.num("count").map_or(1, |c| c.max(1.0) as usize);
             let page = n.num("page").map_or(0, |p| p.max(0.0) as usize).min(count - 1);
@@ -1281,7 +1291,7 @@ impl App {
                     ),
                     Kind::Slider => {
                         let mut s = w.downcast::<Slider>();
-                        let (lo, hi) = (n.num("min").unwrap_or(0.0), n.num("max").unwrap_or(1.0));
+                        let (lo, hi) = range(n.num("min").unwrap_or(0.0), n.num("max").unwrap_or(1.0));
                         Slider::set_range(&mut s, lo, hi);
                         if let Some(v) = n.num("value") {
                             Slider::set_value(&mut s, v);
@@ -1398,8 +1408,8 @@ impl App {
                     Kind::VarLabel => {
                         let mut v = w.downcast::<VariableLabel>();
                         VariableLabel::set_text(&mut v, text);
-                        let ms = n.num("animate").filter(|m| *m > 0.0).unwrap_or(0.0) as f32;
-                        VariableLabel::set_target_weight(&mut v, n.num("weight").unwrap_or(400.0) as f32, ms);
+                        let ms = n.num("animate").filter(|m| *m > 0.0).unwrap_or(0.0).min(3_600_000.0) as f32;
+                        VariableLabel::set_target_weight(&mut v, weight(&n), ms);
                     }
                     Kind::Pages => {
                         let mut pg = w.downcast::<Pagination>();
